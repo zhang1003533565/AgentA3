@@ -19,7 +19,22 @@ public final class AiPptDTO {
     @Data
     public static class OptionsResponse {
         private List<SceneOption> scenes;
+        private List<TemplateOption> templates;
         private long cacheTtlSeconds;
+        private String engine;
+        private boolean enhancedEngineAvailable;
+        private boolean editorEnabled;
+    }
+
+    @Data
+    public static class TemplateOption {
+        private String id;
+        private String name;
+        private String description;
+        private String thumbnailUrl;
+        private Integer layoutCount;
+        @JsonProperty("default")
+        private boolean defaultOption;
     }
 
     @Data
@@ -37,9 +52,10 @@ public final class AiPptDTO {
         @NotBlank
         @Size(max = 255)
         private String sourceName;
-        @NotBlank
         @Size(max = 200000)
         private String sourceContent;
+        @Size(max = 80)
+        private String sourceFileId;
         @Size(max = 32)
         private String outlineMode = "ai_outline";
         @Min(3)
@@ -57,6 +73,8 @@ public final class AiPptDTO {
         private Map<String, Object> outline;
         @Size(max = 200000)
         private String sourceContent;
+        @Size(max = 80)
+        private String sourceFileId;
         private Map<String, Object> settings;
         @Size(max = 2000)
         private String sharedPrompt;

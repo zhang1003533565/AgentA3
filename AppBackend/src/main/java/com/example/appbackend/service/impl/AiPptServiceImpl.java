@@ -9,6 +9,7 @@ import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.util.Map;
 import java.util.List;
@@ -30,8 +31,20 @@ public class AiPptServiceImpl implements AiPptService {
     }
 
     @Override
-    public AiPptDTO.OptionsResponse getOptions(Long userId) {
+    public AiPptDTO.OptionsResponse getOptions(Long userId, String authorization) {
         requireUser(userId);
+        try {
+            AiPptDTO.OptionsResponse dynamic = objectMapper.convertValue(
+                    pythonAiProxyService.getPptOptions(authorization),
+                    AiPptDTO.OptionsResponse.class
+            );
+            if (dynamic.getScenes() != null && !dynamic.getScenes().isEmpty()) {
+                return dynamic;
+            }
+        } catch (RuntimeException ignored) {
+            // Keep the entry page usable while the built-in Presenton template
+            // catalog is temporarily unavailable; generation still requires it.
+        }
         AiPptDTO.SceneOption review = new AiPptDTO.SceneOption();
         review.setValue("review");
         review.setLabel("复习资料");
@@ -46,8 +59,29 @@ public class AiPptServiceImpl implements AiPptService {
     }
 
     @Override
+    public Object uploadSourceFile(Long userId, MultipartFile file, String authorization) {
+        requireUser(userId);
+        if (file == null || file.isEmpty()) {
+            throw new BusinessException(Result.ERROR_CODE, "PPT 资料文件不能为空");
+        }
+        if (file.getSize() > 25L * 1024L * 1024L) {
+            throw new BusinessException(413, "PPT 资料文件不能超过 25MB");
+        }
+        String filename = StringUtils.cleanPath(
+                StringUtils.hasText(file.getOriginalFilename()) ? file.getOriginalFilename() : "material"
+        );
+        if (filename.contains("..") || !filename.matches("(?i).+\\.(txt|pdf|doc|docx|ppt|pptx|xls|xlsx)$")) {
+            throw new BusinessException(Result.ERROR_CODE, "不支持的 PPT 资料文件格式");
+        }
+        return pythonAiProxyService.uploadPptSourceFile(file, authorization);
+    }
+
+    @Override
     public Object generateOutline(Long userId, AiPptDTO.OutlineRequest request, String authorization) {
         requireUser(userId);
+        if (!StringUtils.hasText(request.getSourceContent()) && !StringUtils.hasText(request.getSourceFileId())) {
+            throw new BusinessException(Result.ERROR_CODE, "PPT 资料内容和资料文件不能同时为空");
+        }
         String scene = StringUtils.hasText(request.getScene()) ? request.getScene().trim() : "review";
         if (!SUPPORTED_SCENES.contains(scene)) {
             throw new BusinessException(Result.ERROR_CODE, "不支持的 PPT 学习场景: " + scene);
@@ -72,6 +106,18 @@ public class AiPptServiceImpl implements AiPptService {
     public Object getTask(Long userId, String taskId, String authorization) {
         requireTask(userId, taskId);
         return pythonAiProxyService.getPptTask(taskId.trim(), authorization);
+    }
+
+    @Override
+    public Object cancelTask(Long userId, String taskId, String authorization) {
+        requireTask(userId, taskId);
+        return pythonAiProxyService.cancelPptTask(taskId.trim(), authorization);
+    }
+
+    @Override
+    public Object retryTask(Long userId, String taskId, String authorization) {
+        requireTask(userId, taskId);
+        return pythonAiProxyService.retryPptTask(taskId.trim(), authorization);
     }
 
     @Override
@@ -127,6 +173,16 @@ public class AiPptServiceImpl implements AiPptService {
         }
         return pythonAiProxyService.downloadPptTaskArtifact(
                 taskId.trim() + "/previews/" + slideIndex, authorization);
+    }
+
+    @Override
+    public PythonAiProxyService.GeneratedExportResponse downloadTemplateThumbnail(
+            Long userId, String templateId, String authorization) {
+        requireUser(userId);
+        if (!StringUtils.hasText(templateId) || !templateId.matches("[A-Za-z0-9._-]{1,120}")) {
+            throw new BusinessException(Result.ERROR_CODE, "PPT 模板编号无效");
+        }
+        return pythonAiProxyService.downloadPptTemplateThumbnail(templateId, authorization);
     }
 
     private void requireTask(Long userId, String taskId) {

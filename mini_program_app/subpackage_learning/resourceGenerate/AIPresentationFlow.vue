@@ -47,8 +47,8 @@
         <text class="field__label">上传学习资料</text>
         <view v-if="!fileInfo" class="upload-box" @tap="chooseTxtFile">
           <view class="file-icon"><text>TXT</text></view>
-          <text class="upload-box__title">点击上传 TXT 文件</text>
-          <text class="upload-box__hint">当前仅支持单个 TXT 文件</text>
+          <text class="upload-box__title">点击上传学习资料</text>
+          <text class="upload-box__hint">{{ enhancedEngineAvailable ? '支持 TXT、PDF、Word、PPT 和表格文件' : '当前仅支持单个 TXT 文件' }}</text>
         </view>
         <view v-else class="file-row">
           <view class="file-row__icon">TXT</view>
@@ -66,7 +66,7 @@
         </view>
       </view>
 
-      <view v-if="fileInfo" class="preview-card">
+      <view v-if="fileInfo && fileContent" class="preview-card">
         <view class="preview-card__head">
           <text class="preview-card__title">资料预览</text>
           <text class="preview-card__count">已读取 {{ formattedCharacterCount }} 字</text>
@@ -181,8 +181,23 @@
       </view>
 
       <view class="settings-section">
-        <text class="settings-section__title settings-section__title--block">PPT 风格</text>
-        <scroll-view class="style-scroll" scroll-x :show-scrollbar="false">
+        <view class="template-section-head">
+          <view>
+            <text class="settings-section__title">PPT 模板</text>
+            <text v-if="selectedTemplate" class="template-section-head__selected">已选择：{{ selectedTemplate.name }}</text>
+          </view>
+          <view v-if="pptStyles.length" class="template-section-head__action" @tap="templateExpanded = !templateExpanded">
+            <text>{{ pptStyles.length }} 套</text>
+            <text>{{ templateExpanded ? '收起' : '展开全部' }}</text>
+          </view>
+        </view>
+        <scroll-view
+          v-if="pptStyles.length"
+          class="style-scroll"
+          :class="{ 'style-scroll--expanded': templateExpanded }"
+          :scroll-x="!templateExpanded"
+          :show-scrollbar="false"
+        >
           <view class="style-list">
             <view
               v-for="style in pptStyles"
@@ -191,7 +206,8 @@
               :class="{ 'style-card--selected': pptStyle === style.id }"
               @tap="pptStyle = style.id"
             >
-              <view class="style-card__preview" :class="`style-card__preview--${style.id}`">
+              <image v-if="style.thumbnailUrl" class="style-card__preview style-card__preview-image" :src="style.thumbnailUrl" mode="aspectFill" />
+              <view v-else class="style-card__preview" :class="`style-card__preview--${style.id}`">
                 <view class="mini-slide__title"></view>
                 <view class="mini-slide__line mini-slide__line--long"></view>
                 <view class="mini-slide__line"></view>
@@ -199,10 +215,19 @@
               </view>
               <text class="style-card__name">{{ style.name }}</text>
               <text class="style-card__desc">{{ style.description }}</text>
+              <text v-if="style.layoutCount" class="style-card__layouts">{{ style.layoutCount }} 种页面布局</text>
               <view v-if="pptStyle === style.id" class="style-card__check">✓</view>
             </view>
           </view>
         </scroll-view>
+        <view v-if="!pptStyles.length" class="template-empty">
+          <text>{{ templateOptionsLoading ? '正在加载模板…' : '模板加载失败，请检查 PPT 服务' }}</text>
+          <text v-if="!templateOptionsLoading" class="template-empty__retry" @tap="loadPptScenes(true)">重新加载</text>
+        </view>
+        <view v-if="pptStyles.length && !templateExpanded" class="template-scroll-hint" @tap="templateExpanded = true">
+          <text>左右滑动查看更多模板</text>
+          <text>展开全部 ›</text>
+        </view>
       </view>
 
       <view class="settings-section">
@@ -483,14 +508,17 @@
 
 <script>
 import {
+  cancelPptTask,
   createPptTask,
   downloadPptPreview,
   downloadPptTaskFile,
+  downloadPptTemplateThumbnail,
   generatePptOutline,
   generatePptSlides,
   getPptOptions,
   getPptTask,
-  streamPptTask
+  streamPptTask,
+  uploadPptSourceFile
 } from '@/api/ppt.js'
 
 export default {
@@ -507,6 +535,8 @@ export default {
       ],
       fileInfo: null,
       fileContent: '',
+      sourceFileId: '',
+      enhancedEngineAvailable: false,
       previewExpanded: false,
       outlineMode: 'ai_outline',
       outlineName: '',
@@ -520,7 +550,9 @@ export default {
         { value: 3, label: '知识点' }
       ],
       pageCount: 15,
-      pptStyle: 'simple',
+      pptStyle: 'general',
+      templateExpanded: false,
+      templateOptionsLoading: false,
       contentLevel: 'standard',
       slides: [],
       activeSlideIndex: 0,
@@ -573,11 +605,7 @@ export default {
         { id: 'ai_outline', name: 'AI 生成复习大纲', description: 'AI 分析资料内容，重新整理知识结构，生成适合复习的 PPT 大纲。', fit: '适合内容零散或没有明确结构的资料' },
         { id: 'original_outline', name: '使用原内容作为大纲', description: '按照上传资料原有的内容顺序和标题层级生成 PPT。', fit: '适合已经整理好大纲的资料' }
       ],
-      pptStyles: [
-        { id: 'simple', name: '简洁学习风', description: '清爽、重点突出' },
-        { id: 'campus', name: '活力校园风', description: '明快、卡片布局' },
-        { id: 'focus', name: '深色专注风', description: '深色、高对比度' }
-      ],
+      pptStyles: [],
       contentLevels: [
         { id: 'concise', name: '精简', description: '每页展示较少文字，主要保留核心知识点。' },
         { id: 'standard', name: '标准', description: '同时展示知识点和必要说明，适合常规复习。' },
@@ -620,6 +648,9 @@ export default {
     selectedScene() {
       return this.pptScenes[this.selectedSceneIndex] || this.pptScenes[0]
     },
+    selectedTemplate() {
+      return this.pptStyles.find(item => item.id === this.pptStyle) || null
+    },
     hasFloatingActions() {
       return [1, 2, 3, 4, 5, 7].includes(this.currentStep)
     },
@@ -659,7 +690,7 @@ export default {
     },
     resultName() {
       const name = this.fileInfo?.name || '复习资料.txt'
-      return name.replace(/\.txt$/i, '') || '复习资料'
+      return name.replace(/\.(?:txt|pdf|docx?|pptx?|xlsx?)$/i, '') || '复习资料'
     },
     visibleSlides() {
       const length = this.showAllSlides ? this.pageCount : Math.min(6, this.pageCount)
@@ -677,17 +708,44 @@ export default {
     this.clearTimers()
   },
   methods: {
-    async loadPptScenes() {
+    async loadPptScenes(forceRefresh = false) {
+      this.templateOptionsLoading = true
       try {
-        const options = await getPptOptions()
+        const options = await getPptOptions({ forceRefresh })
+        this.enhancedEngineAvailable = Boolean(options.enhancedEngineAvailable)
         const scenes = (options.scenes || []).filter(item => item?.enabled !== false && item?.value && item?.label)
-        if (!scenes.length) return
-        this.pptScenes = scenes
-        if (!scenes.some(item => item.value === this.scene)) {
-          this.scene = (scenes.find(item => item.default || item.defaultOption) || scenes[0]).value
+        if (scenes.length) {
+          this.pptScenes = scenes
+          if (!scenes.some(item => item.value === this.scene)) {
+            this.scene = (scenes.find(item => item.default || item.defaultOption) || scenes[0]).value
+          }
+        }
+        const templates = (options.templates || []).filter(item => item?.id && item?.name)
+        if (templates.length) {
+          this.pptStyles = await Promise.all(templates.map(async item => {
+            let thumbnailUrl = ''
+            if (item.thumbnailUrl) {
+              try {
+                thumbnailUrl = await downloadPptTemplateThumbnail(item.id)
+              } catch (error) {}
+            }
+            return {
+              id: String(item.id),
+              name: String(item.name),
+              description: String(item.description || `${Number(item.layoutCount || 0)} 种页面布局`),
+              layoutCount: Number(item.layoutCount || 0),
+              thumbnailUrl,
+              default: Boolean(item.default || item.defaultOption)
+            }
+          }))
+          if (!this.pptStyles.some(item => item.id === this.pptStyle)) {
+            this.pptStyle = (this.pptStyles.find(item => item.default) || this.pptStyles[0]).id
+          }
         }
       } catch (error) {
-        // Keep the built-in review scene when the options endpoint is temporarily unavailable.
+        this.pptStyles = []
+      } finally {
+        this.templateOptionsLoading = false
       }
     },
     selectScene(event) {
@@ -698,7 +756,9 @@ export default {
       if (typeof uni.chooseFile === 'function') {
         uni.chooseFile({
           count: 1,
-          extension: ['txt'],
+          extension: this.enhancedEngineAvailable
+            ? ['txt', 'pdf', 'doc', 'docx', 'ppt', 'pptx', 'xls', 'xlsx']
+            : ['txt'],
           success: result => this.handleSelectedFile((result.tempFiles || [])[0], (result.tempFilePaths || [])[0]),
           fail: error => {
             if (!String(error?.errMsg || '').includes('cancel')) uni.showToast({ title: '文件选择失败', icon: 'none' })
@@ -710,7 +770,9 @@ export default {
         uni.chooseMessageFile({
           count: 1,
           type: 'file',
-          extension: ['txt'],
+          extension: this.enhancedEngineAvailable
+            ? ['txt', 'pdf', 'doc', 'docx', 'ppt', 'pptx', 'xls', 'xlsx']
+            : ['txt'],
           success: result => this.handleSelectedFile((result.tempFiles || [])[0]),
           fail: error => {
             if (!String(error?.errMsg || '').includes('cancel')) uni.showToast({ title: '文件选择失败', icon: 'none' })
@@ -722,23 +784,44 @@ export default {
     },
     async handleSelectedFile(file = {}, fallbackPath = '') {
       const name = String(file.name || fallbackPath.split('/').pop() || '学习资料.txt')
-      if (!/\.txt$/i.test(name)) {
+      const isText = /\.txt$/i.test(name)
+      if (!isText && !this.enhancedEngineAvailable) {
         uni.showToast({ title: '请选择 TXT 格式文件', icon: 'none' })
         return
       }
       try {
+        if (!isText) {
+          const path = file.path || file.tempFilePath || fallbackPath
+          if (!path) throw new Error('未获取到待上传文件路径')
+          uni.showLoading({ title: '正在上传资料' })
+          try {
+            const uploaded = await uploadPptSourceFile(path, name)
+            if (!uploaded.fileId) throw new Error('服务端未返回资料文件编号')
+            this.sourceFileId = String(uploaded.fileId)
+            this.fileContent = ''
+            this.previewExpanded = false
+            const size = Number(file.size || uploaded.size || 0)
+            this.fileInfo = { name, size, sizeLabel: this.formatFileSize(size) }
+          } finally {
+            uni.hideLoading()
+          }
+          return
+        }
         const content = await this.readTextFile(file, fallbackPath)
         if (!content.trim()) {
           uni.showToast({ title: 'TXT 文件内容为空', icon: 'none' })
           return
         }
         this.fileContent = content
+        this.sourceFileId = ''
         this.previewExpanded = false
         const estimatedSize = typeof Blob !== 'undefined' ? new Blob([content]).size : encodeURIComponent(content).replace(/%[0-9A-F]{2}/g, 'x').length
         const size = Number(file.size || estimatedSize || 0)
         this.fileInfo = { name, size, sizeLabel: this.formatFileSize(size) }
       } catch (error) {
-        uni.showToast({ title: 'TXT 文件读取失败', icon: 'none' })
+        const action = isText ? '文件读取' : '资料上传'
+        const detail = String(error?.message || error?.errMsg || '').trim()
+        uni.showToast({ title: detail || `${action}失败`, icon: 'none' })
       }
     },
     readTextFile(file, fallbackPath) {
@@ -767,6 +850,7 @@ export default {
     removeFile() {
       this.fileInfo = null
       this.fileContent = ''
+      this.sourceFileId = ''
       this.previewExpanded = false
       this.outlineItems = []
       this.slides = []
@@ -805,6 +889,7 @@ export default {
         const response = await generatePptOutline({
           sourceName: this.fileInfo.name,
           sourceContent: this.fileContent,
+          sourceFileId: this.sourceFileId,
           outlineMode: this.outlineMode,
           pageCount: this.pageCount,
           scene: this.scene,
@@ -909,12 +994,19 @@ export default {
         const response = await generatePptSlides({
           outline,
           sourceContent: this.fileContent,
+          sourceFileId: this.sourceFileId,
           settings: this.buildSettings(),
           sharedPrompt: this.sharedPrompt
         })
         this.updateOperationFeedback(92, '正在校验并转换页面格式', '即将进入逐页编辑')
         const result = this.responseData(response)
         const slides = Array.isArray(result.slides) ? result.slides : []
+        if (result.presentationId) {
+          this.outlineDocument = {
+            ...(this.outlineDocument || {}),
+            presentationId: String(result.presentationId)
+          }
+        }
         if (slides.length < 2) throw new Error('生成的页面数量不足，请调整大纲后重试')
         this.slides = slides.map((slide, index) => ({
           ...slide,
@@ -1024,7 +1116,12 @@ export default {
       if (index < this.activeGenerationIndex) return item.doneText
       return item.activeText
     },
-    cancelGeneration() {
+    async cancelGeneration() {
+      if (this.taskId) {
+        try {
+          await cancelPptTask(this.taskId)
+        } catch (error) {}
+      }
       this.clearTimers()
       this.generationRunId += 1
       this.progress = 0
@@ -1116,7 +1213,7 @@ export default {
       } else {
         this.pageCount = Number(item.pageCount || 15)
         this.scene = this.pptScenes.some(scene => scene.value === item.scene) ? item.scene : this.scene
-        this.pptStyle = item.pptStyle || 'simple'
+        this.pptStyle = item.pptStyle || 'general'
         this.contentLevel = item.contentLevel || 'standard'
         this.outlineMode = item.outlineMode || this.outlineMode
         this.settings = { ...this.settings, ...(item.settings || {}) }
@@ -1131,7 +1228,7 @@ export default {
       this.persistHistories()
     },
     styleName(id) {
-      return this.pptStyles.find(item => item.id === id)?.name || '简洁学习风'
+      return this.pptStyles.find(item => item.id === id)?.name || 'PPT 模板'
     },
     restoreHistories() {
       try {
@@ -1156,6 +1253,7 @@ export default {
         ...this.settings,
         pageCount: this.pageCount,
         pptStyle: this.pptStyle,
+        templateId: this.pptStyle,
         scene: this.scene,
         contentLevel: this.contentLevel
       }
@@ -1354,5 +1452,18 @@ export default {
 .history-empty__icon text{height:4rpx;border-radius:99rpx;background:#aab3c2}
 .history-empty__title{margin-top:22rpx;font-size:24rpx;font-weight:750}
 .history-empty__desc{margin-top:8rpx;color:#929bad;font-size:19rpx}
+.style-card__preview-image{display:block;width:100%;padding:0;background:#f7f9ff}
+.template-section-head{display:flex;align-items:flex-start;justify-content:space-between;gap:20rpx;margin-bottom:17rpx}
+.template-section-head__selected{display:block;margin-top:7rpx;color:#8a93a5;font-size:18rpx}
+.template-section-head__action{display:flex;flex:none;align-items:center;gap:13rpx;padding:8rpx 12rpx;border-radius:10rpx;background:#f2f4ff;color:#5365eb;font-size:18rpx}
+.template-section-head__action text:first-child{color:#7d8799}
+.style-scroll--expanded{overflow:visible;white-space:normal}
+.style-scroll--expanded .style-list{display:grid;width:100%;grid-template-columns:repeat(2,minmax(0,1fr));gap:16rpx;box-sizing:border-box}
+.style-scroll--expanded .style-card{width:auto;min-width:0}
+.style-card__layouts{display:block;margin-top:5rpx;color:#6f7de0;font-size:17rpx}
+.template-scroll-hint{display:flex;align-items:center;justify-content:space-between;margin-top:12rpx;color:#919aab;font-size:18rpx}
+.template-scroll-hint text:last-child{color:#5265f5}
+.template-empty{display:flex;min-height:130rpx;align-items:center;justify-content:center;gap:12rpx;flex-direction:column;border:1px dashed #d9deea;border-radius:14rpx;background:#fafbfe;color:#8b94a5;font-size:20rpx}
+.template-empty__retry{color:#5265f5;font-weight:650}
 @keyframes banter-in{from{opacity:0;transform:translateY(5rpx)}to{opacity:1;transform:translateY(0)}}
 </style>

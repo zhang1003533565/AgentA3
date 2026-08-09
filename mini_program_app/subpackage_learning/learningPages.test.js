@@ -184,6 +184,17 @@ test('AIPPT uses real outline, slide, task, progress, preview and download APIs'
   assert.match(container, /for \(let index = 0; index < 2; index \+= 1\)[\s\S]*decodeURIComponent\(decoded\)/)
 })
 
+test('AIPPT exposes the backend template catalog and sends the selected template through generation', () => {
+  const page = source('resourceGenerate/AIPresentationFlow.vue')
+  assert.match(page, />PPT 模板</)
+  assert.match(page, /templateExpanded/)
+  assert.match(page, /pptStyles\.length/)
+  assert.match(page, /downloadPptTemplateThumbnail/)
+  assert.match(page, /templateId:\s*this\.pptStyle/)
+  assert.match(page, /pptStyles:\s*\[\]/)
+  assert.doesNotMatch(page, /id:\s*'simple',\s*name:\s*'简洁学习风'/)
+})
+
 test('AIPPT upload preview expands on demand and keeps next action floating at the bottom', () => {
   const page = source('resourceGenerate/AIPresentationFlow.vue')
   assert.match(page, /previewExpanded\s*\?\s*content\s*:\s*content\.slice\(0,\s*420\)/)

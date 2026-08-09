@@ -3,9 +3,12 @@ package com.example.appbackend.service;
 import com.example.appbackend.dto.AiPptDTO;
 import com.example.appbackend.service.impl.PythonAiProxyService;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
+import org.springframework.web.multipart.MultipartFile;
 
 public interface AiPptService {
-    AiPptDTO.OptionsResponse getOptions(Long userId);
+    AiPptDTO.OptionsResponse getOptions(Long userId, String authorization);
+
+    Object uploadSourceFile(Long userId, MultipartFile file, String authorization);
 
     Object generateOutline(Long userId, AiPptDTO.OutlineRequest request, String authorization);
 
@@ -15,6 +18,10 @@ public interface AiPptService {
 
     Object getTask(Long userId, String taskId, String authorization);
 
+    Object cancelTask(Long userId, String taskId, String authorization);
+
+    Object retryTask(Long userId, String taskId, String authorization);
+
     SseEmitter streamTask(Long userId, String taskId, String authorization);
 
     PythonAiProxyService.GeneratedExportResponse downloadFile(
@@ -22,4 +29,7 @@ public interface AiPptService {
 
     PythonAiProxyService.GeneratedExportResponse downloadPreview(
             Long userId, String taskId, Integer slideIndex, String authorization);
+
+    PythonAiProxyService.GeneratedExportResponse downloadTemplateThumbnail(
+            Long userId, String templateId, String authorization);
 }

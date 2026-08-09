@@ -9,6 +9,10 @@ WORKDIR /app
 RUN groupadd --system app \
     && useradd --system --gid app --create-home app
 
+RUN apt-get update \
+    && apt-get install --no-install-recommends --yes libreoffice-impress fonts-noto-cjk \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY requirements.txt ./requirements.txt
 RUN python -m pip install --no-cache-dir --upgrade pip==25.1.1 \
     && python -m pip install --no-cache-dir -r requirements.txt
@@ -16,7 +20,7 @@ RUN python -m pip install --no-cache-dir --upgrade pip==25.1.1 \
 COPY app ./app
 COPY main.py ./main.py
 
-RUN mkdir -p /app/data/ai-exports \
+RUN mkdir -p /app/data/ai-exports /app/data/ppt-sources \
     && chown -R app:app /app
 
 USER app
