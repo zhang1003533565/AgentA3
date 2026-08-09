@@ -102,6 +102,12 @@ const BRANCH_COLORS = ['#4D6BFE', '#E05555', '#2DB88A', '#F0A030', '#9B59B6', '#
 
 const topicText = ref('')
 const centerTopic = ref('')
+const depth = ref('auto')
+const structure = ref('知识梳理')
+const detail = ref('standard')
+const sourceText = ref('')
+const sourceFile = ref('')
+const fileId = ref('')
 const resultId = ref('')
 const state = reactive({ resultData: null })
 const isCompleted = ref(false)
@@ -391,7 +397,16 @@ async function run() {
       play()
       return
     }
-    const payload = buildMindmapPayload({ topic: topicText.value || centerTopic.value, centerTopic: centerTopic.value })
+    const payload = buildMindmapPayload({
+      topic: topicText.value || centerTopic.value,
+      centerTopic: centerTopic.value,
+      depth: depth.value,
+      structure: structure.value,
+      detail: detail.value,
+      sourceText: sourceText.value,
+      sourceFile: sourceFile.value,
+      fileId: fileId.value
+    })
     // 先取数据再播放（与 demo 一致：数据就绪才播），并加超时防止请求挂起导致无限等待
     const result = await withTimeout(requestGenerateMindmap(payload), 20000)
     uni.setStorageSync(`aiMindmapResult:${result.id}`, result)
@@ -415,6 +430,12 @@ function goBack() { clearTimers(); uni.navigateBack() }
 onLoad(options => {
   topicText.value = decodeURIComponent(options?.topic || '')
   centerTopic.value = decodeURIComponent(options?.centerTopic || options?.topic || '')
+  depth.value = decodeURIComponent(options?.depth || 'auto')
+  structure.value = decodeURIComponent(options?.structure || '知识梳理')
+  detail.value = decodeURIComponent(options?.detail || 'standard')
+  sourceText.value = decodeURIComponent(options?.sourceText || '')
+  sourceFile.value = decodeURIComponent(options?.sourceFile || '')
+  fileId.value = decodeURIComponent(options?.fileId || '')
   resultId.value = decodeURIComponent(options?.id || '')
   run()
 })
