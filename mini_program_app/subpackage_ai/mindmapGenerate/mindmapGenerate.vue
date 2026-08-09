@@ -83,9 +83,9 @@
                   v-model="centerTopic"
                   placeholder="不填写将由 AI 自动提取"
                   placeholder-class="theme-placeholder"
-                  :maxlength="50"
+                  :maxlength="10"
                 />
-                <text class="theme-count">{{ centerTopic.length }}/50</text>
+                <text class="theme-count">{{ centerTopic.length }}/10</text>
               </view>
               <text class="field-tip">设置导图的中心主题名称，留空将由 AI 自动提取</text>
             </view>
@@ -159,9 +159,12 @@
               @tap="openRecent(item)"
             >
               <view class="recent-node-icon" :class="`recent-node-icon--${index % 3}`">
-                <view></view>
-                <view></view>
-                <view></view>
+                <svg class="recent-node-svg" viewBox="0 0 24 24" fill="none">
+                  <path d="M12 7.5v5M12 12.5 7.5 17M12 12.5 16.5 17" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                  <circle cx="12" cy="6" r="2.5" fill="currentColor"/>
+                  <circle cx="7" cy="18" r="2.5" fill="currentColor"/>
+                  <circle cx="17" cy="18" r="2.5" fill="currentColor"/>
+                </svg>
               </view>
               <view class="recent-info">
                 <text class="recent-name">{{ item.title || '未命名思维导图' }}</text>
@@ -1004,48 +1007,12 @@ onShow(() => {
   color: #4387F4;
 }
 
-.recent-node-icon::before,
-.recent-node-icon::after {
-  content: "";
+.recent-node-svg {
   position: absolute;
-  left: 22rpx;
-  top: 22rpx;
-  width: 18rpx;
-  height: 3rpx;
-  border-radius: 999rpx;
-  background: currentColor;
-  transform-origin: left center;
-}
-
-.recent-node-icon::before {
-  transform: rotate(-38deg);
-}
-
-.recent-node-icon::after {
-  transform: rotate(38deg);
-}
-
-.recent-node-icon view {
-  position: absolute;
-  width: 10rpx;
-  height: 10rpx;
-  border-radius: 50%;
-  background: currentColor;
-}
-
-.recent-node-icon view:nth-child(1) {
-  left: 20rpx;
-  top: 10rpx;
-}
-
-.recent-node-icon view:nth-child(2) {
   left: 12rpx;
-  bottom: 11rpx;
-}
-
-.recent-node-icon view:nth-child(3) {
-  right: 12rpx;
-  bottom: 11rpx;
+  top: 11rpx;
+  width: 30rpx;
+  height: 32rpx;
 }
 
 .recent-info {
