@@ -142,11 +142,11 @@
           <view v-if="displayRecentItems.length" class="recent-list">
             <view
               class="recent-item"
-              v-for="item in displayRecentItems"
+              v-for="(item, index) in displayRecentItems"
               :key="item.id"
               @tap="openRecent(item)"
             >
-              <view class="recent-flow-icon">
+              <view class="recent-flow-icon" :class="`recent-flow-icon--${index % 3}`">
                 <image src="/static/icons/diagram/flow-white.svg" mode="aspectFit" />
               </view>
               <view class="recent-info">
@@ -926,7 +926,7 @@ onShow(() => {
 .recent-head {
   display: flex;
   align-items: center;
-  padding: 0 24rpx 18rpx;
+  padding: 0 24rpx 20rpx;
   color: #17233A;
   font-size: 27rpx;
   font-weight: 800;
@@ -940,30 +940,30 @@ onShow(() => {
   height: 34rpx;
   margin-right: 14rpx;
   border-radius: 50%;
-  background: #EEF2FF;
+  background: #EAF3FF;
 }
 
 .recent-head__icon image {
-  width: 22rpx;
-  height: 22rpx;
-  filter: brightness(0) saturate(100%) invert(47%) sepia(91%) saturate(2364%) hue-rotate(221deg) brightness(102%) contrast(101%);
+  width: 23rpx;
+  height: 23rpx;
+  filter: brightness(0) saturate(100%) invert(44%) sepia(72%) saturate(1003%) hue-rotate(184deg) brightness(92%) contrast(90%);
 }
 
 .recent-list {
-  border-top: 1rpx solid #EEF2F7;
+  border-top: 1rpx solid #EEF0F6;
 }
 
 .recent-item {
   display: flex;
   align-items: center;
-  height: 92rpx;
+  height: 82rpx;
   padding: 0 22rpx;
-  border-bottom: 1rpx solid #EEF2F7;
+  border-bottom: 1rpx solid #EEF0F6;
   box-sizing: border-box;
 }
 
 .recent-item:active {
-  background: #F6FAFF;
+  background: #F8FAFD;
 }
 
 .recent-flow-icon {
@@ -971,17 +971,33 @@ onShow(() => {
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  width: 58rpx;
-  height: 58rpx;
-  margin-right: 20rpx;
+  width: 54rpx;
+  height: 54rpx;
+  margin-right: 18rpx;
   border-radius: 12rpx;
-  background: #EEF1FF;
+  background: #EAF3FF;
 }
 
 .recent-flow-icon image {
-  width: 32rpx;
+  width: 30rpx;
   height: 32rpx;
-  filter: brightness(0) saturate(100%) invert(47%) sepia(91%) saturate(2364%) hue-rotate(221deg) brightness(102%) contrast(101%);
+  filter: brightness(0) saturate(100%) invert(44%) sepia(72%) saturate(1003%) hue-rotate(184deg) brightness(92%) contrast(90%);
+}
+
+.recent-flow-icon--1 {
+  background: #EAF8F3;
+}
+
+.recent-flow-icon--1 image {
+  filter: brightness(0) saturate(100%) invert(49%) sepia(57%) saturate(721%) hue-rotate(103deg) brightness(90%) contrast(89%);
+}
+
+.recent-flow-icon--2 {
+  background: #EDF4FF;
+}
+
+.recent-flow-icon--2 image {
+  filter: brightness(0) saturate(100%) invert(48%) sepia(64%) saturate(1035%) hue-rotate(188deg) brightness(93%) contrast(88%);
 }
 
 .recent-info {
@@ -1004,7 +1020,7 @@ onShow(() => {
 .recent-meta {
   overflow: hidden;
   margin-top: 7rpx;
-  color: #6F7F96;
+  color: #6D778D;
   font-size: 20rpx;
   line-height: 1.25;
   text-overflow: ellipsis;
@@ -1013,8 +1029,8 @@ onShow(() => {
 
 .recent-time {
   flex-shrink: 0;
-  margin-left: 14rpx;
-  color: #66758E;
+  margin-left: 16rpx;
+  color: #536179;
   font-size: 20rpx;
   line-height: 1;
   white-space: nowrap;
@@ -1036,13 +1052,13 @@ onShow(() => {
   width: 4rpx;
   height: 4rpx;
   border-radius: 50%;
-  background: #5A6881;
+  background: #52617B;
 }
 
 .recent-empty {
   padding: 28rpx 24rpx 30rpx;
-  border-top: 1rpx solid #EEF2F7;
-  color: #8A98AE;
+  border-top: 1rpx solid #EEF0F6;
+  color: #8A93A6;
   font-size: 22rpx;
   text-align: center;
 }
@@ -1053,15 +1069,16 @@ onShow(() => {
   justify-content: center;
   height: 58rpx;
   margin: 16rpx 20rpx 0;
+  border: 1rpx solid #E2E5ED;
   border-radius: 10rpx;
-  color: #2F78FF;
+  color: #17233A;
   font-size: 23rpx;
   font-weight: 800;
   box-sizing: border-box;
 }
 
 .recent-all:active {
-  background: #F5F7FF;
+  background: #F8FAFD;
 }
 
 .recent-all__arrow {
