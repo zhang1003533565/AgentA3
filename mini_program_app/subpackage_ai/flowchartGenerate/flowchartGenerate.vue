@@ -13,21 +13,19 @@
         <view class="input-card">
           <view class="input-head">
             <text class="input-title">描述您的流程需求</text>
+            <text class="char-count">{{ flowDescription.length }}/2000</text>
           </view>
-          <view class="textarea-wrap">
-            <textarea
-              class="prompt-input"
-              v-model="flowDescription"
-              placeholder="例如：生成请假申请流程，包含员工提交、主管审批、人事备案三个环节。如果主管拒绝，则返回修改。"
-              placeholder-class="prompt-placeholder"
-              :maxlength="2000"
-            />
-            <view class="textarea-footer">
-              <text class="char-count">{{ flowDescription.length }} / 2000</text>
-              <ImportFileButton class="import-trigger" :loading="isUploading" @click="importDocument" />
-            </view>
+          <textarea
+            class="prompt-input"
+            v-model="flowDescription"
+            placeholder="例如：生成请假申请流程，包含员工提交、主管审批、人事备案三个环节。如果主管拒绝，则返回修改。"
+            placeholder-class="prompt-placeholder"
+            :maxlength="2000"
+          />
+          <view class="input-tools">
+            <ImportFileButton class="import-trigger" :loading="isUploading" @click="importDocument" />
+            <text class="file-help">支持 PDF / Word / PPT（≤20MB）</text>
           </view>
-          <text class="file-help">支持 PDF / Word / PPT（≤20MB）</text>
         </view>
 
         <view v-if="uploadedDocument" class="file-status-card">
@@ -181,13 +179,6 @@
       >
         <image class="generate-icon" src="/static/icons/diagram/spark-white.svg" mode="aspectFit" />
         <text>{{ generateButtonText }}</text>
-      </view>
-      <view class="status-flow">
-        <text>无内容时按钮置灰</text>
-        <text class="status-arrow">→</text>
-        <text>生成中显示进度</text>
-        <text class="status-arrow">→</text>
-        <text>完成后跳转结果页</text>
       </view>
     </view>
   </view>
@@ -527,12 +518,13 @@ onShow(() => {
 
 .content-inner {
   width: 100%;
-  padding: 24rpx 30rpx calc(202rpx + env(safe-area-inset-bottom));
+  padding: 24rpx 30rpx calc(138rpx + env(safe-area-inset-bottom));
   box-sizing: border-box;
 }
 
 .input-card,
 .file-status-card,
+.settings-panel,
 .recent-card {
   border: 1rpx solid #E4EAF3;
   border-radius: 24rpx;
@@ -542,31 +534,40 @@ onShow(() => {
 }
 
 .input-card {
-  padding: 24rpx 24rpx 28rpx;
+  padding: 24rpx 24rpx 26rpx;
+}
+
+.input-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20rpx;
+  margin-bottom: 16rpx;
 }
 
 .input-title {
+  flex: 1;
   color: #17233A;
   font-size: 28rpx;
   font-weight: 800;
   line-height: 1.25;
 }
 
-.textarea-wrap {
-  position: relative;
-  margin-top: 14rpx;
-  height: 200rpx;
-  border: 1rpx solid #DDE5F0;
-  border-radius: 13rpx;
-  background: #FFFFFF;
-  box-sizing: border-box;
-  overflow: hidden;
+.char-count {
+  flex-shrink: 0;
+  color: #53657E;
+  font-size: 22rpx;
+  line-height: 1;
 }
 
 .prompt-input {
+  display: block;
   width: 100%;
-  height: 138rpx;
-  padding: 18rpx 18rpx 0;
+  height: 188rpx;
+  padding: 20rpx 22rpx;
+  border: 1rpx solid #DDE5F0;
+  border-radius: 13rpx;
+  background: #FFFFFF;
   color: #33445F;
   font-size: 25rpx;
   line-height: 1.62;
@@ -579,20 +580,12 @@ onShow(() => {
   line-height: 1.62;
 }
 
-.textarea-footer {
-  position: absolute;
-  left: 18rpx;
-  right: 18rpx;
-  bottom: 12rpx;
+.input-tools {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-}
-
-.char-count {
-  color: #6F7E96;
-  font-size: 22rpx;
-  line-height: 1;
+  min-width: 0;
+  gap: 18rpx;
+  margin-top: 20rpx;
 }
 
 .import-trigger {
@@ -604,11 +597,11 @@ onShow(() => {
 }
 
 .import-trigger :deep(.ifb-btn) {
-  height: 50rpx;
-  padding: 0 22rpx;
-  border: 1rpx solid #EDF2F8;
+  height: 52rpx;
+  padding: 0 24rpx;
+  border: 1rpx solid #E4EEFF;
   border-radius: 999rpx;
-  background: #F9FBFE;
+  background: #EFF6FF;
   box-shadow: 0 4rpx 12rpx rgba(71, 126, 218, 0.06);
 }
 
@@ -636,10 +629,12 @@ onShow(() => {
 
 .file-help {
   display: block;
-  margin-top: 18rpx;
+  min-width: 0;
+  flex: 1;
   color: #75849B;
   font-size: 23rpx;
   line-height: 1.35;
+  white-space: nowrap;
 }
 
 .file-status-card {
@@ -770,11 +765,12 @@ onShow(() => {
 }
 
 .settings-panel {
-  margin-top: 34rpx;
+  margin-top: 24rpx;
+  padding: 24rpx 22rpx 28rpx;
 }
 
 .setting-section {
-  margin-top: 28rpx;
+  margin-top: 26rpx;
 }
 
 .setting-section:first-child {
@@ -785,7 +781,7 @@ onShow(() => {
   display: flex;
   align-items: center;
   gap: 12rpx;
-  margin-bottom: 18rpx;
+  margin-bottom: 17rpx;
   color: #17233A;
   font-size: 27rpx;
   font-weight: 800;
@@ -815,7 +811,7 @@ onShow(() => {
 .scene-row {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 22rpx;
+  gap: 16rpx;
 }
 
 .scene-chip {
@@ -921,7 +917,7 @@ onShow(() => {
 }
 
 .recent-card {
-  margin-top: 34rpx;
+  margin-top: 24rpx;
   padding: 22rpx 0 18rpx;
   overflow: hidden;
 }
@@ -1057,7 +1053,7 @@ onShow(() => {
   height: 58rpx;
   margin: 16rpx 20rpx 0;
   border-radius: 10rpx;
-  color: #6B4DFF;
+  color: #2F78FF;
   font-size: 23rpx;
   font-weight: 800;
   box-sizing: border-box;
@@ -1083,8 +1079,8 @@ onShow(() => {
   right: 0;
   bottom: 0;
   z-index: 20;
-  padding: 0 30rpx calc(18rpx + env(safe-area-inset-bottom));
-  background: #F7FAFE;
+  padding: 0 30rpx calc(16rpx + env(safe-area-inset-bottom));
+  background: transparent;
   box-sizing: border-box;
 }
 
@@ -1092,7 +1088,7 @@ onShow(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  height: 92rpx;
+  height: 96rpx;
   border-radius: 13rpx;
   background: #4B86F7;
   color: #FFFFFF;
@@ -1122,21 +1118,4 @@ onShow(() => {
   margin-right: 13rpx;
 }
 
-.status-flow {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 16rpx;
-  min-width: 0;
-  padding: 20rpx 0 0;
-  color: #7A87A0;
-  font-size: 21rpx;
-  line-height: 1.2;
-  white-space: nowrap;
-}
-
-.status-arrow {
-  color: #7E63FF;
-  font-weight: 800;
-}
 </style>
