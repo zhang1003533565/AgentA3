@@ -420,15 +420,6 @@ public class FlowchartAIServiceImpl implements FlowchartAIService {
         return StringUtils.hasText(value) ? value.trim() : fallback;
     }
 
-    private String firstText(String... values) {
-        for (String value : values) {
-            if (StringUtils.hasText(value)) {
-                return value.trim();
-            }
-        }
-        return "";
-    }
-
     private String normalizeSceneType(String value) {
         String text = defaultText(value, "ADMIN").toUpperCase();
         if (text.contains("BUSINESS") || text.contains("业务")) return "BUSINESS";
