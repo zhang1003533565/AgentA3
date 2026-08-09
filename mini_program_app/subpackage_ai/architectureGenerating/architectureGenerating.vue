@@ -8,7 +8,7 @@
           <text class="header-sparkle">✦</text>
           <text class="header-title-text">AI 正在生成架构图</text>
         </view>
-        <text class="header-subtitle-text">{{ stageSubtitle }}</text>
+        <text class="header-subtitle-text">{{ animationSubtitle }}</text>
       </view>
       <view v-else class="header-center">
         <view class="header-title-row">
@@ -96,12 +96,12 @@
           <text class="status-float-label">✦ AI 正在构建分层架构</text>
           <view class="status-float-dots"><view class="status-float-dot"></view><view class="status-float-dot"></view><view class="status-float-dot"></view></view>
         </view>
-        <text class="status-float-msg">{{ waitingText }}</text>
+        <text class="status-float-msg">{{ animationWaitingText }}</text>
         <view class="status-float-meta">
           <text class="status-float-count">已生成 {{ madeCount }} 个组件</text>
-          <text class="status-float-pct">{{ progressPercent }}%</text>
+          <text class="status-float-pct">{{ animationProgressPercent }}%</text>
         </view>
-        <view class="status-float-bar"><view class="status-float-bar-fill" :style="{ width: progressPercent + '%' }"></view></view>
+        <view class="status-float-bar"><view class="status-float-bar-fill" :style="{ width: animationProgressPercent + '%' }"></view></view>
       </view>
     </view>
 
@@ -135,6 +135,7 @@ import {
 import { getErrorMessage } from '@/api/aiDiagram.js'
 
 const state = reactive({ result: null })
+const pendingPayload = ref(null)
 const isCompleted = ref(false)
 const pageState = ref('loading')
 const errorMessage = ref('')
@@ -170,6 +171,71 @@ const progressPercent = computed(() => {
 })
 
 // 揭示状态（class 绑定，避免 v-if+v-for 优先级问题）
+function normalizeRelationMode(value = 'AUTO') {
+  const text = String(value || 'AUTO').trim().toUpperCase()
+  if (text === 'DATA' || text === 'DATAFLOW') return 'DATA_FLOW'
+  if (text === 'CALL_CHAIN' || text === 'CALLING' || text === 'DEPENDENCY') return 'CALL'
+  if (['AUTO', 'MODULE', 'DATA_FLOW', 'CALL'].includes(text)) return text
+  return 'AUTO'
+}
+
+const requestedRelationMode = computed(() => normalizeRelationMode(
+  state.result?.requestedRelationMode ||
+    pendingPayload.value?.relationMode ||
+    pendingPayload.value?.relationType ||
+    'AUTO'
+))
+
+const resolvedRelationMode = computed(() => {
+  const resolved = normalizeRelationMode(state.result?.resolvedRelationMode || state.result?.relationMode)
+  if (resolved !== 'AUTO') return resolved
+  const requested = requestedRelationMode.value
+  return requested === 'AUTO' ? 'MODULE' : requested
+})
+
+const RELATION_COPY = {
+  MODULE: {
+    subtitles: ['正在解析系统需求', '正在识别核心业务模块', '正在划分系统架构层级', '正在建立模块连接', '正在优化架构布局'],
+    waiting: ['识别系统组成与边界', '整理模块归属关系', '逐层生成模块卡片', '建立结构连接', '准备输出模块关系架构图'],
+    progress: [16, 34, 62, 86, 95],
+  },
+  DATA_FLOW: {
+    subtitles: ['正在解析数据来源', '正在识别核心数据节点', '正在分析数据传递路径', '正在连接服务与存储节点', '正在优化箭头与路径'],
+    waiting: ['识别输入、处理与存储位置', '提取关键数据节点', '生成数据流向路径', '强化方向箭头', '准备输出数据流架构图'],
+    progress: [16, 32, 64, 88, 95],
+  },
+  CALL: {
+    subtitles: ['正在识别系统服务', '正在分析模块依赖', '正在解析服务调用关系', '正在建立调用方向', '正在优化服务布局'],
+    waiting: ['识别 API、Service 与模块边界', '整理调用依赖', '生成调用链路', '标注调用方向', '准备输出调用关系架构图'],
+    progress: [16, 33, 63, 87, 95],
+  },
+}
+
+const activeAnimationCopy = computed(() => {
+  const base = RELATION_COPY[resolvedRelationMode.value] || RELATION_COPY.MODULE
+  if (requestedRelationMode.value !== 'AUTO') return base
+  return {
+    ...base,
+    subtitles: ['正在分析架构需求', '正在判断最合适的关系表达', `识别为：${relationModeLabel(resolvedRelationMode.value)}`, ...base.subtitles.slice(2)],
+    waiting: ['分析需求中的模块、数据与调用线索', '选择关系表达模式', '进入对应架构生成流程', ...base.waiting.slice(2)],
+  }
+})
+
+const animationSubtitle = computed(() => activeAnimationCopy.value.subtitles[stageIndex.value] || '')
+const animationWaitingText = computed(() => activeAnimationCopy.value.waiting[stageIndex.value] || '')
+const animationProgressPercent = computed(() => {
+  if (isCompleted.value) return 100
+  return activeAnimationCopy.value.progress[stageIndex.value] || progressPercent.value
+})
+
+function relationModeLabel(mode) {
+  return {
+    MODULE: '模块关系',
+    DATA_FLOW: '数据流向',
+    CALL: '调用关系',
+  }[mode] || '模块关系'
+}
+
 const layerIn = reactive({})
 const cardIn = reactive({})
 const arrowIn = reactive({})
@@ -310,6 +376,7 @@ async function run() {
   errorMessage.value = ''
   try {
     const payload = uni.getStorageSync('aiArchitecturePendingPayload')
+    pendingPayload.value = payload || null
     if (!payload || !payload.description) throw new Error('缺少架构描述')
     let result
     try {

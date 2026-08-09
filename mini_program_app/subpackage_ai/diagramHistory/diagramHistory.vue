@@ -91,7 +91,7 @@
 
 <script setup>
 import { ref, computed } from 'vue'
-import { onShow } from '@dcloudio/uni-app'
+import { onLoad, onShow } from '@dcloudio/uni-app'
 import NavBar from '@/components/nav-bar/nav-bar.vue'
 import { getMindmapHistory } from '@/api/aiDiagram.js'
 import { getFlowchartHistory } from '@/api/aiDiagram.js'
@@ -126,11 +126,33 @@ function fmt(t) {
   const p = n => String(n).padStart(2, '0')
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`
 }
+function systemTypeLabel(value) {
+  const map = {
+    WEB: 'Web系统',
+    APP: 'APP系统',
+    MINI_PROGRAM: '小程序',
+    ADMIN: '管理后台'
+  }
+  return map[String(value || '').toUpperCase()] || 'Web系统'
+}
+function relationLabel(value) {
+  const map = {
+    AUTO: '自动分析',
+    MODULE: '模块关系',
+    DATA_FLOW: '数据流向',
+    CALL: '调用关系'
+  }
+  return map[String(value || '').toUpperCase()] || '自动分析'
+}
+function archDesc(record = {}) {
+  const relation = record.resolvedRelationMode || record.requestedRelationMode || record.relationMode || record.relationType
+  return `${systemTypeLabel(record.systemType)} · ${relationLabel(relation)}`
+}
 function norm(list, type) {
   return (list || []).map(r => ({
     id: r.id, type,
     title: r.title || '未命名',
-    desc: r.description || r.preview || r.subtitle || typeMeta[type].label,
+    desc: type === 'arch' ? archDesc(r) : (r.description || r.preview || r.subtitle || typeMeta[type].label),
     time: fmt(r.createTime || r.updateTime || r.createdAt)
   }))
 }
@@ -148,6 +170,12 @@ const list = computed(() => {
 })
 
 function setTab(t) { tab.value = t }
+function initTab(options = {}) {
+  const value = String(options.tab || options.type || '').toLowerCase()
+  if (value === 'arch' || value === 'architecture') tab.value = 'arch'
+  if (value === 'flow' || value === 'flowchart') tab.value = 'flow'
+  if (value === 'mindmap' || value === 'mind_map') tab.value = 'mindmap'
+}
 function applyFilter() { /* computed 自动过滤 */ }
 function toggleSearch() { searchOn.value = !searchOn.value; if (!searchOn.value) keyword.value = '' }
 function openSheet(item) { sheet.value = item }
@@ -165,6 +193,7 @@ function goCreate() { uni.navigateTo({ url: GEN_PATH[tab.value] }) }
 function goBack() { uni.navigateBack() }
 function toast(t) { uni.showToast({ title: t, icon: 'none' }) }
 
+onLoad(initTab)
 onShow(() => { load() })
 </script>
 

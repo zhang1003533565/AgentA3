@@ -44,6 +44,7 @@
         >
           <view
             class="diagram-stage"
+            :class="relationStageClass"
             :style="stageStyle"
           >
             <view class="diagram-wrap">
@@ -105,6 +106,25 @@
             </view>
 
             <!-- 底部特性展示 -->
+            <view class="relation-panel" :class="relationPanelClass">
+              <view class="relation-panel-head">
+                <text class="relation-panel-title">{{ relationModeLabel }}</text>
+                <text class="relation-panel-desc">{{ relationModeDescription }}</text>
+              </view>
+              <view v-if="relationEdges.length" class="relation-edge-list">
+                <view
+                  v-for="edge in relationEdges"
+                  :key="`${edge.source}-${edge.target}-${edge.label}`"
+                  class="relation-edge"
+                >
+                  <text class="relation-node">{{ edge.sourceName }}</text>
+                  <text class="relation-arrow">{{ relationArrow }}</text>
+                  <text class="relation-node">{{ edge.targetName }}</text>
+                  <text v-if="edge.label" class="relation-label">{{ edge.label }}</text>
+                </view>
+              </view>
+            </view>
+
             <view v-if="architectureData.features && architectureData.features.length" class="features-row">
               <view
                 v-for="(feat, fIdx) in architectureData.features"
@@ -220,6 +240,62 @@ const contentStyle = computed(() => ({
 }))
 
 // scroll-view 滚动同步
+const resolvedRelationMode = computed(() => {
+  const mode = architectureData.value.resolvedRelationMode || architectureData.value.relationMode || 'MODULE'
+  const normalized = String(mode || 'MODULE').toUpperCase()
+  if (normalized === 'DATA_FLOW' || normalized === 'CALL' || normalized === 'MODULE') return normalized
+  return 'MODULE'
+})
+
+const relationStageClass = computed(() => ({
+  'diagram-stage--module': resolvedRelationMode.value === 'MODULE',
+  'diagram-stage--data-flow': resolvedRelationMode.value === 'DATA_FLOW',
+  'diagram-stage--call': resolvedRelationMode.value === 'CALL',
+}))
+
+const relationPanelClass = computed(() => ({
+  'relation-panel--module': resolvedRelationMode.value === 'MODULE',
+  'relation-panel--data-flow': resolvedRelationMode.value === 'DATA_FLOW',
+  'relation-panel--call': resolvedRelationMode.value === 'CALL',
+}))
+
+const relationModeLabel = computed(() => ({
+  MODULE: '模块关系',
+  DATA_FLOW: '数据流向',
+  CALL: '调用关系',
+}[resolvedRelationMode.value] || '模块关系'))
+
+const relationModeDescription = computed(() => ({
+  MODULE: '突出系统层级、模块归属与结构连接',
+  DATA_FLOW: '突出数据从入口到服务再到存储的流动路径',
+  CALL: '突出服务或模块之间的调用依赖',
+}[resolvedRelationMode.value] || '突出系统层级、模块归属与结构连接'))
+
+const relationArrow = computed(() => (resolvedRelationMode.value === 'MODULE' ? '—' : '→'))
+
+const nodeNameMap = computed(() => {
+  const map = new Map()
+  ;(architectureData.value.nodes || []).forEach(node => {
+    if (node?.id) map.set(String(node.id), node.name || node.id)
+  })
+  ;(architectureData.value.layers || []).forEach(layer => {
+    ;(layer.nodes || []).forEach(node => {
+      const id = node.id || node.name
+      if (id) map.set(String(id), node.name || id)
+    })
+  })
+  return map
+})
+
+const relationEdges = computed(() => {
+  const edges = Array.isArray(architectureData.value.edges) ? architectureData.value.edges : []
+  return edges.slice(0, 8).map(edge => ({
+    ...edge,
+    sourceName: nodeNameMap.value.get(String(edge.source || '')) || edge.source || '',
+    targetName: nodeNameMap.value.get(String(edge.target || '')) || edge.target || '',
+  }))
+})
+
 function onScroll(event) {
   const detail = event?.detail || {}
   if (typeof detail.scrollLeft === 'number') scrollLeft.value = detail.scrollLeft
@@ -388,7 +464,9 @@ async function loadArchitecture() {
     const pages = getCurrentPages()
     const current = pages[pages.length - 1] || {}
     const options = current.options || current.$page?.options || {}
-    const id = options.recordId ? decodeURIComponent(options.recordId) : ''
+    const id = options.recordId
+      ? decodeURIComponent(options.recordId)
+      : (options.id ? decodeURIComponent(options.id) : '')
 
     let normalized = null
     if (id) {
@@ -426,6 +504,15 @@ function mergeWithDefaults(normalized) {
     subtitle: normalized.subtitle || base.subtitle,
     style: normalized.style || base.style,
     createTime: normalized.createTime || base.createTime,
+    systemType: normalized.systemType || base.systemType || 'WEB',
+    autoArchitectureLayers: normalized.autoArchitectureLayers !== false,
+    architectureLayers: Array.isArray(normalized.architectureLayers) ? normalized.architectureLayers : [],
+    focusContents: Array.isArray(normalized.focusContents) ? normalized.focusContents : [],
+    requestedRelationMode: normalized.requestedRelationMode || normalized.relationMode || 'AUTO',
+    resolvedRelationMode: normalized.resolvedRelationMode || normalized.relationMode || 'MODULE',
+    relationMode: normalized.resolvedRelationMode || normalized.relationMode || 'MODULE',
+    nodes: Array.isArray(normalized.nodes) ? normalized.nodes : [],
+    edges: Array.isArray(normalized.edges) ? normalized.edges : [],
     layers: [],
     thirdParty: [],
     features: [],
@@ -779,6 +866,111 @@ loadArchitecture()
 }
 
 /* ===== 底部特性标签（居中胶囊） ===== */
+.relation-panel {
+  margin: 0 24rpx 12rpx;
+  padding: 18rpx 22rpx;
+  border: 2rpx solid #e5e7eb;
+  border-radius: 16rpx;
+  background: #ffffff;
+  box-shadow: 0 2rpx 8rpx rgba(15, 23, 42, 0.04);
+}
+
+.relation-panel--module {
+  border-color: #ddd6fe;
+  background: #faf9ff;
+}
+
+.relation-panel--data-flow {
+  border-color: #bfdbfe;
+  background: #f8fbff;
+}
+
+.relation-panel--call {
+  border-color: #c7d2fe;
+  background: #f8f7ff;
+}
+
+.relation-panel-head {
+  display: flex;
+  align-items: baseline;
+  gap: 16rpx;
+}
+
+.relation-panel-title {
+  color: #1f2937;
+  font-size: 25rpx;
+  font-weight: 800;
+  line-height: 1.25;
+}
+
+.relation-panel-desc {
+  color: #6b7280;
+  font-size: 21rpx;
+  line-height: 1.35;
+}
+
+.relation-edge-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10rpx;
+  margin-top: 14rpx;
+}
+
+.relation-edge {
+  display: flex;
+  align-items: center;
+  max-width: 100%;
+  gap: 8rpx;
+  padding: 8rpx 12rpx;
+  border: 1rpx solid #e5e7eb;
+  border-radius: 999rpx;
+  background: #ffffff;
+}
+
+.relation-node,
+.relation-label {
+  max-width: 160rpx;
+  overflow: hidden;
+  color: #374151;
+  font-size: 20rpx;
+  font-weight: 700;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.relation-arrow {
+  color: #8b5cf6;
+  font-size: 22rpx;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.relation-label {
+  padding-left: 8rpx;
+  color: #6b7280;
+  font-weight: 600;
+}
+
+.relation-panel--data-flow .relation-arrow,
+.diagram-stage--data-flow .arch-card-name {
+  color: #2563eb;
+}
+
+.relation-panel--call .relation-arrow,
+.diagram-stage--call .arch-card-name {
+  color: #6d5df4;
+}
+
+.diagram-stage--data-flow .arch-card {
+  box-shadow: 0 6rpx 16rpx rgba(37, 99, 235, 0.08);
+}
+
+.diagram-stage--call .arch-card {
+  border-style: dashed;
+  box-shadow: 0 6rpx 16rpx rgba(109, 93, 244, 0.08);
+}
+
 .features-row {
   display: flex;
   flex-direction: row;

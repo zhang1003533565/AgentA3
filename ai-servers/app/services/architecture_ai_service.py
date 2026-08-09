@@ -178,6 +178,26 @@ JSON 结构：
       "iconKey": "payment"
     }
   ],
+  "requestedRelationMode": "AUTO",
+  "resolvedRelationMode": "MODULE",
+  "nodes": [
+    {
+      "id": "user_service",
+      "name": "用户服务",
+      "type": "service",
+      "layer": "service",
+      "description": "用户管理、认证授权"
+    }
+  ],
+  "edges": [
+    {
+      "source": "gateway",
+      "target": "user_service",
+      "type": "structural",
+      "label": "结构连接",
+      "direction": "none"
+    }
+  ],
   "features": ["高可用", "易扩展", "高性能", "安全可靠", "可维护"]
 }
 
@@ -195,6 +215,10 @@ JSON 结构：
 - layers[].nodes[].tech: 技术栈数组，至少 1 个
 - thirdParty: 数组，至少 3 个元素；每项含 name/description/iconKey
 - features: 数组，至少 4 个中文特性词
+- requestedRelationMode: 用户请求的关系表达，取 AUTO/MODULE/DATA_FLOW/CALL
+- resolvedRelationMode: 最终采用的关系表达；当 requestedRelationMode=AUTO 时必须在 MODULE/DATA_FLOW/CALL 中选择一个
+- nodes: 从 layers 中展开得到的节点数组，每个节点必须有稳定 id/layer/type/name/description
+- edges: 关系数组，每条边必须有 source/target/type/label/direction
 
 【关键规则】
 - 客户端层至少 3 个节点（移动 App / Web 端 / 微信小程序 / 管理后台 等）
@@ -203,9 +227,144 @@ JSON 结构：
 - 基础设施层至少 3 个节点（Docker / Linux / CI/CD / 监控告警 / 日志中心 等）
 - 第三方服务至少 3 个（短信/对象存储/支付/邮件 等）
 - 特性至少 4 个
-- **不要输出 nodes/edges 数组**，本架构图不需要它们
-- **严格按照 layers 6 层 + thirdParty + features 三段式输出**
+- MODULE 模式：edges[].type 使用 structural，连接线强调层级和模块归属，direction 可为 none/forward，不要强行把所有结构线做成数据流
+- DATA_FLOW 模式：edges[].type 使用 dataFlow，必须突出数据从入口到服务再到存储的方向，direction 使用 forward，label 可写请求、用户数据、订单数据等
+- CALL 模式：edges[].type 使用 call，必须突出服务或模块之间谁调用谁，direction 使用 forward，label 可写调用、API、服务依赖等；不要把它画成数据最终入库路径
+- AUTO 模式：先分析需求，再把 resolvedRelationMode 设置为 MODULE/DATA_FLOW/CALL 中最合适的一个，并按该模式生成 edges
+- **必须输出 layers + thirdParty + features + nodes + edges + requestedRelationMode + resolvedRelationMode**
 """
+
+
+def _normalize_relation_mode(value: str) -> str:
+    text = (value or "AUTO").strip().upper()
+    if text in {"DATA", "DATAFLOW"}:
+        return "DATA_FLOW"
+    if text in {"CALL_CHAIN", "CALLING", "DEPENDENCY"}:
+        return "CALL"
+    if text in {"AUTO", "MODULE", "DATA_FLOW", "CALL"}:
+        return text
+    return "AUTO"
+
+
+def _resolve_auto_relation_mode(description: str, requested_relation_mode: str) -> str:
+    requested = _normalize_relation_mode(requested_relation_mode)
+    if requested != "AUTO":
+        return requested
+    text = (description or "").lower()
+    data_keywords = ["数据流", "流向", "存储路径", "入库", "缓存", "同步", "传递", "data flow", "pipeline"]
+    call_keywords = ["调用", "依赖", "接口", "api", "rpc", "rest", "service", "服务间", "链路"]
+    if any(keyword in text for keyword in data_keywords):
+        return "DATA_FLOW"
+    if any(keyword in text for keyword in call_keywords):
+        return "CALL"
+    return "MODULE"
+
+
+def _relation_instruction(requested_relation_mode: str, resolved_relation_mode: str) -> str:
+    if requested_relation_mode == "AUTO":
+        prefix = f"关系表达：AUTO。请先判断最适合的表达方式，当前初步判断为 {resolved_relation_mode}，如需求明显更适合其他模式，可在 resolvedRelationMode 中改为 MODULE/DATA_FLOW/CALL。"
+    else:
+        prefix = f"关系表达：{requested_relation_mode}。resolvedRelationMode 必须使用 {resolved_relation_mode}。"
+    mode_text = {
+        "MODULE": "MODULE 要突出系统组成、层级、模块归属与结构连接，edge.type 使用 structural。",
+        "DATA_FLOW": "DATA_FLOW 要突出数据从来源到服务再到存储的方向路径，edge.type 使用 dataFlow，direction 使用 forward。",
+        "CALL": "CALL 要突出模块或服务之间谁调用谁，edge.type 使用 call，direction 使用 forward。",
+    }.get(resolved_relation_mode, "按需求选择合适关系表达。")
+    return f"{prefix}\n{mode_text}"
+
+
+def _slugify(value: str, fallback: str) -> str:
+    text = re.sub(r"[^0-9A-Za-z_\u4e00-\u9fff]+", "_", value or "").strip("_")
+    return text or fallback
+
+
+def _flatten_layer_nodes(layers: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    nodes: List[Dict[str, Any]] = []
+    used_ids = set()
+    for layer in layers:
+        layer_key = str(layer.get("key") or "layer")
+        for index, node in enumerate(layer.get("nodes") or []):
+            name = str(node.get("name") or "").strip()
+            if not name:
+                continue
+            node_id = str(node.get("id") or _slugify(name, f"{layer_key}_{index + 1}"))
+            if node_id in used_ids:
+                node_id = f"{node_id}_{index + 1}"
+            used_ids.add(node_id)
+            nodes.append({
+                "id": node_id,
+                "name": name,
+                "type": str(node.get("type") or layer_key),
+                "layer": layer_key,
+                "description": str(node.get("description") or ""),
+            })
+    return nodes
+
+
+def _edge_type_for_mode(resolved_relation_mode: str) -> str:
+    if resolved_relation_mode == "DATA_FLOW":
+        return "dataFlow"
+    if resolved_relation_mode == "CALL":
+        return "call"
+    return "structural"
+
+
+def _normalize_edges(raw_edges: Any, nodes: List[Dict[str, Any]], resolved_relation_mode: str) -> List[Dict[str, Any]]:
+    node_ids = {node["id"] for node in nodes}
+    edge_type = _edge_type_for_mode(resolved_relation_mode)
+    direction = "none" if resolved_relation_mode == "MODULE" else "forward"
+    edges: List[Dict[str, Any]] = []
+    if isinstance(raw_edges, list):
+        for edge in raw_edges:
+            if not isinstance(edge, dict):
+                continue
+            source = str(edge.get("source") or edge.get("from") or "").strip()
+            target = str(edge.get("target") or edge.get("to") or "").strip()
+            if source not in node_ids or target not in node_ids or source == target:
+                continue
+            edges.append({
+                "source": source,
+                "target": target,
+                "type": edge.get("type") or edge_type,
+                "label": str(edge.get("label") or ""),
+                "direction": edge.get("direction") or direction,
+            })
+    if edges:
+        return edges
+    return _build_default_edges(nodes, resolved_relation_mode)
+
+
+def _build_default_edges(nodes: List[Dict[str, Any]], resolved_relation_mode: str) -> List[Dict[str, Any]]:
+    by_layer: Dict[str, List[Dict[str, Any]]] = {}
+    for node in nodes:
+        by_layer.setdefault(node.get("layer") or "", []).append(node)
+    layer_order = ["client", "gateway", "service", "dao", "storage", "infra"]
+    edge_type = _edge_type_for_mode(resolved_relation_mode)
+    direction = "none" if resolved_relation_mode == "MODULE" else "forward"
+    label_map = {
+        "MODULE": "结构连接",
+        "DATA_FLOW": "数据传递",
+        "CALL": "调用",
+    }
+    edges: List[Dict[str, Any]] = []
+    for left_key, right_key in zip(layer_order, layer_order[1:]):
+        left_nodes = by_layer.get(left_key) or []
+        right_nodes = by_layer.get(right_key) or []
+        if not left_nodes or not right_nodes:
+            continue
+        if resolved_relation_mode == "MODULE":
+            pairs = [(left_nodes[0], right_nodes[0])]
+        else:
+            pairs = [(source, right_nodes[index % len(right_nodes)]) for index, source in enumerate(left_nodes[:3])]
+        for source, target in pairs:
+            edges.append({
+                "source": source["id"],
+                "target": target["id"],
+                "type": edge_type,
+                "label": label_map.get(resolved_relation_mode, "连接"),
+                "direction": direction,
+            })
+    return edges
 
 
 def _build_user_prompt(
@@ -214,7 +373,8 @@ def _build_user_prompt(
     architecture_style: str,
     layers: List[str],
     display_content: List[str],
-    relation_type: str,
+    requested_relation_mode: str,
+    resolved_relation_mode: str,
 ) -> str:
     """把用户输入和配置参数组装成 user prompt。"""
     parts: List[str] = []
@@ -227,8 +387,7 @@ def _build_user_prompt(
         parts.append(f"架构层级：{', '.join(layers)}")
     if display_content:
         parts.append(f"展示内容：{', '.join(display_content)}")
-    if relation_type:
-        parts.append(f"关系表达：{relation_type}")
+    parts.append(_relation_instruction(requested_relation_mode, resolved_relation_mode))
     parts.append("请基于上述需求生成架构图 JSON。")
     return "\n".join(parts)
 
@@ -251,7 +410,15 @@ def _extract_json(raw: str) -> str:
     return text
 
 
-def _parse_architecture(raw: str) -> Dict[str, Any]:
+def _parse_architecture(
+    raw: str,
+    requested_relation_mode: str,
+    resolved_relation_mode: str,
+    system_type: str,
+    auto_architecture_layers: bool,
+    architecture_layers: List[str],
+    focus_contents: List[str],
+) -> Dict[str, Any]:
     """解析并校验架构 JSON。"""
     json_str = _extract_json(raw)
     try:
@@ -283,7 +450,19 @@ def _parse_architecture(raw: str) -> Dict[str, Any]:
         nodes = data.get("nodes")
         edges = data.get("edges")
         if isinstance(nodes, list) and nodes:
-            return _parse_legacy_nodes(nodes, edges, title, style, subtitle)
+            return _parse_legacy_nodes(
+                nodes,
+                edges,
+                title,
+                style,
+                subtitle,
+                requested_relation_mode,
+                resolved_relation_mode,
+                system_type,
+                auto_architecture_layers,
+                architecture_layers,
+                focus_contents,
+            )
         raise HTTPException(status_code=502, detail="架构图 JSON 缺少 layers 数组")
 
     # 标准 6 层定义
@@ -377,6 +556,13 @@ def _parse_architecture(raw: str) -> Dict[str, Any]:
     if not features:
         features = ["高可用", "易扩展", "高性能", "安全可靠", "可维护"]
 
+    model_resolved_mode = _normalize_relation_mode(
+        data.get("resolvedRelationMode") or data.get("relationMode") or resolved_relation_mode
+    )
+    final_relation_mode = model_resolved_mode if model_resolved_mode != "AUTO" else resolved_relation_mode
+    nodes = _flatten_layer_nodes(normalized_layers)
+    edges = _normalize_edges(data.get("edges"), nodes, final_relation_mode)
+
     return {
         "title": title.strip(),
         "style": style.strip(),
@@ -384,10 +570,31 @@ def _parse_architecture(raw: str) -> Dict[str, Any]:
         "layers": normalized_layers,
         "thirdParty": third_party,
         "features": features,
+        "nodes": nodes,
+        "edges": edges,
+        "systemType": system_type or "WEB",
+        "autoArchitectureLayers": auto_architecture_layers,
+        "architectureLayers": architecture_layers,
+        "focusContents": focus_contents,
+        "requestedRelationMode": requested_relation_mode,
+        "resolvedRelationMode": final_relation_mode,
+        "relationMode": final_relation_mode,
     }
 
 
-def _parse_legacy_nodes(nodes, edges, title, style, subtitle):
+def _parse_legacy_nodes(
+    nodes,
+    edges,
+    title,
+    style,
+    subtitle,
+    requested_relation_mode,
+    resolved_relation_mode,
+    system_type,
+    auto_architecture_layers,
+    architecture_layers,
+    focus_contents,
+):
     """兜底解析：LLM 仍返回扁平 nodes + edges 时使用。"""
     # 按 type 归类到 6 个标准层
     LAYER_TYPES = {
@@ -424,6 +631,8 @@ def _parse_legacy_nodes(nodes, edges, title, style, subtitle):
                     "iconKey": n.get("iconKey") or std["iconKey"],
                 })
         layers.append({**std, "nodes": matched})
+    flat_nodes = _flatten_layer_nodes(layers)
+    normalized_edges = _normalize_edges(edges, flat_nodes, resolved_relation_mode)
     return {
         "title": title.strip() if isinstance(title, str) else "AI 架构图",
         "style": style.strip() if isinstance(style, str) else "",
@@ -435,6 +644,15 @@ def _parse_legacy_nodes(nodes, edges, title, style, subtitle):
             {"name": "支付服务", "description": "微信支付、支付宝", "iconKey": "payment"},
         ],
         "features": ["高可用", "易扩展", "高性能", "安全可靠", "可维护"],
+        "nodes": flat_nodes,
+        "edges": normalized_edges,
+        "systemType": system_type or "WEB",
+        "autoArchitectureLayers": auto_architecture_layers,
+        "architectureLayers": architecture_layers,
+        "focusContents": focus_contents,
+        "requestedRelationMode": requested_relation_mode,
+        "resolvedRelationMode": resolved_relation_mode,
+        "relationMode": resolved_relation_mode,
     }
 
 
@@ -449,6 +667,7 @@ class ArchitectureAIService:
         layers: Optional[List[str]] = None,
         display_content: Optional[List[str]] = None,
         relation_type: str = "",
+        auto_architecture_layers: bool = True,
         llm_headers: Optional[Dict[str, str]] = None,
     ) -> Dict[str, Any]:
         """调用大模型生成架构图 JSON。
@@ -459,19 +678,23 @@ class ArchitectureAIService:
             architecture_style: 架构模式（AUTO/MONOLITH/FRONT_BACKEND_SEPARATION/MICROSERVICE/CLOUD_NATIVE）
             layers: 架构层级数组（ACCESS/APPLICATION/SERVICE/DATA/INFRASTRUCTURE）
             display_content: 展示内容数组（FRONTEND/BACKEND/DATABASE/CACHE/MESSAGE_QUEUE/THIRD_PARTY/DEPLOYMENT）
-            relation_type: 关系表达（AUTO/MODULE/DATA_FLOW/CALL_CHAIN/DEPLOYMENT）
+            relation_type: 关系表达（AUTO/MODULE/DATA_FLOW/CALL）
+            auto_architecture_layers: 是否由 AI 自动分析架构层级
             llm_headers: 由 Java 后端透传的 X-AI-* 头，用于配置 LLM provider
 
         Returns:
             { title, style, nodes, edges }
         """
+        requested_relation_mode = _normalize_relation_mode(relation_type)
+        resolved_relation_mode = _resolve_auto_relation_mode(description, requested_relation_mode)
         user_prompt = _build_user_prompt(
             description=description,
             system_type=system_type,
             architecture_style=architecture_style,
             layers=layers or [],
             display_content=display_content or [],
-            relation_type=relation_type,
+            requested_relation_mode=requested_relation_mode,
+            resolved_relation_mode=resolved_relation_mode,
         )
 
         # 将 Java 透传的 LLM 配置写入线程上下文
@@ -493,7 +716,15 @@ class ArchitectureAIService:
             if token is not None:
                 reset_active_llm_config(token)
 
-        return _parse_architecture(raw_answer)
+        return _parse_architecture(
+            raw_answer,
+            requested_relation_mode=requested_relation_mode,
+            resolved_relation_mode=resolved_relation_mode,
+            system_type=system_type,
+            auto_architecture_layers=auto_architecture_layers,
+            architecture_layers=layers or [],
+            focus_contents=display_content or [],
+        )
 
 
 architecture_ai_service = ArchitectureAIService()

@@ -24,6 +24,12 @@ public class ArchitectureDTO {
         @Schema(description = "系统需求描述", example = "生成一个校园二手交易系统架构图...")
         private String description;
 
+        @Schema(description = "用户原始输入内容", example = "校园二手交易系统")
+        private String content;
+
+        @Schema(description = "上传文件信息数组")
+        private List<Object> files;
+
         @Schema(description = "系统类型", example = "WEB")
         private String systemType;
 
@@ -33,11 +39,23 @@ public class ArchitectureDTO {
         @Schema(description = "架构层级数组", example = "[\"ACCESS\",\"APPLICATION\",\"SERVICE\",\"DATA\"]")
         private List<String> layers;
 
+        @Schema(description = "是否由 AI 自动分析架构层级", example = "true")
+        private Boolean autoArchitectureLayers;
+
+        @Schema(description = "架构层级数组（新版字段）", example = "[\"CLIENT\",\"APPLICATION\",\"SERVICE\",\"DATA\"]")
+        private List<String> architectureLayers;
+
         @Schema(description = "展示内容数组", example = "[\"FRONTEND\",\"BACKEND\",\"DATABASE\"]")
         private List<String> displayContent;
 
+        @Schema(description = "重点展示内容数组（新版字段）", example = "[\"FRONTEND\",\"BACKEND\",\"DATABASE\"]")
+        private List<String> focusContents;
+
         @Schema(description = "关系表达", example = "MODULE")
         private String relationType;
+
+        @Schema(description = "关系表达模式（新版字段）", example = "DATA_FLOW")
+        private String relationMode;
 
         @Schema(description = "文档解析后的文本，可选；填写后 AI 优先基于此生成", example = "")
         private String sourceText;
@@ -79,6 +97,24 @@ public class ArchitectureDTO {
         @Schema(description = "底部特性标签")
         private List<String> features;
 
+        @Schema(description = "系统类型")
+        private String systemType;
+
+        @Schema(description = "是否由 AI 自动分析架构层级")
+        private Boolean autoArchitectureLayers;
+
+        @Schema(description = "架构层级数组")
+        private List<String> architectureLayers;
+
+        @Schema(description = "重点展示内容数组")
+        private List<String> focusContents;
+
+        @Schema(description = "用户请求的关系表达")
+        private String requestedRelationMode;
+
+        @Schema(description = "AI 最终采用的关系表达")
+        private String resolvedRelationMode;
+
         @Schema(description = "节点数组（兼容旧格式）")
         private List<Object> nodes;
 
@@ -105,7 +141,13 @@ public class ArchitectureDTO {
         private String title;
 
         @Schema(description = "系统类型")
-        private String type;
+        private String systemType;
+
+        @Schema(description = "用户请求的关系表达")
+        private String requestedRelationMode;
+
+        @Schema(description = "AI 最终采用的关系表达")
+        private String resolvedRelationMode;
 
         @Schema(description = "创建时间")
         private String createTime;

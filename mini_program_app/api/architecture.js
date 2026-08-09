@@ -17,26 +17,49 @@ export const AI_ARCHITECTURE_ENDPOINTS = {
 // POST /api/ai/architecture/generate
 // 请求体字段与后端 ArchitectureDTO.GenerateRequest 对齐（camelCase）
 export function buildArchitecturePayload({
+  content = '',
+  files = [],
   description = '',
   systemType = '',
   architectureStyle = 'AUTO',
+  autoArchitectureLayers = true,
+  architectureLayers = [],
   layers = [],
+  focusContents = [],
   displayContent = [],
+  relationMode = 'AUTO',
   relationType = 'AUTO',
   sourceText = '',
   fileId = '',
   sourceFile = ''
 } = {}) {
+  const normalizedArchitectureLayers = Array.isArray(architectureLayers) && architectureLayers.length
+    ? architectureLayers
+    : (Array.isArray(layers) ? layers : [])
+  const normalizedFocusContents = Array.isArray(focusContents) && focusContents.length
+    ? focusContents
+    : (Array.isArray(displayContent) ? displayContent : [])
+  const normalizedRelationMode = normalizeRelationMode(relationMode || relationType || 'AUTO')
+  const normalizedSourceFile = typeof sourceFile === 'string'
+    ? sourceFile
+    : (sourceFile?.url || sourceFile?.sourceFile || sourceFile?.fileUrl || '')
+
   return {
+    content: String(content || '').trim(),
+    files: Array.isArray(files) ? files : [],
     description: String(description || '').trim(),
     systemType,
     architectureStyle,
-    layers,
-    displayContent,
-    relationType,
+    autoArchitectureLayers: Boolean(autoArchitectureLayers),
+    architectureLayers: normalizedArchitectureLayers,
+    layers: normalizedArchitectureLayers,
+    focusContents: normalizedFocusContents,
+    displayContent: normalizedFocusContents,
+    relationMode: normalizedRelationMode,
+    relationType: normalizedRelationMode,
     sourceText: String(sourceText || '').trim(),
     fileId: String(fileId || '').trim(),
-    sourceFile: String(sourceFile || '').trim()
+    sourceFile: String(normalizedSourceFile || '').trim()
   }
 }
 
@@ -132,12 +155,31 @@ export async function getArchitectureDetail(id) {
  *   3) 单层结构：仅 nodes 数组 —— 自动按 type 归类
  */
 export function normalizeArchitectureResult(result = {}) {
+  const requestedRelationMode = normalizeRelationMode(
+    result.requestedRelationMode || result.relationMode || result.relationType || result.requestedRelationType || 'AUTO'
+  )
+  const resolvedRelationMode = normalizeRelationMode(
+    result.resolvedRelationMode ||
+      result.resolvedRelationType ||
+      (requestedRelationMode === 'AUTO' ? result.relationMode : requestedRelationMode) ||
+      'MODULE'
+  )
+  const normalizedEdges = normalizeEdges(result.edges, resolvedRelationMode)
   const base = {
     id: result.id != null ? result.id : `arch_${Date.now()}`,
     title: result.title || 'AI 架构图',
     style: result.style || '',
     subtitle: result.subtitle || '分层解耦 · 高可用 · 易扩展',
     createTime: result.createTime || '',
+    systemType: result.systemType || 'WEB',
+    autoArchitectureLayers: result.autoArchitectureLayers !== false,
+    architectureLayers: Array.isArray(result.architectureLayers) ? result.architectureLayers : [],
+    focusContents: Array.isArray(result.focusContents) ? result.focusContents : [],
+    relationMode: resolvedRelationMode,
+    requestedRelationMode,
+    resolvedRelationMode,
+    nodes: Array.isArray(result.nodes) ? result.nodes : [],
+    edges: normalizedEdges,
   }
   // 形态 1：分层结构（AI 新规范）
   if (result.layers && Array.isArray(result.layers) && result.layers.length) {
@@ -158,7 +200,30 @@ export function normalizeArchitectureResult(result = {}) {
   return {
     ...base,
     ...grouped,
+    edges: normalizedEdges,
   }
+}
+
+export function normalizeRelationMode(value = 'AUTO') {
+  const text = String(value || 'AUTO').trim().toUpperCase()
+  if (text === 'DATA' || text === 'DATAFLOW') return 'DATA_FLOW'
+  if (text === 'CALL_CHAIN' || text === 'CALLING' || text === 'DEPENDENCY') return 'CALL'
+  if (['AUTO', 'MODULE', 'DATA_FLOW', 'CALL'].includes(text)) return text
+  return 'AUTO'
+}
+
+function normalizeEdges(edges = [], mode = 'MODULE') {
+  if (!Array.isArray(edges)) return []
+  const defaultType = mode === 'DATA_FLOW' ? 'dataFlow' : mode === 'CALL' ? 'call' : 'structural'
+  const defaultDirection = mode === 'MODULE' ? 'none' : 'forward'
+  return edges.map(edge => ({
+    ...edge,
+    source: edge.source || edge.from || '',
+    target: edge.target || edge.to || '',
+    type: edge.type || defaultType,
+    label: edge.label || '',
+    direction: edge.direction || defaultDirection,
+  }))
 }
 
 // 标准层定义（按从上到下）
@@ -214,10 +279,18 @@ function groupNodesByLayer(nodes = [], title = '', style = '', subtitle = '') {
  */
 export function mockGenerateArchitecture(payload = {}) {
   const title = payload.description ? `${payload.description.slice(0, 12)}架构` : '示例架构图'
+  const requestedRelationMode = normalizeRelationMode(payload.relationMode || payload.relationType || 'AUTO')
+  const resolvedRelationMode = requestedRelationMode === 'AUTO' ? 'MODULE' : requestedRelationMode
+  const edgeType = resolvedRelationMode === 'DATA_FLOW' ? 'dataFlow' : resolvedRelationMode === 'CALL' ? 'call' : 'structural'
   return Promise.resolve(normalizeArchitectureResult({
     id: `mock_arch_${Date.now()}`,
     title,
     style: '前后端分离',
+    systemType: payload.systemType || 'WEB',
+    architectureLayers: Array.isArray(payload.architectureLayers) ? payload.architectureLayers : [],
+    focusContents: Array.isArray(payload.focusContents) ? payload.focusContents : [],
+    requestedRelationMode,
+    resolvedRelationMode,
     nodes: [
       { id: 'frontend', name: '前端应用', type: 'frontend', children: [{ name: 'Vue3' }, { name: 'UniApp' }] },
       { id: 'gateway', name: 'API 网关', type: 'gateway', children: [] },
@@ -228,14 +301,14 @@ export function mockGenerateArchitecture(payload = {}) {
       { id: 'redis', name: 'Redis', type: 'cache', children: [] }
     ],
     edges: [
-      { source: 'frontend', target: 'gateway', label: 'HTTP 请求' },
-      { source: 'gateway', target: 'user_service', label: '路由' },
-      { source: 'gateway', target: 'product_service', label: '路由' },
-      { source: 'gateway', target: 'order_service', label: '路由' },
-      { source: 'user_service', target: 'mysql', label: '读写' },
-      { source: 'product_service', target: 'mysql', label: '读写' },
-      { source: 'order_service', target: 'mysql', label: '读写' },
-      { source: 'user_service', target: 'redis', label: '缓存' }
+      { source: 'frontend', target: 'gateway', type: edgeType, label: resolvedRelationMode === 'MODULE' ? '结构连接' : '请求' },
+      { source: 'gateway', target: 'user_service', type: edgeType, label: resolvedRelationMode === 'CALL' ? '调用' : '路由' },
+      { source: 'gateway', target: 'product_service', type: edgeType, label: resolvedRelationMode === 'CALL' ? '调用' : '路由' },
+      { source: 'gateway', target: 'order_service', type: edgeType, label: resolvedRelationMode === 'CALL' ? '调用' : '路由' },
+      { source: 'user_service', target: 'mysql', type: edgeType, label: resolvedRelationMode === 'DATA_FLOW' ? '用户数据' : '读写' },
+      { source: 'product_service', target: 'mysql', type: edgeType, label: resolvedRelationMode === 'DATA_FLOW' ? '商品数据' : '读写' },
+      { source: 'order_service', target: 'mysql', type: edgeType, label: resolvedRelationMode === 'DATA_FLOW' ? '订单数据' : '读写' },
+      { source: 'user_service', target: 'redis', type: edgeType, label: '缓存' }
     ],
     createTime: new Date().toISOString()
   }))
