@@ -125,7 +125,7 @@
 </template>
 
 <script setup>
-import { ref, computed, reactive } from 'vue'
+import { ref, computed, reactive, nextTick } from 'vue'
 import { onLoad, onUnload } from '@dcloudio/uni-app'
 import ArchIcon from '../architecturePreview/ArchIcon.vue'
 import {
@@ -249,10 +249,12 @@ const madeCount = ref(0)
 const smooth = ref(false)
 const scale = ref(1)
 const cameraY = ref(0)
+const CAMERA_TRANSITION_MS = 420
+const CAMERA_EPSILON = 1
 const stageStyle = computed(() => ({
   transform: `translateY(${cameraY.value}px) scale(${scale.value})`,
   transformOrigin: '0 0',
-  transition: smooth.value ? 'transform 0.6s cubic-bezier(0.22,1,0.36,1)' : 'none'
+  transition: smooth.value ? `transform ${CAMERA_TRANSITION_MS}ms cubic-bezier(0.22,1,0.36,1)` : 'none'
 }))
 
 function layerStyle(layer) {
@@ -273,43 +275,51 @@ function fitStage() {
   }).exec()
 }
 
+function getCameraTargetY(canvas, target) {
+  const targetCenterY = (target.top - canvas.top) + target.height / 2
+  const deltaY = canvas.height / 2 - targetCenterY
+  return Math.round(cameraY.value + deltaY)
+}
+
+async function settleCameraTo(canvas, target) {
+  const nextCameraY = getCameraTargetY(canvas, target)
+  if (Math.abs(nextCameraY - cameraY.value) <= CAMERA_EPSILON) return
+  cameraY.value = nextCameraY
+  await sleep(CAMERA_TRANSITION_MS)
+}
+
 // 镜头跟随：让目标 layer 垂直中心对齐 canvas-area 垂直中心
-// 只在换 layer 时调用，避免层内卡片生成时频繁抖动
-function followCamera(layerIdx) {
+// 只在换 layer 时调用，并等待镜头落稳后再进入下一段，避免读到过渡中坐标造成上下抖动。
+async function followCamera(layerIdx) {
+  await nextTick()
   return new Promise(resolve => {
     const canvasSel = '.canvas-area'
     const layerSel = `.layer[data-idx="${layerIdx}"]`
     uni.createSelectorQuery()
       .select(canvasSel).boundingClientRect()
       .select(layerSel).boundingClientRect()
-      .exec(res => {
+      .exec(async res => {
         const canvas = res && res[0]
         const layer = res && res[1]
         if (!canvas || !layer) { resolve(); return }
-        // layer 中心相对 canvas-area 顶部的偏移
-        const layerCenterY = (layer.top - canvas.top) + layer.height / 2
-        // 目标：layer 中心对齐 canvas-area 中心
-        // 当前 stage transform = translateY(cameraY) scale(scale)
-        // layer.top 已是缩放后坐标，故平移量直接用像素差
-        const targetCameraY = canvas.height / 2 - layerCenterY
-        cameraY.value = targetCameraY
+        await settleCameraTo(canvas, layer)
         resolve()
       })
   })
 }
 
 // 镜头跟随到第三方服务区域
-function followCameraThirdParty() {
+async function followCameraThirdParty() {
+  await nextTick()
   return new Promise(resolve => {
     uni.createSelectorQuery()
       .select('.canvas-area').boundingClientRect()
       .select('.third-party').boundingClientRect()
-      .exec(res => {
+      .exec(async res => {
         const canvas = res && res[0]
         const tp = res && res[1]
         if (!canvas || !tp) { resolve(); return }
-        const tpCenterY = (tp.top - canvas.top) + tp.height / 2
-        cameraY.value = canvas.height / 2 - tpCenterY
+        await settleCameraTo(canvas, tp)
         resolve()
       })
   })
@@ -341,7 +351,7 @@ async function runAnimation() {
     // 换 layer 时镜头跟随到当前 layer
     smooth.value = true
     await followCamera(li)
-    await sleep(120)
+    await sleep(60)
     for (let ci = 0; ci < nodes.length; ci++) {
       cardIn[li + '-' + ci] = true
       madeCount.value += 1
@@ -355,7 +365,7 @@ async function runAnimation() {
   tpIn.value = true
   // 镜头跟随到第三方区域
   await followCameraThirdParty()
-  await sleep(150)
+  await sleep(80)
   for (let ti = 0; ti < thirdParty.value.length; ti++) { tpItemIn[ti] = true; madeCount.value += 1; await sleep(70) }
   for (let fi = 0; fi < features.value.length; fi++) { featureIn[fi] = true; await sleep(60) }
 
@@ -468,7 +478,7 @@ onUnload(() => { clearTimers() })
 
 .canvas-area { flex: 1; position: relative; overflow: hidden; }
 .g-stage { position: absolute; left: 0; top: 0; width: 100%; padding: 24rpx 24rpx 40rpx; transform-origin: 0 0; }
-.g-stage.smooth { transition: transform 0.6s cubic-bezier(0.22, 1, 0.36, 1); }
+.g-stage.smooth { transition: transform 0.42s cubic-bezier(0.22, 1, 0.36, 1); }
 
 .layer { border: 2rpx solid #d8dee6; border-radius: 24rpx; padding: 18rpx; margin-bottom: 0; opacity: 0; transform: translateY(14px); transition: opacity 0.34s ease, transform 0.34s ease; }
 .layer.in { opacity: 1; transform: translateY(0); }
