@@ -12,7 +12,11 @@
       <view class="page-shell">
         <section class="content-card input-card">
           <view class="card-title-row input-title-row">
-            <view class="input-title">描述您的架构需求</view>
+            <view class="input-title">
+              <view class="title-dot"></view>
+              <text>描述您的架构需求</text>
+            </view>
+            <text class="count-text">{{ description.length }}/2000</text>
           </view>
 
           <view class="textarea-wrap">
@@ -38,7 +42,6 @@
               <view class="info-dot">i</view>
               <text>支持 PDF / Word / PPT（≤ 20MB）</text>
             </view>
-            <text class="count-text">{{ description.length }}/2000</text>
           </view>
         </section>
 
@@ -67,7 +70,7 @@
         <section class="content-card settings-card">
           <view class="settings-header">
             <view class="settings-icon-wrap">
-              <image class="settings-icon" src="/static/icons/diagram/settings-blue.svg" mode="aspectFit" />
+              <image class="settings-icon" src="/static/icons/diagram/settings-navy.svg" mode="aspectFit" />
             </view>
             <view>
               <view class="settings-title">架构生成设置</view>
@@ -100,7 +103,7 @@
               @click="selectAutoLayers"
             >
               <view class="auto-layer-left">
-                <image class="option-icon" src="/static/icons/diagram/settings-spark.svg" mode="aspectFit" />
+                <image class="option-icon" src="/static/icons/diagram/settings-spark-navy.svg" mode="aspectFit" />
                 <view>
                   <view class="option-title">
                     AI 自动分析
@@ -133,7 +136,7 @@
 
           <view class="setting-block">
             <view class="section-heading">
-              <image class="heading-icon" src="/static/icons/diagram/ai-pen-blue.svg" mode="aspectFit" />
+              <image class="heading-icon" src="/static/icons/diagram/ai-pen-navy.svg" mode="aspectFit" />
               <text>重点展示</text>
             </view>
             <view class="focus-grid">
@@ -153,7 +156,7 @@
 
           <view class="setting-block relation-block">
             <view class="section-heading">
-              <image class="heading-icon" src="/static/icons/diagram/layer.svg" mode="aspectFit" />
+              <image class="heading-icon" src="/static/icons/diagram/layer-navy.svg" mode="aspectFit" />
               <text>关系表达</text>
             </view>
             <view class="relation-list">
@@ -181,7 +184,7 @@
 
         <section class="content-card recent-card">
           <view class="recent-title-row">
-            <image class="recent-title-icon" src="/static/icons/diagram/app-grid.svg" mode="aspectFit" />
+            <image class="recent-title-icon" src="/static/icons/diagram/app-grid-navy.svg" mode="aspectFit" />
             <text>最近生成</text>
           </view>
           <view v-if="recentItems.length" class="recent-list">
@@ -192,7 +195,7 @@
               @click="openRecent(item)"
             >
               <view class="recent-icon-seat">
-                <image class="recent-item-icon" src="/static/icons/diagram/app-grid.svg" mode="aspectFit" />
+                <image class="recent-item-icon" src="/static/icons/diagram/app-grid-navy.svg" mode="aspectFit" />
               </view>
               <view class="recent-copy">
                 <view class="recent-title">{{ item.title || '未命名架构图' }}</view>
@@ -209,22 +212,6 @@
     </scroll-view>
 
     <view class="bottom-generate">
-      <view class="bottom-hint-row">
-        <view class="hint-item">
-          <image class="hint-icon" src="/static/icons/diagram/history.svg" mode="aspectFit" />
-          <text>无内容时按钮置灰</text>
-        </view>
-        <text class="hint-arrow">→</text>
-        <view class="hint-item">
-          <image class="hint-icon" src="/static/icons/diagram/spark-blue.svg" mode="aspectFit" />
-          <text>生成中显示进度</text>
-        </view>
-        <text class="hint-arrow">→</text>
-        <view class="hint-item">
-          <image class="hint-icon" src="/static/icons/diagram/app-grid.svg" mode="aspectFit" />
-          <text>完成后跳转结果页</text>
-        </view>
-      </view>
       <button
         class="generate-button"
         :class="{ disabled: !canGenerate || isGenerating }"
@@ -283,7 +270,7 @@ const architectureLayerOptions = [
     label: '应用层（Application）',
     desc: '业务功能与应用逻辑实现层',
     value: 'APPLICATION',
-    icon: '/static/icons/diagram/app-grid.svg',
+    icon: '/static/icons/diagram/app-grid-navy.svg',
   },
   {
     key: 'service',
@@ -682,7 +669,7 @@ function formatTime(value) {
 }
 
 .page-shell {
-  padding: 20rpx 24rpx 236rpx;
+  padding: 20rpx 24rpx calc(168rpx + env(safe-area-inset-bottom));
   box-sizing: border-box;
 }
 
@@ -700,7 +687,7 @@ function formatTime(value) {
 }
 
 .input-card {
-  padding-bottom: 20rpx;
+  padding: 26rpx 30rpx 28rpx;
 }
 
 .card-title-row,
@@ -710,15 +697,32 @@ function formatTime(value) {
   align-items: center;
 }
 
+.input-title-row {
+  justify-content: space-between;
+  margin-bottom: 18rpx;
+}
+
 .input-title {
-  font-size: 31rpx;
-  line-height: 42rpx;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  font-size: 27rpx;
+  line-height: 1.25;
   font-weight: 800;
   color: #172033;
 }
 
+.title-dot {
+  width: 18rpx;
+  height: 18rpx;
+  margin-right: 14rpx;
+  border: 4rpx solid #e5f0fa;
+  border-radius: 50%;
+  background: #123e6d;
+  box-sizing: border-box;
+}
+
 .textarea-wrap {
-  margin-top: 18rpx;
   border: 1rpx solid #d9deea;
   border-radius: 12rpx;
   background: #ffffff;
@@ -727,23 +731,25 @@ function formatTime(value) {
 
 .architecture-textarea {
   width: 100%;
-  height: 176rpx;
+  height: 186rpx;
   padding: 22rpx 24rpx;
   box-sizing: border-box;
   color: #182033;
-  font-size: 27rpx;
-  line-height: 39rpx;
+  font-size: 25rpx;
+  line-height: 1.55;
 }
 
 .textarea-placeholder {
   color: #8b95ab;
+  font-size: 25rpx;
+  line-height: 1.55;
 }
 
 .input-tools-row {
   display: flex;
   align-items: center;
-  gap: 20rpx;
-  margin-top: 18rpx;
+  gap: 22rpx;
+  margin-top: 24rpx;
   min-height: 52rpx;
 }
 
@@ -759,7 +765,7 @@ function formatTime(value) {
   height: 58rpx;
   padding: 0 24rpx;
   border-radius: 999rpx;
-  background: #f1eaff;
+  background: #eaf2fb;
 }
 
 .import-trigger :deep(.ifb-icon) {
@@ -768,7 +774,7 @@ function formatTime(value) {
 }
 
 .import-trigger :deep(.ifb-text) {
-  color: #7c4de8;
+  color: #123e6d;
   font-size: 25rpx;
   font-weight: 800;
 }
@@ -782,8 +788,8 @@ function formatTime(value) {
   align-items: center;
   gap: 12rpx;
   color: #7d8799;
-  font-size: 24rpx;
-  line-height: 32rpx;
+  font-size: 22rpx;
+  line-height: 1.3;
   white-space: nowrap;
   flex: 1;
   min-width: 0;
@@ -803,8 +809,9 @@ function formatTime(value) {
 }
 
 .count-text {
-  color: #6f7890;
-  font-size: 24rpx;
+  color: #45536b;
+  font-size: 22rpx;
+  line-height: 1;
   flex-shrink: 0;
 }
 
@@ -949,7 +956,7 @@ function formatTime(value) {
 .settings-title {
   font-size: 32rpx;
   line-height: 42rpx;
-  color: #182033;
+  color: #123e6d;
   font-weight: 800;
 }
 
@@ -1021,9 +1028,9 @@ function formatTime(value) {
 
 .system-pill.active {
   border-color: transparent;
-  background: linear-gradient(90deg, #3f63f4 0%, #7355ef 100%);
+  background: linear-gradient(90deg, #123e6d 0%, #1d5d91 100%);
   color: #ffffff;
-  box-shadow: 0 8rpx 18rpx rgba(86, 88, 239, 0.22);
+  box-shadow: 0 8rpx 18rpx rgba(18, 62, 109, 0.2);
 }
 
 .auto-layer-card,
@@ -1049,8 +1056,8 @@ function formatTime(value) {
 
 .auto-layer-card.active,
 .relation-option.active {
-  border-color: #5a59f4;
-  background: linear-gradient(90deg, #ffffff 0%, #f4f2ff 100%);
+  border-color: #1d5d91;
+  background: linear-gradient(90deg, #ffffff 0%, #f1f7fd 100%);
 }
 
 .auto-layer-left,
@@ -1081,7 +1088,7 @@ function formatTime(value) {
 .recommend-tag {
   display: inline-flex;
   margin-left: 14rpx;
-  color: #5a59f4;
+  color: #1d5d91;
   font-size: 20rpx;
   line-height: 28rpx;
   font-weight: 800;
@@ -1111,7 +1118,7 @@ function formatTime(value) {
 
 .radio-mark.checked,
 .relation-right-dot.checked {
-  border: 8rpx solid #5962f4;
+  border: 8rpx solid #1d5d91;
 }
 
 .relation-radio {
@@ -1121,7 +1128,7 @@ function formatTime(value) {
 }
 
 .relation-radio.checked {
-  border-color: #5962f4;
+  border-color: #1d5d91;
   position: relative;
 }
 
@@ -1130,7 +1137,7 @@ function formatTime(value) {
   width: 12rpx;
   height: 12rpx;
   border-radius: 50%;
-  background: #5962f4;
+  background: #1d5d91;
   position: absolute;
   left: 6rpx;
   top: 6rpx;
@@ -1153,8 +1160,8 @@ function formatTime(value) {
 }
 
 .layer-option.checked {
-  border-color: #5a59f4;
-  background: #f6f3ff;
+  border-color: #1d5d91;
+  background: #f1f7fd;
 }
 
 .layer-text {
@@ -1172,8 +1179,8 @@ function formatTime(value) {
 }
 
 .checkbox-mark.checked {
-  border-color: #5d61f4;
-  background: #5d61f4;
+  border-color: #1d5d91;
+  background: #1d5d91;
   position: relative;
 }
 
@@ -1211,8 +1218,8 @@ function formatTime(value) {
 }
 
 .focus-option.checked {
-  background: #f8f7ff;
-  border-color: #dde2f6;
+  background: #f4f8fc;
+  border-color: #d8e6f2;
 }
 
 .checkbox-tile {
@@ -1231,8 +1238,8 @@ function formatTime(value) {
 
 .checkbox-tile.checked {
   color: #ffffff;
-  background: #5d61f4;
-  border-color: #5d61f4;
+  background: #1d5d91;
+  border-color: #1d5d91;
 }
 
 .relation-block {
@@ -1295,7 +1302,7 @@ function formatTime(value) {
   width: 54rpx;
   height: 54rpx;
   border-radius: 12rpx;
-  background: #f2ecff;
+  background: #eaf2fb;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1380,76 +1387,37 @@ function formatTime(value) {
   right: 0;
   bottom: 0;
   z-index: 20;
-  padding: 14rpx 24rpx calc(18rpx + env(safe-area-inset-bottom));
-  background: rgba(248, 248, 251, 0.94);
-  box-shadow: 0 -8rpx 24rpx rgba(18, 28, 48, 0.04);
+  padding: 0 30rpx calc(20rpx + env(safe-area-inset-bottom));
+  background: transparent;
   box-sizing: border-box;
-}
-
-.bottom-hint-row {
-  height: 50rpx;
-  margin-bottom: 12rpx;
-  border-radius: 12rpx;
-  background: rgba(255, 255, 255, 0.7);
-  display: grid;
-  grid-template-columns: 1fr 30rpx 1fr 30rpx 1fr;
-  align-items: center;
-  color: #6f7890;
-  font-size: 20rpx;
-}
-
-.hint-item {
-  min-width: 0;
-  height: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8rpx;
-}
-
-.hint-item text {
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.hint-icon {
-  width: 25rpx;
-  height: 25rpx;
-  flex-shrink: 0;
-}
-
-.hint-arrow {
-  color: #9ba5b7;
-  text-align: center;
 }
 
 .generate-button {
   width: 100%;
-  height: 64rpx;
+  height: 96rpx;
   margin: 0;
   padding: 0;
   border: 0;
   border-radius: 13rpx;
-  background: linear-gradient(90deg, #3f63f4 0%, #7251ee 100%);
+  background: linear-gradient(180deg, #1d5d91 0%, #123e6d 100%);
   color: #ffffff;
   font-size: 29rpx;
   font-weight: 800;
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 12rpx;
-  box-shadow: 0 10rpx 24rpx rgba(92, 86, 239, 0.25);
+  gap: 13rpx;
+  box-shadow: 0 10rpx 22rpx rgba(18, 62, 109, 0.18);
 }
 
 .generate-button.disabled {
-  background: #cbd2df;
+  background: #d9d5e4;
   box-shadow: none;
-  color: #ffffff;
+  color: rgba(255, 255, 255, 0.82);
 }
 
 .button-spark {
-  width: 30rpx;
-  height: 30rpx;
+  width: 31rpx;
+  height: 31rpx;
 }
 </style>
