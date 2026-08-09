@@ -184,6 +184,8 @@ public class MindMapAIServiceImpl implements MindMapAIService {
         if (normalizedInput.length() > MAX_AI_INPUT_CHARS) {
             normalizedInput = normalizedInput.substring(0, MAX_AI_INPUT_CHARS);
         }
+        String normalizedStructure = normalizeStructure(structure);
+        String structureInstruction = structureInstruction(normalizedStructure);
         return """
                 请根据输入内容生成树形思维导图 JSON。
 
@@ -191,6 +193,7 @@ public class MindMapAIServiceImpl implements MindMapAIService {
                 - 层级清晰
                 - 不遗漏核心知识
                 - 不生成无关内容
+                - 必须按照“结构方式规则”组织一级节点；不同结构方式的一级节点命名和组织维度必须明显不同，不要只替换同义词
                 - 只返回严格 JSON，不要 Markdown，不要解释
                 - JSON 顶层必须包含 title 和 nodes
                 - nodes 是数组，每个节点包含 name，可选 children
@@ -215,11 +218,12 @@ public class MindMapAIServiceImpl implements MindMapAIService {
 
                 层级深度：%s
                 结构方式：%s
+                结构方式规则：%s
                 详细程度：%s
 
                 输入内容：
                 %s
-                """.formatted(defaultText(depth, "自动"), defaultText(structure, "知识梳理"),
+                """.formatted(defaultText(depth, "自动"), normalizedStructure, structureInstruction,
                 defaultText(detail, "standard"), normalizedInput);
     }
 
@@ -348,47 +352,136 @@ public class MindMapAIServiceImpl implements MindMapAIService {
         return value.substring(0, value.length() - suffix.length());
     }
 
+    private String normalizeStructure(String structure) {
+        String value = defaultText(structure, "自动").toLowerCase();
+        if (value.contains("课程体系") || value.contains("course")) {
+            return "课程体系";
+        }
+        if (value.contains("复习提纲") || value.contains("review") || value.contains("exam")) {
+            return "复习提纲";
+        }
+        if (value.contains("项目拆解") || value.contains("project") || value.contains("task")) {
+            return "项目拆解";
+        }
+        if (value.contains("知识梳理") || value.contains("knowledge")) {
+            return "知识梳理";
+        }
+        if (value.contains("自动") || value.contains("auto")) {
+            return "自动";
+        }
+        return "知识梳理";
+    }
+
+    private String structureInstruction(String structure) {
+        return switch (structure) {
+            case "课程体系" -> "按课程模块、先修关系、系统能力、实践训练和拓展方向组织一级节点，突出教学路径与模块层次。";
+            case "复习提纲" -> "按考试重点、知识清单、易错难点、题型练习和复盘安排组织一级节点，突出重点回顾与复习路径。";
+            case "项目拆解" -> "按项目目标、阶段计划、任务分解、资源依赖和交付验收组织一级节点，突出任务边界、依赖和执行顺序。";
+            case "知识梳理" -> "按概念定义、核心原理、关键方法、应用场景和总结复盘组织一级节点，突出关键点提炼与知识关系。";
+            default -> "先判断输入更适合课程体系、复习提纲、项目拆解还是知识梳理，再使用对应结构规则生成，不要混用多种组织方式。";
+        };
+    }
+
+    private String inferStructure(String title) {
+        String normalized = defaultText(title, "").toLowerCase();
+        if (title.contains("复习") || title.contains("提纲") || title.contains("考试")
+                || normalized.contains("review") || normalized.contains("exam")) {
+            return "复习提纲";
+        }
+        if (title.contains("项目") || title.contains("任务") || title.contains("拆解")
+                || normalized.contains("project") || normalized.contains("task")) {
+            return "项目拆解";
+        }
+        if (title.contains("课程") || title.contains("体系") || title.contains("模块")
+                || title.contains("计算机") || normalized.contains("course") || normalized.contains("computer")) {
+            return "课程体系";
+        }
+        return "知识梳理";
+    }
+
     private MindMapDTO.MindMapData generateLocalMindMap(String inputText, String depth, String structure, String detail) {
         String title = normalizeTitle(inputText);
         int maxDepth = resolveDepth(depth);
+        String normalizedStructure = normalizeStructure(structure);
         boolean detailed = "detailed".equalsIgnoreCase(defaultText(detail, "standard"))
                 || "详细".equals(defaultText(detail, "standard"));
 
         MindMapDTO.MindMapData data = new MindMapDTO.MindMapData();
         data.setTitle(title);
-        data.setNodes(buildTopicNodes(title, maxDepth, detailed));
+        data.setNodes(buildTopicNodes(title, maxDepth, detailed, normalizedStructure));
         validateMindMap(data);
         return data;
     }
 
-    private List<MindMapDTO.Node> buildTopicNodes(String title, int maxDepth, boolean detailed) {
+    private List<MindMapDTO.Node> buildTopicNodes(String title, int maxDepth, boolean detailed, String structure) {
+        String resolvedStructure = "自动".equals(structure) ? inferStructure(title) : structure;
+        return buildNodes(maxDepth, detailed, switch (resolvedStructure) {
+            case "课程体系" -> courseBranches(title);
+            case "复习提纲" -> reviewBranches();
+            case "项目拆解" -> projectBranches();
+            default -> knowledgeBranches(title);
+        });
+    }
+
+    private List<List<String>> knowledgeBranches(String title) {
         String normalized = title.toLowerCase();
         if (normalized.contains("linux")) {
-            return buildNodes(maxDepth, detailed, List.of(
+            return List.of(
                     branch("Linux 基础", "发行版与内核", "文件系统层级", "用户与权限"),
                     branch("常用命令", "文件目录操作", "文本处理命令", "进程与服务查看"),
                     branch("系统管理", "软件包管理", "磁盘与存储", "日志排查"),
                     branch("Shell 脚本", "变量与参数", "条件与循环", "函数与任务自动化"),
                     branch("网络与安全", "网络配置", "SSH 远程管理", "防火墙与权限控制"),
                     branch("学习实践", "搭建实验环境", "完成命令练习", "整理问题清单")
-            ));
+            );
         }
+        return List.of(
+                branch("概念定义", "核心定义", "背景价值", "适用范围"),
+                branch("核心原理", "主要关系", "关键机制", "基础规律"),
+                branch("关键方法", "分析步骤", "操作流程", "检查反馈"),
+                branch("应用场景", "典型案例", "实践任务", "效果评估"),
+                branch("总结复盘", "重点回顾", "常见问题", "后续计划")
+        );
+    }
+
+    private List<List<String>> courseBranches(String title) {
+        String normalized = title.toLowerCase();
         if (title.contains("计算机") || normalized.contains("computer")) {
-            return buildNodes(maxDepth, detailed, List.of(
+            return List.of(
                     branch("基础课程", "程序设计", "离散数学", "计算机导论"),
                     branch("核心课程", "数据结构", "操作系统", "计算机网络"),
                     branch("系统能力", "数据库系统", "编译原理", "计算机组成原理"),
                     branch("工程实践", "软件工程", "项目实训", "版本管理"),
                     branch("拓展方向", "人工智能", "云计算", "网络安全")
-            ));
+            );
         }
-        return buildNodes(maxDepth, detailed, List.of(
-                branch("概念理解", "核心定义", "背景价值", "适用范围"),
-                branch("知识框架", "主要模块", "层级关系", "关键术语"),
-                branch("方法步骤", "准备工作", "执行流程", "检查反馈"),
-                branch("应用场景", "典型案例", "实践任务", "效果评估"),
-                branch("总结复习", "重点回顾", "常见问题", "后续计划")
-        ));
+        return List.of(
+                branch("入门基础", "基础概念", "预备知识", "学习目标"),
+                branch("核心模块", "模块划分", "先修关系", "能力要求"),
+                branch("进阶专题", "专题方向", "综合应用", "拓展阅读"),
+                branch("实践训练", "实验安排", "课程项目", "成果检查"),
+                branch("拓展方向", "延伸领域", "能力迁移", "后续课程")
+        );
+    }
+
+    private List<List<String>> reviewBranches() {
+        return List.of(
+                branch("考试重点", "高频概念", "核心公式", "必背结论"),
+                branch("知识清单", "章节要点", "关联关系", "记忆线索"),
+                branch("易错难点", "常见误区", "辨析方法", "纠错提醒"),
+                branch("题型练习", "基础题型", "综合题型", "答题步骤"),
+                branch("复盘安排", "错题整理", "阶段检查", "临考回顾")
+        );
+    }
+
+    private List<List<String>> projectBranches() {
+        return List.of(
+                branch("项目目标", "背景问题", "目标范围", "成功标准"),
+                branch("阶段计划", "启动准备", "关键里程碑", "时间安排"),
+                branch("任务分解", "核心任务", "负责人分工", "优先级排序"),
+                branch("资源依赖", "人员资源", "工具环境", "外部依赖"),
+                branch("交付验收", "交付物清单", "验收标准", "复盘改进")
+        );
     }
 
     private List<MindMapDTO.Node> buildNodes(int maxDepth, boolean detailed, List<List<String>> branches) {
