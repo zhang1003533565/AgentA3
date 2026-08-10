@@ -254,6 +254,15 @@
             </view>
             <switch :checked="settings.includeVisuals" color="#4e61f6" @change="toggleSetting('includeVisuals', $event)" />
           </view>
+          <view class="visual-mode-row">
+            <text class="switch-row__title">配图生成方式</text>
+            <view class="segmented visual-mode-segmented">
+              <view v-for="mode in imageModes" :key="mode.id" class="segmented__item" :class="{ 'segmented__item--active': settings.imageMode === mode.id }" @tap="settings.imageMode = mode.id">
+                <text>{{ mode.name }}</text>
+              </view>
+            </view>
+            <text class="switch-row__desc">先留空可在生成后上传替换；选择 AI 才会调用图片模型。</text>
+          </view>
         </view>
         <view class="effect-preview">
           <text class="effect-preview__label">效果预览</text>
@@ -394,21 +403,34 @@
         </view>
         <view class="result-summary__meta"><text>生成完成</text><text>刚刚</text></view>
       </view>
+      <view v-if="generationWarnings.length" class="generation-warning">
+        <text>{{ generationWarnings[0] }}</text>
+      </view>
 
       <view class="preview-section">
         <view class="preview-section__head"><text>页面预览</text><text>共 {{ pageCount }} 页</text></view>
         <view class="slide-grid">
-          <view v-for="slide in visibleSlides" :key="slide" class="slide-thumb" @tap="openSlidePreview(slide)">
+          <view v-for="slide in visibleSlides" :key="slide" class="slide-thumb" @tap="activeSlideIndex = slide - 1; openSlidePreview(slide)">
             <view class="slide-thumb__canvas" :class="[`slide-thumb__canvas--${pptStyle}`, { 'slide-thumb__canvas--cover': slide === 1 }]">
+              <image v-if="previewImages[slide]" class="slide-thumb__image" :src="previewImages[slide]" mode="aspectFill" />
               <text class="slide-thumb__number">{{ String(slide).padStart(2, '0') }}</text>
-              <text class="slide-thumb__title">{{ slideTitle(slide) }}</text>
-              <view class="slide-thumb__lines"><text></text><text></text><text></text></view>
-              <view class="slide-thumb__decor"></view>
+              <template v-if="!previewImages[slide]">
+                <text class="slide-thumb__title">{{ slideTitle(slide) }}</text>
+                <view class="slide-thumb__lines"><text></text><text></text><text></text></view>
+                <view class="slide-thumb__decor"></view>
+              </template>
             </view>
             <text class="slide-thumb__page">{{ slide }}</text>
           </view>
         </view>
         <button v-if="pageCount > 6" class="text-button" @tap="showAllSlides = !showAllSlides">{{ showAllSlides ? '收起页面' : `查看全部 ${pageCount} 页` }}</button>
+        <view class="image-replace-row">
+          <view>
+            <text class="image-replace-row__title">替换第 {{ activeSlideIndex + 1 }} 页配图</text>
+            <text class="image-replace-row__desc">模板图片可留空，也可以在生成后上传自己的图片</text>
+          </view>
+          <button class="text-button image-replace-row__button" :disabled="apiBusy || !taskId" @tap="uploadSlideImage">上传替换</button>
+        </view>
       </view>
 
       <view class="bottom-actions">
@@ -424,7 +446,7 @@
         v-for="format in exportFormats"
         :key="format.id"
         class="export-choice"
-        :class="{ 'export-choice--selected': exportFormat === format.id }"
+        :class="{ 'export-choice--selected': exportFormat === format.id, 'export-choice--disabled': !isExportAvailable(format.id) }"
         @tap="selectExportFormat(format.id)"
       >
         <view class="export-choice__icon" :class="`export-choice__icon--${format.id}`">{{ format.icon }}</view>
@@ -517,6 +539,7 @@ import {
   generatePptSlides,
   getPptOptions,
   getPptTask,
+  replacePptSlideImage,
   streamPptTask,
   uploadPptSourceFile
 } from '@/api/ppt.js'
@@ -562,14 +585,21 @@ export default {
         includeCatalog: true,
         includeSection: true,
         includeSummary: true,
-        includeVisuals: true
+        includeVisuals: true,
+        imageMode: 'placeholder'
       },
+      imageModes: [
+        { id: 'placeholder', name: '先留空' },
+        { id: 'ai', name: 'AI 生成' }
+      ],
       progress: 0,
       generationTimer: null,
       generationStream: null,
       generationRunId: 0,
       taskId: '',
       taskResult: null,
+      previewImages: {},
+      generationWarnings: [],
       apiBusy: false,
       operationFeedback: { active: false, progress: 0, message: '', detail: '' },
       operationFeedbackTimer: null,
@@ -1000,6 +1030,7 @@ export default {
         })
         this.updateOperationFeedback(92, '正在校验并转换页面格式', '即将进入逐页编辑')
         const result = this.responseData(response)
+        this.generationWarnings = Array.isArray(result.warnings) ? result.warnings : []
         const slides = Array.isArray(result.slides) ? result.slides : []
         if (result.presentationId) {
           this.outlineDocument = {
@@ -1035,6 +1066,7 @@ export default {
       this.currentStep = 6
       this.progress = 2
       this.taskResult = null
+      this.previewImages = {}
       try {
         const response = await createPptTask({
           sourceName: this.fileInfo?.name || `${this.resultName}.txt`,
@@ -1086,7 +1118,7 @@ export default {
         const response = await getPptTask(this.taskId)
         const task = this.responseData(response)
         this.applyTaskSnapshot(task, runId)
-        if (['completed', 'failed'].includes(String(task.status || ''))) return
+        if (['completed', 'failed', 'cancelled'].includes(String(task.status || ''))) return
         await new Promise(resolve => setTimeout(resolve, 1000))
       }
       if (runId === this.generationRunId) throw new Error('PPT 生成等待超时，可稍后重新进入查看')
@@ -1101,8 +1133,19 @@ export default {
         this.progress = 0
         throw new Error(message)
       }
+      if (task.status === 'cancelled') {
+        this.currentStep = 5
+        this.progress = 0
+        this.apiBusy = false
+        return
+      }
       if (task.status === 'completed' && this.currentStep === 6) {
         this.progress = 100
+        const availableFormat = (task.attachments || []).some(item => item?.type === this.exportFormat)
+          ? this.exportFormat
+          : (task.attachments || []).find(item => item?.type === 'pptx' || item?.type === 'pdf')?.type
+        if (availableFormat) this.exportFormat = availableFormat
+        this.loadPreviewImages()
         this.recordGenerationHistory()
         this.currentStep = 7
       }
@@ -1151,11 +1194,62 @@ export default {
         uni.hideLoading()
       }
     },
+    async loadPreviewImages() {
+      if (!this.taskId || !Array.isArray(this.taskResult?.previews)) return
+      const previews = this.taskResult.previews
+      for (const item of previews) {
+        const index = Number(item?.slideIndex || 0)
+        if (!index || this.previewImages[index]) continue
+        try {
+          this.previewImages = { ...this.previewImages, [index]: await downloadPptPreview(this.taskId, index) }
+        } catch (error) {
+          // Keep the lightweight fallback thumbnail when a single preview fails.
+        }
+      }
+    },
+    async uploadSlideImage() {
+      if (!this.taskId || !this.activeSlide) return
+      try {
+        const chosen = await new Promise((resolve, reject) => {
+          uni.chooseImage({ count: 1, sizeType: ['compressed'], sourceType: ['album', 'camera'], success: resolve, fail: reject })
+        })
+        const filePath = chosen?.tempFilePaths?.[0]
+        if (!filePath) return
+        const base64 = await new Promise((resolve, reject) => {
+          const fs = uni.getFileSystemManager ? uni.getFileSystemManager() : (typeof wx !== 'undefined' ? wx.getFileSystemManager() : null)
+          if (!fs) return reject(new Error('当前平台不支持读取图片'))
+          fs.readFile({ filePath, encoding: 'base64', success: result => resolve(result.data), fail: reject })
+        })
+        this.apiBusy = true
+        const extension = (filePath.match(/\.([a-z0-9]+)(?:\?|$)/i) || [])[1] || 'png'
+        const response = await replacePptSlideImage(this.taskId, this.activeSlideIndex + 1, base64, extension)
+        this.taskResult = this.responseData(response)
+        this.previewImages = {}
+        this.activeSlide.imageStatus = 'uploaded'
+        this.generationRunId += 1
+        this.currentStep = 6
+        this.progress = 0
+        await this.followGenerationTask(this.generationRunId)
+      } catch (error) {
+        uni.showToast({ title: this.errorMessage(error, '图片替换失败'), icon: 'none' })
+      } finally {
+        this.apiBusy = false
+      }
+    },
     selectExportFormat(format) {
+      if (!this.isExportAvailable(format)) {
+        const detail = this.taskResult?.formatErrors?.[format]
+        uni.showToast({ title: detail || `当前任务未生成 ${String(format).toUpperCase()} 文件`, icon: 'none' })
+        return
+      }
       if (this.exportFormat !== format) {
         this.exportFormat = format
         this.exportReady = false
       }
+    },
+    isExportAvailable(format) {
+      if (!this.taskResult || !Array.isArray(this.taskResult.attachments)) return true
+      return this.taskResult.attachments.some(item => String(item?.type || '').toLowerCase() === String(format || '').toLowerCase())
     },
     async prepareExport() {
       if (!this.taskId) {
@@ -1426,6 +1520,7 @@ export default {
 .prompt-field__hint{display:block;margin-top:9rpx;color:#929bad;font-size:17rpx}
 .slide-editor__navigation{display:flex;gap:13rpx;margin-top:20rpx}
 .slide-editor__navigation .secondary-button{height:68rpx;font-size:21rpx;line-height:68rpx}
+.image-replace-row{display:flex;align-items:center;justify-content:space-between;gap:20rpx;margin-top:20rpx;padding:18rpx 20rpx;border:1px solid #e1e5ef;border-radius:15rpx;background:#fafbfe}.image-replace-row__title,.image-replace-row__desc{display:block}.image-replace-row__title{font-size:23rpx;font-weight:700}.image-replace-row__desc{margin-top:6rpx;color:#8a93a5;font-size:18rpx}.image-replace-row__button{flex:none;margin:0;padding:0 18rpx}
 .history-mask{position:fixed;z-index:1300;inset:0;background:rgba(20,28,48,.32);backdrop-filter:blur(3rpx)}
 .history-drawer{position:absolute;right:0;top:0;bottom:0;width:min(86vw,660rpx);padding:34rpx 27rpx;background:#f6f8fc;box-sizing:border-box;box-shadow:-18rpx 0 45rpx rgba(27,37,72,.15)}
 .history-drawer__head{display:flex;align-items:flex-start;justify-content:space-between}
@@ -1466,4 +1561,7 @@ export default {
 .template-empty{display:flex;min-height:130rpx;align-items:center;justify-content:center;gap:12rpx;flex-direction:column;border:1px dashed #d9deea;border-radius:14rpx;background:#fafbfe;color:#8b94a5;font-size:20rpx}
 .template-empty__retry{color:#5265f5;font-weight:650}
 @keyframes banter-in{from{opacity:0;transform:translateY(5rpx)}to{opacity:1;transform:translateY(0)}}
+.slide-thumb__image{position:absolute;inset:0;z-index:0;width:100%;height:100%}
+.generation-warning{margin-top:16rpx;padding:14rpx 18rpx;border:1px solid #f1d9a6;border-radius:12rpx;background:#fff9eb;color:#9a6a18;font-size:19rpx;line-height:1.5}
+.export-choice--disabled{opacity:.52}
 </style>

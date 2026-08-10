@@ -1,12 +1,11 @@
 from __future__ import annotations
 
-from io import BytesIO
 from pathlib import Path
 
 import pytest
 from pptx import Presentation
 
-from app.ppt_generation.presenton_renderer import render_presenton_presentation
+from app.ppt_generation.presenton_html_renderer import render_presenton_html
 from app.ppt_generation.service import PptGenerationService
 from app.ppt_generation.source_parser import extract_source_text
 from app.ppt_generation.template_catalog import EmbeddedTemplateCatalog
@@ -68,7 +67,7 @@ def test_source_parser_supports_txt_and_pptx(tmp_path):
 @pytest.mark.parametrize("template_id", [
     "dynamic", "executive", "general", "modern", "momentum", "standard", "swift",
 ])
-def test_presenton_renderer_creates_editable_pptx(monkeypatch, tmp_path, template_id):
+def test_presenton_html_renderer_creates_pdf_and_previews(monkeypatch, tmp_path, template_id):
     monkeypatch.setenv("AI_EXPORT_ROOT", str(tmp_path / "exports"))
     slides = [
         {"type": "cover", "title": "数据结构复习", "content": ["期末核心知识梳理"]},
@@ -76,19 +75,17 @@ def test_presenton_renderer_creates_editable_pptx(monkeypatch, tmp_path, templat
         {"type": "content", "title": "队列", "content": ["先进先出", "顺序队列", "循环队列", "链式队列"]},
     ]
 
-    attachment, path = render_presenton_presentation(
+    attachment, path, previews, pptx_attachment = render_presenton_html(
         slides,
         "数据结构复习",
         {"templateId": template_id},
     )
 
-    assert attachment["type"] == "pptx"
+    assert attachment["type"] == "pdf"
     assert attachment["templateId"] == template_id
-    assert len(attachment["templateLayoutIds"]) == 3
-    assert path.read_bytes().startswith(b"PK")
-    rendered = Presentation(BytesIO(path.read_bytes()))
-    assert len(rendered.slides) == 3
-    assert any("数据结构复习" in shape.text for shape in rendered.slides[0].shapes if hasattr(shape, "text"))
+    assert path.read_bytes().startswith(b"%PDF")
+    assert len(previews) == 3
+    assert pptx_attachment is None
 
 
 def test_task_cancel_is_persisted_and_owner_scoped(monkeypatch, tmp_path):

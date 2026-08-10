@@ -142,6 +142,29 @@ export function downloadPptPreview(taskId, slideIndex) {
   return downloadOwnedPptResource(`${base}/tasks/${encodeURIComponent(taskId)}/previews/${encodeURIComponent(slideIndex)}`)
 }
 
+export function replacePptSlideImage(taskId, slideIndex, imageBase64, extension = 'png') {
+  const token = getToken()
+  if (!token) return Promise.reject(new Error('未登录'))
+  return new Promise((resolve, reject) => {
+    uni.request({
+      url: `${BASE_URL}${base}/tasks/${encodeURIComponent(taskId)}/slides/${encodeURIComponent(slideIndex)}/image`,
+      method: 'POST',
+      header: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      data: { imageBase64, extension },
+      timeout: 120000,
+      success: response => {
+        const payload = response.data || {}
+        if (response.statusCode >= 200 && response.statusCode < 300 && Number(payload?.code ?? 200) === 200) {
+          resolve(payload?.data || payload || {})
+        } else {
+          reject(new Error(payload?.msg || `图片替换失败: ${response.statusCode || 'unknown'}`))
+        }
+      },
+      fail: reject
+    })
+  })
+}
+
 export function downloadPptTemplateThumbnail(templateId) {
   return downloadOwnedPptResource(`${base}/templates/${encodeURIComponent(templateId)}/thumbnail`)
 }

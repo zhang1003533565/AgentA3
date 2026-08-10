@@ -54,6 +54,16 @@ public class AiPptServiceImpl implements AiPptService {
 
         AiPptDTO.OptionsResponse response = new AiPptDTO.OptionsResponse();
         response.setScenes(List.of(review));
+        AiPptDTO.TemplateOption general = new AiPptDTO.TemplateOption();
+        general.setId("general");
+        general.setName("简约通用");
+        general.setDescription("清晰留白，适合课程复习与知识讲解");
+        general.setLayoutCount(12);
+        general.setDefaultOption(true);
+        response.setTemplates(List.of(general));
+        response.setEngine("presenton-embedded");
+        response.setEnhancedEngineAvailable(true);
+        response.setEditorEnabled(false);
         response.setCacheTtlSeconds(OPTIONS_CACHE_TTL_SECONDS);
         return response;
     }
@@ -121,6 +131,20 @@ public class AiPptServiceImpl implements AiPptService {
     }
 
     @Override
+    public Object replaceSlideImage(Long userId, String taskId, Integer slideIndex,
+                                    AiPptDTO.SlideImageRequest request, String authorization) {
+        requireTask(userId, taskId);
+        if (slideIndex == null || slideIndex < 1 || slideIndex > 50) {
+            throw new BusinessException(Result.ERROR_CODE, "PPT 页面编号无效");
+        }
+        if (request == null || !StringUtils.hasText(request.getImageBase64())) {
+            throw new BusinessException(Result.ERROR_CODE, "图片不能为空");
+        }
+        return pythonAiProxyService.replacePptSlideImage(
+                taskId.trim(), slideIndex, objectMapper.convertValue(request, Map.class), authorization);
+    }
+
+    @Override
     public SseEmitter streamTask(Long userId, String taskId, String authorization) {
         requireTask(userId, taskId);
         SseEmitter emitter = new SseEmitter(SSE_TIMEOUT_MILLIS);
@@ -137,7 +161,7 @@ public class AiPptServiceImpl implements AiPptService {
                         emitter.send(SseEmitter.event().name(safeEventName(stage)).data(task, MediaType.APPLICATION_JSON));
                         previousMarker = marker;
                     }
-                    if ("completed".equals(status) || "failed".equals(status)) {
+                    if ("completed".equals(status) || "failed".equals(status) || "cancelled".equals(status)) {
                         emitter.complete();
                         return;
                     }

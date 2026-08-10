@@ -91,6 +91,16 @@ public class AppAiPptController {
         return Result.success(aiPptService.retryTask(requireUserId(request), taskId, authorization));
     }
 
+    @PostMapping("/tasks/{taskId}/slides/{slideIndex}/image")
+    public Result<Object> replaceSlideImage(@PathVariable String taskId,
+                                            @PathVariable Integer slideIndex,
+                                            @Valid @RequestBody AiPptDTO.SlideImageRequest body,
+                                            @RequestHeader(value = "Authorization", required = false) String authorization,
+                                            HttpServletRequest request) {
+        return Result.success(aiPptService.replaceSlideImage(
+                requireUserId(request), taskId, slideIndex, body, authorization));
+    }
+
     @GetMapping(value = "/tasks/{taskId}/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter streamTask(@PathVariable String taskId,
                                  @RequestHeader(value = "Authorization", required = false) String authorization,

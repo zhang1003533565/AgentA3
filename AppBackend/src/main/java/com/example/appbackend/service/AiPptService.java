@@ -22,6 +22,9 @@ public interface AiPptService {
 
     Object retryTask(Long userId, String taskId, String authorization);
 
+    Object replaceSlideImage(Long userId, String taskId, Integer slideIndex,
+                             AiPptDTO.SlideImageRequest request, String authorization);
+
     SseEmitter streamTask(Long userId, String taskId, String authorization);
 
     PythonAiProxyService.GeneratedExportResponse downloadFile(

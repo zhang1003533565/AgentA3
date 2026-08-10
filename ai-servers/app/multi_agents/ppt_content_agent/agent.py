@@ -53,8 +53,34 @@ def _normalize(value: str) -> Dict[str, Any]:
             "content": [str(point).strip()[:260] for point in content if str(point).strip()][:6],
             "objective": str(item.get("objective") or "").strip()[:300],
             "visualPrompt": str(item.get("visualPrompt") or "").strip()[:500],
+            "speakerNote": str(item.get("speakerNote") or item.get("__speaker_note__") or "").strip()[:500],
+            "layoutContent": _normalize_layout_content(item.get("layoutContent") or item.get("componentContent")),
         })
     return {"slides": normalized}
+
+
+def _normalize_layout_content(value: Any) -> Dict[str, Any]:
+    """Keep Presenton component-slot content while remaining JSON-safe."""
+    if not isinstance(value, dict):
+        return {}
+    result: Dict[str, Any] = {}
+    for key, raw in value.items():
+        name = str(key).strip()
+        if not name:
+            continue
+        if isinstance(raw, (str, int, float, bool)) or raw is None:
+            result[name] = "" if raw is None else raw
+        elif isinstance(raw, list):
+            result[name] = [
+                _normalize_layout_content(item)
+                if isinstance(item, dict)
+                else (item if isinstance(item, (int, float, bool)) else str(item).strip())
+                for item in raw
+                if (isinstance(item, dict) or str(item).strip())
+            ]
+        elif isinstance(raw, dict):
+            result[name] = _normalize_layout_content(raw)
+    return result
 
 
 ppt_content_agent = PptContentAgent()

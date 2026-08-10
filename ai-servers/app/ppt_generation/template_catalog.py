@@ -70,6 +70,10 @@ class EmbeddedTemplateCatalog:
                 "description": str(layout.get("description") or ""),
                 "elementTypes": sorted(kinds),
                 "slots": names[:40],
+                # Presenton generates slide content against the component
+                # schema, not against coordinates. Keep the useful contract
+                # fields in the prompt while avoiding the full template JSON.
+                "componentSchema": self._component_schema(layout.get("components") or []),
             })
         return summaries
 
@@ -107,3 +111,31 @@ class EmbeddedTemplateCatalog:
         for key in ("components", "elements", "children"):
             cls._collect_slots(values.get(key), kinds, names)
         cls._collect_slots(values.get("child"), kinds, names)
+
+    @classmethod
+    def _component_schema(cls, values: Any) -> List[Dict[str, Any]]:
+        result: List[Dict[str, Any]] = []
+
+        def visit(value: Any) -> None:
+            if isinstance(value, list):
+                for item in value:
+                    visit(item)
+                return
+            if not isinstance(value, dict):
+                return
+            name = str(value.get("name") or "").strip()
+            element_type = str(value.get("type") or "").strip()
+            if name and element_type:
+                item: Dict[str, Any] = {"name": name, "type": element_type}
+                for key in ("max_length", "min_length", "max_children", "min_children"):
+                    if value.get(key) is not None:
+                        item[key] = value[key]
+                if element_type == "image":
+                    item["replaceable"] = "replaceable_template_image" in str(value.get("data") or "")
+                result.append(item)
+            for key in ("components", "elements", "children"):
+                visit(value.get(key))
+            visit(value.get("child"))
+
+        visit(values)
+        return result[:80]

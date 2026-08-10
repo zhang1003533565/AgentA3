@@ -96,4 +96,13 @@ public final class AiPptDTO {
         @Size(max = 2)
         private List<String> exportFormats;
     }
+
+    @Data
+    public static class SlideImageRequest {
+        @NotBlank
+        @Size(max = 12000000)
+        private String imageBase64;
+        @Size(max = 8)
+        private String extension = "png";
+    }
 }

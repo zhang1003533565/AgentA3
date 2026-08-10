@@ -338,6 +338,13 @@ public class PythonAiProxyService {
                 Map.of(), authorization, requirePptGenerationModel());
     }
 
+    public Object replacePptSlideImage(String taskId, Integer slideIndex,
+                                       Map<String, Object> request, String authorization) {
+        return postPptObject(
+                "/internal/rag/ppt-generation/tasks/" + taskId + "/slides/" + slideIndex + "/image",
+                request, authorization, null);
+    }
+
     public GeneratedExportResponse downloadPptTemplateThumbnail(String templateId, String authorization) {
         validateAuthorization(authorization);
         if (!StringUtils.hasText(templateId) || !templateId.matches("[A-Za-z0-9._-]{1,120}")) {

@@ -48,6 +48,11 @@ class FileUploadRequest(BaseModel):
     contentBase64: str = Field(min_length=1, max_length=36_000_000)
 
 
+class SlideImageRequest(BaseModel):
+    imageBase64: str = Field(min_length=1, max_length=12_000_000)
+    extension: str = Field(default="png", max_length=8)
+
+
 def _identity(authorization: Optional[str], user_id: Optional[str]) -> str:
     if not authorization:
         raise HTTPException(status_code=401, detail="未登录或Token无效")
@@ -163,6 +168,25 @@ def retry_task(task_id: str, authorization: Optional[str] = Header(None),
         _identity(authorization, x_user_id),
         task_id,
         _llm_config(provider, base_url, api_key, model),
+    )
+
+
+@router.post("/tasks/{task_id}/slides/{slide_index}/image")
+def replace_slide_image(task_id: str, slide_index: int, request: SlideImageRequest,
+                        authorization: Optional[str] = Header(None),
+                        x_user_id: Optional[str] = Header(None, alias="X-User-Id")):
+    user_id = _identity(authorization, x_user_id)
+    try:
+        encoded = request.imageBase64.split(",", 1)[-1]
+        content = base64.b64decode(encoded, validate=True)
+    except (binascii.Error, ValueError) as exc:
+        raise HTTPException(status_code=422, detail="图片编码无效") from exc
+    return ppt_generation_service.replace_slide_image(
+        user_id,
+        task_id,
+        slide_index,
+        content,
+        request.extension,
     )
 
 
