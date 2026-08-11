@@ -81,6 +81,8 @@ public class MindMapDTO {
         private String summary;
         private String summaryStatus;
         private String summaryModel;
+        private String centerTopic;
+        private String centerTopicStatus;
         private Integer textLength;
         private Boolean truncated;
         private Integer pageCount;

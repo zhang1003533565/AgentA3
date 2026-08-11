@@ -35,7 +35,17 @@ class FileSummaryServiceImplTest {
 
         Assertions.assertEquals("LOCAL", result.status());
         Assertions.assertEquals("local", result.model());
+        Assertions.assertEquals("", result.centerTopic());
         Assertions.assertTrue(result.summary().contains("计算机课程体系.pdf"));
         Assertions.assertTrue(result.summary().contains("程序设计"));
+    }
+
+    @Test
+    void cleanCenterTopicRemovesLabelsAndLimitsLength() {
+        String result = FileSummaryServiceImpl.cleanCenterTopic("中心主题：高校计算机课程体系设计方案。");
+
+        Assertions.assertTrue(result.length() <= 10);
+        Assertions.assertFalse(result.contains("中心主题"));
+        Assertions.assertFalse(result.contains("："));
     }
 }

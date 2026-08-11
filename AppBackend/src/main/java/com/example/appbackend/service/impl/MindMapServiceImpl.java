@@ -11,6 +11,7 @@ import com.example.appbackend.service.MindMapAIService;
 import com.example.appbackend.service.MindMapService;
 import com.example.appbackend.service.ParsedFileContent;
 import com.example.appbackend.service.support.MindMapGenerationConstraints;
+import com.example.appbackend.service.support.MindMapTopicExtractor;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -160,6 +161,12 @@ public class MindMapServiceImpl implements MindMapService {
 
         ParsedFileContent parsed = fileParseService.parseDetailed(target.toFile());
         FileSummaryResult summary = fileSummaryService.summarize(originalName, parsed.text());
+        String aiCenterTopic = trim(summary.centerTopic());
+        String fallbackCenterTopic = MindMapTopicExtractor.extract("", "", parsed.text(), originalName);
+        String centerTopic = firstText(aiCenterTopic, fallbackCenterTopic);
+        String centerTopicStatus = StringUtils.hasText(aiCenterTopic)
+                ? summary.status()
+                : fallbackCenterTopicStatus(summary.status());
         MindMapDTO.UploadResponse response = new MindMapDTO.UploadResponse();
         response.setFileId(fileId);
         response.setFileName(originalName);
@@ -168,6 +175,8 @@ public class MindMapServiceImpl implements MindMapService {
         response.setSummary(summary.summary());
         response.setSummaryStatus(summary.status());
         response.setSummaryModel(summary.model());
+        response.setCenterTopic(centerTopic);
+        response.setCenterTopicStatus(centerTopicStatus);
         response.setTextLength(parsed.textLength());
         response.setTruncated(parsed.truncated());
         response.setPageCount(parsed.pageCount());
@@ -291,6 +300,10 @@ public class MindMapServiceImpl implements MindMapService {
 
     private String firstText(String first, String second) {
         return StringUtils.hasText(first) ? first.trim() : trim(second);
+    }
+
+    private String fallbackCenterTopicStatus(String summaryStatus) {
+        return "AI".equals(summaryStatus) ? "AI_FALLBACK" : firstText(summaryStatus, "LOCAL");
     }
 
     private String trim(String value) {

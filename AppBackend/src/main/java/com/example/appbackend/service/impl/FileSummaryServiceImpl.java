@@ -25,6 +25,7 @@ public class FileSummaryServiceImpl implements FileSummaryService {
     private static final String LEGACY_TEXT_CONFIG_PREFIX = "ai.service.text";
     private static final int MAX_SUMMARY_SOURCE_LENGTH = 12_000;
     private static final int MAX_SUMMARY_LENGTH = 260;
+    private static final int MAX_CENTER_TOPIC_LENGTH = 10;
 
     private final SystemConfigService systemConfigService;
     private final SystemConfigRepository systemConfigRepository;
@@ -48,9 +49,11 @@ public class FileSummaryServiceImpl implements FileSummaryService {
         AiRuntimeConfig config = resolveRuntimeConfig();
         if (config != null) {
             try {
-                String summary = requestAiSummary(config, fileName, content);
+                AiSummaryPayload aiSummary = requestAiSummary(config, fileName, content);
+                String summary = cleanSummary(firstText(aiSummary.summary(), aiSummary.centerTopic()));
+                String centerTopic = cleanCenterTopic(firstText(aiSummary.centerTopic(), aiSummary.summary()));
                 if (StringUtils.hasText(summary)) {
-                    return new FileSummaryResult(cleanSummary(summary), "AI", config.model());
+                    return new FileSummaryResult(summary, "AI", config.model(), centerTopic);
                 }
             } catch (Exception error) {
                 log.warn("文件 AI 总结失败，使用本地摘要 fileName={}", fileName, error);
@@ -60,13 +63,13 @@ public class FileSummaryServiceImpl implements FileSummaryService {
         return localSummary(fileName, content, "LOCAL");
     }
 
-    private String requestAiSummary(AiRuntimeConfig config, String fileName, String content) throws Exception {
+    private AiSummaryPayload requestAiSummary(AiRuntimeConfig config, String fileName, String content) throws Exception {
         Map<String, Object> payload = Map.of(
                 "model", config.model(),
                 "messages", List.of(
                         Map.of(
                                 "role", "system",
-                                "content", "你是文档解析助手。请用中文概括上传文件，帮助后续 AI 生成思维导图、流程图或架构图。只输出摘要正文，不要 Markdown。"
+                                "content", "你是文档解析助手。请用中文概括上传文件，帮助后续 AI 生成思维导图、流程图或架构图。必须只输出合法 JSON，不要 Markdown。JSON 字段 summary 为文件摘要，centerTopic 为 10 个字以内的中心主题。"
                         ),
                         Map.of(
                                 "role", "user",
@@ -89,7 +92,8 @@ public class FileSummaryServiceImpl implements FileSummaryService {
                 .block();
 
         JsonNode root = objectMapper.readTree(responseText);
-        return root.path("choices").path(0).path("message").path("content").asText("");
+        String contentText = root.path("choices").path(0).path("message").path("content").asText("");
+        return parseAiSummaryContent(contentText);
     }
 
     private String buildPrompt(String fileName, String content) {
@@ -97,9 +101,38 @@ public class FileSummaryServiceImpl implements FileSummaryService {
                 ? content.substring(0, MAX_SUMMARY_SOURCE_LENGTH)
                 : content;
         return "文件名：" + firstText(fileName, "上传文件")
-                + "\n\n请总结这个文件的主题、核心内容、关键对象/流程/模块，控制在120到220字。"
+                + "\n\n请返回 JSON：{\"summary\":\"...\",\"centerTopic\":\"...\"}。"
+                + "\nsummary：总结这个文件的主题、核心内容、关键对象/流程/模块，控制在120到220字。"
+                + "\ncenterTopic：提炼最适合作为思维导图中心节点的主题，必须不超过10个字，不要引号、书名号、标点或说明文字。"
                 + "\n如果内容适合生成图，请点明适合生成哪类结构。"
                 + "\n\n文件解析内容：\n" + source;
+    }
+
+    private AiSummaryPayload parseAiSummaryContent(String content) {
+        String text = stripMarkdownBlock(content);
+        if (!StringUtils.hasText(text)) {
+            return new AiSummaryPayload("", "");
+        }
+        try {
+            JsonNode node = objectMapper.readTree(text);
+            if (node.isObject()) {
+                String summary = firstText(
+                        node.path("summary").asText(""),
+                        node.path("摘要").asText("")
+                );
+                String centerTopic = firstText(
+                        node.path("centerTopic").asText(""),
+                        node.path("center_topic").asText(""),
+                        node.path("center").asText(""),
+                        node.path("title").asText(""),
+                        node.path("主题").asText("")
+                );
+                return new AiSummaryPayload(summary, centerTopic);
+            }
+            return new AiSummaryPayload(text, "");
+        } catch (Exception ignored) {
+            return new AiSummaryPayload(text, "");
+        }
     }
 
     private FileSummaryResult localSummary(String fileName, String content, String status) {
@@ -120,14 +153,38 @@ public class FileSummaryServiceImpl implements FileSummaryService {
     }
 
     private String cleanSummary(String value) {
-        String text = trim(value);
+        String text = stripMarkdownBlock(value);
+        text = text.replaceAll("\\s+", " ").trim();
+        return text.length() > MAX_SUMMARY_LENGTH ? text.substring(0, MAX_SUMMARY_LENGTH).trim() + "..." : text;
+    }
+
+    static String cleanCenterTopic(String value) {
+        String text = stripMarkdownBlock(value)
+                .replaceFirst("^(中心主题|主题|标题|摘要)[:：]", "")
+                .replaceAll("[\\s\"'“”‘’`·。！？；：，、,.!?;；()（）\\[\\]【】《》<>]+", "")
+                .trim();
+        return limitText(text, MAX_CENTER_TOPIC_LENGTH);
+    }
+
+    private static String stripMarkdownBlock(String value) {
+        String text = trimText(value);
         if (text.startsWith("```")) {
-            text = text.replaceFirst("(?is)^```(?:markdown|text)?\\s*", "")
+            text = text.replaceFirst("(?is)^```(?:json|markdown|text)?\\s*", "")
                     .replaceFirst("(?is)\\s*```$", "")
                     .trim();
         }
-        text = text.replaceAll("\\s+", " ").trim();
-        return text.length() > MAX_SUMMARY_LENGTH ? text.substring(0, MAX_SUMMARY_LENGTH).trim() + "..." : text;
+        return text;
+    }
+
+    private static String limitText(String text, int maxLength) {
+        if (!StringUtils.hasText(text) || maxLength <= 0) {
+            return "";
+        }
+        int codePoints = text.codePointCount(0, text.length());
+        if (codePoints <= maxLength) {
+            return text;
+        }
+        return text.substring(0, text.offsetByCodePoints(0, maxLength));
     }
 
     private AiRuntimeConfig resolveRuntimeConfig() {
@@ -213,6 +270,13 @@ public class FileSummaryServiceImpl implements FileSummaryService {
         return value == null ? "" : value.trim();
     }
 
+    private static String trimText(String value) {
+        return value == null ? "" : value.trim();
+    }
+
     private record AiRuntimeConfig(String configPrefix, String apiKey, String baseUrl, String model) {
+    }
+
+    private record AiSummaryPayload(String summary, String centerTopic) {
     }
 }

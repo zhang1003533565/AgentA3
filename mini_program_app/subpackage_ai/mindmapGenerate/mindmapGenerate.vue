@@ -268,11 +268,17 @@ const uploadedFileTypeLabel = computed(() => {
 })
 
 const uploadedFileSizeText = computed(() => formatFileSize(uploadedFile.value?.size || uploadedFile.value?.fileSize))
-const suggestedCenterTopic = computed(() => extractMindmapCenterTopic({
+const aiSuggestedCenterTopic = computed(() => {
+  const status = String(uploadedFile.value?.centerTopicStatus || '').toUpperCase()
+  if (status !== 'AI') return ''
+  return normalizeCenterTopicText(uploadedFile.value?.centerTopic || uploadedFile.value?.aiCenterTopic || '')
+})
+const localSuggestedCenterTopic = computed(() => extractMindmapCenterTopic({
   userText: topic.value,
   fileName: uploadedFile.value?.fileName || '',
   text: uploadedFile.value?.text || ''
 }))
+const suggestedCenterTopic = computed(() => aiSuggestedCenterTopic.value || localSuggestedCenterTopic.value)
 
 const openHistory = () => { uni.navigateTo({ url: '/subpackage_ai/diagramHistory/diagramHistory' }) }
 
@@ -451,6 +457,15 @@ const formatFileSize = (size = 0) => {
 const formatCount = (value = 0) => {
   const number = Number(value || 0)
   return number > 9999 ? `${(number / 10000).toFixed(1)}万` : `${number}`
+}
+
+function normalizeCenterTopicText(value = '', maxLength = 10) {
+  return String(value || '')
+    .replace(/^(中心主题|主题|标题|摘要)[:：]/, '')
+    .replace(/[\s"'“”‘’`·。！？；：，、,.!?;；()（）【】《》<>]+/g, '')
+    .replace(/[\[\]]/g, '')
+    .trim()
+    .slice(0, maxLength)
 }
 
 const parsedMetaText = (file = {}) => {
