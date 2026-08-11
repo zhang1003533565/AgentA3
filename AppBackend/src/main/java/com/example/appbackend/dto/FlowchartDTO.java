@@ -35,6 +35,13 @@ public class FlowchartDTO {
         private String name;
         private String url;
         private Long size;
+        private String summary;
+        private String text;
+        private Integer textLength;
+        private Boolean truncated;
+        private Integer pageCount;
+        private Integer slideCount;
+        private Integer paragraphCount;
     }
 
     @Data
@@ -71,6 +78,13 @@ public class FlowchartDTO {
         private List<Node> nodes = new ArrayList<>();
         private List<Edge> edges = new ArrayList<>();
         private LocalDateTime createTime;
+        private String description;
+        private String content;
+        private List<FileRef> files = new ArrayList<>();
+        private String sourceText;
+        private String fileId;
+        private String sourceFile;
+        private String fileSummary;
     }
 
     @Data
@@ -122,6 +136,12 @@ public class FlowchartDTO {
         private String resolvedDecisionMode;
         private String requestedSwimlaneMode;
         private String resolvedSwimlaneMode;
+        private String content;
+        private List<FileRef> files = new ArrayList<>();
+        private String sourceText;
+        private String fileId;
+        private String sourceFile;
+        private String fileSummary;
     }
 
     @Data

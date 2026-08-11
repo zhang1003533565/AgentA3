@@ -148,6 +148,13 @@ public class ArchitectureServiceImpl implements ArchitectureService {
         configData.put("resolvedHierarchyMode", normalizeHierarchyMode(getString(archData, "resolvedHierarchyMode", requestedHierarchyMode)));
         configData.put("hierarchyMode", requestedHierarchyMode);
         configData.put("systemType", systemType);
+        configData.put("description", request.getDescription());
+        configData.put("content", request.getContent());
+        configData.put("files", request.getFiles() == null ? List.of() : request.getFiles());
+        configData.put("sourceText", request.getSourceText());
+        configData.put("fileId", request.getFileId());
+        configData.put("sourceFile", request.getSourceFile());
+        configData.put("fileSummary", firstFileText(request.getFiles(), "summary"));
         record.setConfigJson(writeJson(configData));
         record.setArchitectureJson(writeJson(archData));
         ArchitectureRecord saved = architectureRecordRepository.save(record);
@@ -268,7 +275,14 @@ public class ArchitectureServiceImpl implements ArchitectureService {
                     resolvedRelationMode,
                     requestedHierarchyMode,
                     resolvedHierarchyMode,
-                    record.getCreateTime() == null ? null : record.getCreateTime().toString()
+                    record.getCreateTime() == null ? null : record.getCreateTime().toString(),
+                    firstText(getString(config, "description", ""), record.getDescription()),
+                    getString(config, "content", ""),
+                    getObjectList(config, "files"),
+                    getString(config, "sourceText", ""),
+                    getString(config, "fileId", ""),
+                    getString(config, "sourceFile", ""),
+                    firstText(getString(config, "fileSummary", ""), firstFileText(getObjectList(config, "files"), "summary"))
             ));
         }
         return new PageResponse<>(items, records.getTotalElements(), pageNum, pageSize);
@@ -414,6 +428,23 @@ public class ArchitectureServiceImpl implements ArchitectureService {
         return defaultValue;
     }
 
+    private List<Object> getObjectList(Map<String, Object> data, String key) {
+        Object value = data.get(key);
+        if (value instanceof List<?> list) {
+            return new ArrayList<>(list);
+        }
+        return List.of();
+    }
+
+    @SuppressWarnings("unchecked")
+    private String firstFileText(List<Object> files, String key) {
+        if (files == null || files.isEmpty()) return "";
+        Object raw = files.get(0);
+        if (!(raw instanceof Map<?, ?> map)) return "";
+        Object value = ((Map<String, Object>) map).get(key);
+        return value == null ? "" : String.valueOf(value).trim();
+    }
+
     @SuppressWarnings("unchecked")
     private ArchitectureDTO.GenerateResponse toGenerateResponse(ArchitectureRecord record, Map<String, Object> archData) {
         Map<String, Object> config = parseJson(record.getConfigJson());
@@ -486,7 +517,14 @@ public class ArchitectureServiceImpl implements ArchitectureService {
                 resolvedHierarchyMode,
                 nodes,
                 edges,
-                record.getCreateTime() == null ? null : record.getCreateTime().toString()
+                record.getCreateTime() == null ? null : record.getCreateTime().toString(),
+                firstText(getString(config, "description", ""), record.getDescription()),
+                getString(config, "content", ""),
+                getObjectList(config, "files"),
+                getString(config, "sourceText", ""),
+                getString(config, "fileId", ""),
+                getString(config, "sourceFile", ""),
+                firstText(getString(config, "fileSummary", ""), firstFileText(getObjectList(config, "files"), "summary"))
         );
     }
 }

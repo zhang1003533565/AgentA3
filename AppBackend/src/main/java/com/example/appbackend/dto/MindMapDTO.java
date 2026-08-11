@@ -70,6 +70,9 @@ public class MindMapDTO {
         private String detailLevel;
         private List<Node> nodes = new ArrayList<>();
         private LocalDateTime createTime;
+        private String content;
+        private String sourceType;
+        private String sourceFile;
     }
 
     @Data
@@ -110,5 +113,8 @@ public class MindMapDTO {
         private String detailLevel;
         private LocalDateTime createTime;
         private String preview;
+        private String content;
+        private String sourceType;
+        private String sourceFile;
     }
 }

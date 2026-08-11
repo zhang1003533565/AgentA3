@@ -132,6 +132,27 @@ public class ArchitectureDTO {
 
         @Schema(description = "创建时间")
         private String createTime;
+
+        @Schema(description = "系统需求描述")
+        private String description;
+
+        @Schema(description = "用户原始输入内容")
+        private String content;
+
+        @Schema(description = "上传文件信息数组")
+        private List<Object> files;
+
+        @Schema(description = "文档解析后的文本")
+        private String sourceText;
+
+        @Schema(description = "已上传文件ID")
+        private String fileId;
+
+        @Schema(description = "已上传文件访问URL")
+        private String sourceFile;
+
+        @Schema(description = "AI 或本地规则生成的文件摘要")
+        private String fileSummary;
     }
 
     /**
@@ -166,6 +187,27 @@ public class ArchitectureDTO {
 
         @Schema(description = "创建时间")
         private String createTime;
+
+        @Schema(description = "系统需求描述")
+        private String description;
+
+        @Schema(description = "用户原始输入内容")
+        private String content;
+
+        @Schema(description = "上传文件信息数组")
+        private List<Object> files;
+
+        @Schema(description = "文档解析后的文本")
+        private String sourceText;
+
+        @Schema(description = "已上传文件ID")
+        private String fileId;
+
+        @Schema(description = "已上传文件访问URL")
+        private String sourceFile;
+
+        @Schema(description = "AI 或本地规则生成的文件摘要")
+        private String fileSummary;
     }
 
     /**

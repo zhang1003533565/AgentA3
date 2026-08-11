@@ -210,7 +210,7 @@
 
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue'
-import { onShow } from '@dcloudio/uni-app'
+import { onLoad, onShow } from '@dcloudio/uni-app'
 import NavBar from '@/components/nav-bar/nav-bar.vue'
 import { getErrorMessage, getMindmapHistory, uploadMindmapFile } from '@/api/aiDiagram.js'
 import ImportFileButton from '../components/ImportFileButton.vue'
@@ -227,6 +227,7 @@ const isGenerating = ref(false)
 const isUploading = ref(false)
 const uploadedFile = ref(null)
 const recentItems = ref([])
+const RESTORE_KEY = 'aiMindmapRestoreDraft'
 
 const depthOptions = [
   { key: 'auto', label: '自动', desc: '智能推荐' },
@@ -281,6 +282,55 @@ const localSuggestedCenterTopic = computed(() => extractMindmapCenterTopic({
 const suggestedCenterTopic = computed(() => aiSuggestedCenterTopic.value || localSuggestedCenterTopic.value)
 
 const openHistory = () => { uni.navigateTo({ url: '/subpackage_ai/diagramHistory/diagramHistory' }) }
+
+function restoreUploadedFile(draft = {}) {
+  const file = Array.isArray(draft.files) ? draft.files[0] : null
+  const sourceFile = draft.sourceFile || file?.url || file?.sourceFile || ''
+  const fileId = draft.fileId || file?.id || ''
+  const fileName = file?.name || file?.fileName || (sourceFile ? '已导入文件' : '')
+  const sourceText = draft.sourceText || file?.text || ''
+  if (!sourceFile && !fileId && !fileName && !sourceText) return null
+  return {
+    ...file,
+    fileId,
+    fileName,
+    sourceFile,
+    text: sourceText,
+    summary: draft.summary || draft.fileSummary || file?.summary || '',
+    size: file?.size || 0,
+    textLength: file?.textLength || 0,
+    truncated: Boolean(file?.truncated),
+    pageCount: file?.pageCount || 0,
+    slideCount: file?.slideCount || 0,
+    paragraphCount: file?.paragraphCount || 0
+  }
+}
+
+function stripMindmapContent(value = '') {
+  const text = String(value || '')
+  const beforeFile = text.split(/文件解析内容[:：]/)[0]
+  return beforeFile
+    .replace(/建议中心主题[:：][^\n]*\n?/g, '')
+    .replace(/用户输入要求[:：]/g, '')
+    .trim()
+}
+
+function restoreFromHistoryDraft(options = {}) {
+  if (String(options.restore || '') !== '1') return
+  const draft = uni.getStorageSync(RESTORE_KEY) || {}
+  uni.removeStorageSync(RESTORE_KEY)
+  topic.value = draft.topic || stripMindmapContent(draft.content || draft.description || draft.preview || '')
+  centerTopic.value = draft.centerTopic || draft.resolvedCenterTopic || ''
+  centerTopicEdited.value = String(draft.centerTopicMode || draft.requestedCenterTopicMode || '').toUpperCase() === 'USER_DEFINED'
+  const depthValue = String(draft.depth || draft.requestedDepth || 'auto').toLowerCase()
+  selectedDepth.value = /^[234]$/.test(depthValue) ? depthValue : 'auto'
+  const structureMap = { AUTO: 'auto', KNOWLEDGE: 'knowledge', COURSE: 'course', REVIEW: 'review', PROJECT: 'project' }
+  selectedStructure.value = structureMap[String(draft.structure || draft.requestedStructure || 'AUTO').toUpperCase()] || 'auto'
+  const detailMap = { SIMPLE: 'simple', STANDARD: 'standard', DETAILED: 'detail', DETAIL: 'detail' }
+  selectedExpand.value = detailMap[String(draft.detail || draft.detailLevel || 'STANDARD').toUpperCase()] || 'standard'
+  uploadedFile.value = restoreUploadedFile(draft)
+  syncSuggestedCenterTopic()
+}
 
 const syncSuggestedCenterTopic = () => {
   if (centerTopicEdited.value) return
@@ -486,6 +536,8 @@ const generateMindmap = async () => {
 onMounted(() => {
   loadRecentItems()
 })
+
+onLoad(restoreFromHistoryDraft)
 
 watch(suggestedCenterTopic, syncSuggestedCenterTopic)
 

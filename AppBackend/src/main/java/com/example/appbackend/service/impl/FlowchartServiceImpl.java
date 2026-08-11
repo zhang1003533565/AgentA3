@@ -170,6 +170,7 @@ public class FlowchartServiceImpl implements FlowchartService {
     }
 
     private FlowchartDTO.GenerateResponse toResponse(FlowchartRecord record, FlowchartDTO.FlowchartData data) {
+        Map<String, Object> config = parseJson(record.getConfigJson());
         FlowchartDTO.GenerateResponse response = new FlowchartDTO.GenerateResponse();
         response.setId(record.getId());
         response.setTitle(data.getTitle());
@@ -186,16 +187,30 @@ public class FlowchartServiceImpl implements FlowchartService {
         response.setNodes(data.getNodes());
         response.setEdges(data.getEdges());
         response.setCreateTime(record.getCreateTime());
+        response.setDescription(record.getDescription());
+        response.setContent(firstText(getString(config, "content", ""), getString(config, "description", ""), record.getDescription()));
+        response.setFiles(objectToFileRefs(config.get("files")));
+        response.setSourceText(getString(config, "sourceText", ""));
+        response.setFileId(getString(config, "fileId", ""));
+        response.setSourceFile(getString(config, "sourceFile", ""));
+        response.setFileSummary(firstText(getString(config, "fileSummary", ""), firstFileSummary(response.getFiles())));
         return response;
     }
 
     private FlowchartDTO.HistoryItem toHistoryItem(FlowchartRecord record) {
+        Map<String, Object> config = parseJson(record.getConfigJson());
         FlowchartDTO.HistoryItem item = new FlowchartDTO.HistoryItem();
         item.setId(record.getId());
         item.setTitle(record.getTitle());
         item.setCreateTime(record.getCreateTime());
         item.setType(record.getDiagramType());
         item.setDescription(record.getDescription());
+        item.setContent(firstText(getString(config, "content", ""), getString(config, "description", ""), record.getDescription()));
+        item.setFiles(objectToFileRefs(config.get("files")));
+        item.setSourceText(getString(config, "sourceText", ""));
+        item.setFileId(getString(config, "fileId", ""));
+        item.setSourceFile(getString(config, "sourceFile", ""));
+        item.setFileSummary(firstText(getString(config, "fileSummary", ""), firstFileSummary(item.getFiles())));
         try {
             FlowchartDTO.FlowchartData data = objectMapper.readValue(record.getFlowJson(), FlowchartDTO.FlowchartData.class);
             completeResultMetadata(data, record.getProcessType(), data.getNodeGranularity(),
@@ -481,6 +496,87 @@ public class FlowchartServiceImpl implements FlowchartService {
         } catch (Exception error) {
             throw new BusinessException(500, "流程图数据序列化失败");
         }
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> parseJson(String json) {
+        if (!StringUtils.hasText(json)) {
+            return Map.of();
+        }
+        try {
+            Object parsed = objectMapper.readValue(json, Object.class);
+            if (parsed instanceof Map<?, ?> map) {
+                return (Map<String, Object>) map;
+            }
+        } catch (Exception ignored) {
+        }
+        return Map.of();
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<FlowchartDTO.FileRef> objectToFileRefs(Object raw) {
+        if (!(raw instanceof List<?> list)) {
+            return List.of();
+        }
+        List<FlowchartDTO.FileRef> files = new ArrayList<>();
+        for (Object item : list) {
+            if (!(item instanceof Map<?, ?> map)) continue;
+            Map<String, Object> file = (Map<String, Object>) map;
+            FlowchartDTO.FileRef ref = new FlowchartDTO.FileRef();
+            ref.setId(getString(file, "id", ""));
+            ref.setName(firstText(getString(file, "name", ""), getString(file, "fileName", "")));
+            ref.setUrl(firstText(getString(file, "url", ""), getString(file, "sourceFile", "")));
+            ref.setSize(getLong(file.get("size")));
+            ref.setSummary(getString(file, "summary", ""));
+            ref.setText(getString(file, "text", ""));
+            ref.setTextLength(getInteger(file.get("textLength")));
+            ref.setTruncated(getBooleanObject(file.get("truncated")));
+            ref.setPageCount(getInteger(file.get("pageCount")));
+            ref.setSlideCount(getInteger(file.get("slideCount")));
+            ref.setParagraphCount(getInteger(file.get("paragraphCount")));
+            files.add(ref);
+        }
+        return files;
+    }
+
+    private String firstFileSummary(List<FlowchartDTO.FileRef> files) {
+        if (files == null || files.isEmpty()) return "";
+        return trim(files.get(0).getSummary());
+    }
+
+    private String getString(Map<String, Object> data, String key, String defaultValue) {
+        Object value = data.get(key);
+        if (value == null) return defaultValue;
+        String text = value.toString().trim();
+        return text.isEmpty() ? defaultValue : text;
+    }
+
+    private Long getLong(Object value) {
+        if (value instanceof Number number) return number.longValue();
+        if (value instanceof String text && StringUtils.hasText(text)) {
+            try {
+                return Long.parseLong(text);
+            } catch (NumberFormatException ignored) {
+            }
+        }
+        return null;
+    }
+
+    private Integer getInteger(Object value) {
+        if (value instanceof Number number) return number.intValue();
+        if (value instanceof String text && StringUtils.hasText(text)) {
+            try {
+                return Integer.parseInt(text);
+            } catch (NumberFormatException ignored) {
+            }
+        }
+        return null;
+    }
+
+    private Boolean getBooleanObject(Object value) {
+        if (value instanceof Boolean bool) return bool;
+        if (value instanceof String text && StringUtils.hasText(text)) return Boolean.parseBoolean(text);
+        return null;
     }
 
     private String buildFileUrl(String objectKey) {

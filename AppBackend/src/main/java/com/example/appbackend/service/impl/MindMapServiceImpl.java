@@ -236,6 +236,9 @@ public class MindMapServiceImpl implements MindMapService {
         response.setDetailLevel(data.getDetailLevel());
         response.setNodes(data.getNodes());
         response.setCreateTime(record.getCreateTime());
+        response.setContent(record.getContent());
+        response.setSourceType(record.getSourceType());
+        response.setSourceFile(record.getSourceFile());
         return response;
     }
 
@@ -245,6 +248,9 @@ public class MindMapServiceImpl implements MindMapService {
         item.setTitle(record.getTitle());
         item.setCreateTime(record.getCreateTime());
         item.setPreview(preview(record.getContent()));
+        item.setContent(record.getContent());
+        item.setSourceType(record.getSourceType());
+        item.setSourceFile(record.getSourceFile());
         MindMapDTO.MindMapData data = readDataOrNull(record.getMindMapJson());
         if (data != null) {
             item.setRequestedCenterTopicMode(data.getRequestedCenterTopicMode());

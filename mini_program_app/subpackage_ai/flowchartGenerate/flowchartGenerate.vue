@@ -212,7 +212,7 @@
 
 <script setup>
 import { computed, onMounted, ref } from 'vue'
-import { onShow } from '@dcloudio/uni-app'
+import { onLoad, onShow } from '@dcloudio/uni-app'
 import NavBar from '@/components/nav-bar/nav-bar.vue'
 import {
   getErrorMessage,
@@ -232,6 +232,7 @@ const uploadedDocument = ref(null)
 const isUploading = ref(false)
 const isGenerating = ref(false)
 const recentItems = ref([])
+const RESTORE_KEY = 'aiFlowchartRestoreDraft'
 
 const sceneOptions = [
   { key: 'AUTO', label: '自动' },
@@ -287,6 +288,48 @@ const uploadedFileSizeText = computed(() => formatFileSize(uploadedDocument.valu
 
 const openHistory = () => {
   uni.navigateTo({ url: '/subpackage_ai/diagramHistory/diagramHistory?type=flowchart' })
+}
+
+function stripFlowContent(value = '') {
+  return String(value || '').split(/文件解析内容[:：]/)[0].trim()
+}
+
+function restoreUploadedDocument(draft = {}) {
+  const file = Array.isArray(draft.files) ? draft.files[0] : null
+  const sourceFile = draft.sourceFile || file?.url || file?.sourceFile || ''
+  const fileId = draft.fileId || file?.id || ''
+  const fileName = file?.name || file?.fileName || (sourceFile ? '已导入文件' : '')
+  const sourceText = draft.sourceText || file?.text || ''
+  if (!sourceFile && !fileId && !fileName && !sourceText) return null
+  return {
+    ...file,
+    fileId,
+    fileName,
+    sourceFile,
+    text: sourceText,
+    summary: draft.summary || draft.fileSummary || file?.summary || '',
+    size: file?.size || 0,
+    textLength: file?.textLength || 0,
+    truncated: Boolean(file?.truncated),
+    pageCount: file?.pageCount || 0,
+    slideCount: file?.slideCount || 0,
+    paragraphCount: file?.paragraphCount || 0
+  }
+}
+
+function restoreFromHistoryDraft(options = {}) {
+  if (String(options.restore || '') !== '1') return
+  const draft = uni.getStorageSync(RESTORE_KEY) || {}
+  uni.removeStorageSync(RESTORE_KEY)
+  flowDescription.value = draft.content || stripFlowContent(draft.description || '')
+  selectedScene.value = String(draft.sceneType || draft.processType || 'AUTO').toUpperCase()
+  selectedGranularity.value = String(draft.nodeGranularity || draft.nodeLevel || 'AUTO').toUpperCase()
+  selectedDirection.value = String(draft.layoutDirection || draft.requestedLayoutDirection || 'VERTICAL').toUpperCase() === 'HORIZONTAL'
+    ? 'HORIZONTAL'
+    : 'VERTICAL'
+  selectedDecision.value = String(draft.decisionMode || draft.requestedDecisionMode || 'AUTO').toUpperCase()
+  selectedLane.value = String(draft.swimlaneMode || draft.requestedSwimlaneMode || draft.swimlane || 'AUTO').toUpperCase()
+  uploadedDocument.value = restoreUploadedDocument(draft)
 }
 
 const chooseDocumentFile = () => {
@@ -445,7 +488,14 @@ const buildPayload = () => {
     id: uploadedDocument.value.fileId || '',
     name: uploadedDocument.value.fileName || fileName,
     url: uploadedDocument.value.sourceFile || '',
-    size: Number(uploadedDocument.value.size || 0)
+    size: Number(uploadedDocument.value.size || 0),
+    summary: uploadedDocument.value.summary || '',
+    text: uploadedDocument.value.text || '',
+    textLength: uploadedDocument.value.textLength || 0,
+    truncated: Boolean(uploadedDocument.value.truncated),
+    pageCount: uploadedDocument.value.pageCount || 0,
+    slideCount: uploadedDocument.value.slideCount || 0,
+    paragraphCount: uploadedDocument.value.paragraphCount || 0
   } : null
   return {
     content: text,
@@ -487,6 +537,8 @@ const generateFlowchart = () => {
 onMounted(() => {
   loadRecentItems()
 })
+
+onLoad(restoreFromHistoryDraft)
 
 onShow(() => {
   isGenerating.value = false

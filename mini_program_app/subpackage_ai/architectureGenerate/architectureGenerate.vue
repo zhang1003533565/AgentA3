@@ -233,7 +233,7 @@
 
 <script setup>
 import { computed, onMounted, ref } from 'vue'
-import { onShow } from '@dcloudio/uni-app'
+import { onLoad, onShow } from '@dcloudio/uni-app'
 import NavBar from '@/components/nav-bar/nav-bar.vue'
 import {
   buildArchitecturePayload,
@@ -254,6 +254,7 @@ const isGenerating = ref(false)
 const isUploading = ref(false)
 const uploadedFile = ref(null)
 const recentItems = ref([])
+const RESTORE_KEY = 'aiArchitectureRestoreDraft'
 
 const systemTypeOptions = [
   { key: 'web', label: 'Web系统', value: 'WEB' },
@@ -347,6 +348,7 @@ const fileSizeText = computed(() => {
   return `${(size / 1024 / 1024).toFixed(2)} MB`
 })
 
+onLoad(restoreFromHistoryDraft)
 onMounted(loadRecentItems)
 onShow(() => {
   isGenerating.value = false
@@ -467,6 +469,55 @@ function previewFile() {
   previewUploadedDocument(uploadedFile.value)
 }
 
+function keyByValue(options, value, fallback) {
+  const normalized = String(value || '').toUpperCase()
+  return options.find((item) => item.value === normalized || String(item.key).toUpperCase() === normalized)?.key || fallback
+}
+
+function keysByValues(options, values = []) {
+  const normalized = new Set((Array.isArray(values) ? values : []).map((item) => String(item || '').toUpperCase()))
+  return options.filter((item) => normalized.has(String(item.value || '').toUpperCase()) || normalized.has(String(item.key || '').toUpperCase())).map((item) => item.key)
+}
+
+function restoreUploadedFile(draft = {}) {
+  const file = Array.isArray(draft.files) ? draft.files[0] : null
+  const sourceFile = draft.sourceFile || file?.url || file?.sourceFile || ''
+  const fileId = draft.fileId || file?.id || ''
+  const fileName = file?.name || file?.fileName || (sourceFile ? '已导入文件' : '')
+  const sourceText = draft.sourceText || file?.text || ''
+  if (!sourceFile && !fileId && !fileName && !sourceText) return null
+  return {
+    ...file,
+    fileId,
+    fileName,
+    sourceFile,
+    text: sourceText,
+    summary: draft.summary || draft.fileSummary || file?.summary || '',
+    size: file?.size || 0,
+    textLength: file?.textLength || 0,
+    truncated: Boolean(file?.truncated),
+    pageCount: file?.pageCount || 0,
+    slideCount: file?.slideCount || 0,
+    paragraphCount: file?.paragraphCount || 0
+  }
+}
+
+function restoreFromHistoryDraft(options = {}) {
+  if (String(options.restore || '') !== '1') return
+  const draft = uni.getStorageSync(RESTORE_KEY) || {}
+  uni.removeStorageSync(RESTORE_KEY)
+  description.value = draft.content || draft.description || ''
+  selectedSystemType.value = keyByValue(systemTypeOptions, draft.systemType, 'web')
+  autoArchitectureLayers.value = draft.autoArchitectureLayers !== false
+  selectedArchitectureLayers.value = keysByValues(architectureLayerOptions, draft.architectureLayers || draft.layers || [])
+  if (!autoArchitectureLayers.value && !selectedArchitectureLayers.value.length) {
+    selectedArchitectureLayers.value = []
+  }
+  selectedFocusContents.value = keysByValues(focusOptions, draft.focusContents || draft.displayContent || [])
+  selectedRelation.value = keyByValue(relationOptions, draft.relationMode || draft.requestedRelationMode || draft.relationType, 'auto')
+  uploadedFile.value = restoreUploadedFile(draft)
+}
+
 function removeFile() {
   uploadedFile.value = null
 }
@@ -499,6 +550,13 @@ function buildSourceFile() {
     name: uploadedFile.value.fileName || uploadedFile.value.name,
     size: uploadedFile.value.size || uploadedFile.value.fileSize,
     url: uploadedFile.value.sourceFile || uploadedFile.value.url || uploadedFile.value.fileUrl,
+    summary: uploadedFile.value.summary || '',
+    text: uploadedFile.value.text || '',
+    textLength: uploadedFile.value.textLength || 0,
+    truncated: Boolean(uploadedFile.value.truncated),
+    pageCount: uploadedFile.value.pageCount || 0,
+    slideCount: uploadedFile.value.slideCount || 0,
+    paragraphCount: uploadedFile.value.paragraphCount || 0,
   }
 }
 

@@ -142,7 +142,13 @@ export function normalizeMindmap(result = {}) {
     resolvedStructure: result.resolvedStructure || result.structureType || '',
     detailLevel: result.detailLevel || result.detail || 'STANDARD',
     nodes: Array.isArray(result.nodes) ? result.nodes : [],
-    createTime: result.createTime || result.createdAt || ''
+    createTime: result.createTime || result.createdAt || '',
+    content: result.content || result.topic || result.description || result.preview || '',
+    sourceType: result.sourceType || '',
+    sourceFile: result.sourceFile || '',
+    fileId: result.fileId || '',
+    sourceText: result.sourceText || '',
+    summary: result.summary || result.fileSummary || ''
   }
 }
 
@@ -249,6 +255,14 @@ export function normalizeFlowchart(result = {}) {
     resolvedDecisionMode: result.resolvedDecisionMode || (Array.isArray(result.nodes) && result.nodes.some(node => String(node.type || '').toLowerCase() === 'decision') ? 'ENABLED' : 'DISABLED'),
     requestedSwimlaneMode: result.requestedSwimlaneMode || result.swimlaneMode || result.swimlane || 'AUTO',
     resolvedSwimlaneMode: result.resolvedSwimlaneMode || (Array.isArray(result.lanes) && result.lanes.length ? 'ROLE' : 'NONE'),
+    description: result.description || '',
+    content: result.content || result.description || '',
+    files: Array.isArray(result.files) ? result.files : [],
+    sourceText: result.sourceText || '',
+    fileId: result.fileId || '',
+    sourceFile: result.sourceFile || '',
+    summary: result.summary || result.fileSummary || '',
+    fileSummary: result.fileSummary || result.summary || '',
     lanes: Array.isArray(result.lanes) ? result.lanes : [],
     nodes: Array.isArray(result.nodes) ? result.nodes.map(normalizeFlowNode) : [],
     edges: Array.isArray(result.edges) ? result.edges.map((edge, index) => normalizeFlowEdge(edge, index)) : [],
