@@ -63,6 +63,11 @@
             <view class="file-success__icon"></view>
             <text>文件上传成功，可继续输入补充要求</text>
           </view>
+          <view v-if="uploadedFile.summary" class="file-summary">
+            <text class="file-summary__label">AI 总结</text>
+            <text class="file-summary__text">{{ uploadedFile.summary }}</text>
+            <text v-if="parsedMetaText(uploadedFile)" class="file-summary__meta">{{ parsedMetaText(uploadedFile) }}</text>
+          </view>
         </view>
 
         <view class="section-card settings-card">
@@ -441,6 +446,21 @@ const formatFileSize = (size = 0) => {
   if (value < 1024) return `${value} B`
   if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`
   return `${(value / 1024 / 1024).toFixed(2)} MB`
+}
+
+const formatCount = (value = 0) => {
+  const number = Number(value || 0)
+  return number > 9999 ? `${(number / 10000).toFixed(1)}万` : `${number}`
+}
+
+const parsedMetaText = (file = {}) => {
+  const parts = []
+  if (Number(file.pageCount || 0) > 0) parts.push(`${file.pageCount}页`)
+  if (Number(file.slideCount || 0) > 0) parts.push(`${file.slideCount}张幻灯片`)
+  if (Number(file.paragraphCount || 0) > 0) parts.push(`${file.paragraphCount}段文本`)
+  if (Number(file.textLength || 0) > 0) parts.push(`${formatCount(file.textLength)}字`)
+  if (file.truncated) parts.push('已截取前12万字')
+  return parts.join(' · ')
 }
 
 const recentMeta = (item = {}) => {
@@ -826,6 +846,39 @@ onShow(() => {
   border-right: 3rpx solid #FFFFFF;
   border-bottom: 3rpx solid #FFFFFF;
   transform: rotate(45deg);
+}
+
+.file-summary {
+  margin-top: 18rpx;
+  padding: 16rpx 18rpx;
+  border: 1rpx solid rgba(124, 77, 232, 0.12);
+  border-radius: 14rpx;
+  background: #FAF8FF;
+  box-sizing: border-box;
+}
+
+.file-summary__label {
+  display: block;
+  color: #7C4DE8;
+  font-size: 21rpx;
+  font-weight: 800;
+  line-height: 1.25;
+}
+
+.file-summary__text {
+  display: block;
+  margin-top: 8rpx;
+  color: #2C364A;
+  font-size: 23rpx;
+  line-height: 1.5;
+}
+
+.file-summary__meta {
+  display: block;
+  margin-top: 8rpx;
+  color: #7C8496;
+  font-size: 20rpx;
+  line-height: 1.35;
 }
 
 .settings-card {

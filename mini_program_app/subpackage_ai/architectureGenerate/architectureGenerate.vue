@@ -65,6 +65,11 @@
             <view class="success-check">✓</view>
             <text>文件上传成功，可继续输入补充要求</text>
           </view>
+          <view v-if="uploadedFile.summary" class="file-summary">
+            <text class="file-summary__label">AI 总结</text>
+            <text class="file-summary__text">{{ uploadedFile.summary }}</text>
+            <text v-if="parsedMetaText(uploadedFile)" class="file-summary__meta">{{ parsedMetaText(uploadedFile) }}</text>
+          </view>
         </section>
 
         <section class="content-card settings-card">
@@ -568,6 +573,21 @@ function buildSourceFile() {
   }
 }
 
+function formatCount(value = 0) {
+  const number = Number(value || 0)
+  return number > 9999 ? `${(number / 10000).toFixed(1)}万` : `${number}`
+}
+
+function parsedMetaText(file = {}) {
+  const parts = []
+  if (Number(file.pageCount || 0) > 0) parts.push(`${file.pageCount}页`)
+  if (Number(file.slideCount || 0) > 0) parts.push(`${file.slideCount}张幻灯片`)
+  if (Number(file.paragraphCount || 0) > 0) parts.push(`${file.paragraphCount}段文本`)
+  if (Number(file.textLength || 0) > 0) parts.push(`${formatCount(file.textLength)}字`)
+  if (file.truncated) parts.push('已截取前12万字')
+  return parts.join(' · ')
+}
+
 function generateArchitecture() {
   if (!canGenerate.value || isGenerating.value) return
 
@@ -592,7 +612,7 @@ function generateArchitecture() {
     relationMode,
     relationType: relationMode,
     hierarchyMode: 'STRUCTURED',
-    sourceText: description.value.trim(),
+    sourceText: uploadedFile.value?.text || '',
     fileId: uploadedFile.value?.fileId || uploadedFile.value?.id || null,
     sourceFile,
   })
@@ -930,6 +950,39 @@ function formatTime(value) {
   justify-content: center;
   font-size: 20rpx;
   line-height: 1;
+}
+
+.file-summary {
+  margin-top: 16rpx;
+  padding: 16rpx 18rpx;
+  border: 1rpx solid rgba(18, 62, 109, 0.12);
+  border-radius: 14rpx;
+  background: #F7FAFE;
+  box-sizing: border-box;
+}
+
+.file-summary__label {
+  display: block;
+  color: #123e6d;
+  font-size: 21rpx;
+  font-weight: 800;
+  line-height: 1.25;
+}
+
+.file-summary__text {
+  display: block;
+  margin-top: 8rpx;
+  color: #182033;
+  font-size: 23rpx;
+  line-height: 1.5;
+}
+
+.file-summary__meta {
+  display: block;
+  margin-top: 8rpx;
+  color: #7c8496;
+  font-size: 20rpx;
+  line-height: 1.35;
 }
 
 .settings-card {
