@@ -151,6 +151,7 @@ import { ref, computed, reactive } from 'vue'
 import { onLoad, onUnload } from '@dcloudio/uni-app'
 import { generateFlowchart as requestGenerateFlowchart, getErrorMessage } from '@/api/aiDiagram.js'
 import { layoutFlowchart, inkSequence, FLOW_NODE_W, FLOW_NODE_H } from '../flowchartLayout.js'
+import { flowCameraFollowKey, targetCameraXForNode } from '../flowchartCamera.js'
 
 const state = reactive({ resultData: null, laid: null, seq: [] })
 const requestPayload = ref(null)
@@ -273,10 +274,15 @@ function getCameraViewSize() {
 }
 
 function targetCameraX(node, view) {
-  if (!isHorizontalFlow()) return Math.round(canvasW.value / 2 - (state.laid?.canvasW || canvasW.value) / 2 * scale.value)
-  const targetX = view.w * 0.42
-  const canvasLeft = view.w / 2 - canvasW.value / 2
-  return Math.round(targetX - canvasLeft - node.cx * scale.value)
+  return targetCameraXForNode({
+    node,
+    direction: layoutDirection.value,
+    laneCount: state.laid?.lanes?.length || 0,
+    viewW: view.w,
+    canvasW: canvasW.value,
+    contentW: state.laid?.canvasW || canvasW.value,
+    scale: scale.value
+  })
 }
 
 function targetCameraY(node, view) {
@@ -338,7 +344,7 @@ async function runAnimation() {
   let lastFollowKey = ''
   for (const item of state.seq) {
     if (item.node) {
-      const followKey = `${isHorizontalFlow() ? 'x' : 'y'}:${item.node.level}`
+      const followKey = flowCameraFollowKey(item.node, layoutDirection.value, state.laid?.lanes?.length || 0)
       if (followKey !== lastFollowKey) {
         smooth.value = true
         await followCameraNode(item.node)

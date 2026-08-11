@@ -84,6 +84,8 @@ test('flowchart direction is wired through generation page, API, animation, and 
   assert.match(api, /requestedLayoutDirection: normalizeFlowLayoutDirection/)
   assert.match(api, /resolvedLayoutDirection: normalizeFlowLayoutDirection/)
   assert.match(generatingPage, /state\.laid\?\.direction/)
+  assert.match(generatingPage, /targetCameraXForNode/)
+  assert.match(generatingPage, /flowCameraFollowKey/)
   assert.match(generatingPage, /正在规划横向流程路径/)
   assert.match(viewerPage, /directionTip/)
 })
