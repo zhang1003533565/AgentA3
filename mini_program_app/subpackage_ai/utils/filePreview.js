@@ -75,12 +75,19 @@ export function buildPreviewTarget(file = {}) {
     file.downloadPath,
   ))
   const name = firstValue(file.fileName, file.name, file.title, fileNameFromUrl(remoteUrl), fileNameFromUrl(localPath), '已导入文件')
+  const text = firstValue(file.text, file.parsedText, file.content, file.rawText)
+  const summary = firstValue(file.summary, file.aiSummary, file.description)
   return {
     name,
     ext: fileExt(name) || fileExt(remoteUrl) || fileExt(localPath),
     url: remoteUrl,
     localPath,
     size: file.size || file.fileSize || 0,
+    text,
+    summary,
+    textLength: file.textLength || (text ? text.length : 0),
+    summaryStatus: file.summaryStatus || '',
+    summaryModel: file.summaryModel || '',
   }
 }
 
@@ -132,7 +139,8 @@ export function fallbackPreviewUploadedDocument(file = {}) {
 
 export function previewUploadedDocument(file = {}) {
   const target = buildPreviewTarget(file)
-  if (!target.url || !/^https?:\/\//i.test(target.url)) {
+  const canPreviewInApp = Boolean(target.text || target.summary || target.url)
+  if (!canPreviewInApp) {
     fallbackPreviewUploadedDocument(file)
     return
   }
