@@ -1,19 +1,19 @@
 <template>
   <view class="page">
-    <nav-bar title="AI 流程图" :showBack="true" :border="false">
+    <nav-bar
+      :title="chart.title || 'AI 流程图'"
+      :showBack="true"
+      :border="false"
+      :fixed="true"
+      :placeholder="true"
+      titleAlign="center"
+    >
       <template #right>
         <view class="nav-history-action" @tap="openHistory">
           <image class="nav-history-icon" src="/static/icons/diagram/history.svg" mode="aspectFit" />
         </view>
       </template>
     </nav-bar>
-
-    <view class="toolbar">
-      <view class="diagram-title">
-        <text>{{ chart.title }}</text>
-        <text class="diagram-type">{{ chart.type }}</text>
-      </view>
-    </view>
 
     <view v-if="loading" class="loading-state">正在加载流程图...</view>
     <movable-area v-else class="diagram-stage" scale-area>
@@ -477,14 +477,6 @@ onMounted(() => {
 .page { min-height: 100vh; display: flex; flex-direction: column; background: #fafbfc; color: #1e344f; }
 .nav-history-action { display: flex; align-items: center; justify-content: center; width: 64rpx; height: 64rpx; }
 .nav-history-icon { width: 34rpx; height: 34rpx; }
-.toolbar { display: flex; align-items: center; justify-content: space-between; gap: 16rpx; min-height: 92rpx; padding: 0 26rpx; background: #fff; border-top: 1rpx solid #edf0f4; border-bottom: 1rpx solid #e7ebf0; }
-.diagram-title { display: flex; min-width: 0; flex-direction: column; gap: 4rpx; font-size: 28rpx; font-weight: 700; }
-.diagram-title > text:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.diagram-type { color: #8796a9; font-size: 18rpx; font-weight: 500; }
-.toolbar-actions { display: flex; align-items: center; gap: 12rpx; flex-shrink: 0; }
-.tool-button, .export-button { display: flex; align-items: center; justify-content: center; min-width: 48rpx; height: 48rpx; border: 1rpx solid #d9e1ea; border-radius: 10rpx; background: #fff; color: #31567f; font-size: 34rpx; }
-.zoom-value { min-width: 72rpx; color: #63748a; font-size: 20rpx; text-align: center; }
-.export-button { min-width: 112rpx; padding: 0 14rpx; border-color: #e9a13c; background: #fff9ef; color: #d97808; font-size: 21rpx; }
 .diagram-stage { flex: 1; width: 100%; min-height: 0; background-color: #f7f9fb; background-image: radial-gradient(#dbe3ec 1px, transparent 1px); background-size: 22rpx 22rpx; }
 .diagram-movable { width: 100%; height: 100%; }
 .diagram-canvas { position: relative; margin: 36px; transform-origin: 0 0; }
