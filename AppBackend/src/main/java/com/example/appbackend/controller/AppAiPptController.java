@@ -18,8 +18,10 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.nio.charset.StandardCharsets;
 
@@ -33,8 +35,18 @@ public class AppAiPptController {
     }
 
     @GetMapping("/options")
-    public Result<AiPptDTO.OptionsResponse> getOptions(HttpServletRequest request) {
-        return Result.success(aiPptService.getOptions(requireUserId(request)));
+    public Result<AiPptDTO.OptionsResponse> getOptions(
+            @RequestHeader(value = "Authorization", required = false) String authorization,
+            HttpServletRequest request) {
+        return Result.success(aiPptService.getOptions(requireUserId(request), authorization));
+    }
+
+    @PostMapping(value = "/files", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public Result<Object> uploadSourceFile(
+            @RequestParam("file") MultipartFile file,
+            @RequestHeader(value = "Authorization", required = false) String authorization,
+            HttpServletRequest request) {
+        return Result.success(aiPptService.uploadSourceFile(requireUserId(request), file, authorization));
     }
 
     @PostMapping("/outlines")
@@ -65,6 +77,30 @@ public class AppAiPptController {
         return Result.success(aiPptService.getTask(requireUserId(request), taskId, authorization));
     }
 
+    @PostMapping("/tasks/{taskId}/cancel")
+    public Result<Object> cancelTask(@PathVariable String taskId,
+                                     @RequestHeader(value = "Authorization", required = false) String authorization,
+                                     HttpServletRequest request) {
+        return Result.success(aiPptService.cancelTask(requireUserId(request), taskId, authorization));
+    }
+
+    @PostMapping("/tasks/{taskId}/retry")
+    public Result<Object> retryTask(@PathVariable String taskId,
+                                    @RequestHeader(value = "Authorization", required = false) String authorization,
+                                    HttpServletRequest request) {
+        return Result.success(aiPptService.retryTask(requireUserId(request), taskId, authorization));
+    }
+
+    @PostMapping("/tasks/{taskId}/slides/{slideIndex}/image")
+    public Result<Object> replaceSlideImage(@PathVariable String taskId,
+                                            @PathVariable Integer slideIndex,
+                                            @Valid @RequestBody AiPptDTO.SlideImageRequest body,
+                                            @RequestHeader(value = "Authorization", required = false) String authorization,
+                                            HttpServletRequest request) {
+        return Result.success(aiPptService.replaceSlideImage(
+                requireUserId(request), taskId, slideIndex, body, authorization));
+    }
+
     @GetMapping(value = "/tasks/{taskId}/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter streamTask(@PathVariable String taskId,
                                  @RequestHeader(value = "Authorization", required = false) String authorization,
@@ -86,6 +122,20 @@ public class AppAiPptController {
                                                    HttpServletRequest request) {
         return fileResponse(aiPptService.downloadPreview(requireUserId(request), taskId, slideIndex, authorization),
                 taskId + "-slide-" + slideIndex + ".png");
+    }
+
+    @GetMapping("/templates/{templateId}/thumbnail")
+    public ResponseEntity<byte[]> downloadTemplateThumbnail(
+            @PathVariable String templateId,
+            @RequestHeader(value = "Authorization", required = false) String authorization,
+            HttpServletRequest request) {
+        PythonAiProxyService.GeneratedExportResponse file = aiPptService.downloadTemplateThumbnail(
+                requireUserId(request), templateId, authorization);
+        return ResponseEntity.ok()
+                .contentType(file.contentType())
+                .contentLength(file.bytes().length)
+                .cacheControl(CacheControl.maxAge(java.time.Duration.ofMinutes(5)).cachePrivate())
+                .body(file.bytes());
     }
 
     private ResponseEntity<byte[]> fileResponse(PythonAiProxyService.GeneratedExportResponse file, String filename) {

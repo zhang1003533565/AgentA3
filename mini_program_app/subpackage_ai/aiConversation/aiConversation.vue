@@ -386,7 +386,7 @@ const AGENT_LABELS = {
   textbook_knowledge_agent: '教材知识点智能体',
   image_agent: '图片智能体',
   ppt_outline_agent: 'PPT 大纲智能体',
-  ppt_layout_agent: 'PPT 布局智能体',
+  ppt_structure_agent: 'PPT 结构智能体',
   ppt_review_agent: 'PPT 审查智能体',
   ppt_image_agent: 'PPT 图片智能体',
   ppt_to_docx_agent: 'PPT 转 DOCX 智能体',

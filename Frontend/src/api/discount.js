@@ -57,6 +57,6 @@ export function getMerchantList(params = {}) {
   return request({
     url: '/api/merchant/list',
     method: 'GET',
-    params: { current: params.current || 1, size: params.size || 500 },
+    params: { current: params.current || 1, size: params.size || 500, status: 1 },
   })
 }

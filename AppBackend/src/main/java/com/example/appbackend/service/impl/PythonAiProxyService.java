@@ -289,6 +289,32 @@ public class PythonAiProxyService {
                 requirePptGenerationModel());
     }
 
+    public Object getPptOptions(String authorization) {
+        return getPythonAuthObject("/internal/rag/ppt-generation/options",
+                authorization, "PPT 配置查询失败");
+    }
+
+    public Object uploadPptSourceFile(MultipartFile file, String authorization) {
+        try {
+            String filename = StringUtils.hasText(file.getOriginalFilename())
+                    ? StringUtils.cleanPath(file.getOriginalFilename())
+                    : "material";
+            return postPptObject(
+                    "/internal/rag/ppt-generation/files",
+                    Map.of(
+                            "fileName", filename,
+                            "contentType", StringUtils.hasText(file.getContentType())
+                                    ? file.getContentType() : MediaType.APPLICATION_OCTET_STREAM_VALUE,
+                            "contentBase64", Base64.getEncoder().encodeToString(file.getBytes())
+                    ),
+                    authorization,
+                    null
+            );
+        } catch (java.io.IOException e) {
+            throw new BusinessException(Result.ERROR_CODE, "PPT 资料文件读取失败");
+        }
+    }
+
     public Object generatePptSlides(Map<String, Object> request, String authorization) {
         return postPptObject("/internal/rag/ppt-generation/slides", request, authorization,
                 requirePptGenerationModel());
@@ -302,6 +328,61 @@ public class PythonAiProxyService {
     public Object getPptTask(String taskId, String authorization) {
         return getPythonAuthObject("/internal/rag/ppt-generation/tasks/" + taskId,
                 authorization, "PPT 任务查询失败");
+    }
+
+    public Object cancelPptTask(String taskId, String authorization) {
+        return postPptObject("/internal/rag/ppt-generation/tasks/" + taskId + "/cancel",
+                Map.of(), authorization, null);
+    }
+
+    public Object retryPptTask(String taskId, String authorization) {
+        return postPptObject("/internal/rag/ppt-generation/tasks/" + taskId + "/retry",
+                Map.of(), authorization, requirePptGenerationModel());
+    }
+
+    public Object replacePptSlideImage(String taskId, Integer slideIndex,
+                                       Map<String, Object> request, String authorization) {
+        return postPptObject(
+                "/internal/rag/ppt-generation/tasks/" + taskId + "/slides/" + slideIndex + "/image",
+                request, authorization, null);
+    }
+
+    public GeneratedExportResponse downloadPptTemplateThumbnail(String templateId, String authorization) {
+        validateAuthorization(authorization);
+        if (!StringUtils.hasText(templateId) || !templateId.matches("[A-Za-z0-9._-]{1,120}")) {
+            throw new BusinessException(Result.ERROR_CODE, "PPT 模板编号无效");
+        }
+        String token = normalizeBearerToken(authorization);
+        Long userId = extractUserId(token);
+        String encodedTemplateId = UriUtils.encodePathSegment(templateId, StandardCharsets.UTF_8);
+        try {
+            ResponseEntity<byte[]> response = buildFileResponseWebClient().get()
+                    .uri(buildUri("/internal/rag/ppt-generation/templates/" + encodedTemplateId + "/thumbnail"))
+                    .headers(headers -> applyPythonAuthHeaders(headers, authorization, userId))
+                    .retrieve()
+                    .toEntity(byte[].class)
+                    .timeout(Duration.ofSeconds(timeoutSeconds))
+                    .block();
+            if (response == null || response.getBody() == null) {
+                throw new BusinessException(502, "PPT 模板缩略图响应为空");
+            }
+            if (response.getBody().length > fileResponseMaxInMemoryBytes) {
+                throw new BusinessException(413, "PPT 模板缩略图超过允许大小");
+            }
+            MediaType contentType = response.getHeaders().getContentType();
+            return new GeneratedExportResponse(
+                    response.getBody(),
+                    contentType == null ? MediaType.IMAGE_PNG : contentType,
+                    response.getHeaders().getContentLength()
+            );
+        } catch (WebClientResponseException e) {
+            throw new BusinessException(e.getStatusCode().value(),
+                    "PPT 模板缩略图读取失败: " + extractRemoteMessage(e));
+        } catch (BusinessException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new BusinessException(502, "PPT 模板缩略图读取失败");
+        }
     }
 
     public GeneratedExportResponse downloadPptTaskArtifact(String artifactPath, String authorization) {
@@ -357,7 +438,13 @@ public class PythonAiProxyService {
             return webClientBuilder.build()
                     .post()
                     .uri(buildUri(path))
-                    .headers(headers -> applyPythonHeaders(headers, authorization, userId, requestedModel))
+                    .headers(headers -> {
+                        if (StringUtils.hasText(requestedModel)) {
+                            applyPythonHeaders(headers, authorization, userId, requestedModel);
+                        } else {
+                            applyPythonAuthHeaders(headers, authorization, userId);
+                        }
+                    })
                     .contentType(MediaType.APPLICATION_JSON)
                     .bodyValue(request == null ? Map.of() : request)
                     .retrieve()

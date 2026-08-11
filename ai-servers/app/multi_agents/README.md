@@ -19,7 +19,7 @@
 | `textbook_question_calculation_agent` | 计算题智能体 | 基于知识点生成计算题、解题步骤和答案 |
 | `textbook_question_programming_agent` | 编程题智能体 | 基于知识点生成编程题、参考思路和测试用例 |
 | `ppt_outline_agent` | PPT 大纲智能体 | 基于主题和证据生成 PPT 页结构、大纲和页面建议 |
-| `ppt_layout_agent` | PPT 布局智能体 | 根据 PPT 大纲规划逐页版式、视觉层级和组件摆放 |
+| `ppt_structure_agent` | Presenton 结构智能体 | 按 Presenton 布局组件 Schema 为每页选择 layoutId |
 | `ppt_review_agent` | PPT 审查智能体 | 审查 PPT 内容和布局，输出问题清单、修改建议和置信度 |
 | `ppt_image_agent` | PPT 配图提示词智能体 | 为 PPT 封面、插图和示意图生成图片提示词，不直接生图 |
 | `ppt_to_docx_agent` | PPT 转 DOCX 智能体 | 将 PPTX 文件转换为 DOCX，按幻灯片顺序重排内容并保留图片 |
@@ -48,7 +48,7 @@
 | 计算题 | `textbook_question_calculation_agent` | 直接处理输入上下文 | `input` 为出题范围 |
 | 编程题 | `textbook_question_programming_agent` | 直接处理输入上下文 | `input` 为出题范围 |
 | PPT 大纲 | `ppt_outline_agent` | 直接处理输入上下文 | `input` 为课件主题 |
-| PPT 布局 | `ppt_layout_agent` | 直接处理输入上下文 | `input` 为 PPT 大纲或布局要求 |
+| PPT 结构选版 | `ppt_structure_agent` | Presenton 模板结构选择 | `input` 为模板布局 Schema 和 PPT 大纲 JSON |
 | PPT 审查 | `ppt_review_agent` | 直接处理输入上下文 | `input` 为 PPT 大纲、布局或页面内容 |
 | PPT 图片 | `generate_ppt_image_tool` | 工具编排 | 工具内部调用 `ppt_image_agent` 生成提示词，再调用唯一图片入口 |
 | PPT 转 DOCX | `ppt_to_docx_agent` | 确定性文件转换 | 上传 `.pptx` 文件后通过文档转换接口生成 `.docx` |
