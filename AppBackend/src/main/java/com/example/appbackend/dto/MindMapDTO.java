@@ -73,6 +73,9 @@ public class MindMapDTO {
         private String content;
         private String sourceType;
         private String sourceFile;
+        private String sourceText;
+        private String fileId;
+        private String fileSummary;
     }
 
     @Data
@@ -98,6 +101,12 @@ public class MindMapDTO {
         private MindMapData currentMindMap;
         @Size(max = 500)
         private String userInstruction;
+        private String content;
+        private String sourceType;
+        private String sourceFile;
+        private String sourceText;
+        private String fileId;
+        private String fileSummary;
     }
 
     @Data
@@ -116,5 +125,8 @@ public class MindMapDTO {
         private String content;
         private String sourceType;
         private String sourceFile;
+        private String sourceText;
+        private String fileId;
+        private String fileSummary;
     }
 }

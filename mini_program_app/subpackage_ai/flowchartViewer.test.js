@@ -18,6 +18,10 @@ test('flowchart viewer shows generated title in shared nav bar without extra tit
 test('flowchart optimization opens the optimized result route', () => {
   const page = readFileSync(join(__dirname, 'flowchartViewer/flowchartViewer.vue'), 'utf8')
 
+  assert.match(page, /function buildSourceContext/)
+  assert.match(page, /const source = buildSourceContext\(base\)/)
+  assert.match(page, /content: source\.content/)
+  assert.match(page, /\.\.\.source/)
   assert.match(page, /uni\.setStorageSync\('aiFlowchartPendingPayload', newPayload\)/)
   assert.match(page, /uni\.redirectTo\(\{ url: `\/subpackage_ai\/flowchartViewer\/flowchartViewer\?id=\$\{encodeURIComponent\(r\.id\)\}` \}\)/)
   assert.doesNotMatch(page, /uni\.showToast\(\{ title: '已更新流程图'/)

@@ -620,7 +620,7 @@ function describeCurrentArchitecture() {
 }
 
 function buildOptimizeDescription(base, userInstruction) {
-  const original = base.content || base.description || architectureData.value.title || ''
+  const original = base.content || architectureData.value.title || ''
   return [
     '请基于当前架构图进行优化，不要重新生成无关架构。',
     original ? `原始需求：${original}` : '',
@@ -629,9 +629,40 @@ function buildOptimizeDescription(base, userInstruction) {
   ].filter(Boolean).join('\n\n')
 }
 
+function firstText(...values) {
+  return values.find(value => String(value || '').trim()) || ''
+}
+
+function firstFile(files) {
+  return Array.isArray(files) && files.length ? files[0] : null
+}
+
+function extractOriginalRequirement(value = '') {
+  const text = String(value || '')
+  const match = text.match(/原始需求[:：]\s*([\s\S]*?)(?:\n\s*当前系统类型|\n\s*当前关系表达|\n\s*当前分层与模块|\n\s*当前连接关系|\n\s*优化要求|【文档内容】|文件解析内容[:：]|$)/)
+  return match ? match[1].trim() : ''
+}
+
+function buildSourceContext(base = {}) {
+  const current = architectureData.value || {}
+  const files = Array.isArray(current.files) && current.files.length
+    ? current.files
+    : (Array.isArray(base.files) ? base.files : [])
+  const file = firstFile(files)
+  return {
+    content: firstText(current.content, base.content, extractOriginalRequirement(current.description), extractOriginalRequirement(base.description), current.title),
+    files,
+    sourceText: firstText(current.sourceText, base.sourceText, file?.text),
+    fileId: firstText(current.fileId, base.fileId, file?.fileId, file?.id),
+    sourceFile: firstText(current.sourceFile, base.sourceFile, file?.sourceFile, file?.url),
+    fileSummary: firstText(current.fileSummary, current.summary, base.fileSummary, base.summary, file?.summary)
+  }
+}
+
 function buildOptimizePayload(userInstruction) {
   const base = uni.getStorageSync('aiArchitecturePendingPayload') || {}
-  const optimizedDescription = buildOptimizeDescription(base, userInstruction)
+  const source = buildSourceContext(base)
+  const optimizedDescription = buildOptimizeDescription(source, userInstruction)
   const relationMode = architectureData.value.requestedRelationMode || base.relationMode || base.relationType || 'AUTO'
   const architectureLayers = architectureData.value.architectureLayers?.length
     ? architectureData.value.architectureLayers
@@ -642,7 +673,8 @@ function buildOptimizePayload(userInstruction) {
 
   return buildArchitecturePayload({
     ...base,
-    content: optimizedDescription,
+    ...source,
+    content: source.content,
     description: optimizedDescription,
     systemType: architectureData.value.systemType || base.systemType || 'WEB',
     autoArchitectureLayers: architectureData.value.autoArchitectureLayers !== false,
@@ -653,10 +685,10 @@ function buildOptimizePayload(userInstruction) {
     relationMode,
     relationType: relationMode,
     hierarchyMode: architectureData.value.requestedHierarchyMode || base.hierarchyMode || 'STRUCTURED',
-    sourceText: base.sourceText || '',
-    fileId: base.fileId || '',
-    sourceFile: base.sourceFile || '',
-    files: Array.isArray(base.files) ? base.files : []
+    sourceText: source.sourceText || '',
+    fileId: source.fileId || '',
+    sourceFile: source.sourceFile || '',
+    files: source.files
   })
 }
 
@@ -802,6 +834,14 @@ function mergeWithDefaults(normalized) {
     relationMode: normalized.resolvedRelationMode || normalized.relationMode || 'MODULE',
     requestedHierarchyMode: normalized.requestedHierarchyMode || normalized.hierarchyMode || 'STRUCTURED',
     resolvedHierarchyMode: normalized.resolvedHierarchyMode || normalized.hierarchyMode || 'STRUCTURED',
+    description: normalized.description || '',
+    content: normalized.content || '',
+    files: Array.isArray(normalized.files) ? normalized.files : [],
+    sourceText: normalized.sourceText || '',
+    fileId: normalized.fileId || '',
+    sourceFile: normalized.sourceFile || '',
+    summary: normalized.summary || normalized.fileSummary || '',
+    fileSummary: normalized.fileSummary || normalized.summary || '',
     nodes: Array.isArray(normalized.nodes) ? normalized.nodes : [],
     edges: Array.isArray(normalized.edges) ? normalized.edges : [],
     layers: [],

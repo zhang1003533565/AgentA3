@@ -169,7 +169,17 @@ const BRANCH_COLORS = [
 const loading = ref(false)
 const resultId = ref('')
 const isDeleting = ref(false)
+const autoExportImage = ref(false)
 const mindmap = reactive({ title: '', nodes: [] })
+const mindmapSource = reactive({
+  content: '',
+  sourceType: '',
+  sourceFile: '',
+  sourceText: '',
+  fileId: '',
+  summary: '',
+  fileSummary: ''
+})
 const collapsed = reactive({})
 const scale = ref(1)
 // scroll-view 滚动位置（替代原来的 offset，由 scroll-view 原生管理滚动）
@@ -183,6 +193,7 @@ const showOptimizeSheet = ref(false)
 const showThinkWindow = ref(false)
 const thinkDone = ref(false) // 思考窗 API 完成信号：optimizeMindmap 返回后置 true，驱动思考窗切成功态
 const currentMindMapData = ref({})
+let autoExportDone = false
 
 const treeData = computed(() => toTreeData(mindmap))
 const layout = computed(() => buildMindMapLayout(treeData.value, collapsed))
@@ -216,6 +227,16 @@ function readPageOptions() {
   return current.options || current.$page?.options || {}
 }
 
+function isAutoExport(value) {
+  return ['1', 'true', 'image', 'png'].includes(String(value || '').trim().toLowerCase())
+}
+
+function extractMindmapSourceText(value = '') {
+  const text = String(value || '')
+  const match = text.match(/文件解析内容[:：]\s*([\s\S]*)$/)
+  return match ? match[1].trim() : ''
+}
+
 async function loadMindmap(id) {
   if (!id) return
   const cached = uni.getStorageSync(`aiMindmapResult:${id}`)
@@ -230,6 +251,25 @@ async function loadMindmap(id) {
   } finally {
     loading.value = false
   }
+}
+
+function applyMindmap(result = {}) {
+  mindmap.title = result.title || 'AI 思维导图'
+  mindmap.nodes = Array.isArray(result.nodes) ? result.nodes : []
+  mindmapSource.content = result.content || ''
+  mindmapSource.sourceType = result.sourceType || ''
+  mindmapSource.sourceFile = result.sourceFile || ''
+  mindmapSource.sourceText = result.sourceText || extractMindmapSourceText(result.content)
+  mindmapSource.fileId = result.fileId || ''
+  mindmapSource.summary = result.summary || ''
+  mindmapSource.fileSummary = result.fileSummary || result.summary || ''
+  Object.keys(collapsed).forEach(key => { delete collapsed[key] })
+  nextTick(() => {
+    measureCanvas(() => {
+      resetView()
+      nextTick(queueAutoExport)
+    })
+  })
 }
 
 function leaveAfterDelete() {
@@ -265,15 +305,6 @@ function deleteCurrentMindmap() {
         isDeleting.value = false
       }
     }
-  })
-}
-
-function applyMindmap(result = {}) {
-  mindmap.title = result.title || 'AI 思维导图'
-  mindmap.nodes = Array.isArray(result.nodes) ? result.nodes : []
-  Object.keys(collapsed).forEach(key => { delete collapsed[key] })
-  nextTick(() => {
-    measureCanvas(() => resetView())
   })
 }
 
@@ -708,6 +739,13 @@ function saveMindmap() {
   // #endif
 }
 
+function queueAutoExport() {
+  if (!autoExportImage.value || autoExportDone) return
+  if (!layout.value || !layout.value.nodes || !layout.value.nodes.length) return
+  autoExportDone = true
+  setTimeout(saveMindmap, 160)
+}
+
 function regenerate() {
   uni.navigateBack()
 }
@@ -731,7 +769,15 @@ async function onOptimize(payload) {
   thinkDone.value = false
   showThinkWindow.value = true
   try {
-    const result = await optimizeMindmap(payload)
+    const result = await optimizeMindmap({
+      ...payload,
+      content: mindmapSource.content,
+      sourceType: mindmapSource.sourceType,
+      sourceFile: mindmapSource.sourceFile,
+      sourceText: mindmapSource.sourceText,
+      fileId: mindmapSource.fileId,
+      fileSummary: mindmapSource.fileSummary || mindmapSource.summary
+    })
     if (result?.id) {
       uni.setStorageSync(`aiMindmapResult:${result.id}`, result)
     }
@@ -755,6 +801,7 @@ function onThinkView() {
 onMounted(() => {
   measureCanvas()
   const options = readPageOptions()
+  autoExportImage.value = isAutoExport(options.autoExport || options.exportImage)
   resultId.value = decodeURIComponent(options.id || options.resultId || '')
   loadMindmap(resultId.value)
 

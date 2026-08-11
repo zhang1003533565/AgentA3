@@ -132,11 +132,29 @@ public class MindMapServiceImpl implements MindMapService {
         record.setId(UUID.randomUUID().toString());
         record.setUserId(userId);
         record.setTitle(data.getTitle());
-        record.setSourceType(MindMapRecord.SOURCE_TEXT);
-        record.setContent("优化：" + instruction);
+        String sourceContent = firstText(
+                request.getContent(),
+                composeInputText("", trim(request.getSourceText()), "")
+        );
+        String sourceFile = firstText(request.getSourceFile(), request.getFileId());
+        record.setSourceType(resolveSourceType(request.getSourceType(), sourceContent, request.getSourceText(), sourceFile));
+        record.setSourceFile(sourceFile);
+        record.setContent(firstText(sourceContent, "优化：" + instruction));
         record.setMindMapJson(writeJson(data));
+        record.setDepth(data.getRequestedDepth());
+        record.setStructureType(data.getRequestedStructure());
+        record.setDetailLevel(data.getDetailLevel());
         recordRepository.save(record);
         return toGenerateResponse(record, data);
+    }
+
+    private String resolveSourceType(String requestedSourceType, String content, String sourceText, String sourceFile) {
+        String requested = trim(requestedSourceType).toUpperCase(Locale.ROOT);
+        if (MindMapRecord.SOURCE_FILE.equals(requested)) return MindMapRecord.SOURCE_FILE;
+        if (StringUtils.hasText(sourceText) || StringUtils.hasText(sourceFile) || String.valueOf(content).contains("文件解析内容")) {
+            return MindMapRecord.SOURCE_FILE;
+        }
+        return MindMapRecord.SOURCE_TEXT;
     }
 
     @Override
@@ -239,6 +257,9 @@ public class MindMapServiceImpl implements MindMapService {
         response.setContent(record.getContent());
         response.setSourceType(record.getSourceType());
         response.setSourceFile(record.getSourceFile());
+        response.setSourceText(extractFileContent(record.getContent()));
+        response.setFileId("");
+        response.setFileSummary("");
         return response;
     }
 
@@ -251,6 +272,9 @@ public class MindMapServiceImpl implements MindMapService {
         item.setContent(record.getContent());
         item.setSourceType(record.getSourceType());
         item.setSourceFile(record.getSourceFile());
+        item.setSourceText(extractFileContent(record.getContent()));
+        item.setFileId("");
+        item.setFileSummary("");
         MindMapDTO.MindMapData data = readDataOrNull(record.getMindMapJson());
         if (data != null) {
             item.setRequestedCenterTopicMode(data.getRequestedCenterTopicMode());
@@ -324,5 +348,16 @@ public class MindMapServiceImpl implements MindMapService {
 
     private String trim(String value) {
         return value == null ? "" : value.trim();
+    }
+
+    private String extractFileContent(String content) {
+        String text = trim(content);
+        String marker = "文件解析内容：";
+        int index = text.indexOf(marker);
+        if (index < 0) {
+            marker = "文件解析内容:";
+            index = text.indexOf(marker);
+        }
+        return index >= 0 ? text.substring(index + marker.length()).trim() : "";
     }
 }

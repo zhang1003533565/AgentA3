@@ -277,7 +277,7 @@ public class ArchitectureServiceImpl implements ArchitectureService {
                     resolvedHierarchyMode,
                     record.getCreateTime() == null ? null : record.getCreateTime().toString(),
                     firstText(getString(config, "description", ""), record.getDescription()),
-                    getString(config, "content", ""),
+                    firstText(getString(config, "content", ""), extractOriginalRequirement(record.getDescription())),
                     getObjectList(config, "files"),
                     getString(config, "sourceText", ""),
                     getString(config, "fileId", ""),
@@ -445,6 +445,25 @@ public class ArchitectureServiceImpl implements ArchitectureService {
         return value == null ? "" : String.valueOf(value).trim();
     }
 
+    private String extractOriginalRequirement(String description) {
+        String text = firstText(description);
+        String marker = "原始需求：";
+        int start = text.indexOf(marker);
+        if (start < 0) {
+            marker = "原始需求:";
+            start = text.indexOf(marker);
+        }
+        if (start < 0) return "";
+        String remaining = text.substring(start + marker.length()).trim();
+        String[] stops = {"\n当前系统类型", "\n当前关系表达", "\n当前分层与模块", "\n当前连接关系", "\n优化要求", "\n【文档内容】", "\n文件解析内容：", "\n文件解析内容:"};
+        int end = remaining.length();
+        for (String stop : stops) {
+            int index = remaining.indexOf(stop);
+            if (index >= 0) end = Math.min(end, index);
+        }
+        return remaining.substring(0, end).trim();
+    }
+
     @SuppressWarnings("unchecked")
     private ArchitectureDTO.GenerateResponse toGenerateResponse(ArchitectureRecord record, Map<String, Object> archData) {
         Map<String, Object> config = parseJson(record.getConfigJson());
@@ -519,7 +538,7 @@ public class ArchitectureServiceImpl implements ArchitectureService {
                 edges,
                 record.getCreateTime() == null ? null : record.getCreateTime().toString(),
                 firstText(getString(config, "description", ""), record.getDescription()),
-                getString(config, "content", ""),
+                firstText(getString(config, "content", ""), extractOriginalRequirement(record.getDescription())),
                 getObjectList(config, "files"),
                 getString(config, "sourceText", ""),
                 getString(config, "fileId", ""),

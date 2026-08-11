@@ -365,8 +365,38 @@ function describeCurrentFlow() {
   ].filter(Boolean).join('\n')
 }
 
-function buildOptimizeDescription(base, userInstruction) {
-  const original = base.content || base.description || chart.value.title || ''
+function firstText(...values) {
+  return values.find(value => String(value || '').trim()) || ''
+}
+
+function firstFile(files) {
+  return Array.isArray(files) && files.length ? files[0] : null
+}
+
+function extractOriginalRequest(value = '') {
+  const text = String(value || '')
+  const match = text.match(/原始需求[:：]\s*([\s\S]*?)(?:\n\s*当前泳道|\n\s*当前节点顺序|\n\s*当前连线|\n\s*优化要求|文件解析内容[:：]|$)/)
+  return match ? match[1].trim() : ''
+}
+
+function buildSourceContext(base = {}) {
+  const current = chart.value || {}
+  const files = Array.isArray(current.files) && current.files.length
+    ? current.files
+    : (Array.isArray(base.files) ? base.files : [])
+  const file = firstFile(files)
+  return {
+    content: firstText(current.content, base.content, extractOriginalRequest(current.description), extractOriginalRequest(base.description), current.title),
+    files,
+    sourceText: firstText(current.sourceText, base.sourceText, file?.text),
+    fileId: firstText(current.fileId, base.fileId, file?.fileId, file?.id),
+    sourceFile: firstText(current.sourceFile, base.sourceFile, file?.sourceFile, file?.url),
+    fileSummary: firstText(current.fileSummary, current.summary, base.fileSummary, base.summary, file?.summary)
+  }
+}
+
+function buildOptimizeDescription(source, userInstruction) {
+  const original = source.content || chart.value.title || ''
   return [
     '请基于当前流程图进行优化，不要重新生成无关流程。',
     original ? `原始需求：${original}` : '',
@@ -383,10 +413,12 @@ async function onOptimize(payload) {
   try {
     const base = uni.getStorageSync('aiFlowchartPendingPayload') || {}
     const userInstruction = String(payload.userInstruction || '').trim()
-    const optimizedDescription = buildOptimizeDescription(base, userInstruction)
+    const source = buildSourceContext(base)
+    const optimizedDescription = buildOptimizeDescription(source, userInstruction)
     const newPayload = {
       ...base,
-      content: optimizedDescription,
+      ...source,
+      content: source.content,
       description: optimizedDescription
     }
     const result = flattenLanes(await generateFlowchart(newPayload))

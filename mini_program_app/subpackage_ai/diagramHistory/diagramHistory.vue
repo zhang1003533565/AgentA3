@@ -201,6 +201,12 @@ function stripFileContent(value = '') {
   return String(value || '').split(/文件解析内容[:：]/)[0].trim()
 }
 
+function extractFileContent(value = '') {
+  const text = String(value || '')
+  const match = text.match(/文件解析内容[:：]\s*([\s\S]*)$/)
+  return match ? match[1].trim() : ''
+}
+
 function truncateText(value = '', limit = CARD_DESC_LIMIT) {
   const text = compactText(value)
   if (!text) return ''
@@ -229,7 +235,7 @@ function fileSummary(record = {}) {
 
 function sourceText(record = {}) {
   const file = firstFile(record)
-  return firstText(record.sourceText, file?.text)
+  return firstText(record.sourceText, file?.text, extractFileContent(record.content), extractFileContent(record.description))
 }
 
 function displayInput(record = {}) {
@@ -410,7 +416,7 @@ function normalizeRestoreFiles(record = {}) {
       fileName: name,
       sourceFile,
       url: sourceFile,
-      text: firstText(file.text, record.sourceText),
+      text: firstText(file.text, record.sourceText, extractFileContent(record.content), extractFileContent(record.description)),
       summary: firstText(file.summary, record.fileSummary, record.summary),
       size: file.size || 0,
       textLength: file.textLength || 0,
@@ -424,7 +430,7 @@ function normalizeRestoreFiles(record = {}) {
 
   const sourceFile = record.sourceFile || ''
   const fileId = record.fileId || ''
-  const text = record.sourceText || ''
+  const text = firstText(record.sourceText, extractFileContent(record.content), extractFileContent(record.description))
   const summary = fileSummary(record)
   if (!sourceFile && !fileId && !text && !summary) return []
   const name = firstText(fileName(record), fileNameFromPath(sourceFile), '已导入文件')
@@ -466,14 +472,14 @@ function buildRestoreDraft(record = {}, type) {
     title: record.title || '',
     description: record.description || record.content || record.preview || '',
     files,
-    sourceText: firstText(record.sourceText, files[0]?.text),
+    sourceText: firstText(record.sourceText, files[0]?.text, extractFileContent(record.content), extractFileContent(record.description)),
     sourceFile: firstText(record.sourceFile, files[0]?.sourceFile, files[0]?.url),
     fileId: firstText(record.fileId, files[0]?.fileId, files[0]?.id),
     summary: firstText(fileSummary(record), files[0]?.summary),
     fileSummary: firstText(record.fileSummary, record.summary, files[0]?.summary)
   }
   if (type === 'mindmap') {
-    const topic = firstText(record.topic, record.content, stripMindmapContent(record.description || record.preview || ''))
+    const topic = firstText(record.topic, stripMindmapContent(record.content || ''), stripMindmapContent(record.description || record.preview || ''))
     return {
       ...common,
       topic,

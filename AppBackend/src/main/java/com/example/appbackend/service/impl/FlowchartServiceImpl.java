@@ -60,7 +60,8 @@ public class FlowchartServiceImpl implements FlowchartService {
         if (request == null) {
             throw new BusinessException(400, "请求参数不能为空");
         }
-        String description = firstText(request.getContent(), request.getDescription());
+        String originalContent = trim(request.getContent());
+        String description = firstText(request.getDescription(), request.getContent());
         String sourceText = trim(request.getSourceText());
         String inputText = combineInput(description, sourceText);
         if (!StringUtils.hasText(inputText)) {
@@ -73,7 +74,7 @@ public class FlowchartServiceImpl implements FlowchartService {
         String requestedSwimlaneMode = normalizeSwimlaneMode(firstText(request.getSwimlaneMode(), request.getSwimlane()));
 
         request.setDescription(description);
-        request.setContent(description);
+        request.setContent(firstText(originalContent, description));
         request.setSceneType(sceneType);
         request.setProcessType(sceneType);
         request.setNodeGranularity(nodeGranularity);
@@ -188,7 +189,7 @@ public class FlowchartServiceImpl implements FlowchartService {
         response.setEdges(data.getEdges());
         response.setCreateTime(record.getCreateTime());
         response.setDescription(record.getDescription());
-        response.setContent(firstText(getString(config, "content", ""), getString(config, "description", ""), record.getDescription()));
+        response.setContent(firstText(getString(config, "content", ""), extractOriginalRequest(record.getDescription()), getString(config, "description", ""), record.getDescription()));
         response.setFiles(objectToFileRefs(config.get("files")));
         response.setSourceText(getString(config, "sourceText", ""));
         response.setFileId(getString(config, "fileId", ""));
@@ -205,7 +206,7 @@ public class FlowchartServiceImpl implements FlowchartService {
         item.setCreateTime(record.getCreateTime());
         item.setType(record.getDiagramType());
         item.setDescription(record.getDescription());
-        item.setContent(firstText(getString(config, "content", ""), getString(config, "description", ""), record.getDescription()));
+        item.setContent(firstText(getString(config, "content", ""), extractOriginalRequest(record.getDescription()), getString(config, "description", ""), record.getDescription()));
         item.setFiles(objectToFileRefs(config.get("files")));
         item.setSourceText(getString(config, "sourceText", ""));
         item.setFileId(getString(config, "fileId", ""));
@@ -542,6 +543,25 @@ public class FlowchartServiceImpl implements FlowchartService {
     private String firstFileSummary(List<FlowchartDTO.FileRef> files) {
         if (files == null || files.isEmpty()) return "";
         return trim(files.get(0).getSummary());
+    }
+
+    private String extractOriginalRequest(String description) {
+        String text = trim(description);
+        String marker = "原始需求：";
+        int start = text.indexOf(marker);
+        if (start < 0) {
+            marker = "原始需求:";
+            start = text.indexOf(marker);
+        }
+        if (start < 0) return "";
+        String remaining = text.substring(start + marker.length()).trim();
+        String[] stops = {"\n当前泳道", "\n当前节点顺序", "\n当前连线", "\n优化要求", "\n文件解析内容：", "\n文件解析内容:"};
+        int end = remaining.length();
+        for (String stop : stops) {
+            int index = remaining.indexOf(stop);
+            if (index >= 0) end = Math.min(end, index);
+        }
+        return remaining.substring(0, end).trim();
     }
 
     private String getString(Map<String, Object> data, String key, String defaultValue) {

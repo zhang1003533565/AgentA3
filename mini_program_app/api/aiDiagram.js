@@ -148,7 +148,8 @@ export function normalizeMindmap(result = {}) {
     sourceFile: result.sourceFile || '',
     fileId: result.fileId || '',
     sourceText: result.sourceText || '',
-    summary: result.summary || result.fileSummary || ''
+    summary: result.summary || result.fileSummary || '',
+    fileSummary: result.fileSummary || result.summary || ''
   }
 }
 

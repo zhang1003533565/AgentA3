@@ -66,3 +66,13 @@ test('mind map generating animation uses resolved structure and detail metadata'
   assert.match(generating, /正在拆分功能模块/)
   assert.match(generating, /正在提取核心内容并合并次要信息/)
 })
+
+test('mind map optimization keeps original input and file source context', () => {
+  const viewer = readFileSync(join(__dirname, 'mindmapViewer/mindmapViewer.vue'), 'utf8')
+
+  assert.match(viewer, /const mindmapSource = reactive/)
+  assert.match(viewer, /extractMindmapSourceText\(result\.content\)/)
+  assert.match(viewer, /content: mindmapSource\.content/)
+  assert.match(viewer, /sourceText: mindmapSource\.sourceText/)
+  assert.match(viewer, /sourceFile: mindmapSource\.sourceFile/)
+})
