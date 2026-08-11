@@ -58,12 +58,22 @@
             />
           </svg>
 
+          <view
+            v-for="lane in laneBandsList"
+            :key="'lane' + lane.id"
+            class="gen-lane-band"
+            :class="`gen-lane-band--${lane.type || 'role'}`"
+            :style="laneBox(lane)"
+          >
+            <text class="gen-lane-title">{{ lane.label || lane.name }}</text>
+          </view>
+
           <!-- 骨架占位 -->
           <view
             v-for="node in ghostNodesList"
             :key="'gn' + node.id"
             class="ghost"
-            :class="{ 'ghost--pill': isTerminal(node) }"
+            :class="{ 'ghost--pill': isTerminal(node), 'ghost--decision': nodeType(node) === 'decision' }"
             :style="nodeBox(node)"
           ></view>
 
@@ -74,6 +84,7 @@
             class="fn fn-in"
             :class="['fn--' + nodeType(node), { settle: settleOn }]"
             :style="nodeBox(node)"
+            :data-level="node.level"
           >
             <text class="fn-name">{{ node.name }}</text>
           </view>
@@ -118,7 +129,7 @@
 
     <!-- 错误状态 -->
     <view v-if="pageState === 'error'" class="error-state">
-      <view class="error-icon">⚠️</view>
+      <view class="error-icon">!</view>
       <text class="error-title">生成失败</text>
       <text class="error-msg">{{ errorMessage }}</text>
       <view class="error-actions">
@@ -140,29 +151,20 @@ import { ref, computed, reactive } from 'vue'
 import { onLoad, onUnload } from '@dcloudio/uni-app'
 import { generateFlowchart as requestGenerateFlowchart, getErrorMessage } from '@/api/aiDiagram.js'
 import { layoutFlowchart, inkSequence, FLOW_NODE_W, FLOW_NODE_H } from '../flowchartLayout.js'
+import { flowCameraFollowKey, targetCameraXForNode } from '../flowchartCamera.js'
 
 const state = reactive({ resultData: null, laid: null, seq: [] })
+const requestPayload = ref(null)
 const isCompleted = ref(false)
 const isH5 = ref(false)
 const pageState = ref('loading')
 const errorMessage = ref('')
 
-const steps = [{}, {}, {}, {}, {}]
 const stageIndex = ref(0)
-const stageSubtitle = computed(() => ([
-  '正在理解流程描述…',
-  '正在构建流程骨架…',
-  '正在填充流程节点…',
-  '正在优化分支与回流…',
-  '正在整理布局…'
-][stageIndex.value] || ''))
-const waitingText = computed(() => ([
-  '解析角色与审批环节…',
-  '蓝图已生成，开始逐节点墨实…',
-  '按流程顺序生长节点与连线…',
-  '展开判断分支，连接退回路径…',
-  '微调位置，准备输出…'
-][stageIndex.value] || ''))
+const animationSteps = computed(() => buildAnimationSteps(state.resultData, requestPayload.value))
+const steps = computed(() => animationSteps.value.map(() => ({})))
+const stageSubtitle = computed(() => animationSteps.value[stageIndex.value]?.title || '')
+const waitingText = computed(() => animationSteps.value[stageIndex.value]?.detail || '')
 function stepStatus(idx) {
   if (idx < stageIndex.value) return 'done'
   if (idx === stageIndex.value) return 'active'
@@ -170,12 +172,14 @@ function stepStatus(idx) {
 }
 const progressPercent = computed(() => {
   if (isCompleted.value) return 100
-  return [18, 32, 62, 92, 97][stageIndex.value] || 0
+  const total = Math.max(steps.value.length - 1, 1)
+  return Math.min(97, Math.max(12, Math.round((stageIndex.value + 1) / (total + 1) * 100)))
 })
 
 // ===== 布局数据 =====
 const laidNodes = computed(() => state.laid?.nodes || [])
 const laidEdges = computed(() => state.laid?.edges || [])
+const laneBandsList = computed(() => skeletonOn.value ? (state.laid?.lanes || []) : [])
 const skeletonOn = ref(false)
 const settleOn = ref(false)
 const showRing = ref(true)
@@ -189,6 +193,7 @@ const ghostEdgesList = computed(() => laidEdges.value.filter(e => skeletonOn.val
 const solidEdgesList = computed(() => laidEdges.value.filter(e => drawnKeys[e.key]))
 const inkedNodesList = computed(() => laidNodes.value.filter(n => inkedIds[n.id]))
 const labelEdgesList = computed(() => laidEdges.value.filter(e => e.label && drawnKeys[e.key]))
+const layoutDirection = computed(() => state.laid?.direction || flowDirectionOf(state.resultData, requestPayload.value))
 
 // ===== 画布尺寸 =====
 const systemInfo = uni.getSystemInfoSync()
@@ -203,13 +208,16 @@ const canvasStyle = computed(() => ({ width: canvasW.value + 'px', height: canva
 
 const scale = ref(1)
 const offset = reactive({ x: 0, y: 0 })
+const cameraY = ref(0)
 const smooth = ref(false)
+const CAMERA_TRANSITION_MS = 460
+const CAMERA_EPSILON = 1
 const stageStyle = computed(() => ({
   width: canvasW.value + 'px',
   height: canvasH.value + 'px',
-  transform: `translate(${offset.x}px, ${offset.y}px) scale(${scale.value})`,
+  transform: `translate(${offset.x}px, ${cameraY.value}px) scale(${scale.value})`,
   transformOrigin: '0 0',
-  transition: smooth.value ? 'transform 0.6s cubic-bezier(0.22,1,0.36,1)' : 'none'
+  transition: smooth.value ? `transform ${CAMERA_TRANSITION_MS}ms cubic-bezier(0.22,1,0.36,1)` : 'none'
 }))
 
 function nodeBox(node) {
@@ -220,21 +228,88 @@ function nodeBox(node) {
     height: FLOW_NODE_H + 'px'
   }
 }
+function laneBox(lane) {
+  return {
+    left: lane.x + 'px',
+    top: lane.y + 'px',
+    width: lane.w + 'px',
+    height: lane.h + 'px'
+  }
+}
 function labelPos(edge) {
-  return { left: (edge.x1 + edge.x2) / 2 + 'px', top: ((edge.y1 + edge.y2) / 2 - 14) + 'px' }
+  return {
+    left: (edge.labelX ?? (edge.x1 + edge.x2) / 2) + 'px',
+    top: (edge.labelY ?? (edge.y1 + edge.y2) / 2) + 'px'
+  }
 }
 function isTerminal(node) { return nodeType(node) === 'start' || nodeType(node) === 'end' }
-function nodeType(node) { return node.type || 'action' }
+function nodeType(node) { return node.type || 'process' }
 
 function centerOn() {
-  offset.x = Math.round(canvasW.value / 2 * (1 - scale.value))
-  offset.y = Math.round(canvasH.value / 2 * (1 - scale.value))
+  // 内容实际居中在 laid.canvasW × laid.canvasH，需平移到显示画布中心
+  const contentW = state.laid?.canvasW || canvasW.value
+  const contentH = state.laid?.canvasH || canvasH.value
+  offset.x = Math.round(canvasW.value / 2 - contentW / 2 * scale.value)
+  cameraY.value = Math.round(canvasH.value / 2 - contentH / 2 * scale.value)
 }
 function fitToView() {
-  const view = { w: SCREEN_W, h: Math.max(360, SCREEN_H - 400 * rpx2px) }
-  const fit = Math.min(view.w / canvasW.value, view.h / canvasH.value, 1)
+  // 用实际内容尺寸计算 scale，避免内容小于画布时被缩得过小
+  const contentW = state.laid?.canvasW || canvasW.value
+  const contentH = state.laid?.canvasH || canvasH.value
+  const view = getCameraViewSize()
+  const fit = Math.min(view.w / contentW, view.h / contentH, 1)
   scale.value = Math.max(0.3, Math.min(fit, 1))
   centerOn()
+}
+
+function isHorizontalFlow() {
+  return layoutDirection.value === 'HORIZONTAL'
+}
+
+function getCameraViewSize() {
+  return {
+    w: SCREEN_W,
+    h: Math.max(360, SCREEN_H - 400 * rpx2px)
+  }
+}
+
+function targetCameraX(node, view) {
+  return targetCameraXForNode({
+    node,
+    direction: layoutDirection.value,
+    laneCount: state.laid?.lanes?.length || 0,
+    viewW: view.w,
+    canvasW: canvasW.value,
+    contentW: state.laid?.canvasW || canvasW.value,
+    scale: scale.value
+  })
+}
+
+function targetCameraY(node, view) {
+  if (!isHorizontalFlow()) {
+    const targetY = view.h * 0.36
+    const canvasTop = view.h / 2 - canvasH.value / 2
+    return Math.round(targetY - canvasTop - node.cy * scale.value)
+  }
+
+  const canvasTop = view.h / 2 - canvasH.value / 2
+  const currentY = canvasTop + cameraY.value + node.cy * scale.value
+  const minY = view.h * 0.34
+  const maxY = view.h * 0.64
+  if (currentY < minY) return Math.round(cameraY.value + minY - currentY)
+  if (currentY > maxY) return Math.round(cameraY.value + maxY - currentY)
+  return cameraY.value
+}
+
+async function followCameraNode(node) {
+  if (!node) return
+  const view = getCameraViewSize()
+  const nextX = targetCameraX(node, view)
+  const nextY = targetCameraY(node, view)
+  const moved = Math.abs(nextX - offset.x) > CAMERA_EPSILON || Math.abs(nextY - cameraY.value) > CAMERA_EPSILON
+  offset.x = nextX
+  cameraY.value = nextY
+  if (moved) await sleep(CAMERA_TRANSITION_MS)
 }
 
 // ===== 动画流程 =====
@@ -244,6 +319,9 @@ function sleep(ms) { return new Promise(r => timers.push(setTimeout(r, ms))) }
 
 async function runAnimation() {
   const laid = state.laid
+  const lastStage = Math.max(animationSteps.value.length - 1, 0)
+  const inkStage = findStepIndex('ink', Math.min(2, lastStage))
+  const branchStage = findStepIndex('branch', inkStage)
   canvasW.value = Math.max(canvasW.value, laid.canvasW)
   canvasH.value = Math.max(canvasH.value, laid.canvasH)
   smooth.value = false
@@ -256,33 +334,43 @@ async function runAnimation() {
   await sleep(600)
 
   // 阶段1 骨架
-  stageIndex.value = 1
+  stageIndex.value = Math.min(1, lastStage)
   showRing.value = false
   skeletonOn.value = true
   await sleep(700)
 
   // 阶段2 墨实
-  stageIndex.value = 2
+  stageIndex.value = inkStage
+  let lastFollowKey = ''
   for (const item of state.seq) {
     if (item.node) {
+      const followKey = flowCameraFollowKey(item.node, layoutDirection.value, state.laid?.lanes?.length || 0)
+      if (followKey !== lastFollowKey) {
+        smooth.value = true
+        await followCameraNode(item.node)
+        lastFollowKey = followKey
+        await sleep(50)
+      }
       inkedIds[item.node.id] = true
       inkedCount.value += 1
-      if (inkedCount.value / laidNodes.value.length > 0.5) stageIndex.value = 2
+      if (nodeType(item.node) === 'decision') stageIndex.value = branchStage
       await sleep(170)
     } else {
       drawnKeys[item.edge.key] = true
+      if (item.edge.kind === 'branch' || item.edge.type === 'branch') stageIndex.value = branchStage
       await sleep(200)
     }
   }
 
   // 阶段3 优化
-  stageIndex.value = 3
+  stageIndex.value = Math.max(lastStage - 1, inkStage)
   settleOn.value = true
   await sleep(600)
 
   // 阶段4 布局
-  stageIndex.value = 4
+  stageIndex.value = lastStage
   smooth.value = true
+  // 镜头回到全景
   fitToView()
   await sleep(650)
 
@@ -296,6 +384,7 @@ async function run() {
   try {
     const payload = uni.getStorageSync('aiFlowchartPendingPayload')
     if (!payload || !payload.description) throw new Error('缺少流程描述')
+    requestPayload.value = payload
     const result = await requestGenerateFlowchart(payload)
     uni.setStorageSync(`aiFlowchartResult:${result.id}`, result)
     startAnimation(result)
@@ -304,6 +393,89 @@ async function run() {
     pageState.value = 'error'
     uni.showToast({ title: errorMessage.value, icon: 'none', duration: 2500 })
   }
+}
+
+function findStepIndex(kind, fallback) {
+  const index = animationSteps.value.findIndex(step => step.kind === kind)
+  return index >= 0 ? index : fallback
+}
+
+function buildAnimationSteps(result, payload = {}) {
+  const resolvedLane = String(result?.resolvedSwimlaneMode || '').toUpperCase()
+  const requestedLane = String(payload?.swimlaneMode || payload?.swimlane || '').toUpperCase()
+  const direction = flowDirectionOf(result, payload)
+  const hasDecision = String(result?.resolvedDecisionMode || '').toUpperCase() === 'ENABLED'
+    || (result?.nodes || []).some(node => String(node.type || '').toLowerCase() === 'decision')
+  const directionStep = {
+    kind: 'direction',
+    title: direction === 'HORIZONTAL' ? '正在规划横向流程路径…' : '正在规划纵向流程层级…',
+    detail: direction === 'HORIZONTAL'
+      ? '流程节点将按从左到右的顺序展开，镜头跟随横向路径推进…'
+      : '流程节点将按自上而下的顺序展开，镜头跟随纵向层级推进…'
+  }
+  const autoLaneLead = requestedLane === 'AUTO'
+    ? [{
+        kind: 'analysis',
+        title: '正在分析流程参与结构…',
+        detail: resolvedLane === 'ROLE'
+          ? '该流程涉及多个参与角色，准备建立角色泳道…'
+          : resolvedLane === 'DEPARTMENT'
+            ? '该流程涉及部门协作，准备建立部门泳道…'
+            : '流程结构较简单，采用普通流程布局…'
+      }]
+    : []
+
+  if (resolvedLane === 'ROLE') {
+    return [
+      ...autoLaneLead,
+      directionStep,
+      { kind: 'lane', title: '正在识别流程参与者…', detail: '建立角色泳道，并准备分配流程步骤…' },
+      { kind: 'ink', title: '正在将步骤分配至对应角色…', detail: '节点依次进入员工、主管、HR 等角色泳道…' },
+      ...(hasDecision ? [{ kind: 'branch', title: '正在建立条件分支…', detail: '判断节点出现，并连接通过 / 拒绝路径…' }] : []),
+      { kind: 'connect', title: '正在连接跨角色流程…', detail: '跨泳道箭头正在串联完整流转关系…' },
+      { kind: 'layout', title: '正在优化泳道布局…', detail: '流程图生成完成前进行最后排版…' }
+    ]
+  }
+  if (resolvedLane === 'DEPARTMENT') {
+    return [
+      ...autoLaneLead,
+      directionStep,
+      { kind: 'lane', title: '正在识别业务部门…', detail: '划分部门职责，建立部门泳道…' },
+      { kind: 'ink', title: '正在分配流程步骤…', detail: '步骤按部门职责进入对应泳道…' },
+      ...(hasDecision ? [{ kind: 'branch', title: '正在建立条件分支…', detail: '判断节点出现，并连接成功 / 失败路径…' }] : []),
+      { kind: 'connect', title: '正在建立跨部门流转关系…', detail: '连接线正在跨部门串联流程…' },
+      { kind: 'layout', title: '正在优化流程布局…', detail: '部门泳道流程图即将完成…' }
+    ]
+  }
+  if (hasDecision) {
+    return [
+      { kind: 'analysis', title: '正在解析流程需求…', detail: '识别关键步骤与流程条件…' },
+      directionStep,
+      { kind: 'ink', title: '正在形成主流程…', detail: '开始节点与主步骤依次出现…' },
+      { kind: 'branch', title: '正在识别流程条件…', detail: '发现判断节点，建立条件分支…' },
+      { kind: 'connect', title: '正在检查分支回流…', detail: '整理通过 / 拒绝路径和返回关系…' },
+      { kind: 'layout', title: '正在优化流程布局…', detail: '分支流程图生成完成…' }
+    ]
+  }
+  return [
+    ...autoLaneLead,
+    { kind: 'analysis', title: '正在解析流程需求…', detail: '识别关键步骤与执行顺序…' },
+    directionStep,
+    { kind: 'ink', title: '正在整理执行顺序…', detail: '流程步骤正在被串起来…' },
+    { kind: 'connect', title: '正在建立步骤连接…', detail: '连接线逐段建立，主流程逐渐完整…' },
+    { kind: 'layout', title: '正在优化流程布局…', detail: '普通流程图生成完成…' }
+  ]
+}
+
+function flowDirectionOf(result = {}, payload = {}) {
+  const text = String(
+    result?.resolvedLayoutDirection
+      || result?.requestedLayoutDirection
+      || payload?.layoutDirection
+      || payload?.direction
+      || 'VERTICAL'
+  ).toUpperCase()
+  return text.includes('HORIZONTAL') || text.includes('LANDSCAPE') || text.includes('横') ? 'HORIZONTAL' : 'VERTICAL'
 }
 
 function startAnimation(result) {
@@ -377,6 +549,11 @@ onUnload(() => { clearTimers() })
 .canvas-stage { position: relative; transform-origin: 0 0; overflow: visible; }
 .lines-svg { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 1; overflow: visible; }
 
+.gen-lane-band { position: absolute; z-index: 0; border: 2rpx solid #dce8f5; border-radius: 18rpx; background: rgba(237, 246, 255, 0.66); box-sizing: border-box; opacity: 0; animation: fcLaneIn 0.4s ease forwards; }
+.gen-lane-band--department { border-color: #d8e4f0; background: rgba(244, 248, 252, 0.82); }
+.gen-lane-title { position: absolute; left: 18rpx; top: 14rpx; color: #58728c; font-size: 22rpx; font-weight: 700; }
+@keyframes fcLaneIn { from { opacity: 0; transform: translateY(12rpx); } to { opacity: 1; transform: translateY(0); } }
+
 .ghost-edge { stroke: #c3d0de; stroke-width: 1.5; stroke-dasharray: 4 5; fill: none; opacity: 0.6; }
 .edge-draw { stroke: #91a6ba; stroke-width: 2; fill: none; stroke-dasharray: 1; stroke-dashoffset: 1; animation: fcDraw 0.32s ease-out forwards; }
 .edge-draw--back { stroke-dasharray: 0.06 0.05; animation: fcFade 0.4s ease forwards; }
@@ -385,14 +562,17 @@ onUnload(() => { clearTimers() })
 
 .ghost { position: absolute; z-index: 1; border: 2rpx dashed #b9c6d6; border-radius: 20rpx; opacity: 0.55; transform: translate(-50%, -50%); box-sizing: border-box; }
 .ghost--pill { border-radius: 999rpx; }
+.ghost--decision { border-radius: 12rpx; transform: translate(-50%, -50%) rotate(45deg) scale(0.76); }
 
 .fn { position: absolute; z-index: 2; display: flex; align-items: center; justify-content: center; border: 3rpx solid; box-sizing: border-box; transform: translate(-50%, -50%); }
-.fn-name { font-size: 24rpx; font-weight: 700; text-align: center; padding: 0 12rpx; }
+.fn-name { position: relative; z-index: 2; font-size: 24rpx; font-weight: 700; text-align: center; padding: 0 12rpx; }
 .fn-in { animation: fcNodeIn 0.36s cubic-bezier(0.34, 1.56, 0.64, 1); }
 @keyframes fcNodeIn { from { opacity: 0; transform: translate(-50%, -50%) translateY(-46px) scale(0.5); } to { opacity: 1; transform: translate(-50%, -50%); } }
 .fn--start, .fn--end { border-color: #4b9d76; background: #eefaf3; border-radius: 999rpx; color: #22684c; }
-.fn--action { border-color: #5081B8; background: #fff; border-radius: 20rpx; color: #1e344f; }
-.fn--decision { border-color: #f0a12b; background: #fff8ec; border-radius: 20rpx; color: #7a5210; }
+.fn--action, .fn--process { border-color: #5081B8; background: #fff; border-radius: 20rpx; color: #1e344f; }
+.fn--decision { border-color: transparent; background: transparent; color: #7a5210; }
+.fn--decision::before { content: ""; position: absolute; left: 50%; top: 50%; width: 78rpx; height: 78rpx; border: 3rpx solid #f0a12b; border-radius: 10rpx; background: #fff8ec; transform: translate(-50%, -50%) rotate(45deg); box-sizing: border-box; }
+.fn--decision .fn-name { max-width: 112rpx; font-size: 21rpx; line-height: 1.25; }
 .fn--exception { border-color: #dd6b6b; background: #fff3f3; border-radius: 20rpx; color: #8c3a3a; }
 .fn--data { border-color: #7d72c8; background: #f5f2ff; border-radius: 20rpx; color: #4a4380; }
 .settle { animation: fcSettle 0.46s ease-in-out 1; }
@@ -441,7 +621,7 @@ onUnload(() => { clearTimers() })
 .done-btn-arrow { font-size: 28rpx; margin-left: 4rpx; }
 
 .error-state { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 80rpx 48rpx; }
-.error-icon { font-size: 96rpx; margin-bottom: 24rpx; }
+.error-icon { display: flex; align-items: center; justify-content: center; width: 92rpx; height: 92rpx; margin-bottom: 24rpx; border-radius: 50%; background: #FFF3E7; color: #D97808; font-size: 52rpx; font-weight: 800; }
 .error-title { font-size: 36rpx; font-weight: 700; color: #1e344f; margin-bottom: 16rpx; }
 .error-msg { font-size: 26rpx; color: #8290a1; text-align: center; line-height: 1.6; margin-bottom: 48rpx; word-break: break-all; }
 .error-actions { display: flex; gap: 20rpx; width: 100%; max-width: 560rpx; }

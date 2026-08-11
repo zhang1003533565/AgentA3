@@ -15,44 +15,6 @@
                   <input class="market-search-pill-input" value="搜索商品、书籍、用品等" disabled />
                 </view>
               </view>
-              <view class="search-filter-btn" @click.stop="openFilter">
-                <image class="search-filter-icon" src="/static/icons/mage-filter-fill.svg" mode="aspectFit" />
-                <view v-if="hasActiveFilter" class="search-filter-dot"></view>
-              </view>
-            </view>
-          </view>
-
-          <view class="category-shell" :class="{ 'category-shell--expanded': categoryExpanded }">
-            <view class="category-summary" @click="toggleCategoryPanel">
-              <view class="category-summary-main">
-                <text class="category-summary-title">分类浏览</text>
-              </view>
-              <view class="category-summary-action">
-                <text>{{ categoryExpanded ? '收起' : '展开' }}</text>
-                <view
-                  class="category-summary-arrow"
-                  :class="{ 'category-summary-arrow--expanded': categoryExpanded }"
-                ></view>
-              </view>
-            </view>
-            <view class="category-collapse" :class="{ 'category-collapse--expanded': categoryExpanded }">
-              <view class="category-collapse-inner">
-                <view class="cat-grid">
-                  <view
-                    v-for="cat in marketCategoryTabs"
-                    :key="cat.key"
-                    class="cat-item"
-                    :class="{ on: currentCat === cat.key || (cat.activeKey && currentCat === cat.activeKey) }"
-                    @click="selectMarketCategory(cat)"
-                  >
-                    <view class="cat-icon-wrap">
-                      <image v-if="cat.icon" class="cat-icon-img" :src="cat.icon" mode="aspectFit" />
-                      <text v-else class="cat-icon-text">{{ cat.label.slice(0, 1) }}</text>
-                    </view>
-                    <text class="cat-label">{{ cat.label }}</text>
-                  </view>
-                </view>
-              </view>
             </view>
           </view>
 
@@ -61,8 +23,8 @@
               v-for="s in sortOptions"
               :key="s.value"
               class="sort-tab"
-              :class="{ on: sortBy === s.value }"
-              @click="sortBy = s.value"
+              :class="{ on: activeSortTab === s.value }"
+              @click="onSortTabClick(s)"
             >
               {{ s.label }}
             </view>
@@ -93,23 +55,17 @@
                 <view class="product-img">
                   <image v-if="item.images && item.images.length" class="product-img-src" :src="item.images[0]" mode="aspectFill" />
                   <view v-else class="product-img-placeholder">
-                    <text class="product-img-emoji">{{ emoji(item.id) }}</text>
-                    <text class="product-img-placeholder-text">{{ itemCategoryLabel(item) }}</text>
+                    <text class="product-img-emoji">{{ itemEmoji(item.id) }}</text>
                   </view>
-                  <text class="product-status-badge" :class="'product-status-badge--' + item.status">{{ item.statusText }}</text>
+                  <view class="product-badge-type" :class="'product-badge-type--' + (item.tradeType || 'sell')">
+                    {{ item.tradeType === 'buy' ? '收' : '出' }}
+                  </view>
                 </view>
                 <view class="product-body">
-                  <text class="product-name">{{ item.name }}</text>
-                  <text class="product-desc">{{ item.categoryLevel2Name || item.categoryName || itemCategoryLabel(item) }}</text>
-                  <view class="product-price-line">
-                    <view class="product-price-row">
-                      <text v-if="priceDisplay(item).prefix" class="product-price-symbol">{{ priceDisplay(item).prefix }}</text>
-                      <text class="product-price-num" :class="{ 'product-price-text': !priceDisplay(item).prefix }">{{ priceDisplay(item).text }}</text>
-                    </view>
-                    <text class="product-info-chip">{{ itemConditionLabel(item) }}</text>
-                  </view>
-                  <view class="product-location-row">
-                    <image class="product-location-icon" src="/static/icons/mi-location.svg" mode="aspectFit" />
+                  <view class="product-title">{{ item.name }}</view>
+                  <view class="product-price">¥{{ priceDisplay(item).text }}</view>
+                  <view class="product-location-row" v-if="item.pickupPoint || item.location">
+                    <view class="product-loc-icon"></view>
                     <text class="product-location">{{ itemLocationLabel(item) }}</text>
                   </view>
                   <view class="product-user">
@@ -500,8 +456,12 @@ const TYPE_TABS = [
 const CATEGORIES = createMarketCategoryOptions()
 
 const SORT_OPTIONS = [
-  { value: 'latest', label: '最新发布' },
-  { value: 'hot',    label: '热门' }
+  { value: 'all',       label: '全部',   cat: 'all',  sort: 'hot' },
+  { value: 'latest',    label: '最新发布', cat: 'all',  sort: 'latest' },
+  { value: 'life',      label: '生活',   cat: '4',    sort: 'latest' },
+  { value: 'digital',   label: '数码',   cat: '1',    sort: 'latest' },
+  { value: 'book',      label: '书籍',   cat: '2',    sort: 'latest' },
+  { value: 'clothing',  label: '服饰',   cat: '3',    sort: 'latest' }
 ]
 
 const SCENE_TAGS = [
@@ -557,6 +517,7 @@ function normalizeItem(item) {
   const condition = item.condition || item.itemCondition || ''
   const location = item.location || item.tradeLocationText || ''
   const schoolName = item.schoolName || seller.schoolName || ''
+  const tradeType = item.tradeType || item.trade_type || 'sell'
 
   return {
     id: item.id,
@@ -564,7 +525,8 @@ function normalizeItem(item) {
     desc: item.description || '',
     price: item.price,
     originalPrice: item.originalPrice || item.original_price || null,
-    type: 'sell',
+    type: tradeType,
+    tradeType,
     status: item.status === 4 ? 'offline' : item.status === 3 ? 'sold' : 'online',
     statusText: item.statusText || (item.status === 3 ? '已售出' : item.status === 4 ? '已下架' : '在售'),
     cat: String(categoryId),
@@ -619,10 +581,9 @@ export default {
       currentPage: 'list',
       currentTab: 'market',
       currentCat: 'all',
-      categoryExpanded: false,
       currentType: 'all',
       currentSceneTag: '',
-      sortBy: 'latest',
+      sortBy: 'hot',
       searchKeyword: '',
       searchTransitioning: false,
       searchTransitionNavigating: false,
@@ -671,6 +632,13 @@ export default {
     }
   },
   computed: {
+    activeSortTab() {
+      if (this.currentCat === 'all') {
+        return this.sortBy === 'latest' ? 'latest' : 'all'
+      }
+      const map = { '1': 'digital', '2': 'book', '3': 'clothing', '4': 'life' }
+      return map[this.currentCat] || 'all'
+    },
     marketCategoryTabs() {
       const findCategory = (key) => this.categories.find((cat) => String(cat.key) === String(key)) || {}
       return [
@@ -866,6 +834,9 @@ export default {
     await this.loadItems()
   },
   methods: {
+    itemEmoji(id) {
+      return EMOJIS[(id || 0) % EMOJIS.length]
+    },
     goToSearch() {
       if (this.searchTransitioning || this.searchTransitionNavigating) return
       uni.createSelectorQuery()
@@ -1076,10 +1047,10 @@ export default {
     goToMarket() {
       this.currentTab = 'market'
       this.currentPage = 'list'
-      this.categoryExpanded = false
     },
-    toggleCategoryPanel() {
-      this.categoryExpanded = !this.categoryExpanded
+    onSortTabClick(s) {
+      this.currentCat = s.cat
+      this.sortBy = s.sort
     },
     goToMine() {
       this.currentTab = 'mine'
@@ -1134,12 +1105,10 @@ export default {
     },
     selectMarketCategory(cat) {
       if (cat?.action === 'filter' || cat?.key === 'more') {
-        this.categoryExpanded = false
         this.openFilter()
         return
       }
       this.currentCat = cat?.key || 'all'
-      this.categoryExpanded = false
     },
     resetFilter() {
       this.filterForm = {
@@ -1362,7 +1331,6 @@ export default {
 .market-list-search-row {
   display: flex;
   align-items: center;
-  gap: 18rpx;
   margin: 0 28rpx;
 }
 
@@ -1831,18 +1799,20 @@ export default {
   z-index: 12;
   display: flex;
   align-items: center;
-  gap: 44rpx;
-  padding: 30rpx 36rpx 18rpx;
+  gap: 16rpx;
+  padding: 24rpx 28rpx 14rpx;
   background: #F7F7F9;
 }
 
 .sort-tab {
-  font-size: 30rpx;
+  font-size: 26rpx;
   font-weight: 600;
   color: #96999E;
   position: relative;
-  padding-bottom: 14rpx;
+  padding-bottom: 12rpx;
   transition: color 0.18s;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .sort-tab.on {
@@ -1869,21 +1839,21 @@ export default {
 /* ===== Product grid ===== */
 .product-grid {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
+  grid-template-columns: 1fr 1fr;
   align-items: start;
-  gap: 18rpx;
-  padding: 4rpx 18rpx 210rpx;
+  gap: 12rpx;
+  padding: 4rpx 12rpx 210rpx;
 }
 
 .product-card {
   background: #fff;
-  border-radius: 24rpx;
+  border-radius: 16rpx;
   overflow: hidden;
-  border: 1rpx solid rgba(228, 232, 238, 0.95);
+  box-shadow: 0 4rpx 16rpx rgba(30, 41, 59, 0.06);
   transition: transform 0.15s ease;
-  box-shadow: 0 10rpx 28rpx rgba(92, 122, 153, 0.08);
-  padding: 12rpx 12rpx 0;
   box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
 }
 
 .product-card:active {
@@ -1893,19 +1863,34 @@ export default {
 .product-img {
   position: relative;
   width: 100%;
-  aspect-ratio: 1.18 / 1;
-  background: #F1F3F5;
+  padding-top: 100%;
   display: flex;
   align-items: center;
   justify-content: center;
+  background: #EEF2F7;
   overflow: hidden;
-  border-radius: 18rpx;
 }
 
 .product-img-src {
+  position: absolute;
+  left: 0;
+  top: 0;
   width: 100%;
   height: 100%;
-  border-radius: 18rpx;
+}
+
+.product-img-placeholder {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14rpx;
+  color: #8E8E93;
 }
 
 .product-img-emoji {
@@ -1913,158 +1898,107 @@ export default {
   line-height: 1;
 }
 
-.product-img-placeholder {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 14rpx;
-  color: #8E8E93;
-}
-
-.product-img-placeholder-text {
-  font-size: 22rpx;
-  font-weight: 700;
-}
-
-.product-status-badge {
+.product-badge-type {
   position: absolute;
-  top: 12rpx;
-  left: 12rpx;
-  padding: 6rpx 12rpx;
-  border-radius: 999rpx;
-  background: rgba(29, 29, 31, 0.72);
+  left: 14rpx;
+  top: 14rpx;
+  min-width: 40rpx;
+  height: 40rpx;
+  padding: 0 8rpx;
+  border-radius: 10rpx;
   color: #FFFFFF;
-  font-size: 19rpx;
+  font-size: 22rpx;
   font-weight: 800;
-  line-height: 1;
+  line-height: 40rpx;
+  text-align: center;
+  box-shadow: 0 4rpx 10rpx rgba(0, 0, 0, 0.2);
 }
 
-.product-status-badge--reserved {
-  background: rgba(92, 122, 153, 0.88);
+.product-badge-type--sell {
+  background: #FF6B35;
+  box-shadow: 0 4rpx 10rpx rgba(255, 107, 53, 0.35);
 }
 
-.product-status-badge--sold,
-.product-status-badge--offline {
-  background: rgba(142, 142, 147, 0.88);
-}
-
-.product-price-symbol {
-  font-size: 24rpx;
-  font-weight: 800;
-  color: #1D1D1F;
-  line-height: 1;
-}
-
-.product-price-num {
-  font-size: 36rpx;
-  font-weight: 850;
-  color: #1D1D1F;
-  line-height: 1;
-}
-
-.product-price-text {
-  font-size: 30rpx;
-  color: #4A6278;
+.product-badge-type--buy {
+  background: #4A90E2;
+  box-shadow: 0 4rpx 10rpx rgba(74, 144, 226, 0.35);
 }
 
 .product-body {
-  padding: 16rpx 4rpx 18rpx;
-}
-
-.product-main-row {
+  padding: 14rpx 16rpx 18rpx;
   display: flex;
   flex-direction: column;
-  gap: 12rpx;
-  margin-bottom: 12rpx;
+  gap: 6rpx;
 }
 
-.product-name {
-  font-size: 27rpx;
+.product-title {
+  color: #1D2430;
+  font-size: 24rpx;
   font-weight: 800;
-  color: #1D1D1F;
-  line-height: 1.32;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-  min-height: 0;
-}
-
-.product-desc {
-  display: block;
-  margin-top: 10rpx;
-  font-size: 22rpx;
-  color: #8C929A;
-  line-height: 1.25;
+  line-height: 1.3;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.product-price-line {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12rpx;
-  margin-top: 16rpx;
-}
-
-.product-info-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8rpx;
-  margin-bottom: 14rpx;
-}
-
-.product-info-chip {
-  max-width: 116rpx;
-  padding: 6rpx 12rpx;
-  border-radius: 12rpx;
-  background: rgba(79, 143, 232, 0.1);
-  color: #2F7FE5;
-  font-size: 20rpx;
-  font-weight: 700;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.product-info-chip--blue {
-  background: rgba(92, 122, 153, 0.08);
-  color: #4A6278;
-}
-
-.product-price-row {
-  display: flex;
-  align-items: baseline;
-  gap: 2rpx;
+.product-price {
+  color: #FF4D2E;
+  font-size: 28rpx;
+  font-weight: 900;
+  line-height: 1.2;
 }
 
 .product-location-row {
   display: flex;
   align-items: center;
   gap: 6rpx;
-  margin-top: 14rpx;
-  margin-bottom: 14rpx;
+  color: #8A94A6;
+  font-size: 20rpx;
+  line-height: 1.3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.product-location-icon {
-  width: 26rpx;
-  height: 26rpx;
+.product-loc-icon {
+  position: relative;
+  width: 18rpx;
+  height: 18rpx;
   flex-shrink: 0;
-  opacity: 0.5;
 }
 
-.product-location-label {
-  font-size: 19rpx;
-  color: #A2A8AF;
-  font-weight: 600;
+.product-loc-icon::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 12rpx;
+  height: 12rpx;
+  margin-left: -6rpx;
+  margin-top: -12rpx;
+  border: 2rpx solid #8A94A6;
+  border-radius: 50% 50% 50% 0;
+  transform: rotate(-45deg);
+  box-sizing: border-box;
+}
+
+.product-loc-icon::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 4rpx;
+  height: 4rpx;
+  margin-left: -2rpx;
+  margin-top: -2rpx;
+  background: #8A94A6;
+  border-radius: 50%;
 }
 
 .product-location {
-  font-size: 22rpx;
-  color: #8C929A;
-  font-weight: 600;
+  font-size: 20rpx;
+  color: #8A94A6;
+  font-weight: 500;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -2074,8 +2008,8 @@ export default {
   display: flex;
   align-items: center;
   gap: 8rpx;
-  padding-top: 14rpx;
-  border-top: 1rpx solid #EEF1F4;
+  padding-top: 10rpx;
+  border-top: 1rpx solid #F0F2F5;
 }
 
 .product-ava {
@@ -2083,19 +2017,19 @@ export default {
   height: 34rpx;
   border-radius: 50%;
   background: rgba(92, 122, 153, 0.12);
-  color: #fff;
+  color: #5C7A99;
   font-size: 18rpx;
   font-weight: 700;
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  color: #5C7A99;
 }
 
 .product-uname {
   font-size: 21rpx;
   color: #666A70;
+  font-weight: 600;
   flex: 1;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -2103,9 +2037,10 @@ export default {
 }
 
 .product-time {
-  font-size: 19rpx;
-  color: #A2A8AF;
-  flex-shrink: 0;
+  font-size: 18rpx;
+  color: #9AA2AE;
+  font-weight: 500;
+  margin-left: auto;
 }
 
 /* ===== Empty ===== */

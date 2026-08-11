@@ -32,6 +32,9 @@ public class ForumComment {
     @Column(nullable = false, columnDefinition = "TEXT NOT NULL COMMENT '评论内容'")
     private String content;
 
+    @Column(columnDefinition = "TEXT COMMENT '评论图片(JSON数组)'")
+    private String images;
+
     @Column(name = "like_count", columnDefinition = "INT DEFAULT 0 COMMENT '点赞数'")
     private Integer likeCount = 0;
 

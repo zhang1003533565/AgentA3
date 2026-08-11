@@ -15,6 +15,7 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
 
 import java.math.BigDecimal;
 import java.util.*;
@@ -263,6 +264,32 @@ public class ExamQuestionServiceImpl implements ExamQuestionService {
         // 软删除，不动历史数据
         entity.setStatus(0);
         questionRepository.save(entity);
+    }
+
+    @Override
+    @Transactional
+    public ExamQuestionDTO.QuestionVO setQuestionVisibility(Long id, String visibility, Long userId, boolean admin) {
+        if (userId == null) {
+            throw new BusinessException(Result.UNAUTHORIZED_CODE, "请先登录");
+        }
+        if (!StringUtils.hasText(visibility)) {
+            throw new BusinessException(Result.BAD_REQUEST_CODE, "可见范围不能为空");
+        }
+        String normalized = visibility.trim().toUpperCase(Locale.ROOT);
+        if (!ExamQuestion.VISIBILITY_PUBLIC.equals(normalized)
+                && !ExamQuestion.VISIBILITY_PRIVATE.equals(normalized)) {
+            throw new BusinessException(Result.BAD_REQUEST_CODE, "可见范围必须是 PUBLIC 或 PRIVATE");
+        }
+        ExamQuestion entity = questionRepository.findVisibleById(id, userId)
+                .orElseThrow(() -> new BusinessException(Result.NOT_FOUND_CODE, "题目不存在"));
+        requireEditable(entity, userId, admin);
+        entity.setVisibility(normalized);
+        if (ExamQuestion.VISIBILITY_PUBLIC.equals(normalized)) {
+            entity.setOwnerUserId(null);
+        } else if (entity.getOwnerUserId() == null) {
+            entity.setOwnerUserId(userId);
+        }
+        return toVO(questionRepository.save(entity), userId);
     }
 
     @Override

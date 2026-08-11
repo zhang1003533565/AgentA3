@@ -18,6 +18,10 @@ public class CampusCourse {
     public static final String AUDIENCE_ALL = "ALL";
     public static final String AUDIENCE_CLASS = "CLASS";
     public static final String AUDIENCE_STUDENT = "STUDENT";
+    public static final String COURSE_TYPE_REQUIRED = "REQUIRED";
+    public static final String COURSE_TYPE_ELECTIVE = "ELECTIVE";
+    public static final String COURSE_TYPE_PUBLIC = "PUBLIC";
+    public static final String COURSE_TYPE_LAB = "LAB";
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -49,6 +53,14 @@ public class CampusCourse {
 
     @Column(name = "owner_type", nullable = false, length = 20)
     private String ownerType = "ADMIN";
+
+    /** 课程类型：REQUIRED-必修, ELECTIVE-选修, PUBLIC-公共课, LAB-实验课 */
+    @Column(name = "course_type", length = 10)
+    private String courseType;
+
+    /** 自定义课程类型：逗号分隔的类型代码列表，对应 campus_course_type 中 category=CUSTOM 的项 */
+    @Column(name = "custom_course_types", columnDefinition = "TEXT")
+    private String customCourseTypes;
 
     @Column(name = "audience_type", nullable = false, length = 20)
     private String audienceType = AUDIENCE_ALL;

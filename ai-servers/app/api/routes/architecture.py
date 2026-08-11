@@ -1,7 +1,7 @@
 """AI 架构图生成路由。
 
 暴露 POST /internal/architecture/generate，由 Java 后端 PythonAiProxyService 代理调用。
-返回 { title, style, nodes, edges } JSON 结构（不是 Mermaid 文本）。
+返回 { title, layers, groups, nodes, edges } JSON 结构（不是 Mermaid 文本）。
 """
 
 from typing import List, Optional
@@ -25,9 +25,14 @@ class ArchitectureGenerateRequest(BaseModel):
     description: str = Field(..., description="系统需求描述")
     systemType: str = Field(default="", description="系统类型 WEB/APP/MINI_PROGRAM/ADMIN/MICROSERVICE/IOT/AI")
     architectureStyle: str = Field(default="", description="架构模式 AUTO/MONOLITH/FRONT_BACKEND_SEPARATION/MICROSERVICE/CLOUD_NATIVE")
+    autoArchitectureLayers: bool = Field(default=True, description="是否由 AI 自动分析架构层级")
+    architectureLayers: List[str] = Field(default_factory=list, description="架构层级数组（新版字段）")
     layers: List[str] = Field(default_factory=list, description="架构层级数组")
+    focusContents: List[str] = Field(default_factory=list, description="重点展示内容数组（新版字段）")
     displayContent: List[str] = Field(default_factory=list, description="展示内容数组")
+    relationMode: str = Field(default="", description="关系表达 AUTO/MODULE/DATA_FLOW/CALL")
     relationType: str = Field(default="", description="关系表达 AUTO/MODULE/DATA_FLOW/CALL_CHAIN/DEPLOYMENT")
+    hierarchyMode: str = Field(default="STRUCTURED", description="架构层级表达 STRUCTURED")
 
 
 class ArchitectureGenerateResponse(BaseModel):
@@ -39,6 +44,16 @@ class ArchitectureGenerateResponse(BaseModel):
     layers: List[dict] = Field(default_factory=list)
     thirdParty: List[dict] = Field(default_factory=list)
     features: List[str] = Field(default_factory=list)
+    nodes: List[dict] = Field(default_factory=list)
+    edges: List[dict] = Field(default_factory=list)
+    systemType: str = ""
+    autoArchitectureLayers: bool = True
+    architectureLayers: List[str] = Field(default_factory=list)
+    focusContents: List[str] = Field(default_factory=list)
+    requestedRelationMode: str = "AUTO"
+    resolvedRelationMode: str = "MODULE"
+    requestedHierarchyMode: str = "STRUCTURED"
+    resolvedHierarchyMode: str = "STRUCTURED"
 
 
 @router.post("/generate", response_model=ArchitectureGenerateResponse)
@@ -68,9 +83,10 @@ def generate_architecture(
         description=request.description.strip(),
         system_type=request.systemType,
         architecture_style=request.architectureStyle,
-        layers=request.layers,
-        display_content=request.displayContent,
-        relation_type=request.relationType,
+        layers=request.architectureLayers or request.layers,
+        display_content=request.focusContents or request.displayContent,
+        relation_type=request.relationMode or request.relationType,
+        auto_architecture_layers=request.autoArchitectureLayers,
         llm_headers=llm_headers,
     )
     return ArchitectureGenerateResponse(**result)

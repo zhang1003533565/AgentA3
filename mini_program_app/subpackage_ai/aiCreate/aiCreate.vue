@@ -134,6 +134,7 @@ const quickActions = ref([
 const toolCategories = {
   hot: [
     { name: '试卷生成', desc: '智能生成标准化试卷', icon: '/static/icons/ai create/exam.png', themeColor: '#FF6B6B', lightColor: 'rgba(255, 107, 107, 0.35)' },
+    { name: '题库生成', desc: '资料一键生成练习题', icon: '/static/icons/ai create/exam.png', themeColor: '#5E7387', lightColor: 'rgba(94, 115, 135, 0.35)' },
     { name: 'PPT生成', desc: '一键生成演示文稿', icon: '/static/icons/ai create/ppt-pdf.png', themeColor: '#FF9F43', lightColor: 'rgba(255, 159, 67, 0.35)' },
     { name: '思维导图', desc: '知识梳理思维导图', icon: '/static/icons/ai create/outline.png', themeColor: '#A55EEA', lightColor: 'rgba(165, 94, 234, 0.35)' },
     { name: '活动图', desc: '业务流程活动图', icon: '/static/icons/ai create/summary.png', themeColor: '#48DBFB', lightColor: 'rgba(72, 219, 251, 0.35)' },
@@ -143,13 +144,15 @@ const toolCategories = {
     { name: 'Python个性化学习', desc: '按基础规划学习路径', icon: '/static/icons/ai create/course.png', themeColor: '#2563EB', lightColor: 'rgba(37, 99, 235, 0.35)' }
   ],
   format: [
-    { name: 'PPT转PDF', desc: '一键PPT转PDF', icon: '/static/icons/ai create/ppt-pdf.png', themeColor: '#FF6B6B', lightColor: 'rgba(255, 107, 107, 0.35)' },
+    { name: 'PDF转Word', desc: 'PDF转Word快准稳', icon: '/static/icons/ai create/pdf-word.png', themeColor: '#5C7A99', lightColor: 'rgba(92, 122, 153, 0.35)' },
     { name: 'PDF转PPT', desc: '一键PDF转PPT', icon: '/static/icons/ai create/pdf-ppt.png', themeColor: '#5C7A99', lightColor: 'rgba(92, 122, 153, 0.35)' },
+    { name: 'PPT转PDF', desc: '一键PPT转PDF', icon: '/static/icons/ai create/ppt-pdf.png', themeColor: '#FF6B6B', lightColor: 'rgba(255, 107, 107, 0.35)' },
+    { name: 'PPT转Word', desc: 'PPT转Word快准稳', icon: '/static/icons/ai create/pdf-word.png', themeColor: '#A55EEA', lightColor: 'rgba(165, 94, 234, 0.35)' },
+    { name: 'Word转PDF', desc: 'Word转PDF快准稳', icon: '/static/icons/ai create/word-pdf.png', themeColor: '#3B82F6', lightColor: 'rgba(59, 130, 246, 0.35)' },
+    { name: 'Word转PPT', desc: 'Word转PPT快准稳', icon: '/static/icons/ai create/pdf-ppt.png', themeColor: '#3B82F6', lightColor: 'rgba(59, 130, 246, 0.35)' },
     { name: 'PDF转Excel', desc: 'PDF秒变Excel', icon: '/static/icons/ai create/pdf-excel.png', themeColor: '#1DD1A1', lightColor: 'rgba(29, 209, 161, 0.35)' },
     { name: 'PPT转图片', desc: '一键PPT秒变图片', icon: '/static/icons/ai create/ppt-img.png', themeColor: '#A55EEA', lightColor: 'rgba(165, 94, 234, 0.35)' },
-    { name: 'PDF转Word', desc: 'PDF转Word快准稳', icon: '/static/icons/ai create/pdf-word.png', themeColor: '#5C7A99', lightColor: 'rgba(92, 122, 153, 0.35)' },
     { name: 'PDF转图片', desc: '一键PDF秒变图片', icon: '/static/icons/ai create/pdf-img.png', themeColor: '#FF9F43', lightColor: 'rgba(255, 159, 67, 0.35)' },
-    { name: 'Word转PDF', desc: 'Word转PDF快准稳', icon: '/static/icons/ai create/word-pdf.png', themeColor: '#3B82F6', lightColor: 'rgba(59, 130, 246, 0.35)' },
     { name: '视频格式转换', desc: '一键改变视频格式', icon: '/static/icons/ai create/video-convert.png', themeColor: '#1DD1A1', lightColor: 'rgba(29, 209, 161, 0.35)' }
   ],
   campus: [],

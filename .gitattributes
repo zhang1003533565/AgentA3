@@ -1,0 +1,4 @@
+*.sh text eol=lf
+/AppBackend/.env.example text eol=lf
+/AppBackend/docker-compose.yml text eol=lf
+/AppBackend/start-smart-campus.ps1 text eol=lf

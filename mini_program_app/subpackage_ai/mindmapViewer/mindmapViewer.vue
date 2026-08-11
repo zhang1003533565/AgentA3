@@ -1,6 +1,12 @@
 <template>
   <view class="page">
-    <nav-bar :title="mindmap.title || 'AI 思维导图'" :showBack="true" :border="false" :fixed="true" :placeholder="true" />
+    <nav-bar :title="mindmap.title || 'AI 思维导图'" :showBack="true" :border="false" :fixed="true" :placeholder="true">
+      <template #right>
+        <view class="nav-delete-action" @tap="deleteCurrentMindmap">
+          <image class="nav-delete-icon" src="/static/icons/diagram/trash-2-lucide.svg" mode="aspectFit" />
+        </view>
+      </template>
+    </nav-bar>
 
     <view class="canvas-wrapper">
       <scroll-view
@@ -97,33 +103,11 @@
     <!-- #endif -->
 
     <!-- 底部操作栏：固定在屏幕底部，悬浮在 canvas 之上 -->
-    <view class="bottom-bar">
-      <view class="bottom-pill">
-        <!-- 导出 -->
-        <view class="bottom-action" @tap="saveMindmap">
-          <view class="action-icon-box">
-            <view class="save-icon-shape"></view>
-          </view>
-          <text class="action-label">导出</text>
-        </view>
-        <view class="bottom-divider"></view>
-        <!-- 优化 -->
-        <view class="bottom-action" @tap="openOptimizeSheet">
-          <view class="action-icon-box action-icon-box--regen">
-            <view class="regen-icon-shape"></view>
-          </view>
-          <text class="action-label action-label--regen">优化</text>
-        </view>
-        <view class="bottom-divider"></view>
-        <!-- 分享 -->
-        <view class="bottom-action" @tap="shareMindmap">
-          <view class="action-icon-box">
-            <view class="share-icon-shape"></view>
-          </view>
-          <text class="action-label">分享</text>
-        </view>
-      </view>
-    </view>
+    <AiResultBar
+      @export="saveMindmap"
+      @optimize="openOptimizeSheet"
+      @share="shareMindmap"
+    />
 
     <!-- 优化弹窗 -->
     <OptimizeMindMapSheet
@@ -132,6 +116,15 @@
       @close="showOptimizeSheet = false"
       @optimize="onOptimize"
     />
+
+    <!-- AI 优化思考窗（原地刷新，不跳整图重播） -->
+    <AiThinkWindow
+      :visible="showThinkWindow"
+      type="mindmap"
+      done-sub="结构已更新"
+      :done="thinkDone"
+      @view="onThinkView"
+    />
   </view>
 </template>
 
@@ -139,8 +132,12 @@
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref } from 'vue'
 import NavBar from '@/components/nav-bar/nav-bar.vue'
 import OptimizeMindMapSheet from './OptimizeMindMapSheet.vue'
-import { getErrorMessage, getMindmapDetail, optimizeMindmap } from '@/api/aiDiagram.js'
-import { exportMindmapAsPNG } from './mindmapExporter.js'
+import AiResultBar from '../components/AiResultBar.vue'
+import AiThinkWindow from '../components/AiThinkWindow.vue'
+import { deleteMindmapHistory, getErrorMessage, getMindmapDetail, optimizeMindmap } from '@/api/aiDiagram.js'
+// #ifdef H5
+import { domToPng } from '../components/domToPng.js'
+// #endif
 
 // 布局参数
 const ROOT_WIDTH = 200
@@ -153,6 +150,7 @@ const ROOT_GAP = 72
 const SIBLING_GAP = 24
 const SIDE_GAP = 48
 const STAGE_PADDING = 96
+const RESULT_BAR_RESERVE_RPX = 200
 const MIN_SCALE = 0.15
 const MAX_SCALE = 2.2
 
@@ -170,7 +168,18 @@ const BRANCH_COLORS = [
 
 const loading = ref(false)
 const resultId = ref('')
+const isDeleting = ref(false)
+const autoExportImage = ref(false)
 const mindmap = reactive({ title: '', nodes: [] })
+const mindmapSource = reactive({
+  content: '',
+  sourceType: '',
+  sourceFile: '',
+  sourceText: '',
+  fileId: '',
+  summary: '',
+  fileSummary: ''
+})
 const collapsed = reactive({})
 const scale = ref(1)
 // scroll-view 滚动位置（替代原来的 offset，由 scroll-view 原生管理滚动）
@@ -181,29 +190,51 @@ const canvasRef = ref(null)
 
 // 优化弹窗相关
 const showOptimizeSheet = ref(false)
+const showThinkWindow = ref(false)
+const thinkDone = ref(false) // 思考窗 API 完成信号：optimizeMindmap 返回后置 true，驱动思考窗切成功态
 const currentMindMapData = ref({})
+let autoExportDone = false
 
 const treeData = computed(() => toTreeData(mindmap))
 const layout = computed(() => buildMindMapLayout(treeData.value, collapsed))
 
-const stageStyle = computed(() => ({
-  width: `${layout.value.width}px`,
-  height: `${layout.value.height}px`,
-  // scroll-view 模式下，位置由滚动条管；stage 只需负责缩放
-  transform: `scale(${scale.value})`,
-  transformOrigin: '0 0'
-}))
+const stageStyle = computed(() => {
+  const offset = getDisplayStageOffset()
+  return {
+    width: `${layout.value.width}px`,
+    height: `${layout.value.height}px`,
+    left: `${offset.left}px`,
+    top: `${offset.top}px`,
+    // scroll-view 模式下，stage 在首屏可视区内居中，大内容仍由滚动条定位
+    transform: `scale(${scale.value})`,
+    transformOrigin: '0 0'
+  }
+})
 
 // canvas-content 是 scroll-view 的可滚动内容，尺寸为缩放后的布局大小
-const contentStyle = computed(() => ({
-  width: `${layout.value.width * scale.value}px`,
-  height: `${layout.value.height * scale.value}px`,
-}))
+const contentStyle = computed(() => {
+  const viewport = getDisplayViewportSize()
+  const offset = getDisplayStageOffset(viewport)
+  return {
+    width: `${Math.max(layout.value.width * scale.value + offset.left, viewport.width)}px`,
+    height: `${Math.max(layout.value.height * scale.value + offset.top, viewport.height)}px`,
+  }
+})
 
 function readPageOptions() {
   const pages = getCurrentPages()
   const current = pages[pages.length - 1] || {}
   return current.options || current.$page?.options || {}
+}
+
+function isAutoExport(value) {
+  return ['1', 'true', 'image', 'png'].includes(String(value || '').trim().toLowerCase())
+}
+
+function extractMindmapSourceText(value = '') {
+  const text = String(value || '')
+  const match = text.match(/文件解析内容[:：]\s*([\s\S]*)$/)
+  return match ? match[1].trim() : ''
 }
 
 async function loadMindmap(id) {
@@ -225,9 +256,55 @@ async function loadMindmap(id) {
 function applyMindmap(result = {}) {
   mindmap.title = result.title || 'AI 思维导图'
   mindmap.nodes = Array.isArray(result.nodes) ? result.nodes : []
+  mindmapSource.content = result.content || ''
+  mindmapSource.sourceType = result.sourceType || ''
+  mindmapSource.sourceFile = result.sourceFile || ''
+  mindmapSource.sourceText = result.sourceText || extractMindmapSourceText(result.content)
+  mindmapSource.fileId = result.fileId || ''
+  mindmapSource.summary = result.summary || ''
+  mindmapSource.fileSummary = result.fileSummary || result.summary || ''
   Object.keys(collapsed).forEach(key => { delete collapsed[key] })
   nextTick(() => {
-    measureCanvas(() => resetView())
+    measureCanvas(() => {
+      resetView()
+      nextTick(queueAutoExport)
+    })
+  })
+}
+
+function leaveAfterDelete() {
+  const pages = getCurrentPages()
+  if (pages.length > 1) {
+    uni.navigateBack({ delta: 1 })
+    return
+  }
+  uni.redirectTo({ url: '/subpackage_ai/mindmapGenerate/mindmapGenerate' })
+}
+
+function deleteCurrentMindmap() {
+  if (!resultId.value || isDeleting.value) {
+    uni.showToast({ title: '暂无可删除记录', icon: 'none' })
+    return
+  }
+  uni.showModal({
+    title: '删除记录',
+    content: `确定删除“${mindmap.title || 'AI 思维导图'}”吗？删除后不可恢复。`,
+    confirmText: '删除',
+    confirmColor: '#EF4444',
+    success: async (res) => {
+      if (!res.confirm) return
+      isDeleting.value = true
+      try {
+        await deleteMindmapHistory(resultId.value)
+        uni.removeStorageSync(`aiMindmapResult:${resultId.value}`)
+        uni.showToast({ title: '已删除', icon: 'none' })
+        setTimeout(leaveAfterDelete, 220)
+      } catch (error) {
+        uni.showToast({ title: getErrorMessage(error, '删除失败'), icon: 'none' })
+      } finally {
+        isDeleting.value = false
+      }
+    }
   })
 }
 
@@ -273,18 +350,19 @@ function resetView(fit = true) {
 }
 
 function centerRoot() {
-  const root = layout.value.root
-  if (!root) { scrollLeft.value = 0; scrollTop.value = 0; return }
-  const width = canvasSize.width || uni.getSystemInfoSync().windowWidth
-  const height = canvasSize.height || Math.max(360, uni.getSystemInfoSync().windowHeight - 120)
-  // scroll-view 滚动模式下：让根节点 (root.x * scale, root.y * scale) 落在视口中心
-  scrollLeft.value = Math.round(root.x * scale.value - width / 2)
-  scrollTop.value = Math.round(root.y * scale.value - height / 2)
+  if (!layout.value.root) { scrollLeft.value = 0; scrollTop.value = 0; return }
+  const viewport = getDisplayViewportSize()
+  const bounds = getVisibleNodeBounds()
+  const offset = getDisplayStageOffset(viewport, bounds)
+  const centerX = offset.left + (bounds.minX + bounds.maxX) * scale.value / 2
+  const centerY = offset.top + (bounds.minY + bounds.maxY) * scale.value / 2
+  // scroll-view 滚动模式下：默认把导图节点的可见边界居中到手机首屏，而不是居中到整张滚动画布
+  scrollLeft.value = Math.max(0, Math.round(centerX - viewport.width / 2))
+  scrollTop.value = Math.max(0, Math.round(centerY - viewport.height / 2))
 }
 
 function getFitScale() {
-  const width = canvasSize.width || uni.getSystemInfoSync().windowWidth
-  const height = canvasSize.height || Math.max(360, uni.getSystemInfoSync().windowHeight - 120)
+  const { width, height } = getDisplayViewportSize()
   const mapWidth = Math.max(layout.value.width, 1)
   const mapHeight = Math.max(layout.value.height, 1)
   // 方案C：分母加 STAGE_PADDING * 2 作为安全边距，确保整个布局（含 padding）能完整显示
@@ -297,6 +375,43 @@ function getFitScale() {
   // 关键修复：fit 不能再被 MIN_SCALE 卡住，否则大布局必然溢出
   // 单独用 0.05 作为兜底（再小线条完全不可见，没意义）
   return Math.max(0.05, Number(fit.toFixed(2)))
+}
+
+function getDisplayViewportSize() {
+  const info = uni.getSystemInfoSync()
+  const width = canvasSize.width || info.windowWidth || 375
+  const visibleHeight = Math.max(360, (info.windowHeight || 667) - (canvasSize.top || 0))
+  const measuredHeight = canvasSize.height ? Math.min(canvasSize.height, visibleHeight) : visibleHeight
+  const bottomReserve = RESULT_BAR_RESERVE_RPX * width / 750
+  return {
+    width,
+    height: Math.max(260, measuredHeight - bottomReserve)
+  }
+}
+
+function getVisibleNodeBounds() {
+  const nodes = layout.value.nodes || []
+  if (!nodes.length) {
+    return { minX: 0, maxX: layout.value.width, minY: 0, maxY: layout.value.height }
+  }
+  return nodes.reduce((bounds, node) => ({
+    minX: Math.min(bounds.minX, node.x - node.width / 2),
+    maxX: Math.max(bounds.maxX, node.x + node.width / 2),
+    minY: Math.min(bounds.minY, node.y - node.height / 2),
+    maxY: Math.max(bounds.maxY, node.y + node.height / 2)
+  }), {
+    minX: Infinity, maxX: -Infinity,
+    minY: Infinity, maxY: -Infinity
+  })
+}
+
+function getDisplayStageOffset(viewport = getDisplayViewportSize(), bounds = getVisibleNodeBounds()) {
+  const centerX = (bounds.minX + bounds.maxX) * scale.value / 2
+  const centerY = (bounds.minY + bounds.maxY) * scale.value / 2
+  return {
+    left: Math.max(0, Math.round(viewport.width / 2 - centerX)),
+    top: Math.max(0, Math.round(viewport.height / 2 - centerY))
+  }
 }
 
 // scroll-view 滚动事件：把原生滚动位置同步到 ref
@@ -603,7 +718,12 @@ function saveMindmap() {
     return
   }
   uni.showLoading({ title: '导出中...' })
-  exportMindmapAsPNG(layout.value, mindmap.title)
+  domToPng('.mindmap-stage', {
+    width: layout.value.width,
+    height: layout.value.height,
+    title: mindmap.title,
+    filename: mindmap.title
+  })
     .then(() => {
       uni.hideLoading()
       uni.showToast({ title: '已导出 PNG', icon: 'success' })
@@ -617,6 +737,13 @@ function saveMindmap() {
   // #ifndef H5
   uni.showToast({ title: '请在 H5 端导出', icon: 'none' })
   // #endif
+}
+
+function queueAutoExport() {
+  if (!autoExportImage.value || autoExportDone) return
+  if (!layout.value || !layout.value.nodes || !layout.value.nodes.length) return
+  autoExportDone = true
+  setTimeout(saveMindmap, 160)
 }
 
 function regenerate() {
@@ -636,26 +763,45 @@ function openOptimizeSheet() {
   showOptimizeSheet.value = true
 }
 
-// 处理优化提交
+// 处理优化提交：弹窗 → 思考窗 → API 返回后原地刷新并通知思考窗切成功态
 async function onOptimize(payload) {
+  showOptimizeSheet.value = false
+  thinkDone.value = false
+  showThinkWindow.value = true
   try {
-    showOptimizeSheet.value = false
-    uni.showLoading({ title: '优化中...' })
-    const result = await optimizeMindmap(payload)
-    uni.setStorageSync(`aiMindmapResult:${result.id}`, result)
-    uni.navigateTo({
-      url: `/subpackage_ai/mindmapGenerating/mindmapGenerating?id=${encodeURIComponent(result.id)}`
+    const result = await optimizeMindmap({
+      ...payload,
+      content: mindmapSource.content,
+      sourceType: mindmapSource.sourceType,
+      sourceFile: mindmapSource.sourceFile,
+      sourceText: mindmapSource.sourceText,
+      fileId: mindmapSource.fileId,
+      fileSummary: mindmapSource.fileSummary || mindmapSource.summary
     })
+    if (result?.id) {
+      uni.setStorageSync(`aiMindmapResult:${result.id}`, result)
+    }
+    // 原地刷新思维导图
+    applyMindmap(result)
+    // 通知思考窗：API 已完成，可切成功态显示"查看优化结果"
+    thinkDone.value = true
   } catch (error) {
+    showThinkWindow.value = false
+    thinkDone.value = false
     uni.showToast({ title: getErrorMessage(error, '优化失败'), icon: 'none' })
-  } finally {
-    uni.hideLoading()
   }
+}
+
+// 思考窗走完，用户点"查看优化结果" → 关闭思考窗
+function onThinkView() {
+  showThinkWindow.value = false
+  thinkDone.value = false
 }
 
 onMounted(() => {
   measureCanvas()
   const options = readPageOptions()
+  autoExportImage.value = isAutoExport(options.autoExport || options.exportImage)
   resultId.value = decodeURIComponent(options.id || options.resultId || '')
   loadMindmap(resultId.value)
 
@@ -692,6 +838,24 @@ onUnmounted(() => {
   color: #1C2E48;
 }
 
+.nav-delete-action {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 64rpx;
+  height: 64rpx;
+  border-radius: 999rpx;
+}
+
+.nav-delete-action:active {
+  background: rgba(15, 23, 42, 0.06);
+}
+
+.nav-delete-icon {
+  width: 34rpx;
+  height: 34rpx;
+}
+
 /* 画布外层：放浮动按钮、加载态文本 */
 .canvas-wrapper {
   position: relative;
@@ -710,11 +874,12 @@ onUnmounted(() => {
   background: #FAFBFC;
 }
 
-/* scroll-view 的可滚动内容，尺寸 = 布局 × scale；底部留空间给 fixed 底部栏 */
+/* scroll-view 的可滚动内容，尺寸 = 布局 × scale
+   padding-bottom 200rpx 避让底部 AiResultBar（约 144rpx + 安全区） */
 .canvas-content {
   position: relative;
   flex-shrink: 0;
-  padding-bottom: 160rpx;
+  padding-bottom: 200rpx;
 }
 
 .mindmap-stage {
@@ -957,174 +1122,6 @@ onUnmounted(() => {
 }
 /* #endif */
 
-/* 底部操作栏 — 固定在屏幕底部，悬浮在 canvas 之上 */
-.bottom-bar {
-  position: fixed;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  z-index: 100;
-  display: flex;
-  justify-content: center;
-  align-items: flex-end;
-  padding: 16rpx 24rpx calc(20rpx + env(safe-area-inset-bottom));
-  /* 背景渐变：底部透明过渡到白色，让 canvas 内容自然延伸到底部栏上方 */
-  background: linear-gradient(180deg, rgba(250, 251, 252, 0) 0%, rgba(250, 251, 252, 0.85) 40%, rgba(250, 251, 252, 0.95) 100%);
-  box-sizing: border-box;
-  pointer-events: none; /* 让背景不挡事件，胶囊单独接收 */
-}
-
-/* 胶囊容器需要单独接收点击 */
-.bottom-pill {
-  pointer-events: auto;
-  position: relative;
-  z-index: 1;
-  display: flex;
-  align-items: center;
-  justify-content: space-around;
-  width: 100%;
-  max-width: 680rpx;
-  height: 110rpx;
-  background: #FFFFFF;
-  border-radius: 55rpx;
-  box-shadow: 0 4rpx 24rpx rgba(0, 0, 0, 0.08);
-  padding: 0 20rpx;
-  box-sizing: border-box;
-}
-
-/* 操作按钮 — 三个等大 */
-.bottom-action {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 4rpx;
-  padding: 10rpx 0;
-}
-
-.bottom-action:active {
-  opacity: 0.65;
-}
-
-/* 分隔线 */
-.bottom-divider {
-  width: 1rpx;
-  height: 40rpx;
-  background: #ECECF0;
-  flex-shrink: 0;
-}
-
-/* 图标容器 */
-.action-icon-box {
-  width: 60rpx;
-  height: 60rpx;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  position: relative;
-}
-
-/* 重新生成 — 淡紫色光晕 */
-.action-icon-box--regen {
-  background: radial-gradient(circle, rgba(139, 92, 246, 0.12) 0%, transparent 70%);
-}
-
-/* 保存图标 — 软盘 */
-.save-icon-shape {
-  width: 26px;
-  height: 26px;
-  border: 2px solid #5A5D7E;
-  border-radius: 3px;
-  position: relative;
-  box-sizing: border-box;
-}
-
-.save-icon-shape::before {
-  content: '';
-  position: absolute;
-  top: 4px;
-  left: 50%;
-  transform: translateX(-50%);
-  width: 10px;
-  height: 8px;
-  border: 2px solid #5A5D7E;
-  border-radius: 1px;
-}
-
-.save-icon-shape::after {
-  content: '';
-  position: absolute;
-  bottom: 3px;
-  left: 50%;
-  transform: translateX(-50%);
-  width: 14px;
-  height: 7px;
-  background: #5A5D7E;
-  border-radius: 1px;
-}
-
-/* 重新生成图标 — 循环箭头 */
-.regen-icon-shape {
-  width: 26px;
-  height: 26px;
-  border: 2.5px solid #7C5FE0;
-  border-top-color: transparent;
-  border-radius: 50%;
-  position: relative;
-  box-sizing: border-box;
-}
-
-.regen-icon-shape::before {
-  content: '';
-  position: absolute;
-  top: -2px;
-  right: -1px;
-  width: 0;
-  height: 0;
-  border-left: 7px solid #7C5FE0;
-  border-top: 5px solid transparent;
-  border-bottom: 5px solid transparent;
-}
-
-/* 分享图标 — 链接 */
-.share-icon-shape {
-  width: 26px;
-  height: 26px;
-  position: relative;
-}
-
-.share-icon-shape::before {
-  content: '';
-  position: absolute;
-  top: 1px;
-  right: 1px;
-  width: 11px;
-  height: 11px;
-  border: 2px solid #5A5D7E;
-  border-radius: 50%;
-}
-
-.share-icon-shape::after {
-  content: '';
-  position: absolute;
-  bottom: 1px;
-  left: 1px;
-  width: 11px;
-  height: 11px;
-  border: 2px solid #5A5D7E;
-  border-radius: 50%;
-}
-
-/* 标签文字 */
-.action-label {
-  font-size: 22rpx;
-  color: #5A5D7E;
-  font-weight: 400;
-}
-
-.action-label--regen {
-  color: #7C5FE0;
-  font-weight: 500;
-}
+/* 底部操作栏样式已抽到 subpackage_ai/components/AiResultBar.vue
+   这里不再写底部栏 CSS，由组件提供 */
 </style>

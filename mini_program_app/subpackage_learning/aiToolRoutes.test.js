@@ -16,6 +16,7 @@ test('AI Create loads published campus courses instead of hard-coding course car
   const page = source('../subpackage_ai/aiCreate/aiCreate.vue')
   assert.match(page, /\['热门工具', '格式转换', '校园课程', '职场创意', '社交媒体'\]/)
   assert.match(page, /AI对话[\s\S]*AI伪原创[\s\S]*文案提取[\s\S]*视频去字幕[\s\S]*AI玩图/)
+  assert.match(page, /试卷生成[\s\S]*题库生成[\s\S]*PPT生成/)
   assert.match(page, /getCampusCourses/)
   assert.match(page, /campusCourses\.value = records\.map/)
   assert.match(page, /campusCourseDetail\/campusCourseDetail\?courseId=/)
@@ -33,7 +34,7 @@ test('every visible AI Create action resolves to a real page and never silently 
   const visibleNames = [
     '智能写作', 'AI视频', 'AIPPT',
     'AI对话', 'AI伪原创', '文案提取', '视频去字幕', 'AI玩图',
-    '试卷生成', 'PPT生成', '思维导图', '活动图', '架构图', '流程图', '复习资料',
+    '试卷生成', '题库生成', 'PPT生成', '思维导图', '活动图', '架构图', '流程图', '复习资料',
     'PPT转PDF', 'PDF转PPT', 'PDF转Excel', 'PPT转图片', 'PDF转Word', 'PDF转图片', 'Word转PDF', '视频格式转换',
     'PPT大纲', '简历制作', '心得体会', '工作总结', '文本比较', '长文本写作', '周报日报', '影视解说', '文章配图', '合同模板',
     '视频灵感', '短视频文案', '视频标题', 'AI写小说', '旅游攻略', '视频介绍', '种草文案', '智能翻译', '好评文案', '带货标题',
@@ -46,6 +47,7 @@ test('every visible AI Create action resolves to a real page and never silently 
 
   assert.match(resolveAiToolDestination({ name: 'PPT生成' }), /resourceGenerate\/resourceGenerate\?resourceType=presentation/)
   assert.match(resolveAiToolDestination({ name: '试卷生成' }), /resourceType=practice_set/)
+  assert.equal(resolveAiToolDestination({ name: '题库生成' }), '/subpackage_ai/questionBankGenerate/questionBankGenerate')
   assert.equal(resolveAiToolDestination({ name: '思维导图' }), '/subpackage_ai/mindmapGenerate/mindmapGenerate')
   assert.equal(resolveAiToolDestination({ name: '活动图' }), '/subpackage_ai/activityGenerate/activityGenerate')
   assert.equal(resolveAiToolDestination({ name: '架构图' }), '/subpackage_ai/architectureGenerate/architectureGenerate')

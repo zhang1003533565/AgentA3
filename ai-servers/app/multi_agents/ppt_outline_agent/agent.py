@@ -1,3 +1,4 @@
+import json
 import re
 from typing import Any, Dict, List
 
@@ -41,12 +42,67 @@ ppt_outline_agent = PptOutlineAgent()
 
 def normalize_ppt_outline_answer(text: str, input_text: str = "") -> str:
     answer = _clean_transport_noise(text or "")
+    structured = _structured_outline_to_markdown(answer, input_text)
+    if structured:
+        return structured
     if _is_valid_ppt_outline(answer):
         return answer.strip()
     normalized = _rewrite_ppt_outline(answer, input_text)
     if not _is_valid_ppt_outline(normalized):
         raise HTTPException(status_code=502, detail="ppt_outline_agent 返回内容不符合约定格式，且自动规范化失败")
     return normalized.strip()
+
+
+def _structured_outline_to_markdown(text: str, input_text: str) -> str:
+    cleaned = text.strip()
+    if cleaned.startswith("```"):
+        cleaned = re.sub(r"^```(?:json)?\s*|\s*```$", "", cleaned, flags=re.IGNORECASE | re.DOTALL).strip()
+    if not cleaned.startswith("{"):
+        return ""
+    try:
+        payload = json.loads(cleaned)
+    except json.JSONDecodeError:
+        return ""
+    slides = payload.get("slides") if isinstance(payload, dict) else None
+    if not isinstance(slides, list) or not slides:
+        return ""
+    title = str(payload.get("title") or _match_labeled_value(input_text, ["topic", "主题"]) or "复习资料 PPT").strip()
+    scene = _match_labeled_value(input_text, ["scene_type", "使用场景"]) or "通用"
+    audience = _match_labeled_value(input_text, ["audience", "受众"]) or "学生"
+    lines = [
+        "## PPT 大纲", "", "### 大纲信息",
+        f"- 主题：{_normalize_inline_text(title)}",
+        f"- 使用场景：{_normalize_inline_text(scene)}",
+        f"- 受众：{_normalize_inline_text(audience)}",
+        f"- 建议页数：{len(slides)} 页",
+        f"- 整体目标：围绕 {_normalize_inline_text(title)} 建立清晰、连贯的知识结构。",
+        "- 风格建议：简洁、清晰、适合复习。", "",
+    ]
+    for position, raw in enumerate(slides, start=1):
+        if not isinstance(raw, dict):
+            raw = {}
+        title_value = _normalize_inline_text(str(raw.get("title") or raw.get("页标题") or f"第 {position} 页"))
+        page_type = _normalize_inline_text(str(raw.get("type") or raw.get("页面类型") or ("封面页" if position == 1 else "内容页")))
+        objective = _normalize_inline_text(str(raw.get("objective") or raw.get("本页目标") or "明确本页需要掌握的重点。"))
+        points = raw.get("keyPoints") or raw.get("content") or raw.get("核心内容") or []
+        if isinstance(points, str):
+            points = [line.strip(" -*•") for line in points.splitlines() if line.strip(" -*•")]
+        if not isinstance(points, list):
+            points = [str(points)]
+        points = [str(point).strip() for point in points if str(point).strip()][:6] or ["提炼本页需要掌握的核心要点。"]
+        lines.extend([
+            f"### 第{position}页",
+            f"- 页标题：{title_value}",
+            f"- 页面类型：{page_type}",
+            f"- 本页目标：{objective}",
+            "- 核心内容：",
+            *[f"  - {_normalize_inline_text(point)}" for point in points],
+            f"- 展示建议：{_normalize_inline_text(str(raw.get('displaySuggestion') or raw.get('展示建议') or '突出本页核心信息，控制文字密度。'))}",
+            f"- 素材建议：{_normalize_inline_text(str(raw.get('assetSuggestion') or raw.get('素材建议') or '按内容需要使用模板组件。'))}",
+            "",
+        ])
+    result = "\n".join(lines).strip()
+    return result if _is_valid_ppt_outline(result) else ""
 
 def _clean_transport_noise(text: str) -> str:
     cleaned_lines = []

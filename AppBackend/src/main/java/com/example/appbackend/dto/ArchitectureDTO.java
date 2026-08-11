@@ -24,6 +24,12 @@ public class ArchitectureDTO {
         @Schema(description = "系统需求描述", example = "生成一个校园二手交易系统架构图...")
         private String description;
 
+        @Schema(description = "用户原始输入内容", example = "校园二手交易系统")
+        private String content;
+
+        @Schema(description = "上传文件信息数组")
+        private List<Object> files;
+
         @Schema(description = "系统类型", example = "WEB")
         private String systemType;
 
@@ -33,11 +39,35 @@ public class ArchitectureDTO {
         @Schema(description = "架构层级数组", example = "[\"ACCESS\",\"APPLICATION\",\"SERVICE\",\"DATA\"]")
         private List<String> layers;
 
+        @Schema(description = "是否由 AI 自动分析架构层级", example = "true")
+        private Boolean autoArchitectureLayers;
+
+        @Schema(description = "架构层级数组（新版字段）", example = "[\"CLIENT\",\"APPLICATION\",\"SERVICE\",\"DATA\"]")
+        private List<String> architectureLayers;
+
         @Schema(description = "展示内容数组", example = "[\"FRONTEND\",\"BACKEND\",\"DATABASE\"]")
         private List<String> displayContent;
 
+        @Schema(description = "重点展示内容数组（新版字段）", example = "[\"FRONTEND\",\"BACKEND\",\"DATABASE\"]")
+        private List<String> focusContents;
+
         @Schema(description = "关系表达", example = "MODULE")
         private String relationType;
+
+        @Schema(description = "关系表达模式（新版字段）", example = "DATA_FLOW")
+        private String relationMode;
+
+        @Schema(description = "架构层级表达模式", example = "STRUCTURED")
+        private String hierarchyMode;
+
+        @Schema(description = "文档解析后的文本，可选；填写后 AI 优先基于此生成", example = "")
+        private String sourceText;
+
+        @Schema(description = "已上传文件ID，可选", example = "")
+        private String fileId;
+
+        @Schema(description = "已上传文件访问URL，可选", example = "")
+        private String sourceFile;
     }
 
     /**
@@ -70,6 +100,30 @@ public class ArchitectureDTO {
         @Schema(description = "底部特性标签")
         private List<String> features;
 
+        @Schema(description = "系统类型")
+        private String systemType;
+
+        @Schema(description = "是否由 AI 自动分析架构层级")
+        private Boolean autoArchitectureLayers;
+
+        @Schema(description = "架构层级数组")
+        private List<String> architectureLayers;
+
+        @Schema(description = "重点展示内容数组")
+        private List<String> focusContents;
+
+        @Schema(description = "用户请求的关系表达")
+        private String requestedRelationMode;
+
+        @Schema(description = "AI 最终采用的关系表达")
+        private String resolvedRelationMode;
+
+        @Schema(description = "用户请求的层级表达")
+        private String requestedHierarchyMode;
+
+        @Schema(description = "AI 最终采用的层级表达")
+        private String resolvedHierarchyMode;
+
         @Schema(description = "节点数组（兼容旧格式）")
         private List<Object> nodes;
 
@@ -78,6 +132,27 @@ public class ArchitectureDTO {
 
         @Schema(description = "创建时间")
         private String createTime;
+
+        @Schema(description = "系统需求描述")
+        private String description;
+
+        @Schema(description = "用户原始输入内容")
+        private String content;
+
+        @Schema(description = "上传文件信息数组")
+        private List<Object> files;
+
+        @Schema(description = "文档解析后的文本")
+        private String sourceText;
+
+        @Schema(description = "已上传文件ID")
+        private String fileId;
+
+        @Schema(description = "已上传文件访问URL")
+        private String sourceFile;
+
+        @Schema(description = "AI 或本地规则生成的文件摘要")
+        private String fileSummary;
     }
 
     /**
@@ -96,9 +171,88 @@ public class ArchitectureDTO {
         private String title;
 
         @Schema(description = "系统类型")
-        private String type;
+        private String systemType;
+
+        @Schema(description = "用户请求的关系表达")
+        private String requestedRelationMode;
+
+        @Schema(description = "AI 最终采用的关系表达")
+        private String resolvedRelationMode;
+
+        @Schema(description = "用户请求的层级表达")
+        private String requestedHierarchyMode;
+
+        @Schema(description = "AI 最终采用的层级表达")
+        private String resolvedHierarchyMode;
 
         @Schema(description = "创建时间")
         private String createTime;
+
+        @Schema(description = "系统需求描述")
+        private String description;
+
+        @Schema(description = "用户原始输入内容")
+        private String content;
+
+        @Schema(description = "上传文件信息数组")
+        private List<Object> files;
+
+        @Schema(description = "文档解析后的文本")
+        private String sourceText;
+
+        @Schema(description = "已上传文件ID")
+        private String fileId;
+
+        @Schema(description = "已上传文件访问URL")
+        private String sourceFile;
+
+        @Schema(description = "AI 或本地规则生成的文件摘要")
+        private String fileSummary;
+    }
+
+    /**
+     * 文档上传解析响应体，对应前端 POST /api/ai/architecture/upload 的 data 字段。
+     */
+    @Data
+    @NoArgsConstructor
+    @AllArgsConstructor
+    @Schema(description = "架构图文档上传解析响应")
+    public static class UploadResponse {
+
+        @Schema(description = "文件ID")
+        private String fileId;
+
+        @Schema(description = "原始文件名")
+        private String fileName;
+
+        @Schema(description = "文件访问URL")
+        private String sourceFile;
+
+        @Schema(description = "解析得到的文本内容")
+        private String text;
+
+        @Schema(description = "AI 或本地规则生成的文件摘要")
+        private String summary;
+
+        @Schema(description = "摘要来源状态：AI、LOCAL、AI_FALLBACK、EMPTY")
+        private String summaryStatus;
+
+        @Schema(description = "摘要使用的模型，兜底摘要为 local")
+        private String summaryModel;
+
+        @Schema(description = "解析文本长度")
+        private Integer textLength;
+
+        @Schema(description = "解析文本是否因长度限制被截断")
+        private Boolean truncated;
+
+        @Schema(description = "PDF 页数")
+        private Integer pageCount;
+
+        @Schema(description = "PPT 幻灯片数")
+        private Integer slideCount;
+
+        @Schema(description = "解析到的段落或文本块数量")
+        private Integer paragraphCount;
     }
 }

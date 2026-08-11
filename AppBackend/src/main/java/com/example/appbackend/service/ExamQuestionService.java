@@ -23,5 +23,10 @@ public interface ExamQuestionService {
 
     void deleteQuestion(Long id, Long userId, boolean admin);
 
+    /**
+     * 调整题目可见范围。公开时清空 owner；私有时归属当前操作者（管理员操作他人题时保留原 owner）。
+     */
+    ExamQuestionDTO.QuestionVO setQuestionVisibility(Long id, String visibility, Long userId, boolean admin);
+
     List<String> listBanks(Long userId);
 }

@@ -1,9 +1,14 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
+  ArrowDownOutlined,
+  ArrowUpOutlined,
   BookOutlined,
+  CloseOutlined,
   DeleteOutlined,
   EditOutlined,
   EyeOutlined,
+  FileOutlined,
+  FolderOpenOutlined,
   PlusOutlined,
   SendOutlined,
   UploadOutlined,
@@ -22,6 +27,7 @@ import {
   Progress,
   Select,
   Space,
+  Spin,
   Switch,
   Table,
   Tabs,
@@ -32,10 +38,12 @@ import {
 import {
   createCampusCourse,
   createCampusCourseChapter,
+  createCampusCourseType,
   deleteCampusCourse,
   deleteCampusCourseChapter,
   getCampusCourse,
   getCampusCourses,
+  getCampusCourseTypes,
   linkCampusCourseExam,
   offlineCampusCourse,
   publishCampusCourse,
@@ -45,6 +53,19 @@ import {
 } from '../../api/campusCourse'
 import { getExamPaperList } from '../../api/examPaper'
 import { uploadImage } from '../../api/upload'
+import {
+  bindChapterAdditionalMaterials,
+  bindChapterMaterials,
+  bindChapterWordMaterials,
+  checkMaterialReference,
+  deleteMaterial,
+  getChapterAdditionalMaterials,
+  getChapterMaterials,
+  getChapterWordMaterials,
+  getCourseMaterials,
+  uploadMaterialBatch,
+} from '../../api/campusMaterial'
+import { API_BASE_URL } from '../../config/apiBase'
 import SidePanel from '../../components/SidePanel/SidePanel'
 import './CampusCourseManage.css'
 
@@ -54,7 +75,87 @@ const statusMeta = {
   PUBLISHED: { label: '已发布', color: 'green' },
   OFFLINE: { label: '已下架', color: 'orange' },
 }
+
+const COURSE_TYPE_OPTIONS = [
+  { value: '', label: '未设置' },
+  { value: 'REQUIRED', label: '必修课' },
+  { value: 'ELECTIVE', label: '选修课' },
+  { value: 'PUBLIC', label: '公共课' },
+  { value: 'LAB', label: '实验课' },
+]
+
+/* 内置类型标签名与颜色（仅用于列渲染，课程列表已通过 customCourseTypeNames 返回自定义类型名称） */
+const COURSE_TYPE_LABELS = {
+  REQUIRED: '必修课',
+  ELECTIVE: '选修课',
+  PUBLIC: '公共课',
+  LAB: '实验课',
+}
+const BUILTIN_TYPE_COLORS = {
+  REQUIRED: 'blue',
+  ELECTIVE: 'green',
+  PUBLIC: 'purple',
+  LAB: 'orange',
+}
+
+// 与后端 course-material 白名单保持一致
+const MATERIAL_WHITELIST = ['mp4', 'avi', 'pdf', 'ppt', 'pptx', 'doc', 'docx', 'xls', 'xlsx', 'png', 'jpg', 'jpeg', 'gif', 'webp', 'mp3', 'txt']
+const VIDEO_EXTENSIONS = new Set(['mp4', 'mov', 'webm', 'avi', 'mkv', 'flv', 'm3u8'])
+const WORD_EXTENSIONS = new Set(['doc', 'docx'])
+const MAX_FOLDER_BYTES = 2 * 1024 * 1024 * 1024
+const UPLOAD_BATCH_SIZE = 8
+
+const materialTypeMeta = {
+  VIDEO: { label: '视频', color: 'blue' },
+  AUDIO: { label: '音频', color: 'gold' },
+  IMAGE: { label: '图片', color: 'green' },
+  PDF: { label: 'PDF', color: 'red' },
+  PPT: { label: '课件', color: 'purple' },
+  DOC: { label: '文档', color: 'geekblue' },
+  SHEET: { label: '表格', color: 'cyan' },
+  TEXT: { label: '文本', color: 'default' },
+  OTHER: { label: '其他', color: 'default' },
+}
+const materialTypeOptions = [
+  { value: 'ALL', label: '全部类型' },
+  { value: 'VIDEO', label: '视频' },
+  { value: 'AUDIO', label: '音频' },
+  { value: 'IMAGE', label: '图片' },
+  { value: 'PDF', label: 'PDF' },
+  { value: 'PPT', label: '课件' },
+  { value: 'DOC', label: '文档' },
+  { value: 'SHEET', label: '表格' },
+  { value: 'TEXT', label: '文本' },
+  { value: 'OTHER', label: '其他' },
+]
+
+const fileExt = (name = '') => {
+  const dot = name.lastIndexOf('.')
+  return dot >= 0 ? name.slice(dot + 1).toLowerCase() : ''
+}
+const extCategory = (ext = '') => {
+  const value = String(ext).toLowerCase()
+  if (['mp4', 'mov', 'webm', 'avi'].includes(value)) return 'VIDEO'
+  if (['mp3', 'wav', 'm4a', 'ogg'].includes(value)) return 'AUDIO'
+  if (['png', 'jpg', 'jpeg', 'gif', 'webp'].includes(value)) return 'IMAGE'
+  if (value === 'pdf') return 'PDF'
+  if (['ppt', 'pptx'].includes(value)) return 'PPT'
+  if (['doc', 'docx'].includes(value)) return 'DOC'
+  if (['xls', 'xlsx'].includes(value)) return 'SHEET'
+  if (value === 'txt') return 'TEXT'
+  return 'OTHER'
+}
+const formatBytes = (bytes) => {
+  const n = Number(bytes) || 0
+  if (n < 1024) return `${n} B`
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`
+  if (n < 1024 * 1024 * 1024) return `${(n / 1024 / 1024).toFixed(1)} MB`
+  return `${(n / 1024 / 1024 / 1024).toFixed(2)} GB`
+}
+const resolveFileUrl = (url = '') => (/^https?:\/\//.test(url) ? url : `${API_BASE_URL}${url}`)
+
 function CampusCourseManage() {
+  console.log('[DEBUG] CampusCourseManage 组件已挂载')
   const [courses, setCourses] = useState([])
   const [loading, setLoading] = useState(false)
   const [keyword, setKeyword] = useState('')
@@ -71,10 +172,24 @@ function CampusCourseManage() {
   const [examForm] = Form.useForm()
   const [paperOptions, setPaperOptions] = useState([])
   const [submitting, setSubmitting] = useState(false)
+  const [courseTypes, setCourseTypes] = useState([])
+  const [typeModalOpen, setTypeModalOpen] = useState(false)
+  const [typeForm] = Form.useForm()
+  const [typeSubmitting, setTypeSubmitting] = useState(false)
   const [coverUploading, setCoverUploading] = useState(false)
   const [displayImageUploading, setDisplayImageUploading] = useState(false)
   const coverUrl = Form.useWatch('coverUrl', courseForm)
   const displayImageUrl = Form.useWatch('displayImageUrl', courseForm)
+  const [materials, setMaterials] = useState([])
+  const [materialsLoading, setMaterialsLoading] = useState(false)
+  const [materialTypeFilter, setMaterialTypeFilter] = useState('ALL')
+  const [uploading, setUploading] = useState(false)
+  const [uploadInfo, setUploadInfo] = useState(null)
+  const [chapterMaterialIds, setChapterMaterialIds] = useState([])
+  const [chapterAdditionalMaterialIds, setChapterAdditionalMaterialIds] = useState([])
+  const [chapterWordMaterialIds, setChapterWordMaterialIds] = useState([])
+  const [selectedRowKeys, setSelectedRowKeys] = useState([])
+  const folderInputRef = useRef(null)
 
   const loadCourses = useCallback(async () => {
     setLoading(true)
@@ -86,9 +201,34 @@ function CampusCourseManage() {
     }
   }, [])
 
+  const loadCourseTypes = useCallback(async () => {
+    try {
+      const response = await getCampusCourseTypes()
+      const data = response.data || []
+      console.log('[DEBUG] loadCourseTypes 返回:', data.length, '条', data.map(t => `${t.typeCode}(${t.typeName})[${t.category}]`))
+      setCourseTypes(data)
+    } catch (error) {
+      message.error(error?.message || '加载课程类型失败')
+    }
+  }, [])
+
   useEffect(() => {
     loadCourses()
-  }, [loadCourses])
+    loadCourseTypes()
+  }, [loadCourses, loadCourseTypes])
+
+  const loadMaterials = useCallback(async (courseId) => {
+    if (!courseId) return
+    setMaterialsLoading(true)
+    try {
+      const res = await getCourseMaterials(courseId)
+      setMaterials(res.data || [])
+    } catch (error) {
+      message.error(error?.message || '加载资料池失败')
+    } finally {
+      setMaterialsLoading(false)
+    }
+  }, [])
 
   const loadDetail = async (courseId, open = true) => {
     setDetailLoading(true)
@@ -96,6 +236,7 @@ function CampusCourseManage() {
     try {
       const response = await getCampusCourse(courseId)
       setDetail(response.data)
+      await loadMaterials(courseId)
     } finally {
       setDetailLoading(false)
     }
@@ -108,6 +249,54 @@ function CampusCourseManage() {
       `${item.name || ''} ${item.bookTitle || ''}`.toLowerCase().includes(text))
   }, [courses, keyword])
 
+  const selectedRows = useMemo(() =>
+    courses.filter((c) => selectedRowKeys.includes(c.id)),
+  [courses, selectedRowKeys])
+
+  const selectionCount = selectedRowKeys.length
+
+  const selectedStatusUniform = useMemo(() => {
+    if (!selectionCount) return null
+    const first = selectedRows[0]?.publishStatus
+    return first && selectedRows.every((r) => r.publishStatus === first) ? first : null
+  }, [selectedRows, selectionCount])
+
+  // 必选类型：单选必填；自定义类型：多选可选
+  const builtinTypeOptions = useMemo(() =>
+    courseTypes
+      .filter((item) => item.category === 'BUILTIN')
+      .map((item) => ({ value: item.typeCode, label: item.typeName })),
+  [courseTypes])
+
+  const customTypeOptions = useMemo(() =>
+    courseTypes
+      .filter((item) => item.category === 'CUSTOM')
+      .map((item) => ({ value: item.typeCode, label: item.typeName })),
+  [courseTypes])
+
+  const materialMap = useMemo(() => {
+    const map = new Map()
+    materials.forEach((item) => map.set(item.id, item))
+    return map
+  }, [materials])
+
+  const filteredMaterials = useMemo(() => {
+    if (materialTypeFilter === 'ALL') return materials
+    return materials.filter((item) => extCategory(item.fileType) === materialTypeFilter)
+  }, [materials, materialTypeFilter])
+
+  const videoMaterials = useMemo(() =>
+    materials.filter((item) => VIDEO_EXTENSIONS.has((item.fileType || '').toLowerCase())),
+  [materials])
+
+  const nonVideoMaterials = useMemo(() =>
+    materials.filter((item) => !VIDEO_EXTENSIONS.has((item.fileType || '').toLowerCase())),
+  [materials])
+
+  const wordMaterials = useMemo(() =>
+    materials.filter((item) => WORD_EXTENSIONS.has((item.fileType || '').toLowerCase())),
+  [materials])
+
   const openCourseForm = (course = null) => {
     setEditingCourse(course)
     courseForm.resetFields()
@@ -115,12 +304,15 @@ function CampusCourseManage() {
       ...course,
     } : {
       sortOrder: 0,
+      customCourseTypes: [],
     })
     setCourseModalOpen(true)
   }
 
   const saveCourse = async () => {
     const values = await courseForm.validateFields()
+    console.log('[DEBUG] saveCourse values:', JSON.stringify(values, null, 2))
+    console.log('[DEBUG] customCourseTypes:', values.customCourseTypes)
     setSubmitting(true)
     try {
       if (editingCourse) {
@@ -133,8 +325,25 @@ function CampusCourseManage() {
       setCourseModalOpen(false)
       await loadCourses()
       if (detail?.id === editingCourse?.id) await loadDetail(detail.id, false)
+    } catch (error) {
+      message.error(error?.message || '课程保存失败，请稍后重试')
     } finally {
       setSubmitting(false)
+    }
+  }
+
+  const saveCourseType = async () => {
+    const values = await typeForm.validateFields()
+    setTypeSubmitting(true)
+    try {
+      await createCampusCourseType(values)
+      message.success('课程类型已创建')
+      setTypeModalOpen(false)
+      await loadCourseTypes()
+    } catch (error) {
+      message.error(error?.message || '创建课程类型失败')
+    } finally {
+      setTypeSubmitting(false)
     }
   }
 
@@ -190,17 +399,132 @@ function CampusCourseManage() {
     if (detail?.id === course.id) await loadDetail(course.id, false)
   }
 
-  const removeCourse = async (id) => {
-    await deleteCampusCourse(id)
-    message.success('课程已删除')
-    if (detail?.id === id) {
-      setDetailOpen(false)
-      setDetail(null)
+  const batchChangeStatus = async (action) => {
+    setSubmitting(true)
+    try {
+      for (const course of selectedRows) {
+        if (action === 'publish') await publishCampusCourse(course.id)
+        else await offlineCampusCourse(course.id)
+      }
+      message.success(action === 'publish'
+        ? `已批量发布 ${selectionCount} 门课程`
+        : `已批量下架 ${selectionCount} 门课程`)
+      setSelectedRowKeys([])
+      await loadCourses()
+    } finally {
+      setSubmitting(false)
     }
-    await loadCourses()
   }
 
-  const openChapterForm = (chapter = null) => {
+  const handleBatchDelete = async () => {
+    setSubmitting(true)
+    try {
+      for (const course of selectedRows) {
+        await deleteCampusCourse(course.id)
+      }
+      message.success(`已删除 ${selectionCount} 门课程`)
+      if (detail && selectedRows.some((r) => r.id === detail.id)) {
+        setDetailOpen(false)
+        setDetail(null)
+      }
+      setSelectedRowKeys([])
+      await loadCourses()
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  const runBatchUpload = async (files) => {
+    setUploading(true)
+    setUploadInfo({ done: 0, total: files.length })
+    let batchId
+    let done = 0
+    try {
+      for (let i = 0; i < files.length; i += UPLOAD_BATCH_SIZE) {
+        const slice = files.slice(i, i + UPLOAD_BATCH_SIZE)
+        const result = await uploadMaterialBatch(detail.id, slice, batchId)
+        batchId = result?.uploadBatchId || batchId
+        done += slice.length
+        setUploadInfo({ done, total: files.length })
+      }
+      message.success(`成功上传 ${done} 个资料`)
+    } catch (error) {
+      message.error(error?.message || '资料上传失败')
+    } finally {
+      setUploading(false)
+      setUploadInfo(null)
+      if (detail?.id) await loadMaterials(detail.id)
+    }
+  }
+
+  const handleFolderChange = (event) => {
+    const picked = Array.from(event.target.files || [])
+    event.target.value = ''
+    if (!detail?.id || !picked.length) return
+
+    const valid = []
+    let skipped = 0
+    picked.forEach((file) => {
+      const ext = fileExt(file.name)
+      if (ext && MATERIAL_WHITELIST.includes(ext)) valid.push(file)
+      else skipped += 1
+    })
+    if (!valid.length) {
+      message.warning('所选文件夹内没有支持的文件类型')
+      return
+    }
+    const totalBytes = valid.reduce((sum, file) => sum + (file.size || 0), 0)
+    if (totalBytes > MAX_FOLDER_BYTES) {
+      message.error(`所选文件合计 ${formatBytes(totalBytes)}，超过 ${formatBytes(MAX_FOLDER_BYTES)} 上限`)
+      return
+    }
+    Modal.confirm({
+      title: '确认上传文件夹资料',
+      content: (
+        <div className="material-upload-confirm">
+          <p>共 <strong>{valid.length}</strong> 个有效文件，合计 <strong>{formatBytes(totalBytes)}</strong>。</p>
+          {skipped > 0 ? <p className="material-upload-confirm__warn">已自动过滤 {skipped} 个不支持的文件。</p> : null}
+          <p>将分批上传（每批 {UPLOAD_BATCH_SIZE} 个），上传期间请勿关闭页面。</p>
+        </div>
+      ),
+      okText: '开始上传',
+      cancelText: '取消',
+      onOk: () => runBatchUpload(valid),
+    })
+  }
+
+  const handleDeleteMaterial = async (material) => {
+    let check
+    try {
+      const res = await checkMaterialReference(material.id)
+      check = res.data
+    } catch (error) {
+      message.error(error?.message || '引用检查失败')
+      return
+    }
+    const titles = check?.chapterTitles || []
+    Modal.confirm({
+      title: `删除资料「${material.fileName}」`,
+      content: check?.referenced
+        ? (
+          <div>
+            <p>该资料被以下章节引用，删除后将自动从这些章节移除：</p>
+            <p className="material-upload-confirm__warn">{titles.join('、')}</p>
+          </div>
+        )
+        : '该资料未被任何章节引用，确认下架吗？',
+      okText: '确认删除',
+      okButtonProps: { danger: true },
+      cancelText: '取消',
+      onOk: async () => {
+        await deleteMaterial(material.id, false)
+        message.success('资料已删除')
+        await loadMaterials(detail.id)
+      },
+    })
+  }
+
+  const openChapterForm = async (chapter = null) => {
     setEditingChapter(chapter)
     chapterForm.resetFields()
     chapterForm.setFieldsValue(chapter ? {
@@ -210,8 +534,27 @@ function CampusCourseManage() {
       required: true,
       sortOrder: (detail?.chapters?.length || 0) + 1,
       estimatedMinutes: 30,
-      resourceType: 'TEXT',
     })
+    if (chapter) {
+      try {
+        const [videoRes, additionalRes, wordRes] = await Promise.all([
+          getChapterMaterials(detail.id, chapter.id),
+          getChapterAdditionalMaterials(detail.id, chapter.id),
+          getChapterWordMaterials(detail.id, chapter.id),
+        ])
+        setChapterMaterialIds((videoRes.data || []).map((item) => item.id))
+        setChapterAdditionalMaterialIds((additionalRes.data || []).map((item) => item.id))
+        setChapterWordMaterialIds((wordRes.data || []).map((item) => item.id))
+      } catch {
+        setChapterMaterialIds([])
+        setChapterAdditionalMaterialIds([])
+        setChapterWordMaterialIds([])
+      }
+    } else {
+      setChapterMaterialIds([])
+      setChapterAdditionalMaterialIds([])
+      setChapterWordMaterialIds([])
+    }
     setChapterModalOpen(true)
   }
 
@@ -219,10 +562,20 @@ function CampusCourseManage() {
     const values = await chapterForm.validateFields()
     setSubmitting(true)
     try {
+      let chapterId
       if (editingChapter) {
         await updateCampusCourseChapter(detail.id, editingChapter.id, values)
+        chapterId = editingChapter.id
       } else {
-        await createCampusCourseChapter(detail.id, values)
+        const res = await createCampusCourseChapter(detail.id, values)
+        chapterId = res.data?.id
+      }
+      if (chapterId) {
+        await Promise.all([
+          bindChapterMaterials(detail.id, chapterId, chapterMaterialIds),
+          bindChapterAdditionalMaterials(detail.id, chapterId, chapterAdditionalMaterialIds),
+          bindChapterWordMaterials(detail.id, chapterId, chapterWordMaterialIds),
+        ])
       }
       message.success(editingChapter ? '章节已保存' : '章节已添加')
       setChapterModalOpen(false)
@@ -294,33 +647,33 @@ function CampusCourseManage() {
       render: (_, record) => `${record.chapterCount || 0} 章 · ${record.examCount || 0} 场考试`,
     },
     {
+      title: '类型',
+      dataIndex: 'courseType',
+      width: 220,
+      render: (type, record) => {
+        const codes = record.customCourseTypes || []
+        const names = record.customCourseTypeNames || []
+        // 自定义类型名称由后端 CourseSummary.customCourseTypeNames 直接返回，不依赖类型字典接口
+        const customs = codes.map((code, idx) => (
+          <Tag key={code} color="default">{idx < names.length ? names[idx] : code}</Tag>
+        ))
+        if (!type && !customs.length) return <span>-</span>
+        return (
+          <Space size={4} wrap>
+            {type ? <Tag color={BUILTIN_TYPE_COLORS[type] || 'default'}>{COURSE_TYPE_LABELS[type] || type}</Tag> : null}
+            {customs}
+          </Space>
+        )
+      },
+    },
+    {
       title: '状态',
       dataIndex: 'publishStatus',
-      width: 100,
+      width: 90,
       render: (status) => {
         const meta = statusMeta[status] || statusMeta.DRAFT
         return <Tag color={meta.color}>{meta.label}</Tag>
       },
-    },
-    {
-      title: '操作',
-      width: 300,
-      render: (_, record) => (
-        <Space wrap>
-          <Button type="link" icon={<EyeOutlined />} onClick={() => loadDetail(record.id)}>内容配置</Button>
-          <Button type="link" icon={<EditOutlined />} onClick={() => openCourseForm(record)}>编辑</Button>
-          {record.publishStatus === 'PUBLISHED' ? (
-            <Popconfirm title="下架后学生将无法进入课程，确定继续吗？" onConfirm={() => changeStatus(record, 'offline')}>
-              <Button type="link">下架</Button>
-            </Popconfirm>
-          ) : (
-            <Button type="link" icon={<SendOutlined />} onClick={() => changeStatus(record, 'publish')}>发布</Button>
-          )}
-          <Popconfirm title="确定删除该课程及其章节配置吗？" onConfirm={() => removeCourse(record.id)}>
-            <Button type="link" danger icon={<DeleteOutlined />}>删除</Button>
-          </Popconfirm>
-        </Space>
-      ),
     },
   ]
 
@@ -381,11 +734,69 @@ function CampusCourseManage() {
     </div>
   )
 
+  const materialTab = (
+    <div>
+      <div className="course-tab-toolbar">
+        <Typography.Text type="secondary">上传课程资料到资料池，再在各章节中选择关联。</Typography.Text>
+        <Space>
+          <Select
+            value={materialTypeFilter}
+            onChange={setMaterialTypeFilter}
+            style={{ width: 120 }}
+            options={materialTypeOptions}
+          />
+          <Button
+            type="primary"
+            icon={<FolderOpenOutlined />}
+            loading={uploading}
+            onClick={() => folderInputRef.current?.click()}
+          >
+            {uploading
+              ? (uploadInfo ? `上传中 ${uploadInfo.done}/${uploadInfo.total}` : '上传中')
+              : '上传文件夹'}
+          </Button>
+        </Space>
+      </div>
+      <input
+        ref={folderInputRef}
+        type="file"
+        multiple
+        hidden
+        webkitdirectory=""
+        directory=""
+        onChange={handleFolderChange}
+      />
+      <Spin spinning={materialsLoading}>
+        {filteredMaterials.length ? (
+          <List
+            className="course-material-list"
+            dataSource={filteredMaterials}
+            renderItem={(item) => {
+              const meta = materialTypeMeta[extCategory(item.fileType)] || materialTypeMeta.OTHER
+              return (
+                <List.Item actions={[
+                  <a key="view" href={resolveFileUrl(item.fileUrl)} target="_blank" rel="noreferrer">查看</a>,
+                  <Button key="del" type="link" danger onClick={() => handleDeleteMaterial(item)}>删除</Button>,
+                ]}>
+                  <List.Item.Meta
+                    avatar={<span className="material-type-badge"><FileOutlined /></span>}
+                    title={<Space><span>{item.fileName}</span><Tag color={meta.color}>{meta.label}</Tag></Space>}
+                    description={`${formatBytes(item.fileSize)} · ${(item.fileType || '').toUpperCase()}`}
+                  />
+                </List.Item>
+              )
+            }}
+          />
+        ) : <Empty description="资料池暂无资料，点击“上传文件夹”添加" />}
+      </Spin>
+    </div>
+  )
+
   return (
     <div className="campus-course-manage">
       <div className="course-page-heading">
-        <div>
-          <span>课程学习</span>
+        <div className="course-page-heading__text">
+          <span className="course-page-heading__kicker">课程学习</span>
           <h1>校园课程管理</h1>
           <p>当前由管理员担任课程负责人，完成课程书、章节、学习范围和考试配置。</p>
         </div>
@@ -394,10 +805,50 @@ function CampusCourseManage() {
 
       <div className="course-table-card">
         <div className="course-list-toolbar">
-          <Input.Search placeholder="搜索课程或课程书" allowClear value={keyword} onChange={(event) => setKeyword(event.target.value)} />
+          <div className="course-list-toolbar__left">
+            <Input.Search placeholder="搜索课程或课程书" allowClear value={keyword} onChange={(event) => setKeyword(event.target.value)} />
+            <Space>
+              <Button icon={<EyeOutlined />} disabled={selectionCount !== 1} onClick={() => loadDetail(selectedRows[0].id)}>内容配置</Button>
+              <Button icon={<EditOutlined />} disabled={selectionCount !== 1} onClick={() => openCourseForm(selectedRows[0])}>编辑</Button>
+              {selectedStatusUniform === 'PUBLISHED' ? (
+                <Popconfirm title={`确定下架选中的 ${selectionCount} 门课程吗？`} onConfirm={() => batchChangeStatus('offline')}>
+                  <Button disabled={!selectedStatusUniform}>下架</Button>
+                </Popconfirm>
+              ) : (
+                <Button icon={<SendOutlined />} disabled={!selectedStatusUniform} onClick={() => batchChangeStatus('publish')}>发布</Button>
+              )}
+              <Popconfirm title={`确定删除选中的 ${selectionCount} 门课程及其章节配置吗？`} onConfirm={handleBatchDelete}>
+                <Button danger icon={<DeleteOutlined />} disabled={!selectionCount}>删除</Button>
+              </Popconfirm>
+            </Space>
+          </div>
           <span>共 {filteredCourses.length} 门课程</span>
         </div>
-        <Table rowKey="id" columns={columns} dataSource={filteredCourses} loading={loading} pagination={{ pageSize: 10 }} />
+        <Table
+          rowKey="id"
+          columns={columns}
+          dataSource={filteredCourses}
+          loading={loading}
+          pagination={{ pageSize: 10 }}
+          rowClassName={(record) => selectedRowKeys.includes(record.id) ? 'course-row-selected' : ''}
+          onRow={(record) => ({
+            onClick: () => {
+              setSelectedRowKeys((prev) =>
+                prev.includes(record.id)
+                  ? prev.filter((k) => k !== record.id)
+                  : [...prev, record.id],
+              )
+            },
+          })}
+          rowSelection={{
+            selectedRowKeys,
+            onChange: setSelectedRowKeys,
+            columnWidth: 28,
+            renderCell: (checked) => (
+              <span className={`course-row-dot${checked ? ' course-row-dot--active' : ''}`} />
+            ),
+          }}
+        />
       </div>
 
       <SidePanel
@@ -408,7 +859,7 @@ function CampusCourseManage() {
         footer={(
           <>
             <Button onClick={() => setCourseModalOpen(false)}>取消</Button>
-            <Button type="primary" loading={submitting || coverUploading || displayImageUploading} onClick={saveCourse}>保存</Button>
+            <Button type="primary" loading={submitting || coverUploading || displayImageUploading} onClick={() => { console.log('[DEBUG] 保存按钮被点击'); saveCourse(); }}>保存</Button>
           </>
         )}
       >
@@ -421,6 +872,18 @@ function CampusCourseManage() {
               <Input placeholder="例如：《Python程序设计基础》" maxLength={160} />
             </Form.Item>
             <Form.Item name="sortOrder" label="展示顺序"><InputNumber min={0} style={{ width: '100%' }} /></Form.Item>
+            <Form.Item name="courseType" label="必选类型" rules={[{ required: true, message: '请选择必选类型' }]}>
+              <Select placeholder="请选择必选类型" options={builtinTypeOptions} />
+            </Form.Item>
+            <Form.Item name="customCourseTypes" label="自定义类型" extra="可选，可多选">
+              <Select mode="multiple" allowClear placeholder={customTypeOptions.length ? "选择自定义类型（可选）" : "暂无自定义类型，请点+创建"} options={customTypeOptions} disabled={!customTypeOptions.length} />
+            </Form.Item>
+            <div className="course-type-create-row">
+              <Button icon={<PlusOutlined />} onClick={() => {
+                typeForm.resetFields()
+                setTypeModalOpen(true)
+              }}>创建类型</Button>
+            </div>
           </div>
           <Form.Item name="coverUrl" hidden><Input /></Form.Item>
           <Form.Item name="displayImageUrl" hidden><Input /></Form.Item>
@@ -514,6 +977,7 @@ function CampusCourseManage() {
             </div>
             <Tabs items={[
               { key: 'chapters', label: `课程章节（${detail.chapterCount}）`, children: chapterTab },
+              { key: 'materials', label: `课程资料（${materials.length}）`, children: materialTab },
               { key: 'exams', label: `课程考试（${detail.examCount}）`, children: examTab },
             ]} />
           </>
@@ -538,17 +1002,116 @@ function CampusCourseManage() {
           </div>
           <Form.Item name="summary" label="章节说明"><Input maxLength={1000} /></Form.Item>
           <Form.Item name="content" label="课程正文"><TextArea rows={8} placeholder="录入学生需要阅读的课程内容" /></Form.Item>
-          <div className="course-form-grid">
-            <Form.Item name="resourceType" label="附加资料类型">
-              <Select allowClear options={[
-                { value: 'TEXT', label: '正文' },
-                { value: 'PDF', label: 'PDF' },
-                { value: 'PPT', label: 'PPT课件' },
-                { value: 'VIDEO', label: '视频' },
-                { value: 'LINK', label: '外部链接' },
-              ]} />
-            </Form.Item>
-            <Form.Item name="resourceUrl" label="附加资料地址"><Input placeholder="可选，填写资料 URL" /></Form.Item>
+          <div className="chapter-material-block">
+            <div className="chapter-material-block__head">
+              <Typography.Text strong>附加下载资料</Typography.Text>
+              <Typography.Text type="secondary">从资料池选择非视频类型资料（文本/PDF/文档等），可多选</Typography.Text>
+            </div>
+            <Select
+              mode="multiple"
+              allowClear
+              style={{ width: '100%' }}
+              placeholder={nonVideoMaterials.length ? '选择附加资料（非视频）' : '资料池中没有非视频类型资料，请先在"课程资料"中上传'}
+              value={chapterAdditionalMaterialIds}
+              onChange={setChapterAdditionalMaterialIds}
+              optionFilterProp="label"
+              options={nonVideoMaterials.map((item) => ({ value: item.id, label: item.fileName }))}
+            />
+            {chapterAdditionalMaterialIds.length ? (
+              <ul className="chapter-material-order">
+                {chapterAdditionalMaterialIds.map((id, index) => {
+                  const item = materialMap.get(id)
+                  return (
+                    <li key={id}>
+                      <span className="chapter-material-order__idx">{index + 1}</span>
+                      <span className="chapter-material-order__name">{item ? item.fileName : `资料#${id}`}</span>
+                      <Space size={4}>
+                        <Button size="small" type="text" icon={<ArrowUpOutlined />} disabled={index === 0} onClick={() => {
+                          setChapterAdditionalMaterialIds((prev) => {
+                            const next = [...prev]
+                            ;[next[index], next[index - 1]] = [next[index - 1], next[index]]
+                            return next
+                          })
+                        }} />
+                        <Button size="small" type="text" icon={<ArrowDownOutlined />} disabled={index === chapterAdditionalMaterialIds.length - 1} onClick={() => {
+                          setChapterAdditionalMaterialIds((prev) => {
+                            const next = [...prev]
+                            ;[next[index], next[index + 1]] = [next[index + 1], next[index]]
+                            return next
+                          })
+                        }} />
+                        <Button size="small" type="text" danger icon={<CloseOutlined />} onClick={() =>
+                          setChapterAdditionalMaterialIds((prev) => prev.filter((item) => item !== id))
+                        } />
+                      </Space>
+                    </li>
+                  )
+                })}
+              </ul>
+            ) : null}
+          </div>
+          <div className="chapter-material-block">
+            <div className="chapter-material-block__head">
+              <Typography.Text strong>关联文本资料</Typography.Text>
+              <Typography.Text type="secondary">从资料池选择 Word 类型资料（doc/docx），可多选</Typography.Text>
+            </div>
+            <Select
+              mode="multiple"
+              allowClear
+              style={{ width: '100%' }}
+              placeholder={wordMaterials.length ? '选择 Word 文本资料' : '资料池中没有 Word 类型资料，请先在"课程资料"中上传'}
+              value={chapterWordMaterialIds}
+              onChange={setChapterWordMaterialIds}
+              optionFilterProp="label"
+              options={wordMaterials.map((item) => ({ value: item.id, label: item.fileName }))}
+            />
+            {chapterWordMaterialIds.length ? (
+              <ul className="chapter-material-order">
+                {chapterWordMaterialIds.map((id, index) => {
+                  const item = materialMap.get(id)
+                  return (
+                    <li key={id}>
+                      <span className="chapter-material-order__idx">{index + 1}</span>
+                      <span className="chapter-material-order__name">{item ? item.fileName : `资料#${id}`}</span>
+                      <Space size={4}>
+                        <Button size="small" type="text" icon={<ArrowUpOutlined />} disabled={index === 0} onClick={() => {
+                          setChapterWordMaterialIds((prev) => {
+                            const next = [...prev]
+                            ;[next[index], next[index - 1]] = [next[index - 1], next[index]]
+                            return next
+                          })
+                        }} />
+                        <Button size="small" type="text" icon={<ArrowDownOutlined />} disabled={index === chapterWordMaterialIds.length - 1} onClick={() => {
+                          setChapterWordMaterialIds((prev) => {
+                            const next = [...prev]
+                            ;[next[index], next[index + 1]] = [next[index + 1], next[index]]
+                            return next
+                          })
+                        }} />
+                        <Button size="small" type="text" danger icon={<CloseOutlined />} onClick={() =>
+                          setChapterWordMaterialIds((prev) => prev.filter((item) => item !== id))
+                        } />
+                      </Space>
+                    </li>
+                  )
+                })}
+              </ul>
+            ) : null}
+          </div>
+          <div className="chapter-material-block">
+            <div className="chapter-material-block__head">
+              <Typography.Text strong>关联视频资料</Typography.Text>
+              <Typography.Text type="secondary">从资料池选择一个视频资料（仅允许一个）</Typography.Text>
+            </div>
+            <Select
+              allowClear
+              style={{ width: '100%' }}
+              placeholder={videoMaterials.length ? '选择视频资料' : '资料池中没有视频类型资料，请先在"课程资料"中上传'}
+              value={chapterMaterialIds.length ? chapterMaterialIds[0] : undefined}
+              onChange={(value) => setChapterMaterialIds(value ? [value] : [])}
+              optionFilterProp="label"
+              options={videoMaterials.map((item) => ({ value: item.id, label: item.fileName }))}
+            />
           </div>
         </Form>
       </Modal>
@@ -567,6 +1130,30 @@ function CampusCourseManage() {
           </Form.Item>
           <Form.Item name="chapterScope" label="考试范围"><Input placeholder="例如：第1—4章" maxLength={300} /></Form.Item>
           <Form.Item name="sortOrder" label="展示顺序"><InputNumber min={0} style={{ width: '100%' }} /></Form.Item>
+        </Form>
+      </Modal>
+
+      <Modal
+        title="创建自定义课程类型"
+        open={typeModalOpen}
+        onOk={saveCourseType}
+        confirmLoading={typeSubmitting}
+        onCancel={() => setTypeModalOpen(false)}
+        width={460}
+        okText="创建"
+      >
+        <Form form={typeForm} layout="vertical">
+          <Form.Item
+            name="typeName"
+            label="类型名称"
+            extra="创建的是自定义类型，名称不能与已有类型重复，存储代码由系统自动生成"
+            rules={[
+              { required: true, message: '请输入类型名称' },
+              { max: 20, message: '类型名称不能超过 20 个字符' },
+            ]}
+          >
+            <Input placeholder="例如：竞赛培训" maxLength={20} />
+          </Form.Item>
         </Form>
       </Modal>
     </div>

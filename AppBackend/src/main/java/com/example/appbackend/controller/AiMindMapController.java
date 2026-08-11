@@ -7,6 +7,7 @@ import com.example.appbackend.service.MindMapService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import org.springframework.http.MediaType;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -51,6 +52,12 @@ public class AiMindMapController {
     @GetMapping("/history")
     public Result<List<MindMapDTO.HistoryItem>> history(HttpServletRequest request) {
         return Result.success(mindMapService.history(requireUserId(request)));
+    }
+
+    @DeleteMapping("/{id}")
+    public Result<Void> delete(@PathVariable String id, HttpServletRequest request) {
+        mindMapService.delete(requireUserId(request), id);
+        return Result.success();
     }
 
     @GetMapping("/{id}")

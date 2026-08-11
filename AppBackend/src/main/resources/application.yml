@@ -43,7 +43,7 @@ spring:
   servlet:
     multipart:
       max-file-size: 200MB
-      max-request-size: 200MB
+      max-request-size: 500MB
   data:
     neo4j:
       repositories:
@@ -133,6 +133,14 @@ aliyun:
 file:
   upload-dir: uploads
   base-url: ${FILE_BASE_URL:http://localhost:8080}
+
+# 课程资料上传配置（文件夹大小上限与扩展名白名单，便于后期调整）
+# max-folder-bytes: 同一文件夹（同一 upload_batch_id）累计字节上限，默认 2GB
+# 注意：单请求体积仍受 spring.servlet.multipart 上限限制，需前端分批上传
+course-material:
+  max-folder-bytes: ${COURSE_MATERIAL_MAX_FOLDER_BYTES:2147483648}
+  allowed-extensions: ${COURSE_MATERIAL_ALLOWED_EXTENSIONS:mp4,avi,pdf,ppt,pptx,doc,docx,xls,xlsx,png,jpg,jpeg,gif,webp,mp3,txt}
+  storage-prefix: ${COURSE_MATERIAL_STORAGE_PREFIX:smart-campus/course-materials}
 
 browser:
   headless: true  # 可视化浏览器，调试用

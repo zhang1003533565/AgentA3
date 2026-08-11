@@ -59,6 +59,10 @@ public class DiscountActivity {
     @Schema(description = "剩余名额", example = "50")
     private Integer remainCount;
 
+    @Column(columnDefinition = "TINYINT DEFAULT 1 COMMENT '0-未开始 1-进行中 2-已领完 3-已结束'")
+    @Schema(description = "活动状态 0-未开始 1-进行中 2-已领完 3-已结束", example = "1")
+    private Integer status;
+
     @Column(name = "create_time", columnDefinition = "DATETIME COMMENT '创建时间'")
     @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
     @Schema(description = "创建时间")

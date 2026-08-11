@@ -16,6 +16,9 @@
         <view class="header-avatar-wrap" @click="goToUserProfile">
           <image class="header-avatar" :src="currentUserAvatar || '/static/logo.png'" mode="aspectFill" />
         </view>
+        <view class="bell-icon-wrap" @click="goToMessageList">
+          <image class="bell-icon" src="/static/icons/line/bell.svg" mode="aspectFit" />
+        </view>
       </view>
 
       <!-- 分类 Tab：与「校园活动」一致的样式 -->
@@ -83,7 +86,11 @@
           <!-- 互动数据 -->
           <view class="post-footer">
             <view class="action-item" @click.stop="toggleLike(item)">
-              <text class="action-icon">{{ item.isLiked ? '❤️' : '🤍' }}</text>
+              <image
+                class="action-icon-img"
+                :src="item.isLiked ? '/static/icons/line/thumb-up-filled.svg' : '/static/icons/line/thumb-up.svg'"
+                mode="aspectFit"
+              />
               <text class="action-count">{{ item.likeCount || 0 }}</text>
             </view>
             <view class="action-item">
@@ -133,7 +140,11 @@
           <!-- 互动数据 -->
           <view class="post-footer">
             <view class="action-item" @click.stop="toggleLike(item)">
-              <text class="action-icon">{{ item.isLiked ? '❤️' : '🤍' }}</text>
+              <image
+                class="action-icon-img"
+                :src="item.isLiked ? '/static/icons/line/thumb-up-filled.svg' : '/static/icons/line/thumb-up.svg'"
+                mode="aspectFit"
+              />
               <text class="action-count">{{ item.likeCount || 0 }}</text>
             </view>
             <view class="action-item">
@@ -176,7 +187,9 @@
             <view class="close-chevron" />
           </view>
           <text class="modal-title">发帖</text>
-          <view class="modal-placeholder"></view>
+          <view class="modal-draft-entry" @click="openDraftPanel">
+            <text>草稿箱{{ draftList.length ? `(${draftList.length})` : '' }}</text>
+          </view>
         </view>
         
         <scroll-view class="modal-body" scroll-y>
@@ -192,6 +205,43 @@
             <text>发布</text>
           </view>
         </view>
+      </view>
+    </view>
+
+    <!-- 草稿箱弹窗 -->
+    <view class="draft-modal-mask" v-if="showDraftPanel" @click="closeDraftPanel" @touchmove.stop.prevent>
+      <view class="draft-modal-content" @click.stop>
+        <view class="draft-modal-header">
+          <text class="draft-modal-title">草稿箱</text>
+          <view class="draft-modal-close" @click="closeDraftPanel">
+            <text>×</text>
+          </view>
+        </view>
+        <scroll-view class="draft-modal-body" scroll-y>
+          <view v-if="draftList.length" class="draft-list">
+            <view
+              v-for="item in draftList"
+              :key="item.id"
+              class="draft-item"
+              @click="restoreDraft(item)"
+            >
+              <view class="draft-item-info">
+                <text class="draft-item-title">{{ item.title || '无标题' }}</text>
+                <text class="draft-item-content">{{ item.content }}</text>
+                <view class="draft-item-meta">
+                  <text>{{ item.updateTime }}</text>
+                  <text v-if="item.images && item.images.length">{{ item.images.length }} 张图</text>
+                </view>
+              </view>
+              <view class="draft-item-delete" @click.stop="deleteDraft(item.id)">
+                <text>删除</text>
+              </view>
+            </view>
+          </view>
+          <view v-else class="draft-empty">
+            <text>暂无草稿</text>
+          </view>
+        </scroll-view>
       </view>
     </view>
     <ai-float-assistant />
@@ -252,7 +302,11 @@ export default {
       },
       publishTopics: [],
       hotTopics: [],
-      showHotTopics: true
+      showHotTopics: true,
+      // 草稿相关
+      showDraftPanel: false,
+      draftList: [],
+      DRAFT_KEY: 'forum_drafts'
     }
   },
   computed: {
@@ -277,6 +331,14 @@ export default {
     await this.loadHotTopicList()
     this.loadPostList()
   },
+  onShow() {
+    // 从帖子详情返回时静默刷新，保证删除/举报后的列表状态一致
+    if (this.postList.length > 0 && !this.loading) {
+      this.page = 1
+      this.noMore = false
+      this.loadPostList()
+    }
+  },
   methods: {
     loadCurrentUser() {
       const userInfo = getUserInfo()
@@ -288,8 +350,6 @@ export default {
     async loadTopics() {
       // 使用本地定义的静态分类，不从API获取
       this.publishTopics = [
-        { id: 1, name: '热门' },
-        { id: 2, name: '最新' },
         { id: 3, name: '📢公告' },
         { id: 4, name: '💰集市' },
         { id: 5, name: '😊求助' },
@@ -321,7 +381,12 @@ export default {
           pageNum: this.page,
           pageSize: this.pageSize
         }
-        if (this.currentTopic !== 0) params.topicId = this.currentTopic
+        // id=1 热门 → 按点赞量排序；id=2 最新 → 按时间倒序（后端默认）
+        if (this.currentTopic === 1) {
+          params.sortBy = 'likeCount'
+        } else if (this.currentTopic !== 0 && this.currentTopic !== 2) {
+          params.topicId = this.currentTopic
+        }
         if (this.searchKeyword && this.searchKeyword.trim()) params.keyword = this.searchKeyword.trim()
         const res = await getPostList(params)
         const data = res?.data || {}
@@ -388,6 +453,11 @@ export default {
         url: `/subpackage_forum/postDetail/postDetail?id=${id}`
       })
     },
+    goToMessageList() {
+      uni.navigateTo({
+        url: `/subpackage_message/messageList/messageList`
+      })
+    },
     goToUserProfile(item) {
       const userId = item?.userId || item?.id || this.currentUserId
       const userName = item?.userName || this.currentUserName || ''
@@ -406,6 +476,7 @@ export default {
     openPublishModal() {
       if (this.showPublishModal) return
       this.showPublishModal = true
+      this.draftList = this.getDrafts()
       this.$nextTick(() => {
         setTimeout(() => {
           if (this.showPublishModal) this.publishModalAnimating = true
@@ -420,11 +491,61 @@ export default {
       }, 250)
     },
     saveDraft() {
-      if (!this.publishForm.content.trim()) {
-        uni.showToast({ title: '请输入内容', icon: 'none' })
+      if (!this.publishForm.content.trim() && !this.publishForm.title.trim() && !this.publishForm.images.length) {
+        uni.showToast({ title: '内容为空，无需保存', icon: 'none' })
         return
       }
+      const drafts = this.getDrafts()
+      const draft = {
+        id: Date.now(),
+        title: this.publishForm.title || '',
+        content: this.publishForm.content || '',
+        images: [...(this.publishForm.images || [])],
+        topicId: this.publishForm.topicId || null,
+        updateTime: this.formatDateTime(new Date().toISOString())
+      }
+      drafts.unshift(draft)
+      uni.setStorageSync(this.DRAFT_KEY, drafts)
       uni.showToast({ title: '已保存草稿', icon: 'success' })
+      this.closePublishModal()
+    },
+    getDrafts() {
+      try {
+        return uni.getStorageSync(this.DRAFT_KEY) || []
+      } catch (error) {
+        return []
+      }
+    },
+    openDraftPanel() {
+      this.draftList = this.getDrafts()
+      this.showDraftPanel = true
+    },
+    closeDraftPanel() {
+      this.showDraftPanel = false
+    },
+    restoreDraft(draft) {
+      this.publishForm = {
+        title: draft.title || '',
+        content: draft.content || '',
+        images: [...(draft.images || [])],
+        topicId: draft.topicId || null,
+        isAnonymous: false
+      }
+      this.showDraftPanel = false
+      uni.showToast({ title: '已载入草稿', icon: 'none' })
+    },
+    deleteDraft(draftId) {
+      const drafts = this.getDrafts().filter((item) => item.id !== draftId)
+      uni.setStorageSync(this.DRAFT_KEY, drafts)
+      this.draftList = drafts
+      uni.showToast({ title: '已删除草稿', icon: 'none' })
+    },
+    removePublishedDraft(postData) {
+      const content = (postData?.content || '').trim()
+      const drafts = this.getDrafts().filter((item) => {
+        return (item.content || '').trim() !== content || (item.title || '') !== (postData?.title || '')
+      })
+      uni.setStorageSync(this.DRAFT_KEY, drafts)
     },
     async publishPost() {
       if (!this.canPublish) {
@@ -444,6 +565,7 @@ export default {
         await publishPost(postData)
         uni.hideLoading()
         uni.showToast({ title: '发布成功', icon: 'success' })
+        this.removePublishedDraft(postData)
         this.publishForm = {
           title: '',
           content: '',
@@ -711,6 +833,12 @@ export default {
         font-size: 32rpx;
         margin-right: 8rpx;
       }
+
+      .action-icon-img {
+        width: 36rpx;
+        height: 36rpx;
+        margin-right: 8rpx;
+      }
       
       .action-count {
         font-size: 24rpx;
@@ -819,6 +947,23 @@ export default {
   height: 72rpx;
 }
 
+.modal-draft-entry {
+  min-width: 120rpx;
+  height: 56rpx;
+  padding: 0 16rpx;
+  border-radius: 28rpx;
+  background-color: #F3F4F6;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  text {
+    font-size: 24rpx;
+    color: #5C7A99;
+    font-weight: 500;
+  }
+}
+
 .modal-body {
   flex: 1;
   padding: 24rpx;
@@ -860,6 +1005,136 @@ export default {
 
 .publish-btn.disabled {
   opacity: 0.5;
+}
+
+/* 草稿箱弹窗 */
+.draft-modal-mask {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.5);
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.draft-modal-content {
+  width: 640rpx;
+  max-height: 70vh;
+  background-color: #FFFFFF;
+  border-radius: 24rpx;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.draft-modal-header {
+  height: 88rpx;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 28rpx;
+  border-bottom: 1rpx solid #F0F0F0;
+  flex-shrink: 0;
+}
+
+.draft-modal-title {
+  font-size: 30rpx;
+  font-weight: 600;
+  color: #1D1D1F;
+}
+
+.draft-modal-close {
+  width: 56rpx;
+  height: 56rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  text {
+    font-size: 40rpx;
+    color: #8E8E93;
+  }
+}
+
+.draft-modal-body {
+  flex: 1;
+  padding: 24rpx;
+  box-sizing: border-box;
+  max-height: 50vh;
+}
+
+.draft-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16rpx;
+}
+
+.draft-item {
+  display: flex;
+  align-items: center;
+  padding: 20rpx;
+  border-radius: 16rpx;
+  background-color: #F8F9FA;
+
+  .draft-item-info {
+    flex: 1;
+    min-width: 0;
+    margin-right: 16rpx;
+  }
+
+  .draft-item-title {
+    display: block;
+    font-size: 28rpx;
+    font-weight: 600;
+    color: #1D1D1F;
+    margin-bottom: 6rpx;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .draft-item-content {
+    display: block;
+    font-size: 24rpx;
+    color: #6B7280;
+    margin-bottom: 8rpx;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .draft-item-meta {
+    display: flex;
+    gap: 20rpx;
+    font-size: 20rpx;
+    color: #9CA3AF;
+  }
+
+  .draft-item-delete {
+    flex-shrink: 0;
+    padding: 12rpx 20rpx;
+    border-radius: 24rpx;
+    background-color: #FEE2E2;
+
+    text {
+      font-size: 24rpx;
+      color: #DC2626;
+    }
+  }
+}
+
+.draft-empty {
+  padding: 100rpx 0;
+  text-align: center;
+
+  text {
+    font-size: 26rpx;
+    color: #9CA3AF;
+  }
 }
 
 /* 热门话题模块 */
@@ -955,5 +1230,21 @@ export default {
   font-size: 24rpx;
   color: #FF6B6B;
   font-weight: 500;
+}
+
+.bell-icon-wrap {
+  flex-shrink: 0;
+  width: 70rpx;
+  height: 70rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: 16rpx;
+}
+
+.bell-icon {
+  width: 44rpx;
+  height: 44rpx;
+  color: #5C7A99;
 }
 </style>
