@@ -289,6 +289,19 @@ public class ArchitectureServiceImpl implements ArchitectureService {
         return toGenerateResponse(record, archData);
     }
 
+    @Override
+    public void delete(Long id, Long userId) {
+        if (userId == null) {
+            throw new BusinessException(Result.UNAUTHORIZED_CODE, "请先登录");
+        }
+        if (id == null) {
+            throw new BusinessException(Result.BAD_REQUEST_CODE, "记录ID不能为空");
+        }
+        ArchitectureRecord record = architectureRecordRepository.findByIdAndUserId(id, userId)
+                .orElseThrow(() -> new BusinessException(Result.NOT_FOUND_CODE, "架构图记录不存在或无权访问"));
+        architectureRecordRepository.delete(record);
+    }
+
     @SuppressWarnings("unchecked")
     private Map<String, Object> parseArchitectureData(Object rawResponse) {
         if (rawResponse == null) {

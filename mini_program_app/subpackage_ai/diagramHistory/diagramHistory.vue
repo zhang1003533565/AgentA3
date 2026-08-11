@@ -80,8 +80,8 @@
           <view class="sa" @tap="preview"><view class="sa-ico"><svg viewBox="0 0 24 24"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg></view><text>预览</text></view>
           <view class="sa" @tap="toast('分享')"><view class="sa-ico"><svg viewBox="0 0 24 24"><circle cx="6" cy="12" r="2.5"/><circle cx="17" cy="6" r="2.5"/><circle cx="17" cy="18" r="2.5"/><path d="M8 11l7-4M8 13l7 4"/></svg></view><text>分享</text></view>
           <view class="sa" @tap="toast('导出图片')"><view class="sa-ico"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="M3 17l5-4 4 3 4-3 5 4"/></svg></view><text>导出图片</text></view>
-          <view class="sa" @tap="toast('导出文件')"><view class="sa-ico"><svg viewBox="0 0 24 24"><path d="M6 2h9l5 5v15H6z"/><path d="M14 2v6h6"/></svg></view><text>导出文件</text></view>
-          <view class="sa sa--del" @tap="toast('删除')"><view class="sa-ico"><svg viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3M7 7l1 13h8l1-13"/></svg></view><text>删除</text></view>
+          <view class="sa" :class="{ 'sa--busy': exporting }" @tap="exportFile"><view class="sa-ico"><svg viewBox="0 0 24 24"><path d="M6 2h9l5 5v15H6z"/><path d="M14 2v6h6"/></svg></view><text>{{ exporting ? '导出中' : '导出文件' }}</text></view>
+          <view class="sa sa--del" :class="{ 'sa--busy': deleting }" @tap="deleteRecord"><view class="sa-ico"><svg viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3M7 7l1 13h8l1-13"/></svg></view><text>{{ deleting ? '删除中' : '删除' }}</text></view>
         </view>
         <view class="regen" @tap="regenerate"><svg viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4z"/></svg><text>重新生成</text></view>
       </view>
@@ -93,9 +93,20 @@
 import { ref, computed } from 'vue'
 import { onLoad, onShow } from '@dcloudio/uni-app'
 import NavBar from '@/components/nav-bar/nav-bar.vue'
-import { getMindmapHistory } from '@/api/aiDiagram.js'
-import { getFlowchartHistory } from '@/api/aiDiagram.js'
-import { getArchitectureHistory } from '@/api/architecture.js'
+import {
+  deleteFlowchartHistory,
+  deleteMindmapHistory,
+  getErrorMessage,
+  getFlowchartDetail,
+  getFlowchartHistory,
+  getMindmapDetail,
+  getMindmapHistory
+} from '@/api/aiDiagram.js'
+import {
+  deleteArchitectureHistory,
+  getArchitectureDetail,
+  getArchitectureHistory
+} from '@/api/architecture.js'
 
 const typeMeta = {
   mindmap: { label: '思维导图', color: '#4D6BFE', bg: '#EEF0FF' },
@@ -118,7 +129,19 @@ const keyword = ref('')
 const searchOn = ref(false)
 const sheet = ref(null)
 const all = ref({ mindmap: [], flow: [], arch: [] })
+const exporting = ref(false)
+const deleting = ref(false)
 const CARD_DESC_LIMIT = 34
+const DETAIL_HANDLERS = {
+  mindmap: getMindmapDetail,
+  flow: getFlowchartDetail,
+  arch: getArchitectureDetail
+}
+const DELETE_HANDLERS = {
+  mindmap: deleteMindmapHistory,
+  flow: deleteFlowchartHistory,
+  arch: deleteArchitectureHistory
+}
 
 function fmt(t) {
   if (!t) return ''
@@ -223,6 +246,56 @@ function preview() {
   sheet.value = null
   uni.navigateTo({ url: `${VIEW_PATH[s.type]}?id=${encodeURIComponent(s.id)}&recordId=${encodeURIComponent(s.id)}` })
 }
+async function exportFile() {
+  const s = sheet.value
+  if (!s || exporting.value) return
+  exporting.value = true
+  uni.showLoading({ title: '正在导出', mask: true })
+  try {
+    const detail = await DETAIL_HANDLERS[s.type](s.id)
+    const exportData = {
+      schema: 'ai-diagram-history-export/v1',
+      type: s.type,
+      typeLabel: typeMeta[s.type].label,
+      id: s.id,
+      title: s.title,
+      exportedAt: new Date().toISOString(),
+      data: detail
+    }
+    const filename = `${safeFileName(s.title || typeMeta[s.type].label)}_${s.id}.json`
+    await saveTextFile(filename, JSON.stringify(exportData, null, 2))
+    sheet.value = null
+  } catch (error) {
+    toast(getErrorMessage(error, '导出失败'))
+  } finally {
+    uni.hideLoading()
+    exporting.value = false
+  }
+}
+function deleteRecord() {
+  const s = sheet.value
+  if (!s || deleting.value) return
+  uni.showModal({
+    title: '删除记录',
+    content: `确定删除“${s.title}”吗？删除后不可恢复。`,
+    confirmText: '删除',
+    confirmColor: '#EF4444',
+    success: async (res) => {
+      if (!res.confirm) return
+      deleting.value = true
+      try {
+        await DELETE_HANDLERS[s.type](s.id)
+        all.value[s.type] = (all.value[s.type] || []).filter(item => String(item.id) !== String(s.id))
+        sheet.value = null
+        toast('已删除')
+      } catch (error) {
+        toast(getErrorMessage(error, '删除失败'))
+      } finally {
+        deleting.value = false
+      }
+    }
+  })
+}
 function regenerate() {
   const s = sheet.value; if (!s) return
   sheet.value = null
@@ -231,6 +304,100 @@ function regenerate() {
 function goCreate() { uni.navigateTo({ url: GEN_PATH[tab.value] }) }
 function goBack() { uni.navigateBack() }
 function toast(t) { uni.showToast({ title: t, icon: 'none' }) }
+
+function safeFileName(value = '') {
+  const text = String(value || 'AI图表')
+    .trim()
+    .replace(/[\\/:*?"<>|]+/g, '_')
+    .replace(/\s+/g, '_')
+  return (text || 'AI图表').slice(0, 48)
+}
+
+async function saveTextFile(filename, content) {
+  if (downloadInBrowser(filename, content)) {
+    toast('已导出文件')
+    return
+  }
+  try {
+    const filePath = await writeLocalFile(filename, content)
+    toast('已导出文件')
+    if (typeof uni.openDocument === 'function') {
+      uni.openDocument({
+        filePath,
+        showMenu: true,
+        fail: () => showExportPath(filePath)
+      })
+    } else {
+      showExportPath(filePath)
+    }
+  } catch (error) {
+    await copyExportContent(content)
+    toast('环境不支持保存文件，已复制内容')
+  }
+}
+
+function downloadInBrowser(filename, content) {
+  if (
+    typeof document === 'undefined' ||
+    typeof Blob === 'undefined' ||
+    typeof URL === 'undefined' ||
+    typeof URL.createObjectURL !== 'function'
+  ) {
+    return false
+  }
+  const blob = new Blob([content], { type: 'application/json;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const anchor = document.createElement('a')
+  anchor.href = url
+  anchor.download = filename
+  anchor.style.display = 'none'
+  document.body.appendChild(anchor)
+  anchor.click()
+  document.body.removeChild(anchor)
+  setTimeout(() => URL.revokeObjectURL(url), 1000)
+  return true
+}
+
+function writeLocalFile(filename, content) {
+  return new Promise((resolve, reject) => {
+    const fs = typeof uni.getFileSystemManager === 'function' ? uni.getFileSystemManager() : null
+    const basePath = (typeof uni.env !== 'undefined' && uni.env.USER_DATA_PATH) ? uni.env.USER_DATA_PATH : ''
+    if (!fs || !basePath || typeof fs.writeFile !== 'function') {
+      reject(new Error('当前环境不支持写入文件'))
+      return
+    }
+    const filePath = `${basePath}/${filename}`
+    fs.writeFile({
+      filePath,
+      data: content,
+      encoding: 'utf8',
+      success: () => resolve(filePath),
+      fail: reject
+    })
+  })
+}
+
+function copyExportContent(content) {
+  return new Promise((resolve, reject) => {
+    if (typeof uni.setClipboardData !== 'function') {
+      reject(new Error('当前环境不支持复制导出内容'))
+      return
+    }
+    uni.setClipboardData({
+      data: content,
+      success: resolve,
+      fail: reject
+    })
+  })
+}
+
+function showExportPath(filePath) {
+  uni.showModal({
+    title: '导出完成',
+    content: `文件已保存：${filePath}`,
+    showCancel: false
+  })
+}
 
 onLoad(initTab)
 onShow(() => { load() })
@@ -281,6 +448,7 @@ onShow(() => { load() })
 .sheet-desc { font-size: 26rpx; line-height: 1.6; color: #555; margin: 24rpx 4rpx; display: block; white-space: pre-wrap; word-break: break-word; }
 .sheet-actions { display: flex; justify-content: space-between; padding: 12rpx 8rpx 28rpx; }
 .sa { display: flex; flex-direction: column; align-items: center; gap: 12rpx; font-size: 24rpx; color: #333; }
+.sa--busy { opacity: .55; pointer-events: none; }
 .sa-ico { width: 80rpx; height: 80rpx; border-radius: 50%; background: #F5F6FA; display: flex; align-items: center; justify-content: center; }
 .sa-ico svg { width: 34rpx; height: 34rpx; stroke: #333; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .sa--del { color: #EF4444; }

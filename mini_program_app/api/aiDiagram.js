@@ -7,14 +7,16 @@ export const AI_MINDMAP_ENDPOINTS = {
   optimize: '/api/ai/mindmap/optimize',
   upload: '/api/ai/mindmap/upload',
   history: '/api/ai/mindmap/history',
-  detail: id => `/api/ai/mindmap/${encodeURIComponent(id)}`
+  detail: id => `/api/ai/mindmap/${encodeURIComponent(id)}`,
+  delete: id => `/api/ai/mindmap/${encodeURIComponent(id)}`
 }
 
 export const AI_FLOWCHART_ENDPOINTS = {
   generate: '/api/ai/flowchart/generate',
   upload: '/api/ai/flowchart/upload',
   history: '/api/ai/flowchart/history',
-  detail: id => `/api/ai/flowchart/${encodeURIComponent(id)}`
+  detail: id => `/api/ai/flowchart/${encodeURIComponent(id)}`,
+  delete: id => `/api/ai/flowchart/${encodeURIComponent(id)}`
 }
 
 export function buildMindmapPayload({
@@ -81,6 +83,14 @@ export async function getMindmapDetail(id) {
     showError: false
   })
   return normalizeMindmap(response?.data || response)
+}
+
+export async function deleteMindmapHistory(id) {
+  await request({
+    url: AI_MINDMAP_ENDPOINTS.delete(id),
+    method: 'DELETE',
+    showError: false
+  })
 }
 
 export function uploadMindmapFile(filePath, fileName = '') {
@@ -184,6 +194,14 @@ export async function getFlowchartDetail(id) {
     showError: false
   })
   return normalizeFlowchart(response?.data || response)
+}
+
+export async function deleteFlowchartHistory(id) {
+  await request({
+    url: AI_FLOWCHART_ENDPOINTS.delete(id),
+    method: 'DELETE',
+    showError: false
+  })
 }
 
 export function uploadFlowchartFile(filePath, fileName = '') {

@@ -159,6 +159,16 @@ public class FlowchartServiceImpl implements FlowchartService {
         }
     }
 
+    @Override
+    public void delete(Long userId, String id) {
+        if (!StringUtils.hasText(id)) {
+            throw new BusinessException(400, "记录ID不能为空");
+        }
+        FlowchartRecord record = recordRepository.findByIdAndUserId(id, userId)
+                .orElseThrow(() -> new BusinessException(404, "流程图记录不存在"));
+        recordRepository.delete(record);
+    }
+
     private FlowchartDTO.GenerateResponse toResponse(FlowchartRecord record, FlowchartDTO.FlowchartData data) {
         FlowchartDTO.GenerateResponse response = new FlowchartDTO.GenerateResponse();
         response.setId(record.getId());

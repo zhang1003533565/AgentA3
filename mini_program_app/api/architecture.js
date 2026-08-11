@@ -11,7 +11,8 @@ export const AI_ARCHITECTURE_ENDPOINTS = {
   generate: '/api/ai/architecture/generate',
   upload: '/api/ai/architecture/upload',
   history: '/api/ai/architecture/history',
-  detail: id => `/api/ai/architecture/${encodeURIComponent(id)}`
+  detail: id => `/api/ai/architecture/${encodeURIComponent(id)}`,
+  delete: id => `/api/ai/architecture/${encodeURIComponent(id)}`
 }
 
 // POST /api/ai/architecture/generate
@@ -142,11 +143,19 @@ export async function getArchitectureHistory({ page = 1, size = 20 } = {}) {
  */
 export async function getArchitectureDetail(id) {
   const response = await request({
-    url: `/api/ai/architecture/${encodeURIComponent(id)}`,
+    url: AI_ARCHITECTURE_ENDPOINTS.detail(id),
     method: 'GET',
     showError: false
   })
   return normalizeArchitectureResult(response?.data || response)
+}
+
+export async function deleteArchitectureHistory(id) {
+  await request({
+    url: AI_ARCHITECTURE_ENDPOINTS.delete(id),
+    method: 'DELETE',
+    showError: false
+  })
 }
 
 /**

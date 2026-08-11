@@ -200,6 +200,16 @@ public class MindMapServiceImpl implements MindMapService {
         return toGenerateResponse(record, readData(record.getMindMapJson()));
     }
 
+    @Override
+    public void delete(Long userId, String id) {
+        if (!StringUtils.hasText(id)) {
+            throw new BusinessException(400, "记录ID不能为空");
+        }
+        MindMapRecord record = recordRepository.findByIdAndUserId(id, userId)
+                .orElseThrow(() -> new BusinessException(404, "思维导图记录不存在"));
+        recordRepository.delete(record);
+    }
+
     private void validateUpload(MultipartFile file) {
         if (file == null || file.isEmpty()) {
             throw new BusinessException(400, "请选择文件");
