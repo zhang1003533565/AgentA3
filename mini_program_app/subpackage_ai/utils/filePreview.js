@@ -4,6 +4,26 @@ function firstValue(...values) {
   return values.map(value => String(value || '').trim()).find(Boolean) || ''
 }
 
+function fileExt(value = '') {
+  const clean = String(value || '').split(/[?#]/)[0]
+  const match = clean.match(/\.([a-z0-9]+)$/i)
+  return match ? match[1].toLowerCase() : ''
+}
+
+function safeDecode(value = '') {
+  try {
+    return decodeURIComponent(value)
+  } catch (error) {
+    return value
+  }
+}
+
+function fileNameFromUrl(url = '') {
+  const clean = String(url || '').split(/[?#]/)[0]
+  const name = clean.split('/').pop() || ''
+  return name ? safeDecode(name) : ''
+}
+
 export function normalizePreviewUrl(value = '') {
   const text = String(value || '').trim()
   if (!text) return ''
@@ -44,16 +64,28 @@ export function openLocalDocument(filePath) {
   })
 }
 
-export function previewUploadedDocument(file = {}) {
+export function buildPreviewTarget(file = {}) {
   const localPath = firstValue(file.filePath, file.tempFilePath, file.localPath, file.path)
   const remoteUrl = normalizePreviewUrl(firstValue(
+    file.previewUrl,
     file.sourceFile,
     file.url,
     file.fileUrl,
-    file.previewUrl,
     file.downloadUrl,
     file.downloadPath,
   ))
+  const name = firstValue(file.fileName, file.name, file.title, fileNameFromUrl(remoteUrl), fileNameFromUrl(localPath), '已导入文件')
+  return {
+    name,
+    ext: fileExt(name) || fileExt(remoteUrl) || fileExt(localPath),
+    url: remoteUrl,
+    localPath,
+    size: file.size || file.fileSize || 0,
+  }
+}
+
+export function fallbackPreviewUploadedDocument(file = {}) {
+  const { localPath, url: remoteUrl } = buildPreviewTarget(file)
   const localIsRemote = /^https?:\/\//i.test(localPath)
 
   if (localPath && !localIsRemote) {
@@ -95,5 +127,26 @@ export function previewUploadedDocument(file = {}) {
       }
     },
     complete: () => uni.hideLoading(),
+  })
+}
+
+export function previewUploadedDocument(file = {}) {
+  const target = buildPreviewTarget(file)
+  if (!target.url || !/^https?:\/\//i.test(target.url)) {
+    fallbackPreviewUploadedDocument(file)
+    return
+  }
+
+  const key = `file-preview-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+  try {
+    uni.setStorageSync(`aiFilePreview:${key}`, target)
+  } catch (error) {
+    fallbackPreviewUploadedDocument(file)
+    return
+  }
+
+  uni.navigateTo({
+    url: `/subpackage_ai/filePreview/filePreview?key=${encodeURIComponent(key)}`,
+    fail: () => fallbackPreviewUploadedDocument(file),
   })
 }

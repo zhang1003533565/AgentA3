@@ -717,6 +717,15 @@
 					}
 				},
 				{
+					"path": "filePreview/filePreview",
+					"style": {
+						"navigationBarTitleText": "",
+						"navigationStyle": "custom",
+						"navigationBarBackgroundColor": "#FFFFFF",
+						"navigationBarTextStyle": "black"
+					}
+				},
+				{
 					"path": "mindmapGenerating/mindmapGenerating",
 					"style": {
 						"navigationBarTitleText": "",
