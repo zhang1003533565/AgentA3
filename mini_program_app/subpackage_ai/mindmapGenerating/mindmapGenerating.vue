@@ -97,7 +97,7 @@ import NavBar from '@/components/nav-bar/nav-bar.vue'
 import { buildMindmapPayload, generateMindmap as requestGenerateMindmap, getMindmapDetail } from '@/api/aiDiagram.js'
 
 const CW = 560, CH = 640, CX = 280, CY = 320
-const BR_X = 140, CH_X = 95
+const BR_X = 140, CH_X = 116
 const BRANCH_COLORS = ['#4D6BFE', '#E05555', '#2DB88A', '#F0A030', '#9B59B6', '#6366F1', '#EC4899', '#14B8A6']
 
 const topicText = ref('')
