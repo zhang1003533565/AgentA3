@@ -12,7 +12,10 @@
       <view class="content-inner">
         <view class="input-card">
           <view class="input-head">
-            <text class="input-title">描述您的流程需求</text>
+            <view class="input-title">
+              <view class="title-dot"></view>
+              <text>描述您的流程需求</text>
+            </view>
             <text class="char-count">{{ flowDescription.length }}/2000</text>
           </view>
           <textarea
@@ -119,7 +122,6 @@
             <view class="section-title">
               <image class="section-icon" src="/static/icons/diagram/database.svg" mode="aspectFit" />
               <text>判断节点</text>
-              <view class="section-info"><text>i</text></view>
             </view>
             <view class="segmented segmented--three">
               <view
@@ -559,10 +561,23 @@ onShow(() => {
 
 .input-title {
   flex: 1;
+  display: flex;
+  align-items: center;
+  min-width: 0;
   color: #17233A;
   font-size: 28rpx;
   font-weight: 800;
   line-height: 1.25;
+}
+
+.title-dot {
+  width: 18rpx;
+  height: 18rpx;
+  margin-right: 14rpx;
+  border: 4rpx solid #E3EEFF;
+  border-radius: 50%;
+  background: #4B86F7;
+  box-sizing: border-box;
 }
 
 .char-count {
@@ -837,20 +852,6 @@ onShow(() => {
   width: 30rpx;
   height: 30rpx;
   opacity: 0.82;
-}
-
-.section-info {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 30rpx;
-  height: 30rpx;
-  border: 2rpx solid #AAB8CC;
-  border-radius: 50%;
-  color: #8A98AE;
-  font-size: 20rpx;
-  font-weight: 800;
-  box-sizing: border-box;
 }
 
 .scene-row {

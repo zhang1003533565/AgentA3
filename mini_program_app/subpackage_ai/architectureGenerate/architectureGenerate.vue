@@ -595,7 +595,10 @@ function formatTime(value) {
 
 <style scoped>
 .architecture-page {
+  height: 100vh;
   min-height: 100vh;
+  display: flex;
+  flex-direction: column;
   background: #f8f8fb;
   color: #182033;
   overflow: hidden;
@@ -615,7 +618,9 @@ function formatTime(value) {
 }
 
 .architecture-scroll {
-  height: calc(100vh - 88rpx);
+  flex: 1;
+  min-height: 0;
+  box-sizing: border-box;
 }
 
 .page-shell {
