@@ -68,6 +68,7 @@ public class FlowchartServiceImpl implements FlowchartService {
         }
         String sceneType = normalizeSceneType(firstText(request.getSceneType(), request.getProcessType()));
         String nodeGranularity = normalizeNodeGranularity(firstText(request.getNodeGranularity(), request.getNodeLevel()));
+        String requestedLayoutDirection = normalizeLayoutDirection(request.getLayoutDirection());
         String requestedDecisionMode = normalizeDecisionMode(request.getDecisionMode());
         String requestedSwimlaneMode = normalizeSwimlaneMode(firstText(request.getSwimlaneMode(), request.getSwimlane()));
 
@@ -77,12 +78,14 @@ public class FlowchartServiceImpl implements FlowchartService {
         request.setProcessType(sceneType);
         request.setNodeGranularity(nodeGranularity);
         request.setNodeLevel(nodeGranularity);
+        request.setLayoutDirection(requestedLayoutDirection);
         request.setDecisionMode(requestedDecisionMode);
         request.setSwimlaneMode(requestedSwimlaneMode);
         request.setSwimlane(requestedSwimlaneMode);
 
         FlowchartDTO.FlowchartData data = flowchartAIService.generate(request, inputText, authorization);
-        completeResultMetadata(data, sceneType, nodeGranularity, requestedDecisionMode, requestedSwimlaneMode);
+        completeResultMetadata(data, sceneType, nodeGranularity, requestedLayoutDirection,
+                requestedDecisionMode, requestedSwimlaneMode);
         FlowchartRecord record = new FlowchartRecord();
         record.setId(UUID.randomUUID().toString());
         record.setUserId(userId);
@@ -149,7 +152,7 @@ public class FlowchartServiceImpl implements FlowchartService {
         try {
             FlowchartDTO.FlowchartData data = objectMapper.readValue(record.getFlowJson(), FlowchartDTO.FlowchartData.class);
             completeResultMetadata(data, record.getProcessType(), data.getNodeGranularity(),
-                    data.getRequestedDecisionMode(), data.getRequestedSwimlaneMode());
+                    data.getRequestedLayoutDirection(), data.getRequestedDecisionMode(), data.getRequestedSwimlaneMode());
             return toResponse(record, data);
         } catch (Exception error) {
             throw new BusinessException(500, "流程图记录数据损坏");
@@ -163,6 +166,8 @@ public class FlowchartServiceImpl implements FlowchartService {
         response.setType(data.getType());
         response.setSceneType(data.getSceneType());
         response.setNodeGranularity(data.getNodeGranularity());
+        response.setRequestedLayoutDirection(data.getRequestedLayoutDirection());
+        response.setResolvedLayoutDirection(data.getResolvedLayoutDirection());
         response.setRequestedDecisionMode(data.getRequestedDecisionMode());
         response.setResolvedDecisionMode(data.getResolvedDecisionMode());
         response.setRequestedSwimlaneMode(data.getRequestedSwimlaneMode());
@@ -184,15 +189,19 @@ public class FlowchartServiceImpl implements FlowchartService {
         try {
             FlowchartDTO.FlowchartData data = objectMapper.readValue(record.getFlowJson(), FlowchartDTO.FlowchartData.class);
             completeResultMetadata(data, record.getProcessType(), data.getNodeGranularity(),
-                    data.getRequestedDecisionMode(), data.getRequestedSwimlaneMode());
+                    data.getRequestedLayoutDirection(), data.getRequestedDecisionMode(), data.getRequestedSwimlaneMode());
             item.setSceneType(data.getSceneType());
             item.setNodeGranularity(data.getNodeGranularity());
+            item.setRequestedLayoutDirection(data.getRequestedLayoutDirection());
+            item.setResolvedLayoutDirection(data.getResolvedLayoutDirection());
             item.setRequestedDecisionMode(data.getRequestedDecisionMode());
             item.setResolvedDecisionMode(data.getResolvedDecisionMode());
             item.setRequestedSwimlaneMode(data.getRequestedSwimlaneMode());
             item.setResolvedSwimlaneMode(data.getResolvedSwimlaneMode());
         } catch (Exception ignored) {
             item.setSceneType(record.getProcessType());
+            item.setRequestedLayoutDirection("VERTICAL");
+            item.setResolvedLayoutDirection("VERTICAL");
         }
         return item;
     }
@@ -200,6 +209,7 @@ public class FlowchartServiceImpl implements FlowchartService {
     private void completeResultMetadata(FlowchartDTO.FlowchartData data,
                                         String sceneType,
                                         String nodeGranularity,
+                                        String requestedLayoutDirection,
                                         String requestedDecisionMode,
                                         String requestedSwimlaneMode) {
         if (data == null) {
@@ -207,6 +217,10 @@ public class FlowchartServiceImpl implements FlowchartService {
         }
         data.setSceneType(normalizeSceneType(firstText(data.getSceneType(), sceneType)));
         data.setNodeGranularity(normalizeNodeGranularity(firstText(data.getNodeGranularity(), nodeGranularity)));
+        data.setRequestedLayoutDirection(normalizeLayoutDirection(firstText(
+                data.getRequestedLayoutDirection(), requestedLayoutDirection)));
+        data.setResolvedLayoutDirection(normalizeLayoutDirection(firstText(
+                data.getResolvedLayoutDirection(), data.getRequestedLayoutDirection())));
         data.setRequestedDecisionMode(normalizeDecisionMode(firstText(data.getRequestedDecisionMode(), requestedDecisionMode)));
         data.setRequestedSwimlaneMode(normalizeSwimlaneMode(firstText(data.getRequestedSwimlaneMode(), requestedSwimlaneMode)));
         normalizeNodes(data);
@@ -381,6 +395,12 @@ public class FlowchartServiceImpl implements FlowchartService {
         if (text.contains("DETAIL") || text.contains("详细")) return "DETAILED";
         if (text.contains("STANDARD") || text.contains("标准")) return "STANDARD";
         return "AUTO";
+    }
+
+    private String normalizeLayoutDirection(String value) {
+        String text = firstText(value, "VERTICAL").toUpperCase(Locale.ROOT);
+        if (text.contains("HORIZONTAL") || text.contains("LANDSCAPE") || text.contains("横")) return "HORIZONTAL";
+        return "VERTICAL";
     }
 
     private String normalizeDecisionMode(String value) {

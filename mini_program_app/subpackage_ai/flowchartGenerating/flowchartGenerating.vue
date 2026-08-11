@@ -192,6 +192,7 @@ const ghostEdgesList = computed(() => laidEdges.value.filter(e => skeletonOn.val
 const solidEdgesList = computed(() => laidEdges.value.filter(e => drawnKeys[e.key]))
 const inkedNodesList = computed(() => laidNodes.value.filter(n => inkedIds[n.id]))
 const labelEdgesList = computed(() => laidEdges.value.filter(e => e.label && drawnKeys[e.key]))
+const layoutDirection = computed(() => state.laid?.direction || flowDirectionOf(state.resultData, requestPayload.value))
 
 // ===== 画布尺寸 =====
 const systemInfo = uni.getSystemInfoSync()
@@ -258,7 +259,7 @@ function fitToView() {
 }
 
 function isHorizontalFlow() {
-  return Boolean((state.laid?.lanes || []).length)
+  return layoutDirection.value === 'HORIZONTAL'
 }
 
 function getCameraViewSize() {
@@ -310,7 +311,7 @@ function sleep(ms) { return new Promise(r => timers.push(setTimeout(r, ms))) }
 async function runAnimation() {
   const laid = state.laid
   const lastStage = Math.max(animationSteps.value.length - 1, 0)
-  const inkStage = Math.min(2, lastStage)
+  const inkStage = findStepIndex('ink', Math.min(2, lastStage))
   const branchStage = findStepIndex('branch', inkStage)
   canvasW.value = Math.max(canvasW.value, laid.canvasW)
   canvasH.value = Math.max(canvasH.value, laid.canvasH)
@@ -393,8 +394,16 @@ function findStepIndex(kind, fallback) {
 function buildAnimationSteps(result, payload = {}) {
   const resolvedLane = String(result?.resolvedSwimlaneMode || '').toUpperCase()
   const requestedLane = String(payload?.swimlaneMode || payload?.swimlane || '').toUpperCase()
+  const direction = flowDirectionOf(result, payload)
   const hasDecision = String(result?.resolvedDecisionMode || '').toUpperCase() === 'ENABLED'
     || (result?.nodes || []).some(node => String(node.type || '').toLowerCase() === 'decision')
+  const directionStep = {
+    kind: 'direction',
+    title: direction === 'HORIZONTAL' ? '正在规划横向流程路径…' : '正在规划纵向流程层级…',
+    detail: direction === 'HORIZONTAL'
+      ? '流程节点将按从左到右的顺序展开，镜头跟随横向路径推进…'
+      : '流程节点将按自上而下的顺序展开，镜头跟随纵向层级推进…'
+  }
   const autoLaneLead = requestedLane === 'AUTO'
     ? [{
         kind: 'analysis',
@@ -410,6 +419,7 @@ function buildAnimationSteps(result, payload = {}) {
   if (resolvedLane === 'ROLE') {
     return [
       ...autoLaneLead,
+      directionStep,
       { kind: 'lane', title: '正在识别流程参与者…', detail: '建立角色泳道，并准备分配流程步骤…' },
       { kind: 'ink', title: '正在将步骤分配至对应角色…', detail: '节点依次进入员工、主管、HR 等角色泳道…' },
       ...(hasDecision ? [{ kind: 'branch', title: '正在建立条件分支…', detail: '判断节点出现，并连接通过 / 拒绝路径…' }] : []),
@@ -420,6 +430,7 @@ function buildAnimationSteps(result, payload = {}) {
   if (resolvedLane === 'DEPARTMENT') {
     return [
       ...autoLaneLead,
+      directionStep,
       { kind: 'lane', title: '正在识别业务部门…', detail: '划分部门职责，建立部门泳道…' },
       { kind: 'ink', title: '正在分配流程步骤…', detail: '步骤按部门职责进入对应泳道…' },
       ...(hasDecision ? [{ kind: 'branch', title: '正在建立条件分支…', detail: '判断节点出现，并连接成功 / 失败路径…' }] : []),
@@ -430,6 +441,7 @@ function buildAnimationSteps(result, payload = {}) {
   if (hasDecision) {
     return [
       { kind: 'analysis', title: '正在解析流程需求…', detail: '识别关键步骤与流程条件…' },
+      directionStep,
       { kind: 'ink', title: '正在形成主流程…', detail: '开始节点与主步骤依次出现…' },
       { kind: 'branch', title: '正在识别流程条件…', detail: '发现判断节点，建立条件分支…' },
       { kind: 'connect', title: '正在检查分支回流…', detail: '整理通过 / 拒绝路径和返回关系…' },
@@ -439,10 +451,22 @@ function buildAnimationSteps(result, payload = {}) {
   return [
     ...autoLaneLead,
     { kind: 'analysis', title: '正在解析流程需求…', detail: '识别关键步骤与执行顺序…' },
+    directionStep,
     { kind: 'ink', title: '正在整理执行顺序…', detail: '流程步骤正在被串起来…' },
     { kind: 'connect', title: '正在建立步骤连接…', detail: '连接线逐段建立，主流程逐渐完整…' },
     { kind: 'layout', title: '正在优化流程布局…', detail: '普通流程图生成完成…' }
   ]
+}
+
+function flowDirectionOf(result = {}, payload = {}) {
+  const text = String(
+    result?.resolvedLayoutDirection
+      || result?.requestedLayoutDirection
+      || payload?.layoutDirection
+      || payload?.direction
+      || 'VERTICAL'
+  ).toUpperCase()
+  return text.includes('HORIZONTAL') || text.includes('LANDSCAPE') || text.includes('横') ? 'HORIZONTAL' : 'VERTICAL'
 }
 
 function startAnimation(result) {

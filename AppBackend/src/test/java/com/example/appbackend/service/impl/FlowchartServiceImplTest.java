@@ -40,6 +40,7 @@ class FlowchartServiceImplTest {
                     String inputText = invocation.getArgument(1);
                     Assertions.assertEquals("ADMIN", request.getSceneType());
                     Assertions.assertEquals("DETAILED", request.getNodeGranularity());
+                    Assertions.assertEquals("HORIZONTAL", request.getLayoutDirection());
                     Assertions.assertEquals("AUTO", request.getDecisionMode());
                     Assertions.assertEquals("ROLE", request.getSwimlaneMode());
                     Assertions.assertTrue(inputText.contains("员工提交请假申请"));
@@ -52,6 +53,7 @@ class FlowchartServiceImplTest {
         request.setSourceText("主管拒绝后返回修改，通过后人事备案");
         request.setSceneType("ADMIN");
         request.setNodeGranularity("DETAILED");
+        request.setLayoutDirection("HORIZONTAL");
         request.setDecisionMode("AUTO");
         request.setSwimlaneMode("ROLE");
 
@@ -60,6 +62,8 @@ class FlowchartServiceImplTest {
         Assertions.assertEquals("请假审批流程图", response.getTitle());
         Assertions.assertEquals("ADMIN", response.getSceneType());
         Assertions.assertEquals("DETAILED", response.getNodeGranularity());
+        Assertions.assertEquals("HORIZONTAL", response.getRequestedLayoutDirection());
+        Assertions.assertEquals("HORIZONTAL", response.getResolvedLayoutDirection());
         Assertions.assertEquals("ENABLED", response.getResolvedDecisionMode());
         Assertions.assertEquals("ROLE", response.getResolvedSwimlaneMode());
         Assertions.assertFalse(response.getLanes().isEmpty());
@@ -90,6 +94,7 @@ class FlowchartServiceImplTest {
 
         Assertions.assertEquals("DISABLED", response.getResolvedDecisionMode());
         Assertions.assertEquals("NONE", response.getResolvedSwimlaneMode());
+        Assertions.assertEquals("VERTICAL", response.getResolvedLayoutDirection());
         Assertions.assertTrue(response.getLanes().isEmpty());
     }
 

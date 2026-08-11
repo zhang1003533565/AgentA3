@@ -19,6 +19,7 @@ class FlowchartAIServiceImplTest {
         FlowchartDTO.GenerateRequest request = new FlowchartDTO.GenerateRequest();
         request.setSceneType("ADMIN");
         request.setNodeGranularity("SIMPLE");
+        request.setLayoutDirection("HORIZONTAL");
         request.setDecisionMode("FORCE");
         request.setSwimlaneMode("ROLE");
         request.setDisplayItems(List.of("STEP", "ROLE"));
@@ -28,6 +29,8 @@ class FlowchartAIServiceImplTest {
         Assertions.assertTrue(prompt.contains("【最高优先级业务事实｜HARD / Highest】"));
         Assertions.assertTrue(prompt.contains("【强约束｜HARD】最终流程图必须采用角色泳道"));
         Assertions.assertTrue(prompt.contains("【强规则｜HIGH】强制优先使用判断节点"));
+        Assertions.assertTrue(prompt.contains("requestedLayoutDirection=HORIZONTAL"));
+        Assertions.assertTrue(prompt.contains("resolvedLayoutDirection=HORIZONTAL"));
         Assertions.assertTrue(prompt.contains("【较强偏好｜MEDIUM-HIGH】节点粒度要求偏简略"));
         Assertions.assertTrue(prompt.contains("【语境偏好｜MEDIUM】请优先按照行政流程语境理解该需求"));
     }
@@ -58,6 +61,8 @@ class FlowchartAIServiceImplTest {
         Assertions.assertEquals("拒绝返回修改", data.getEdges().get(0).getLabel());
         Assertions.assertEquals("DISABLED", data.getResolvedDecisionMode());
         Assertions.assertEquals("NONE", data.getResolvedSwimlaneMode());
+        Assertions.assertEquals("VERTICAL", data.getRequestedLayoutDirection());
+        Assertions.assertEquals("VERTICAL", data.getResolvedLayoutDirection());
         Assertions.assertTrue(data.getLanes().isEmpty());
     }
 

@@ -9,6 +9,7 @@ const GAP_Y = 64
 const TOP = 48
 const LANE_H = 150
 const LANE_LEFT = 28
+const LANE_W = 230
 
 export function computeLevels(nodes, edges) {
   const idSet = new Set(nodes.map(n => String(n.id)))
@@ -53,16 +54,30 @@ export function computeLevels(nodes, edges) {
   return { level, back }
 }
 
-// 返回 { nodes:[{...node, cx, cy, level}], edges:[{...edge, key, kind, x1,y1,x2,y2, path, label}], canvasW, canvasH }
+export function normalizeFlowDirection(value = 'VERTICAL') {
+  const text = String(value || 'VERTICAL').toUpperCase()
+  if (text.includes('HORIZONTAL') || text.includes('LANDSCAPE') || text.includes('横')) return 'HORIZONTAL'
+  return 'VERTICAL'
+}
+
+// 返回 { nodes:[{...node, cx, cy, level}], edges:[{...edge, key, kind, x1,y1,x2,y2, path, label}], canvasW, canvasH, direction }
 export function layoutFlowchart(chart = {}) {
   const nodes = normalizeNodes(chart.nodes || [])
   const edges = chart.edges || []
+  const direction = normalizeFlowDirection(
+    chart.resolvedLayoutDirection || chart.requestedLayoutDirection || chart.layoutDirection || chart.direction
+  )
   const lanes = normalizeLanes(chart.lanes || [], nodes, chart.resolvedSwimlaneMode)
-  if (lanes.length) return layoutSwimlaneFlow(nodes, edges, lanes)
-  return layoutPlainFlow(nodes, edges)
+  if (lanes.length) return layoutSwimlaneFlow(nodes, edges, lanes, direction)
+  return layoutPlainFlow(nodes, edges, direction)
 }
 
-function layoutPlainFlow(nodes, edges) {
+function layoutPlainFlow(nodes, edges, direction) {
+  if (direction === 'HORIZONTAL') return layoutPlainFlowHorizontal(nodes, edges)
+  return layoutPlainFlowVertical(nodes, edges)
+}
+
+function layoutPlainFlowVertical(nodes, edges) {
   const { level, back } = computeLevels(nodes, edges)
 
   const byLevel = new Map()
@@ -129,10 +144,86 @@ function layoutPlainFlow(nodes, edges) {
     }
   }).filter(Boolean)
 
-  return { nodes: laidNodes, edges: laidEdges, lanes: [], canvasW, canvasH }
+  return { nodes: laidNodes, edges: laidEdges, lanes: [], canvasW, canvasH, direction: 'VERTICAL' }
 }
 
-function layoutSwimlaneFlow(nodes, edges, lanes) {
+function layoutPlainFlowHorizontal(nodes, edges) {
+  const { level, back } = computeLevels(nodes, edges)
+
+  const byLevel = new Map()
+  nodes.forEach(node => {
+    const l = level.get(String(node.id)) || 0
+    if (!byLevel.has(l)) byLevel.set(l, [])
+    byLevel.get(l).push(node)
+  })
+
+  let maxLevel = 0
+  let maxRows = 1
+  byLevel.forEach((list, l) => {
+    maxLevel = Math.max(maxLevel, l)
+    maxRows = Math.max(maxRows, list.length)
+  })
+
+  const canvasW = TOP + (maxLevel + 1) * (FLOW_NODE_W + GAP_X) + 80
+  const canvasH = Math.max(420, maxRows * (FLOW_NODE_H + GAP_Y) + 80)
+  const centerY = canvasH / 2
+
+  const pos = new Map()
+  byLevel.forEach((list, l) => {
+    const count = list.length
+    list.forEach((node, i) => {
+      pos.set(String(node.id), {
+        x: TOP + FLOW_NODE_W / 2 + l * (FLOW_NODE_W + GAP_X),
+        y: centerY + (i - (count - 1) / 2) * (FLOW_NODE_H + GAP_Y)
+      })
+    })
+  })
+
+  const laidNodes = nodes.map(node => {
+    const p = pos.get(String(node.id)) || { x: TOP + FLOW_NODE_W / 2, y: centerY }
+    return { ...node, cx: p.x, cy: p.y, level: level.get(String(node.id)) || 0 }
+  })
+  const nodeMap = new Map(laidNodes.map(node => [String(node.id), node]))
+
+  const laidEdges = edges.map((edge, index) => {
+    const s = nodeMap.get(String(edge.source))
+    const t = nodeMap.get(String(edge.target))
+    if (!s || !t) return null
+    const isBack = back.has(index)
+    let x1, y1, x2, y2, path
+    if (isBack) {
+      x1 = s.cx
+      y1 = s.cy - FLOW_NODE_H / 2
+      x2 = t.cx
+      y2 = t.cy - FLOW_NODE_H / 2
+      const arcY = Math.min(y1, y2) - 70
+      path = `M ${x1} ${y1} C ${x1} ${arcY}, ${x2} ${arcY}, ${x2} ${y2}`
+    } else {
+      x1 = s.cx + FLOW_NODE_W / 2
+      y1 = s.cy
+      x2 = t.cx - FLOW_NODE_W / 2
+      y2 = t.cy
+      const mx = (x1 + x2) / 2
+      path = `M ${x1} ${y1} C ${mx} ${y1}, ${mx} ${y2}, ${x2} ${y2}`
+    }
+    return {
+      ...edge,
+      key: `${edge.source}-${edge.target}-${index}`,
+      kind: isBack ? 'back' : (edge.type === 'branch' ? 'branch' : 'h'),
+      x1, y1, x2, y2, path,
+      label: edge.label || edge.condition || ''
+    }
+  }).filter(Boolean)
+
+  return { nodes: laidNodes, edges: laidEdges, lanes: [], canvasW, canvasH, direction: 'HORIZONTAL' }
+}
+
+function layoutSwimlaneFlow(nodes, edges, lanes, direction) {
+  if (direction === 'VERTICAL') return layoutSwimlaneFlowVertical(nodes, edges, lanes)
+  return layoutSwimlaneFlowHorizontal(nodes, edges, lanes)
+}
+
+function layoutSwimlaneFlowHorizontal(nodes, edges, lanes) {
   const { level, back } = computeLevels(nodes, edges)
   const laneIndex = new Map(lanes.map((lane, index) => [lane.id, index]))
   const slots = new Map()
@@ -197,14 +288,94 @@ function layoutSwimlaneFlow(nodes, edges, lanes) {
     }
   }).filter(Boolean)
 
-  return { nodes: laidNodes, edges: laidEdges, lanes: laneBands, canvasW, canvasH }
+  return { nodes: laidNodes, edges: laidEdges, lanes: laneBands, canvasW, canvasH, direction: 'HORIZONTAL' }
+}
+
+function layoutSwimlaneFlowVertical(nodes, edges, lanes) {
+  const { level, back } = computeLevels(nodes, edges)
+  const laneIndex = new Map(lanes.map((lane, index) => [lane.id, index]))
+  const slotCounts = new Map()
+  const slots = new Map()
+  let maxLevel = 0
+  nodes.forEach(node => {
+    const l = level.get(String(node.id)) || 0
+    const laneId = node.laneId || node.lane || lanes[0]?.id || ''
+    const key = `${laneId}:${l}`
+    maxLevel = Math.max(maxLevel, l)
+    slotCounts.set(key, (slotCounts.get(key) || 0) + 1)
+  })
+
+  const maxSlots = Math.max(1, ...slotCounts.values())
+  const laneW = Math.max(LANE_W, maxSlots * (FLOW_NODE_W + 18) + 52)
+  const canvasW = Math.max(520, 14 + lanes.length * laneW + 28)
+  const canvasH = TOP + (maxLevel + 1) * (FLOW_NODE_H + GAP_Y) + 84
+  const laneBands = lanes.map((lane, index) => ({
+    ...lane,
+    x: 14 + index * laneW,
+    y: TOP - 30,
+    w: laneW - 14,
+    h: canvasH - 28
+  }))
+
+  const laidNodes = nodes.map(node => {
+    const l = level.get(String(node.id)) || 0
+    const laneId = node.laneId || node.lane || lanes[0]?.id || ''
+    const lanePos = laneIndex.has(laneId) ? laneIndex.get(laneId) : 0
+    const key = `${laneId}:${l}`
+    const slot = slots.get(key) || 0
+    const count = slotCounts.get(key) || 1
+    slots.set(key, slot + 1)
+    return {
+      ...node,
+      laneId,
+      cx: 14 + lanePos * laneW + laneW / 2 + (slot - (count - 1) / 2) * (FLOW_NODE_W + 18),
+      cy: TOP + 42 + l * (FLOW_NODE_H + GAP_Y),
+      level: l
+    }
+  })
+  const nodeMap = new Map(laidNodes.map(node => [String(node.id), node]))
+
+  const laidEdges = edges.map((edge, index) => {
+    const s = nodeMap.get(String(edge.source))
+    const t = nodeMap.get(String(edge.target))
+    if (!s || !t) return null
+    const isBack = back.has(index)
+    let x1, y1, x2, y2, path
+    if (isBack) {
+      x1 = s.cx + FLOW_NODE_W / 2
+      y1 = s.cy
+      x2 = t.cx + FLOW_NODE_W / 2
+      y2 = t.cy
+      path = `M ${x1} ${y1} C ${x1 + 80} ${y1 - 20}, ${x2 + 80} ${y2 + 20}, ${x2} ${y2}`
+    } else {
+      x1 = s.cx
+      y1 = s.cy + FLOW_NODE_H / 2
+      x2 = t.cx
+      y2 = t.cy - FLOW_NODE_H / 2
+      const my = (y1 + y2) / 2
+      path = `M ${x1} ${y1} C ${x1} ${my}, ${x2} ${my}, ${x2} ${y2}`
+    }
+    return {
+      ...edge,
+      key: edge.id || `${edge.source}-${edge.target}-${index}`,
+      kind: isBack ? 'back' : (edge.type === 'branch' ? 'branch' : 'v'),
+      x1, y1, x2, y2, path,
+      label: edge.label || edge.condition || ''
+    }
+  }).filter(Boolean)
+
+  return { nodes: laidNodes, edges: laidEdges, lanes: laneBands, canvasW, canvasH, direction: 'VERTICAL' }
 }
 
 // 墨实顺序：按 level 升序，每个节点先画其引导边再落节点；剩余边（分支/回流）最后画。
 export function inkSequence(laid) {
   const seq = []
   const used = new Set()
-  const ordered = [...laid.nodes].sort((a, b) => a.level - b.level)
+  const ordered = [...laid.nodes].sort((a, b) => {
+    if (a.level !== b.level) return a.level - b.level
+    if (normalizeFlowDirection(laid.direction) === 'HORIZONTAL') return a.cy - b.cy
+    return a.cx - b.cx
+  })
   ordered.forEach(node => {
     const lead = laid.edges.find(e => String(e.target) === String(node.id) && e.kind !== 'back' && !used.has(e.key))
     if (lead) {

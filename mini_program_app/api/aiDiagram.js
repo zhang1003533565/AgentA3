@@ -225,6 +225,8 @@ export function normalizeFlowchart(result = {}) {
     type: result.type || 'FLOWCHART',
     sceneType: result.sceneType || result.processType || 'ADMIN',
     nodeGranularity: result.nodeGranularity || result.nodeLevel || 'AUTO',
+    requestedLayoutDirection: normalizeFlowLayoutDirection(result.requestedLayoutDirection || result.layoutDirection || result.direction || 'VERTICAL'),
+    resolvedLayoutDirection: normalizeFlowLayoutDirection(result.resolvedLayoutDirection || result.requestedLayoutDirection || result.layoutDirection || result.direction || 'VERTICAL'),
     requestedDecisionMode: result.requestedDecisionMode || result.decisionMode || 'AUTO',
     resolvedDecisionMode: result.resolvedDecisionMode || (Array.isArray(result.nodes) && result.nodes.some(node => String(node.type || '').toLowerCase() === 'decision') ? 'ENABLED' : 'DISABLED'),
     requestedSwimlaneMode: result.requestedSwimlaneMode || result.swimlaneMode || result.swimlane || 'AUTO',
@@ -234,6 +236,12 @@ export function normalizeFlowchart(result = {}) {
     edges: Array.isArray(result.edges) ? result.edges.map((edge, index) => normalizeFlowEdge(edge, index)) : [],
     createTime: result.createTime || ''
   }
+}
+
+function normalizeFlowLayoutDirection(value = 'VERTICAL') {
+  const text = String(value || 'VERTICAL').toUpperCase()
+  if (text.includes('HORIZONTAL') || text.includes('LANDSCAPE') || text.includes('横')) return 'HORIZONTAL'
+  return 'VERTICAL'
 }
 
 function normalizeFlowNode(node = {}) {

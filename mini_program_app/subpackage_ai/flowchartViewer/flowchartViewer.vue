@@ -74,7 +74,7 @@
       </movable-view>
     </movable-area>
 
-    <view class="bottom-tip">Ctrl+滚轮缩放 · 双指缩放 · 单指拖动查看完整流程</view>
+    <view class="bottom-tip">{{ directionTip }} · 双指缩放 · 单指拖动查看完整流程</view>
 
     <!-- 底部操作栏（统一组件） -->
     <AiResultBar @export="exportImage" @optimize="openOptimizeSheet" @share="shareFlow" />
@@ -128,6 +128,9 @@ function readPageOptions() {
 }
 
 const laidFlow = computed(() => layoutFlowchart(chart.value))
+const directionTip = computed(() => {
+  return laidFlow.value.direction === 'HORIZONTAL' ? '横向流程' : '纵向流程'
+})
 
 const positionedNodes = computed(() => {
   return (laidFlow.value.nodes || []).map(node => {

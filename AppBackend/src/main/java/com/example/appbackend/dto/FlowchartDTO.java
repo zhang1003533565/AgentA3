@@ -16,6 +16,7 @@ public class FlowchartDTO {
         private String diagramType = "AUTO";
         private String nodeGranularity = "AUTO";
         private String nodeLevel = "AUTO";
+        private String layoutDirection = "VERTICAL";
         private String decisionMode = "AUTO";
         private String swimlaneMode = "AUTO";
         private String swimlane = "AUTO";
@@ -42,6 +43,8 @@ public class FlowchartDTO {
         private String type = "FLOWCHART";
         private String sceneType;
         private String nodeGranularity;
+        private String requestedLayoutDirection;
+        private String resolvedLayoutDirection;
         private String requestedDecisionMode;
         private String resolvedDecisionMode;
         private String requestedSwimlaneMode;
@@ -58,6 +61,8 @@ public class FlowchartDTO {
         private String type;
         private String sceneType;
         private String nodeGranularity;
+        private String requestedLayoutDirection;
+        private String resolvedLayoutDirection;
         private String requestedDecisionMode;
         private String resolvedDecisionMode;
         private String requestedSwimlaneMode;
@@ -111,6 +116,8 @@ public class FlowchartDTO {
         private String description;
         private String sceneType;
         private String nodeGranularity;
+        private String requestedLayoutDirection;
+        private String resolvedLayoutDirection;
         private String requestedDecisionMode;
         private String resolvedDecisionMode;
         private String requestedSwimlaneMode;

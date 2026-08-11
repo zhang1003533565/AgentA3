@@ -97,6 +97,7 @@ public class FlowchartAIServiceImpl implements FlowchartAIService {
         }
         String sceneType = normalizeSceneType(firstText(request.getSceneType(), request.getProcessType()));
         String granularity = normalizeNodeGranularity(firstText(request.getNodeGranularity(), request.getNodeLevel()));
+        String layoutDirection = normalizeLayoutDirection(request.getLayoutDirection());
         String decisionMode = normalizeDecisionMode(request.getDecisionMode());
         String swimlaneMode = normalizeSwimlaneMode(firstText(request.getSwimlaneMode(), request.getSwimlane()));
         return """
@@ -117,6 +118,7 @@ public class FlowchartAIServiceImpl implements FlowchartAIService {
                 %s
                 %s
                 %s
+                %s
 
                 【输出硬约束】
                 - 返回严格 JSON，不要 Markdown，不要解释。
@@ -126,7 +128,8 @@ public class FlowchartAIServiceImpl implements FlowchartAIService {
                 - edge 至少包含 id、source、target、label、type；判断分支 type 使用 branch
                 - lane 至少包含 id、label、type；ROLE 使用 type=role，DEPARTMENT 使用 type=department
                 - 节点进入泳道时必须明确 laneId，不要靠节点名称猜测
-                - 必须返回 requestedDecisionMode、resolvedDecisionMode、requestedSwimlaneMode、resolvedSwimlaneMode
+                - 必须返回 requestedLayoutDirection、resolvedLayoutDirection、requestedDecisionMode、resolvedDecisionMode、requestedSwimlaneMode、resolvedSwimlaneMode
+                - requestedLayoutDirection 与 resolvedLayoutDirection 只能是 VERTICAL 或 HORIZONTAL
                 - resolvedDecisionMode 只能是 ENABLED 或 DISABLED
                 - resolvedSwimlaneMode 只能是 NONE、ROLE 或 DEPARTMENT
 
@@ -136,6 +139,8 @@ public class FlowchartAIServiceImpl implements FlowchartAIService {
                   "type": "SWIMLANE",
                   "sceneType": "ADMIN",
                   "nodeGranularity": "STANDARD",
+                  "requestedLayoutDirection": "VERTICAL",
+                  "resolvedLayoutDirection": "VERTICAL",
                   "requestedDecisionMode": "AUTO",
                   "resolvedDecisionMode": "ENABLED",
                   "requestedSwimlaneMode": "AUTO",
@@ -161,6 +166,7 @@ public class FlowchartAIServiceImpl implements FlowchartAIService {
                 参数原值：
                 sceneType=%s
                 nodeGranularity=%s
+                layoutDirection=%s
                 decisionMode=%s
                 swimlaneMode=%s
                 展示内容：%s
@@ -170,10 +176,12 @@ public class FlowchartAIServiceImpl implements FlowchartAIService {
                 """.formatted(
                 sceneInstruction(sceneType),
                 granularityInstruction(granularity),
+                layoutDirectionInstruction(layoutDirection),
                 decisionInstruction(decisionMode),
                 swimlaneInstruction(swimlaneMode),
                 sceneType,
                 granularity,
+                layoutDirection,
                 decisionMode,
                 swimlaneMode,
                 request.getDisplayItems() == null || request.getDisplayItems().isEmpty()
@@ -209,9 +217,14 @@ public class FlowchartAIServiceImpl implements FlowchartAIService {
                 data.getRequestedDecisionMode(), request.getDecisionMode()));
         String requestedSwimlaneMode = normalizeSwimlaneMode(firstText(
                 data.getRequestedSwimlaneMode(), request.getSwimlaneMode(), request.getSwimlane()));
+        String requestedLayoutDirection = normalizeLayoutDirection(firstText(
+                data.getRequestedLayoutDirection(), request.getLayoutDirection()));
         data.setSceneType(normalizeSceneType(firstText(data.getSceneType(), request.getSceneType(), request.getProcessType())));
         data.setNodeGranularity(normalizeNodeGranularity(firstText(
                 data.getNodeGranularity(), request.getNodeGranularity(), request.getNodeLevel())));
+        data.setRequestedLayoutDirection(requestedLayoutDirection);
+        data.setResolvedLayoutDirection(normalizeLayoutDirection(firstText(
+                data.getResolvedLayoutDirection(), requestedLayoutDirection)));
         data.setRequestedDecisionMode(requestedDecisionMode);
         data.setRequestedSwimlaneMode(requestedSwimlaneMode);
 
@@ -301,6 +314,13 @@ public class FlowchartAIServiceImpl implements FlowchartAIService {
             case "STANDARD" -> "【明确偏好｜MEDIUM】节点粒度要求标准。请平衡完整性与可读性，保留主要步骤和必要说明。";
             case "DETAILED" -> "【较强偏好｜MEDIUM-HIGH】节点粒度要求详细。请主动拆分关键操作、中间步骤、判断和流转过程，但禁止为了凑节点制造不存在的操作。";
             default -> "【AI 决策｜AUTO/SOFT】节点粒度由你根据流程复杂度判断，返回 nodeGranularity 的最终值。";
+        };
+    }
+
+    private String layoutDirectionInstruction(String layoutDirection) {
+        return switch (layoutDirection) {
+            case "HORIZONTAL" -> "【展示约束｜HARD】最终流程图必须采用横向显示元数据：requestedLayoutDirection=HORIZONTAL，resolvedLayoutDirection=HORIZONTAL。节点和边仍按真实流程生成，前端将从左到右绘制。";
+            default -> "【展示约束｜HARD】最终流程图必须采用纵向显示元数据：requestedLayoutDirection=VERTICAL，resolvedLayoutDirection=VERTICAL。节点和边仍按真实流程生成，前端将自上而下绘制。";
         };
     }
 
@@ -434,6 +454,12 @@ public class FlowchartAIServiceImpl implements FlowchartAIService {
         if (text.contains("DETAIL") || text.contains("详细")) return "DETAILED";
         if (text.contains("STANDARD") || text.contains("标准")) return "STANDARD";
         return "AUTO";
+    }
+
+    private String normalizeLayoutDirection(String value) {
+        String text = defaultText(value, "VERTICAL").toUpperCase();
+        if (text.contains("HORIZONTAL") || text.contains("LANDSCAPE") || text.contains("横")) return "HORIZONTAL";
+        return "VERTICAL";
     }
 
     private String normalizeDecisionMode(String value) {
