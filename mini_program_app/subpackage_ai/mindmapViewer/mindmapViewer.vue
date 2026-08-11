@@ -182,15 +182,17 @@ const layout = computed(() => buildMindMapLayout(treeData.value, collapsed))
 const stageStyle = computed(() => ({
   width: `${layout.value.width}px`,
   height: `${layout.value.height}px`,
-  // scroll-view 模式下，位置由滚动条管；stage 只需负责缩放
+  left: `${Math.max(0, (canvasSize.width - layout.value.width * scale.value) / 2)}px`,
+  top: `${Math.max(0, (canvasSize.height - layout.value.height * scale.value) / 2)}px`,
+  // scroll-view 模式下，stage 在内容小于视口时居中，大内容仍由滚动条定位
   transform: `scale(${scale.value})`,
   transformOrigin: '0 0'
 }))
 
 // canvas-content 是 scroll-view 的可滚动内容，尺寸为缩放后的布局大小
 const contentStyle = computed(() => ({
-  width: `${layout.value.width * scale.value}px`,
-  height: `${layout.value.height * scale.value}px`,
+  width: `${Math.max(layout.value.width * scale.value, canvasSize.width)}px`,
+  height: `${Math.max(layout.value.height * scale.value, canvasSize.height)}px`,
 }))
 
 function readPageOptions() {
@@ -266,13 +268,12 @@ function resetView(fit = true) {
 }
 
 function centerRoot() {
-  const root = layout.value.root
-  if (!root) { scrollLeft.value = 0; scrollTop.value = 0; return }
+  if (!layout.value.root) { scrollLeft.value = 0; scrollTop.value = 0; return }
   const width = canvasSize.width || uni.getSystemInfoSync().windowWidth
   const height = canvasSize.height || Math.max(360, uni.getSystemInfoSync().windowHeight - 120)
-  // scroll-view 滚动模式下：让根节点 (root.x * scale, root.y * scale) 落在视口中心
-  scrollLeft.value = Math.round(root.x * scale.value - width / 2)
-  scrollTop.value = Math.round(root.y * scale.value - height / 2)
+  // scroll-view 滚动模式下：默认把整张思维导图内容盒放到视口中心
+  scrollLeft.value = Math.max(0, Math.round(layout.value.width * scale.value / 2 - width / 2))
+  scrollTop.value = Math.max(0, Math.round(layout.value.height * scale.value / 2 - height / 2))
 }
 
 function getFitScale() {
