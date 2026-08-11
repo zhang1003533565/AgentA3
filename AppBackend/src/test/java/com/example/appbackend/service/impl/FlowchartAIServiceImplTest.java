@@ -66,6 +66,19 @@ class FlowchartAIServiceImplTest {
         Assertions.assertTrue(data.getLanes().isEmpty());
     }
 
+    @Test
+    void sceneAutoPromptsAiToResolveConcreteSceneType() throws Exception {
+        FlowchartDTO.GenerateRequest request = new FlowchartDTO.GenerateRequest();
+        request.setSceneType("AUTO");
+        request.setProcessType("AUTO");
+
+        String prompt = invokeBuildPrompt(request, "客户下单后仓库发货");
+
+        Assertions.assertTrue(prompt.contains("【AI 决策｜AUTO】请先根据用户内容判断流程语境"));
+        Assertions.assertTrue(prompt.contains("sceneType 只能使用 ADMIN、BUSINESS、LEARNING、LIFE"));
+        Assertions.assertTrue(prompt.contains("sceneType=AUTO"));
+    }
+
     private String invokeBuildPrompt(FlowchartDTO.GenerateRequest request, String inputText) throws Exception {
         Method method = FlowchartAIServiceImpl.class.getDeclaredMethod(
                 "buildPrompt", FlowchartDTO.GenerateRequest.class, String.class);

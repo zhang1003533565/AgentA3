@@ -99,6 +99,43 @@ class FlowchartServiceImplTest {
     }
 
     @Test
+    void generateKeepsAutoSceneInRequestAndReturnsResolvedScene() {
+        FlowchartAIService aiService = mock(FlowchartAIService.class);
+        FlowchartRecordRepository recordRepository = mock(FlowchartRecordRepository.class);
+        FlowchartServiceImpl service = new FlowchartServiceImpl(
+                aiService,
+                mock(FileParseService.class),
+                mock(FileSummaryService.class),
+                recordRepository,
+                new ObjectMapper()
+        );
+
+        when(recordRepository.save(any(FlowchartRecord.class))).thenAnswer(invocation -> {
+            FlowchartRecord record = invocation.getArgument(0);
+            Assertions.assertEquals("BUSINESS", record.getProcessType());
+            return record;
+        });
+        when(aiService.generate(any(FlowchartDTO.GenerateRequest.class), anyString(), isNull()))
+                .thenAnswer(invocation -> {
+                    FlowchartDTO.GenerateRequest request = invocation.getArgument(0);
+                    Assertions.assertEquals("AUTO", request.getSceneType());
+                    Assertions.assertEquals("AUTO", request.getProcessType());
+                    FlowchartDTO.FlowchartData data = simpleFlowchart();
+                    data.setSceneType("BUSINESS");
+                    return data;
+                });
+
+        FlowchartDTO.GenerateRequest request = new FlowchartDTO.GenerateRequest();
+        request.setContent("客户下单后仓库发货");
+        request.setSceneType("AUTO");
+        request.setProcessType("AUTO");
+
+        FlowchartDTO.GenerateResponse response = service.generate(11L, request, null);
+
+        Assertions.assertEquals("BUSINESS", response.getSceneType());
+    }
+
+    @Test
     void detailCompletesResolvedMetadataForHistoryReopen() throws Exception {
         FlowchartRecordRepository recordRepository = mock(FlowchartRecordRepository.class);
         ObjectMapper objectMapper = new ObjectMapper();

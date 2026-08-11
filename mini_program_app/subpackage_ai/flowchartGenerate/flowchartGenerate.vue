@@ -221,7 +221,7 @@ import ImportFileButton from '../components/ImportFileButton.vue'
 import { previewUploadedDocument } from '../utils/filePreview.js'
 
 const flowDescription = ref('')
-const selectedScene = ref('ADMIN')
+const selectedScene = ref('AUTO')
 const selectedGranularity = ref('AUTO')
 const selectedDirection = ref('VERTICAL')
 const selectedDecision = ref('AUTO')
@@ -232,6 +232,7 @@ const isGenerating = ref(false)
 const recentItems = ref([])
 
 const sceneOptions = [
+  { key: 'AUTO', label: '自动' },
   { key: 'ADMIN', label: '行政流程' },
   { key: 'BUSINESS', label: '业务流程' },
   { key: 'LEARNING', label: '学习流程' },
@@ -372,7 +373,7 @@ const openRecent = (item) => {
 }
 
 const sceneLabel = (value = '') => {
-  return sceneOptions.find(item => item.key === String(value).toUpperCase())?.label || '行政流程'
+  return sceneOptions.find(item => item.key === String(value).toUpperCase())?.label || '自动'
 }
 
 const granularityLabel = (value = '') => {
@@ -854,8 +855,8 @@ onShow(() => {
 
 .scene-row {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 16rpx;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 12rpx;
 }
 
 .scene-chip {
@@ -867,7 +868,7 @@ onShow(() => {
   border-radius: 999rpx;
   background: #FFFFFF;
   color: #17233A;
-  font-size: 25rpx;
+  font-size: 24rpx;
   font-weight: 700;
   box-sizing: border-box;
 }

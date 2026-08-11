@@ -91,7 +91,7 @@ public class FlowchartServiceImpl implements FlowchartService {
         record.setUserId(userId);
         record.setTitle(data.getTitle());
         record.setDescription(inputText);
-        record.setProcessType(sceneType);
+        record.setProcessType(data.getSceneType());
         record.setDiagramType(data.getType());
         record.setConfigJson(writeJson(request));
         record.setFlowJson(writeJson(data));
@@ -215,7 +215,7 @@ public class FlowchartServiceImpl implements FlowchartService {
         if (data == null) {
             return;
         }
-        data.setSceneType(normalizeSceneType(firstText(data.getSceneType(), sceneType)));
+        data.setSceneType(normalizeResolvedSceneType(firstText(data.getSceneType(), sceneType)));
         data.setNodeGranularity(normalizeNodeGranularity(firstText(data.getNodeGranularity(), nodeGranularity)));
         data.setRequestedLayoutDirection(normalizeLayoutDirection(firstText(
                 data.getRequestedLayoutDirection(), requestedLayoutDirection)));
@@ -383,10 +383,16 @@ public class FlowchartServiceImpl implements FlowchartService {
 
     private String normalizeSceneType(String value) {
         String text = firstText(value, "ADMIN").toUpperCase(Locale.ROOT);
+        if (text.contains("AUTO") || text.contains("自动")) return "AUTO";
         if (text.contains("BUSINESS") || text.contains("业务")) return "BUSINESS";
         if (text.contains("LEARNING") || text.contains("STUDY") || text.contains("学习")) return "LEARNING";
         if (text.contains("LIFE") || text.contains("生活")) return "LIFE";
         return "ADMIN";
+    }
+
+    private String normalizeResolvedSceneType(String value) {
+        String text = normalizeSceneType(value);
+        return "AUTO".equals(text) ? "ADMIN" : text;
     }
 
     private String normalizeNodeGranularity(String value) {

@@ -128,6 +128,7 @@ public class FlowchartAIServiceImpl implements FlowchartAIService {
                 - edge 至少包含 id、source、target、label、type；判断分支 type 使用 branch
                 - lane 至少包含 id、label、type；ROLE 使用 type=role，DEPARTMENT 使用 type=department
                 - 节点进入泳道时必须明确 laneId，不要靠节点名称猜测
+                - sceneType 只能使用 ADMIN、BUSINESS、LEARNING、LIFE；当参数 sceneType=AUTO 时必须返回你最终判断的具体场景，不要返回 AUTO
                 - 必须返回 requestedLayoutDirection、resolvedLayoutDirection、requestedDecisionMode、resolvedDecisionMode、requestedSwimlaneMode、resolvedSwimlaneMode
                 - requestedLayoutDirection 与 resolvedLayoutDirection 只能是 VERTICAL 或 HORIZONTAL
                 - resolvedDecisionMode 只能是 ENABLED 或 DISABLED
@@ -219,7 +220,7 @@ public class FlowchartAIServiceImpl implements FlowchartAIService {
                 data.getRequestedSwimlaneMode(), request.getSwimlaneMode(), request.getSwimlane()));
         String requestedLayoutDirection = normalizeLayoutDirection(firstText(
                 data.getRequestedLayoutDirection(), request.getLayoutDirection()));
-        data.setSceneType(normalizeSceneType(firstText(data.getSceneType(), request.getSceneType(), request.getProcessType())));
+        data.setSceneType(normalizeResolvedSceneType(firstText(data.getSceneType(), request.getSceneType(), request.getProcessType())));
         data.setNodeGranularity(normalizeNodeGranularity(firstText(
                 data.getNodeGranularity(), request.getNodeGranularity(), request.getNodeLevel())));
         data.setRequestedLayoutDirection(requestedLayoutDirection);
@@ -301,6 +302,7 @@ public class FlowchartAIServiceImpl implements FlowchartAIService {
 
     private String sceneInstruction(String sceneType) {
         return switch (sceneType) {
+            case "AUTO" -> "【AI 决策｜AUTO】请先根据用户内容判断流程语境，并在 sceneType 返回 ADMIN、BUSINESS、LEARNING、LIFE 之一。不要固定按行政流程理解。";
             case "BUSINESS" -> "【语境偏好｜MEDIUM】请优先按照业务流程语境理解该需求，关注客户、订单、状态流转和业务协作，但不得添加用户未提供且无法合理推断的业务环节。";
             case "LEARNING" -> "【语境偏好｜MEDIUM】请优先按照学习流程语境理解该需求，关注学习步骤、练习、检查和复盘，但不得虚构课程或考核要求。";
             case "LIFE" -> "【语境偏好｜MEDIUM】请优先按照生活流程语境理解该需求，关注日常行动顺序和条件变化，但不得强行行政化。";
@@ -442,10 +444,16 @@ public class FlowchartAIServiceImpl implements FlowchartAIService {
 
     private String normalizeSceneType(String value) {
         String text = defaultText(value, "ADMIN").toUpperCase();
+        if (text.contains("AUTO") || text.contains("自动")) return "AUTO";
         if (text.contains("BUSINESS") || text.contains("业务")) return "BUSINESS";
         if (text.contains("LEARNING") || text.contains("STUDY") || text.contains("学习")) return "LEARNING";
         if (text.contains("LIFE") || text.contains("生活")) return "LIFE";
         return "ADMIN";
+    }
+
+    private String normalizeResolvedSceneType(String value) {
+        String text = normalizeSceneType(value);
+        return "AUTO".equals(text) ? "ADMIN" : text;
     }
 
     private String normalizeNodeGranularity(String value) {

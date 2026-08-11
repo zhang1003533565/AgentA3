@@ -49,6 +49,8 @@ test('flowchart direction is wired through generation page, API, animation, and 
   const viewerPage = readFileSync(join(__dirname, 'flowchartViewer/flowchartViewer.vue'), 'utf8')
 
   assert.match(generatePage, /const selectedDirection = ref\('VERTICAL'\)/)
+  assert.match(generatePage, /const selectedScene = ref\('AUTO'\)/)
+  assert.match(generatePage, /\{ key: 'AUTO', label: '自动' \}/)
   assert.match(generatePage, /layoutDirection: selectedDirection\.value/)
   assert.match(generatePage, /显示方向/)
   assert.match(api, /requestedLayoutDirection: normalizeFlowLayoutDirection/)
