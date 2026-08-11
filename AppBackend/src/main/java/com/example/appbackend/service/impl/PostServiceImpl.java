@@ -171,6 +171,8 @@ public class PostServiceImpl implements PostService {
                     UserPostResponse response = new UserPostResponse();
                     response.setId(post.getId());
                     response.setTitle(post.getTitle());
+                    response.setContent(post.getContent());
+                    response.setImages(post.getImages());
                     response.setViewCount(post.getViewCount());
                     response.setLikeCount(post.getLikeCount());
                     response.setCommentCount(post.getCommentCount());
@@ -194,7 +196,13 @@ public class PostServiceImpl implements PostService {
                     response.setId(like.getId());
                     response.setPostId(like.getTargetId());
                     ForumPost post = postRepository.findById(like.getTargetId()).orElse(null);
-                    response.setPostTitle(post != null && STATUS_PUBLISHED.equals(post.getStatus()) ? post.getTitle() : null);
+                    if (post != null && STATUS_PUBLISHED.equals(post.getStatus())) {
+                        response.setPostTitle(post.getTitle());
+                        response.setContent(post.getContent());
+                        response.setImages(post.getImages());
+                        response.setLikeCount(post.getLikeCount());
+                        response.setCommentCount(post.getCommentCount());
+                    }
                     response.setCreateTime(like.getCreateTime());
                     return response;
                 })

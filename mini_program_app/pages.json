@@ -129,9 +129,36 @@
 					}
 				},
 				{
+					"path": "reportPost/reportPost",
+					"style": {
+						"navigationBarTitleText": "举报帖子",
+						"navigationStyle": "custom",
+						"navigationBarBackgroundColor": "#FFFFFF",
+						"navigationBarTextStyle": "black"
+					}
+				},
+				{
 					"path": "userProfile/userProfile",
 					"style": {
 						"navigationBarTitleText": "个人主页",
+						"navigationStyle": "custom",
+						"navigationBarBackgroundColor": "#FFFFFF",
+						"navigationBarTextStyle": "black"
+					}
+				},
+				{
+					"path": "followingList/followingList",
+					"style": {
+						"navigationBarTitleText": "关注列表",
+						"navigationStyle": "custom",
+						"navigationBarBackgroundColor": "#FFFFFF",
+						"navigationBarTextStyle": "black"
+					}
+				},
+				{
+					"path": "followersList/followersList",
+					"style": {
+						"navigationBarTitleText": "粉丝列表",
 						"navigationStyle": "custom",
 						"navigationBarBackgroundColor": "#FFFFFF",
 						"navigationBarTextStyle": "black"
@@ -160,6 +187,15 @@
 						"navigationBarBackgroundColor": "#FFFFFF",
 						"navigationBarTextStyle": "black",
 						"enablePullDownRefresh": true
+					}
+				},
+				{
+					"path": "messageCategory/messageCategory",
+					"style": {
+						"navigationBarTitleText": "消息列表",
+						"navigationStyle": "custom",
+						"navigationBarBackgroundColor": "#FFFFFF",
+						"navigationBarTextStyle": "black"
 					}
 				},
 				{
@@ -636,6 +672,15 @@
 					}
 				},
 				{
+					"path": "questionBankGenerate/questionBankGenerate",
+					"style": {
+						"navigationBarTitleText": "",
+						"navigationStyle": "custom",
+						"navigationBarBackgroundColor": "#FFFFFF",
+						"navigationBarTextStyle": "black"
+					}
+				},
+				{
 					"path": "pptGenerate/pptGenerate",
 					"style": {
 						"navigationBarTitleText": "",
@@ -796,7 +841,61 @@
 						"navigationBarBackgroundColor": "#FFFFFF",
 						"navigationBarTextStyle": "black"
 					}
-				}
+				},
+				{
+   				"path": "watermarkHome/watermarkHome",
+  			  	"style": {
+        			"navigationBarTitleText": "水印工具",
+        			"navigationStyle": "custom",
+        			"navigationBarBackgroundColor": "#ffffff",
+        			"navigationBarTextStyle": "black"
+    				}
+				},
+				{
+				"path": "watermarkAddEdit/watermarkAddEdit",
+				"style": {
+					"navigationBarTitleText": "",
+					"navigationStyle": "custom",
+					"navigationBarBackgroundColor": "#FFFFFF",
+					"navigationBarTextStyle": "black"
+					}
+			},
+				{
+    			"path": "watermarkRemoveEdit/watermarkRemoveEdit",
+    			"style": {
+        			"navigationBarTitleText": "",
+        			"navigationStyle": "custom",
+        			"navigationBarBackgroundColor": "#ffffff",
+        			"navigationBarTextStyle": "black"
+    				}
+			},
+			{
+    			"path": "watermarkBatch/watermarkBatch",
+    			"style": {
+        			"navigationBarTitleText": "",
+        			"navigationStyle": "custom",
+        			"navigationBarBackgroundColor": "#ffffff",
+        			"navigationBarTextStyle": "black"
+    				}
+			},
+			{
+    			"path": "watermarkHistory/watermarkHistory",
+    			"style": {
+        			"navigationBarTitleText": "",
+        			"navigationStyle": "custom",
+        			"navigationBarBackgroundColor": "#ffffff",
+        			"navigationBarTextStyle": "black"
+    				}
+			},
+			{
+    			"path": "watermarkHelp/watermarkHelp",
+    			"style": {
+        			"navigationBarTitleText": "",
+        			"navigationStyle": "custom",
+        			"navigationBarBackgroundColor": "#ffffff",
+        			"navigationBarTextStyle": "black"
+    				}
+			}
 			]
 		},
 		{
@@ -934,6 +1033,34 @@
 					"path": "attemptResult/attemptResult",
 					"style": {
 						"navigationBarTitleText": "答题结果",
+						"navigationStyle": "custom"
+					}
+				},
+				{
+					"path": "myQuestionBank/myQuestionBank",
+					"style": {
+						"navigationBarTitleText": "我的题库",
+						"navigationStyle": "custom"
+					}
+				},
+				{
+					"path": "questionFolderDetail/questionFolderDetail",
+					"style": {
+						"navigationBarTitleText": "收藏夹详情",
+						"navigationStyle": "custom"
+					}
+				},
+				{
+					"path": "questionFolderAdd/questionFolderAdd",
+					"style": {
+						"navigationBarTitleText": "添加题目",
+						"navigationStyle": "custom"
+					}
+				},
+				{
+					"path": "questionFolderPush/questionFolderPush",
+					"style": {
+						"navigationBarTitleText": "推送到收藏夹",
 						"navigationStyle": "custom"
 					}
 				}

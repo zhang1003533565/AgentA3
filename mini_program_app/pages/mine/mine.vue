@@ -84,6 +84,17 @@
           </view>
           <text class="cell-arrow">›</text>
         </view>
+        <view class="cell-divider"></view>
+        <view class="cell" @click="goToMyQuestionBank">
+          <view class="cell-left">
+            <view class="cell-icon"><image class="cell-icon-img" src="/static/icons/line/book-open.svg" mode="aspectFit" /></view>
+            <view class="cell-text">
+              <text class="cell-label">我的题库</text>
+              <text class="cell-desc">公共题库与私有题库统一入口</text>
+            </view>
+          </view>
+          <text class="cell-arrow">›</text>
+        </view>
       </view>
       <!-- 12px 灰色隔离条 -->
       <view class="gap-bar"></view>
@@ -215,6 +226,9 @@ export default {
     goToExamPapers() {
       uni.navigateTo({ url: '/subpackage_exam/paperList/paperList' })
     },
+    goToMyQuestionBank() {
+      uni.navigateTo({ url: '/subpackage_exam/myQuestionBank/myQuestionBank' })
+    },
     goToChangePassword() {
       uni.navigateTo({ url: '/pages/changePassword/changePassword' })
     },
@@ -310,7 +324,7 @@ export default {
   background-color: #FFFFFF;
 }
 .cell {
-  height: 112rpx;
+  min-height: 112rpx;
   padding: 0 32rpx;
   display: flex;
   align-items: center;
@@ -332,10 +346,23 @@ export default {
   justify-content: center;
   flex-shrink: 0;
 }
+.cell-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 6rpx;
+  padding: 20rpx 0;
+}
 .cell-label {
   font-size: 28rpx;
   font-weight: 400;
   color: #1D1D1F;
+}
+.cell-desc {
+  font-size: 22rpx;
+  font-weight: 400;
+  color: #8E8E93;
+  line-height: 1.3;
 }
 .cell-arrow {
   font-size: 32rpx;

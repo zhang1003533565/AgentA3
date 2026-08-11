@@ -62,7 +62,11 @@
         <!-- 互动数据 -->
         <view class="post-footer">
           <view class="action-item">
-            <text class="action-icon">{{ item.isLiked ? '❤️' : '🤍' }}</text>
+            <image
+              class="action-icon-img"
+              :src="item.isLiked ? '/static/icons/line/thumb-up-filled.svg' : '/static/icons/line/thumb-up.svg'"
+              mode="aspectFit"
+            />
             <text class="action-count">{{ item.likeCount || 0 }}</text>
           </view>
           <view class="action-item">
@@ -474,6 +478,12 @@ export default {
       
       .action-icon {
         font-size: 32rpx;
+        margin-right: 8rpx;
+      }
+
+      .action-icon-img {
+        width: 36rpx;
+        height: 36rpx;
         margin-right: 8rpx;
       }
       

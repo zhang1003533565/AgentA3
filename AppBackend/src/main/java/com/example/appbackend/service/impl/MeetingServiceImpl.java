@@ -107,6 +107,7 @@ public class MeetingServiceImpl implements MeetingService {
     public MeetingDTO.SessionDetail createMeeting(Long userId, MeetingDTO.SessionRequest request) {
         MeetingSession session = new MeetingSession();
         session.setUserId(userId);
+        session.setCreateUserId(userId);
         session.setSessionId("meeting-" + UUID.randomUUID());
         session.setRoomCode(generateRoomCode());
         session.setMeetingType(normalizeMeetingType(request == null ? null : request.getMeetingType()));
@@ -116,6 +117,7 @@ public class MeetingServiceImpl implements MeetingService {
             session.setScheduledStartTime(request.getScheduledStartTime());
         }
         if (MeetingSession.STATUS_ACTIVE.equals(session.getStatus())) {
+            assertNoOngoingHosting(userId);
             session.setStartTime(LocalDateTime.now());
         }
         session = sessionRepository.save(session);
@@ -130,8 +132,10 @@ public class MeetingServiceImpl implements MeetingService {
     @Override
     @Transactional
     public MeetingDTO.SessionDetail createQuickMeeting(Long userId, MeetingDTO.QuickMeetingRequest request) {
+        assertNoOngoingHosting(userId);
         MeetingSession session = new MeetingSession();
         session.setUserId(userId);
+        session.setCreateUserId(userId);
         session.setSessionId("meeting-" + UUID.randomUUID());
         session.setRoomCode(generateRoomCode());
         session.setMeetingType(MeetingSession.TYPE_QUICK);
@@ -149,6 +153,7 @@ public class MeetingServiceImpl implements MeetingService {
     public MeetingDTO.SessionDetail reserveMeeting(Long userId, MeetingDTO.ReserveMeetingRequest request) {
         MeetingSession session = new MeetingSession();
         session.setUserId(userId);
+        session.setCreateUserId(userId);
         session.setSessionId("meeting-" + UUID.randomUUID());
         session.setRoomCode(generateRoomCode());
         session.setMeetingType(MeetingSession.TYPE_RESERVED);
@@ -170,7 +175,16 @@ public class MeetingServiceImpl implements MeetingService {
                 session.setTitle(truncate(request.getTitle().trim(), 120));
             }
             if (StringUtils.hasText(request.getStatus())) {
-                session.setStatus(normalizeStatus(request.getStatus()));
+                String newStatus = normalizeStatus(request.getStatus());
+                if (MeetingSession.STATUS_ENDED.equals(session.getStatus())
+                        && !MeetingSession.STATUS_ENDED.equals(newStatus)) {
+                    throw new BusinessException(Result.BAD_REQUEST_CODE, "已结束的会议状态不允许变更");
+                }
+                if (MeetingSession.STATUS_ACTIVE.equals(newStatus)
+                        && !MeetingSession.STATUS_ACTIVE.equals(session.getStatus())) {
+                    assertNoOngoingHosting(userId);
+                }
+                session.setStatus(newStatus);
             }
             if (StringUtils.hasText(request.getMeetingType())) {
                 session.setMeetingType(normalizeMeetingType(request.getMeetingType()));
@@ -212,6 +226,9 @@ public class MeetingServiceImpl implements MeetingService {
         String roomCode = normalizeRoomCode(request == null ? null : request.getRoomCode());
         MeetingSession session = sessionRepository.findByRoomCode(roomCode)
                 .orElseThrow(() -> new BusinessException(Result.NOT_FOUND_CODE, "会议号不存在"));
+        if (MeetingSession.STATUS_ENDED.equals(session.getStatus())) {
+            throw new BusinessException(Result.BAD_REQUEST_CODE, "会议已结束，无法加入");
+        }
         String displayName = resolveUserDisplayName(userId);
         if (!StringUtils.hasText(displayName) && request != null && StringUtils.hasText(request.getDisplayName())) {
             displayName = request.getDisplayName();
@@ -236,6 +253,9 @@ public class MeetingServiceImpl implements MeetingService {
         if (MeetingSession.STATUS_ENDED.equals(session.getStatus())) {
             throw new BusinessException(Result.BAD_REQUEST_CODE, "已结束的会议不能重新开始");
         }
+        if (!MeetingSession.STATUS_ACTIVE.equals(session.getStatus())) {
+            assertNoOngoingHosting(userId);
+        }
         session.setStatus(MeetingSession.STATUS_ACTIVE);
         if (session.getStartTime() == null) {
             session.setStartTime(LocalDateTime.now());
@@ -248,7 +268,7 @@ public class MeetingServiceImpl implements MeetingService {
     @Transactional
     public MeetingDTO.SessionDetail endMeeting(Long userId, String sessionId, String authorization) {
         MeetingSession session = findAccessibleSession(userId, sessionId);
-        if (userId == null || !userId.equals(session.getUserId())) {
+        if (userId == null || !userId.equals(creatorOf(session))) {
             throw new BusinessException(Result.FORBIDDEN_CODE, "只有会议发起人才可以结束会议");
         }
         session.setStatus(MeetingSession.STATUS_ENDED);
@@ -539,15 +559,21 @@ public class MeetingServiceImpl implements MeetingService {
 
     private MeetingSession findOwnedSession(Long userId, String sessionId) {
         MeetingSession session = findSession(sessionId);
-        if (userId != null && userId.equals(session.getUserId())) {
+        if (userId != null && userId.equals(creatorOf(session))) {
             return session;
         }
         throw new BusinessException(Result.FORBIDDEN_CODE, "仅会议创建者可执行该操作");
     }
 
+    private void assertNoOngoingHosting(Long userId) {
+        if (userId != null && sessionRepository.existsByUserIdAndStatus(userId, MeetingSession.STATUS_ACTIVE)) {
+            throw new BusinessException(Result.BAD_REQUEST_CODE, "你正在主持一场进行中的会议，请结束当前会议后再主持下一场会议");
+        }
+    }
+
     private MeetingSession findAccessibleSession(Long userId, String sessionId) {
         MeetingSession session = findSession(sessionId);
-        if (userId != null && userId.equals(session.getUserId())) {
+        if (userId != null && userId.equals(creatorOf(session))) {
             return session;
         }
         String displayName = resolveUserDisplayName(userId);
@@ -699,10 +725,17 @@ public class MeetingServiceImpl implements MeetingService {
         return detail;
     }
 
+    private Long creatorOf(MeetingSession session) {
+        if (session.getUserId() != null) {
+            return session.getUserId();
+        }
+        return session.getCreateUserId();
+    }
+
     private MeetingDTO.SessionItem toSessionItem(MeetingSession session) {
         MeetingDTO.SessionItem item = new MeetingDTO.SessionItem();
         item.setSessionId(session.getSessionId());
-        item.setCreatorId(session.getUserId());
+        item.setCreatorId(creatorOf(session));
         item.setRoomCode(session.getRoomCode());
         item.setTitle(session.getTitle());
         item.setMeetingType(session.getMeetingType());

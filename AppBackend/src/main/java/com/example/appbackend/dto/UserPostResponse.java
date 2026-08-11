@@ -12,6 +12,8 @@ import java.time.LocalDateTime;
 public class UserPostResponse {
     Long id;
     String title;
+    String content;
+    String images;
     Integer viewCount;
     Integer likeCount;
     Integer commentCount;

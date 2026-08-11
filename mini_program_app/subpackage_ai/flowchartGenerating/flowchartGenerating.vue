@@ -74,6 +74,7 @@
             class="fn fn-in"
             :class="['fn--' + nodeType(node), { settle: settleOn }]"
             :style="nodeBox(node)"
+            :data-level="node.level"
           >
             <text class="fn-name">{{ node.name }}</text>
           </view>
@@ -203,11 +204,12 @@ const canvasStyle = computed(() => ({ width: canvasW.value + 'px', height: canva
 
 const scale = ref(1)
 const offset = reactive({ x: 0, y: 0 })
+const cameraY = ref(0)
 const smooth = ref(false)
 const stageStyle = computed(() => ({
   width: canvasW.value + 'px',
   height: canvasH.value + 'px',
-  transform: `translate(${offset.x}px, ${offset.y}px) scale(${scale.value})`,
+  transform: `translate(${offset.x}px, ${cameraY.value}px) scale(${scale.value})`,
   transformOrigin: '0 0',
   transition: smooth.value ? 'transform 0.6s cubic-bezier(0.22,1,0.36,1)' : 'none'
 }))
@@ -227,14 +229,34 @@ function isTerminal(node) { return nodeType(node) === 'start' || nodeType(node) 
 function nodeType(node) { return node.type || 'action' }
 
 function centerOn() {
-  offset.x = Math.round(canvasW.value / 2 * (1 - scale.value))
-  offset.y = Math.round(canvasH.value / 2 * (1 - scale.value))
+  // 内容实际居中在 laid.canvasW × laid.canvasH，需平移到显示画布中心
+  const contentW = state.laid?.canvasW || canvasW.value
+  const contentH = state.laid?.canvasH || canvasH.value
+  offset.x = Math.round(canvasW.value / 2 - contentW / 2 * scale.value)
+  cameraY.value = Math.round(canvasH.value / 2 - contentH / 2 * scale.value)
 }
 function fitToView() {
+  // 用实际内容尺寸计算 scale，避免内容小于画布时被缩得过小
+  const contentW = state.laid?.canvasW || canvasW.value
+  const contentH = state.laid?.canvasH || canvasH.value
   const view = { w: SCREEN_W, h: Math.max(360, SCREEN_H - 400 * rpx2px) }
-  const fit = Math.min(view.w / canvasW.value, view.h / canvasH.value, 1)
+  const fit = Math.min(view.w / contentW, view.h / contentH, 1)
   scale.value = Math.max(0.3, Math.min(fit, 1))
   centerOn()
+}
+
+// 镜头跟随：让目标 level 的节点行对齐 canvas-area 垂直中心偏上 1/3 位
+// 只在换 level 时调用，避免同层节点生成时频繁抖动
+// 纯计算，不用 createSelectorQuery，避免节点未渲染时回调不触发导致 await 卡死
+function followCameraLevel(level) {
+  // 找该 level 第一个节点的 cy（布局已知值）
+  const node = laidNodes.value.find(n => n.level === level)
+  if (!node) return
+  const viewH = Math.max(360, SCREEN_H - 400 * rpx2px)
+  // 渲染公式：nodeCenterY = viewH/2 - canvasH*scale/2 + cameraY + node.cy*scale
+  // 要让 nodeCenterY = viewH/3，反解 cameraY
+  const targetCameraY = -viewH / 6 + canvasH.value * scale.value / 2 - node.cy * scale.value
+  cameraY.value = targetCameraY
 }
 
 // ===== 动画流程 =====
@@ -263,11 +285,19 @@ async function runAnimation() {
 
   // 阶段2 墨实
   stageIndex.value = 2
+  let lastFollowLevel = -1
   for (const item of state.seq) {
     if (item.node) {
       inkedIds[item.node.id] = true
       inkedCount.value += 1
       if (inkedCount.value / laidNodes.value.length > 0.5) stageIndex.value = 2
+      // 换 level 时镜头跟随到当前节点行
+      if (item.node.level !== lastFollowLevel) {
+        smooth.value = true
+        await followCameraLevel(item.node.level)
+        lastFollowLevel = item.node.level
+        await sleep(120)
+      }
       await sleep(170)
     } else {
       drawnKeys[item.edge.key] = true
@@ -283,6 +313,7 @@ async function runAnimation() {
   // 阶段4 布局
   stageIndex.value = 4
   smooth.value = true
+  // 镜头回到全景
   fitToView()
   await sleep(650)
 

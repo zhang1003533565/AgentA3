@@ -360,7 +360,7 @@ onMounted(() => {
 }
 
 .input-card {
-  height: 396rpx;
+  height: 440rpx;
   padding: 34rpx 34rpx 24rpx;
   border: 1rpx solid #DFE3EA;
   border-radius: 18rpx;
