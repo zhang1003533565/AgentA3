@@ -13,7 +13,7 @@
             <view class="icon-refresh"></view>
           </view>
         </view>
-        <text class="header-title">优化思维导图</text>
+        <text class="header-title">{{ title }}</text>
         <text class="header-subtitle">告诉AI你希望如何调整当前内容</text>
       </view>
 
@@ -70,6 +70,7 @@ import { computed, ref, watch } from 'vue'
 
 const props = defineProps({
   visible: { type: Boolean, default: false },
+  title: { type: String, default: '优化思维导图' },
   currentMindMap: { type: Object, default: () => ({}) }
 })
 

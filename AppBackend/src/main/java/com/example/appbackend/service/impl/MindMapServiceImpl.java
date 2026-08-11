@@ -4,9 +4,14 @@ import com.example.appbackend.dto.MindMapDTO;
 import com.example.appbackend.entity.MindMapRecord;
 import com.example.appbackend.exception.BusinessException;
 import com.example.appbackend.repository.MindMapRecordRepository;
+import com.example.appbackend.service.FileSummaryResult;
+import com.example.appbackend.service.FileSummaryService;
 import com.example.appbackend.service.FileParseService;
 import com.example.appbackend.service.MindMapAIService;
 import com.example.appbackend.service.MindMapService;
+import com.example.appbackend.service.ParsedFileContent;
+import com.example.appbackend.service.support.MindMapGenerationConstraints;
+import com.example.appbackend.service.support.MindMapTopicExtractor;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -27,6 +32,7 @@ public class MindMapServiceImpl implements MindMapService {
 
     private final MindMapAIService mindMapAIService;
     private final FileParseService fileParseService;
+    private final FileSummaryService fileSummaryService;
     private final MindMapRecordRepository recordRepository;
     private final ObjectMapper objectMapper;
 
@@ -38,10 +44,12 @@ public class MindMapServiceImpl implements MindMapService {
 
     public MindMapServiceImpl(MindMapAIService mindMapAIService,
                               FileParseService fileParseService,
+                              FileSummaryService fileSummaryService,
                               MindMapRecordRepository recordRepository,
                               ObjectMapper objectMapper) {
         this.mindMapAIService = mindMapAIService;
         this.fileParseService = fileParseService;
+        this.fileSummaryService = fileSummaryService;
         this.recordRepository = recordRepository;
         this.objectMapper = objectMapper;
     }
@@ -52,17 +60,30 @@ public class MindMapServiceImpl implements MindMapService {
             throw new BusinessException(400, "请求参数不能为空");
         }
         String topic = trim(request.getTopic());
+        String centerTopic = trim(request.getCenterTopic());
+        String centerTopicMode = trim(request.getCenterTopicMode());
         String sourceText = trim(request.getSourceText());
-        String inputText = StringUtils.hasText(sourceText) ? sourceText : topic;
+        String preInputText = composeInputText(topic, sourceText, centerTopic);
+        MindMapGenerationConstraints constraints = MindMapGenerationConstraints.resolve(
+                centerTopicMode,
+                centerTopic,
+                request.getDepth(),
+                request.getStructure(),
+                request.getDetail(),
+                preInputText
+        );
+        String inputText = composeInputText(topic, sourceText, constraints.resolvedCenterTopic());
         if (!StringUtils.hasText(inputText)) {
             throw new BusinessException(400, "请输入主题或上传可解析文件");
         }
 
         MindMapDTO.MindMapData data = mindMapAIService.generate(
                 inputText,
-                request.getDepth(),
-                request.getStructure(),
-                request.getDetail(),
+                constraints.resolvedCenterTopic(),
+                constraints.requestedCenterTopicMode(),
+                constraints.requestedDepth(),
+                constraints.requestedStructure(),
+                constraints.detailLevel(),
                 authorization
         );
 
@@ -74,11 +95,25 @@ public class MindMapServiceImpl implements MindMapService {
         record.setSourceFile(firstText(request.getSourceFile(), request.getFileId()));
         record.setContent(inputText);
         record.setMindMapJson(writeJson(data));
-        record.setDepth(request.getDepth());
-        record.setStructureType(request.getStructure());
-        record.setDetailLevel(request.getDetail());
+        record.setDepth(data.getRequestedDepth());
+        record.setStructureType(data.getRequestedStructure());
+        record.setDetailLevel(data.getDetailLevel());
         recordRepository.save(record);
         return toGenerateResponse(record, data);
+    }
+
+    private String composeInputText(String topic, String sourceText, String centerTopic) {
+        StringBuilder builder = new StringBuilder();
+        if (StringUtils.hasText(centerTopic)) {
+            builder.append("建议中心主题：").append(centerTopic).append("\n");
+        }
+        if (StringUtils.hasText(topic)) {
+            builder.append("用户输入要求：").append(topic).append("\n");
+        }
+        if (StringUtils.hasText(sourceText)) {
+            builder.append("文件解析内容：\n").append(sourceText);
+        }
+        return builder.toString().trim();
     }
 
     @Override
@@ -97,11 +132,29 @@ public class MindMapServiceImpl implements MindMapService {
         record.setId(UUID.randomUUID().toString());
         record.setUserId(userId);
         record.setTitle(data.getTitle());
-        record.setSourceType(MindMapRecord.SOURCE_TEXT);
-        record.setContent("优化：" + instruction);
+        String sourceContent = firstText(
+                request.getContent(),
+                composeInputText("", trim(request.getSourceText()), "")
+        );
+        String sourceFile = firstText(request.getSourceFile(), request.getFileId());
+        record.setSourceType(resolveSourceType(request.getSourceType(), sourceContent, request.getSourceText(), sourceFile));
+        record.setSourceFile(sourceFile);
+        record.setContent(firstText(sourceContent, "优化：" + instruction));
         record.setMindMapJson(writeJson(data));
+        record.setDepth(data.getRequestedDepth());
+        record.setStructureType(data.getRequestedStructure());
+        record.setDetailLevel(data.getDetailLevel());
         recordRepository.save(record);
         return toGenerateResponse(record, data);
+    }
+
+    private String resolveSourceType(String requestedSourceType, String content, String sourceText, String sourceFile) {
+        String requested = trim(requestedSourceType).toUpperCase(Locale.ROOT);
+        if (MindMapRecord.SOURCE_FILE.equals(requested)) return MindMapRecord.SOURCE_FILE;
+        if (StringUtils.hasText(sourceText) || StringUtils.hasText(sourceFile) || String.valueOf(content).contains("文件解析内容")) {
+            return MindMapRecord.SOURCE_FILE;
+        }
+        return MindMapRecord.SOURCE_TEXT;
     }
 
     @Override
@@ -124,12 +177,29 @@ public class MindMapServiceImpl implements MindMapService {
             throw new BusinessException(500, "文件保存失败: " + error.getMessage());
         }
 
-        String text = fileParseService.parse(target.toFile());
+        ParsedFileContent parsed = fileParseService.parseDetailed(target.toFile());
+        FileSummaryResult summary = fileSummaryService.summarize(originalName, parsed.text());
+        String aiCenterTopic = trim(summary.centerTopic());
+        String fallbackCenterTopic = MindMapTopicExtractor.extract("", "", parsed.text(), originalName);
+        String centerTopic = firstText(aiCenterTopic, fallbackCenterTopic);
+        String centerTopicStatus = StringUtils.hasText(aiCenterTopic)
+                ? summary.status()
+                : fallbackCenterTopicStatus(summary.status());
         MindMapDTO.UploadResponse response = new MindMapDTO.UploadResponse();
         response.setFileId(fileId);
         response.setFileName(originalName);
         response.setSourceFile(buildFileUrl(objectKey));
-        response.setText(text);
+        response.setText(parsed.text());
+        response.setSummary(summary.summary());
+        response.setSummaryStatus(summary.status());
+        response.setSummaryModel(summary.model());
+        response.setCenterTopic(centerTopic);
+        response.setCenterTopicStatus(centerTopicStatus);
+        response.setTextLength(parsed.textLength());
+        response.setTruncated(parsed.truncated());
+        response.setPageCount(parsed.pageCount());
+        response.setSlideCount(parsed.slideCount());
+        response.setParagraphCount(parsed.paragraphCount());
         return response;
     }
 
@@ -148,13 +218,26 @@ public class MindMapServiceImpl implements MindMapService {
         return toGenerateResponse(record, readData(record.getMindMapJson()));
     }
 
+    @Override
+    public void delete(Long userId, String id) {
+        if (!StringUtils.hasText(id)) {
+            throw new BusinessException(400, "记录ID不能为空");
+        }
+        MindMapRecord record = recordRepository.findByIdAndUserId(id, userId)
+                .orElseThrow(() -> new BusinessException(404, "思维导图记录不存在"));
+        recordRepository.delete(record);
+    }
+
     private void validateUpload(MultipartFile file) {
         if (file == null || file.isEmpty()) {
             throw new BusinessException(400, "请选择文件");
         }
+        if (file.getSize() > 20L * 1024 * 1024) {
+            throw new BusinessException(400, "文件不能超过 20MB");
+        }
         String extension = extensionOf(file.getOriginalFilename());
-        if (!List.of(".pdf", ".doc", ".docx", ".ppt", ".pptx").contains(extension)) {
-            throw new BusinessException(400, "仅支持 pdf、doc、docx、ppt、pptx");
+        if (!List.of(".pdf", ".doc", ".docx", ".ppt", ".pptx", ".md", ".markdown").contains(extension)) {
+            throw new BusinessException(400, "仅支持 pdf、doc、docx、ppt、pptx、md");
         }
     }
 
@@ -162,8 +245,21 @@ public class MindMapServiceImpl implements MindMapService {
         MindMapDTO.GenerateResponse response = new MindMapDTO.GenerateResponse();
         response.setId(record.getId());
         response.setTitle(data.getTitle());
+        response.setRequestedCenterTopicMode(data.getRequestedCenterTopicMode());
+        response.setResolvedCenterTopic(data.getResolvedCenterTopic());
+        response.setRequestedDepth(data.getRequestedDepth());
+        response.setResolvedDepth(data.getResolvedDepth());
+        response.setRequestedStructure(data.getRequestedStructure());
+        response.setResolvedStructure(data.getResolvedStructure());
+        response.setDetailLevel(data.getDetailLevel());
         response.setNodes(data.getNodes());
         response.setCreateTime(record.getCreateTime());
+        response.setContent(record.getContent());
+        response.setSourceType(record.getSourceType());
+        response.setSourceFile(record.getSourceFile());
+        response.setSourceText(extractFileContent(record.getContent()));
+        response.setFileId("");
+        response.setFileSummary("");
         return response;
     }
 
@@ -173,6 +269,26 @@ public class MindMapServiceImpl implements MindMapService {
         item.setTitle(record.getTitle());
         item.setCreateTime(record.getCreateTime());
         item.setPreview(preview(record.getContent()));
+        item.setContent(record.getContent());
+        item.setSourceType(record.getSourceType());
+        item.setSourceFile(record.getSourceFile());
+        item.setSourceText(extractFileContent(record.getContent()));
+        item.setFileId("");
+        item.setFileSummary("");
+        MindMapDTO.MindMapData data = readDataOrNull(record.getMindMapJson());
+        if (data != null) {
+            item.setRequestedCenterTopicMode(data.getRequestedCenterTopicMode());
+            item.setResolvedCenterTopic(data.getResolvedCenterTopic());
+            item.setRequestedDepth(data.getRequestedDepth());
+            item.setResolvedDepth(data.getResolvedDepth());
+            item.setRequestedStructure(data.getRequestedStructure());
+            item.setResolvedStructure(data.getResolvedStructure());
+            item.setDetailLevel(data.getDetailLevel());
+        } else {
+            item.setRequestedDepth(record.getDepth());
+            item.setRequestedStructure(record.getStructureType());
+            item.setDetailLevel(record.getDetailLevel());
+        }
         return item;
     }
 
@@ -197,6 +313,17 @@ public class MindMapServiceImpl implements MindMapService {
         }
     }
 
+    private MindMapDTO.MindMapData readDataOrNull(String json) {
+        if (!StringUtils.hasText(json)) {
+            return null;
+        }
+        try {
+            return objectMapper.readValue(json, MindMapDTO.MindMapData.class);
+        } catch (Exception error) {
+            return null;
+        }
+    }
+
     private String buildFileUrl(String objectKey) {
         String normalizedBaseUrl = StringUtils.hasText(fileBaseUrl)
                 ? fileBaseUrl.trim().replaceAll("/+$", "")
@@ -215,7 +342,22 @@ public class MindMapServiceImpl implements MindMapService {
         return StringUtils.hasText(first) ? first.trim() : trim(second);
     }
 
+    private String fallbackCenterTopicStatus(String summaryStatus) {
+        return "AI".equals(summaryStatus) ? "AI_FALLBACK" : firstText(summaryStatus, "LOCAL");
+    }
+
     private String trim(String value) {
         return value == null ? "" : value.trim();
+    }
+
+    private String extractFileContent(String content) {
+        String text = trim(content);
+        String marker = "文件解析内容：";
+        int index = text.indexOf(marker);
+        if (index < 0) {
+            marker = "文件解析内容:";
+            index = text.indexOf(marker);
+        }
+        return index >= 0 ? text.substring(index + marker.length()).trim() : "";
     }
 }

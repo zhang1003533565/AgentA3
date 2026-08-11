@@ -42,9 +42,11 @@ import java.util.regex.Pattern;
 public class PythonAiProxyService {
     private static final Logger log = LoggerFactory.getLogger(PythonAiProxyService.class);
     private static final String DEFAULT_AGENT_NAME = "leader_agent";
+    private static final String ARCHITECTURE_AGENT_NAME = "diagram_architecture_agent";
     private static final String AGENT_MODEL_BINDING_PREFIX = "ai.agent-bindings.";
     private static final String AGENT_ENABLED_PREFIX = "ai.agent-enabled.";
     private static final String TOOL_ENABLED_PREFIX = "ai.tool-enabled.";
+    private static final String LEGACY_TEXT_CONFIG_PREFIX = "ai.service.text";
     private static final Pattern SAFE_SSE_EVENT_NAME = Pattern.compile("[A-Za-z][A-Za-z0-9_-]{0,39}");
 
     private final WebClient.Builder webClientBuilder;
@@ -621,24 +623,25 @@ public class PythonAiProxyService {
 
     /**
      * 调用 Python 架构图生成服务，返回 { title, style, nodes, edges } JSON。
-     * 复用 leader_agent 的模型配置（默认 LLM 配置）。
+     * 复用 AI 图表文本模型配置，并向 Python 透传完整 X-AI-* 运行时配置。
      */
     public Object generateArchitecture(Map<String, Object> request, String authorization) {
         validateAuthorization(authorization);
         String token = normalizeBearerToken(authorization);
         Long userId = extractUserId(token);
-        String requestedModel = resolveAgentBoundModel(DEFAULT_AGENT_NAME);
+        String requestedModel = resolveArchitectureModelConfigPrefix();
+        if (!StringUtils.hasText(requestedModel)) {
+            throw new BusinessException(
+                    Result.ERROR_CODE,
+                    "AI 文本模型未配置，请在系统配置中维护 ai.service.text.* 或 ai.agent-bindings."
+                            + ARCHITECTURE_AGENT_NAME + ".model"
+            );
+        }
         try {
             return webClientBuilder.build()
                     .post()
                     .uri(buildUri("/internal/architecture/generate"))
-                    .headers(headers -> {
-                        if (StringUtils.hasText(requestedModel)) {
-                            applyPythonHeaders(headers, authorization, userId, requestedModel);
-                        } else {
-                            applyPythonAuthHeaders(headers, authorization, userId);
-                        }
-                    })
+                    .headers(headers -> applyPythonHeaders(headers, authorization, userId, requestedModel))
                     .contentType(MediaType.APPLICATION_JSON)
                     .bodyValue(request == null ? Map.of() : request)
                     .retrieve()
@@ -1040,6 +1043,62 @@ public class PythonAiProxyService {
         String key = AGENT_MODEL_BINDING_PREFIX + normalizedAgent + ".model";
         String value = systemConfigService.getValue(key, "");
         return StringUtils.hasText(value) ? value.trim() : null;
+    }
+
+    private String resolveArchitectureModelConfigPrefix() {
+        return firstText(
+                resolveAgentBoundModel(ARCHITECTURE_AGENT_NAME),
+                resolveAgentBoundModel(DEFAULT_AGENT_NAME),
+                firstTestedTextConfigPrefix(),
+                firstCompleteTextConfigPrefix(),
+                hasCompleteTextConfig(LEGACY_TEXT_CONFIG_PREFIX) ? LEGACY_TEXT_CONFIG_PREFIX : ""
+        );
+    }
+
+    private boolean hasCompleteTextConfig(String configPrefix) {
+        return StringUtils.hasText(systemConfigService.getValue(configPrefix + ".provider", ""))
+                && StringUtils.hasText(systemConfigService.getValue(configPrefix + ".api-key", ""))
+                && StringUtils.hasText(systemConfigService.getValue(configPrefix + ".base-url", ""))
+                && StringUtils.hasText(systemConfigService.getValue(configPrefix + ".model", ""));
+    }
+
+    private String firstTestedTextConfigPrefix() {
+        return systemConfigRepository.findByConfigKeyStartingWithAndStatus("ai.service.text.", 1)
+                .stream()
+                .filter(config -> config.getConfigKey() != null && config.getConfigKey().endsWith(".tested-fingerprint"))
+                .filter(config -> StringUtils.hasText(config.getConfigValue()))
+                .map(config -> removeSuffix(config.getConfigKey(), ".tested-fingerprint"))
+                .filter(this::hasCompleteTextConfig)
+                .sorted()
+                .findFirst()
+                .orElse("");
+    }
+
+    private String firstCompleteTextConfigPrefix() {
+        return systemConfigRepository.findByConfigKeyStartingWithAndStatus("ai.service.text.", 1)
+                .stream()
+                .filter(config -> config.getConfigKey() != null && config.getConfigKey().endsWith(".model"))
+                .map(config -> removeSuffix(config.getConfigKey(), ".model"))
+                .filter(this::hasCompleteTextConfig)
+                .sorted()
+                .findFirst()
+                .orElse("");
+    }
+
+    private String firstText(String... values) {
+        for (String value : values) {
+            if (StringUtils.hasText(value)) {
+                return value.trim();
+            }
+        }
+        return "";
+    }
+
+    private String removeSuffix(String value, String suffix) {
+        if (value == null || suffix == null || !value.endsWith(suffix)) {
+            return "";
+        }
+        return value.substring(0, value.length() - suffix.length());
     }
 
     private Map<String, Object> withAgentToggles(Map<String, Object> request) {
