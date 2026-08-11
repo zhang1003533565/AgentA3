@@ -4,7 +4,6 @@
       <template #right>
         <view class="nav-right">
           <view class="nav-ico" @tap="toggleSearch"><svg class="ni" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg></view>
-          <view class="nav-ico" @tap="toast('筛选')"><svg class="ni" viewBox="0 0 24 24"><path d="M3 5h18M6 12h12M10 19h4"/></svg></view>
         </view>
       </template>
     </nav-bar>
