@@ -227,6 +227,8 @@ import { domToPng } from '../components/domToPng.js'
 // 缩放参数（参考 mindmapViewer）
 const MIN_SCALE = 0.4
 const MAX_SCALE = 2.5
+const CANVAS_TOP_BUFFER_RPX = 96
+const CANVAS_BOTTOM_BUFFER_RPX = 360
 
 // 架构数据（默认匹配截图）
 const architectureData = ref(JSON.parse(JSON.stringify(DEFAULT_ARCHITECTURE_DATA)))
@@ -307,10 +309,19 @@ function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value))
 }
 
+function rpxToPx(value) {
+  const sys = uni.getSystemInfoSync()
+  return value * ((sys.windowWidth || 750) / 750)
+}
+
+const canvasTopBuffer = computed(() => rpxToPx(CANVAS_TOP_BUFFER_RPX))
+const canvasBottomBuffer = computed(() => rpxToPx(CANVAS_BOTTOM_BUFFER_RPX))
+
 // stage 缩放样式
 const stageStyle = computed(() => ({
   width: `${stageSize.value.width}px`,
   height: `${stageSize.value.height}px`,
+  top: `${canvasTopBuffer.value}px`,
   transform: `scale(${scale.value})`,
   transformOrigin: '0 0',
 }))
@@ -318,7 +329,7 @@ const stageStyle = computed(() => ({
 // canvas-content 尺寸 = stage × scale（决定 scroll-view 可滚动范围）
 const contentStyle = computed(() => ({
   width: `${Math.max(1, stageSize.value.width * scale.value)}px`,
-  height: `${Math.max(1, stageSize.value.height * scale.value)}px`,
+  height: `${Math.max(1, stageSize.value.height * scale.value + canvasTopBuffer.value + canvasBottomBuffer.value)}px`,
 }))
 
 // scroll-view 滚动同步
@@ -472,7 +483,7 @@ function centerStage() {
   const stageW = stageSize.value.width * scale.value
   const stageH = stageSize.value.height * scale.value
   scrollLeft.value = Math.max(0, Math.round((stageW - width) / 2))
-  scrollTop.value = Math.max(0, Math.round((stageH - height) / 2))
+  scrollTop.value = Math.max(0, Math.round(canvasTopBuffer.value + (stageH - height) / 2))
 }
 
 // 测量画布与 stage 尺寸
