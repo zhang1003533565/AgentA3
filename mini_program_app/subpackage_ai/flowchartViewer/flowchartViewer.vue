@@ -186,8 +186,8 @@ const positionedEdges = computed(() => {
   return (laidFlow.value.edges || []).map(edge => ({
     ...edge,
     labelStyle: {
-      left: `${(edge.x1 + edge.x2) / 2}px`,
-      top: `${(edge.y1 + edge.y2) / 2 - 20}px`
+      left: `${edge.labelX ?? (edge.x1 + edge.x2) / 2}px`,
+      top: `${edge.labelY ?? (edge.y1 + edge.y2) / 2}px`
     }
   }))
 })
@@ -488,7 +488,7 @@ onMounted(() => {
 .edge-path { stroke: #91a6ba; stroke-width: 2; fill: none; }
 .edge-path--branch { stroke: #5d8ff4; }
 .edge-path--back { stroke-dasharray: 6 6; }
-.edge-label { position: absolute; z-index: 3; padding: 2px 6px; border-radius: 6px; background: #f7f9fb; color: #a36a14; font-size: 12px; transform: translateX(-50%); }
+.edge-label { position: absolute; z-index: 3; padding: 2px 6px; border-radius: 6px; background: #f7f9fb; color: #a36a14; font-size: 12px; transform: translate(-50%, -50%); }
 .flow-node { position: absolute; z-index: 2; display: flex; align-items: center; justify-content: center; flex-direction: column; padding: 8px 12px; border: 2px solid #5081b8; border-radius: 10px; background: #fff; box-sizing: border-box; color: #1e344f; text-align: center; }
 .flow-node--start, .flow-node--end { border-radius: 999px; border-color: #4b9d76; background: #eefaf3; }
 .flow-node--process, .flow-node--action { border-color: #5081b8; background: #fff; }

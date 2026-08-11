@@ -236,7 +236,10 @@ function laneBox(lane) {
   }
 }
 function labelPos(edge) {
-  return { left: (edge.x1 + edge.x2) / 2 + 'px', top: ((edge.y1 + edge.y2) / 2 - 14) + 'px' }
+  return {
+    left: (edge.labelX ?? (edge.x1 + edge.x2) / 2) + 'px',
+    top: (edge.labelY ?? (edge.y1 + edge.y2) / 2) + 'px'
+  }
 }
 function isTerminal(node) { return nodeType(node) === 'start' || nodeType(node) === 'end' }
 function nodeType(node) { return node.type || 'process' }

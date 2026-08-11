@@ -10,6 +10,8 @@ const TOP = 48
 const LANE_H = 150
 const LANE_LEFT = 28
 const LANE_W = 230
+const BRANCH_EXIT = 38
+const BRANCH_LABEL_GAP = 24
 
 export function computeLevels(nodes, edges) {
   const idSet = new Set(nodes.map(n => String(n.id)))
@@ -119,29 +121,7 @@ function layoutPlainFlowVertical(nodes, edges) {
     const s = nodeMap.get(String(edge.source))
     const t = nodeMap.get(String(edge.target))
     if (!s || !t) return null
-    const isBack = back.has(index)
-    let x1, y1, x2, y2, path
-    if (isBack) {
-      x1 = s.cx + FLOW_NODE_W / 2
-      y1 = s.cy
-      x2 = t.cx + FLOW_NODE_W / 2
-      y2 = t.cy
-      path = `M ${x1} ${y1} C ${x1 + 80} ${y1 - 20}, ${x2 + 80} ${y2 + 20}, ${x2} ${y2}`
-    } else {
-      x1 = s.cx
-      y1 = s.cy + FLOW_NODE_H / 2
-      x2 = t.cx
-      y2 = t.cy - FLOW_NODE_H / 2
-      const my = (y1 + y2) / 2
-      path = `M ${x1} ${y1} C ${x1} ${my}, ${x2} ${my}, ${x2} ${y2}`
-    }
-    return {
-      ...edge,
-      key: `${edge.source}-${edge.target}-${index}`,
-      kind: isBack ? 'back' : 'v',
-      x1, y1, x2, y2, path,
-      label: edge.label || edge.condition || ''
-    }
+    return layoutVerticalEdge(edge, index, s, t, back.has(index), `${edge.source}-${edge.target}-${index}`)
   }).filter(Boolean)
 
   return { nodes: laidNodes, edges: laidEdges, lanes: [], canvasW, canvasH, direction: 'VERTICAL' }
@@ -189,30 +169,7 @@ function layoutPlainFlowHorizontal(nodes, edges) {
     const s = nodeMap.get(String(edge.source))
     const t = nodeMap.get(String(edge.target))
     if (!s || !t) return null
-    const isBack = back.has(index)
-    let x1, y1, x2, y2, path
-    if (isBack) {
-      x1 = s.cx
-      y1 = s.cy - FLOW_NODE_H / 2
-      x2 = t.cx
-      y2 = t.cy - FLOW_NODE_H / 2
-      const arcY = Math.min(y1, y2) - 70
-      path = `M ${x1} ${y1} C ${x1} ${arcY}, ${x2} ${arcY}, ${x2} ${y2}`
-    } else {
-      x1 = s.cx + FLOW_NODE_W / 2
-      y1 = s.cy
-      x2 = t.cx - FLOW_NODE_W / 2
-      y2 = t.cy
-      const mx = (x1 + x2) / 2
-      path = `M ${x1} ${y1} C ${mx} ${y1}, ${mx} ${y2}, ${x2} ${y2}`
-    }
-    return {
-      ...edge,
-      key: `${edge.source}-${edge.target}-${index}`,
-      kind: isBack ? 'back' : (edge.type === 'branch' ? 'branch' : 'h'),
-      x1, y1, x2, y2, path,
-      label: edge.label || edge.condition || ''
-    }
+    return layoutHorizontalEdge(edge, index, s, t, back.has(index), `${edge.source}-${edge.target}-${index}`)
   }).filter(Boolean)
 
   return { nodes: laidNodes, edges: laidEdges, lanes: [], canvasW, canvasH, direction: 'HORIZONTAL' }
@@ -263,29 +220,7 @@ function layoutSwimlaneFlowHorizontal(nodes, edges, lanes) {
     const s = nodeMap.get(String(edge.source))
     const t = nodeMap.get(String(edge.target))
     if (!s || !t) return null
-    const isBack = back.has(index)
-    let x1, y1, x2, y2, path
-    if (isBack) {
-      x1 = s.cx - FLOW_NODE_W / 2
-      y1 = s.cy
-      x2 = t.cx - FLOW_NODE_W / 2
-      y2 = t.cy
-      path = `M ${x1} ${y1} C ${x1 - 70} ${y1 - 10}, ${x2 - 70} ${y2 + 10}, ${x2} ${y2}`
-    } else {
-      x1 = s.cx + FLOW_NODE_W / 2
-      y1 = s.cy
-      x2 = t.cx - FLOW_NODE_W / 2
-      y2 = t.cy
-      const mx = (x1 + x2) / 2
-      path = `M ${x1} ${y1} C ${mx} ${y1}, ${mx} ${y2}, ${x2} ${y2}`
-    }
-    return {
-      ...edge,
-      key: edge.id || `${edge.source}-${edge.target}-${index}`,
-      kind: isBack ? 'back' : (edge.type === 'branch' ? 'branch' : 'h'),
-      x1, y1, x2, y2, path,
-      label: edge.label || edge.condition || ''
-    }
+    return layoutHorizontalEdge(edge, index, s, t, back.has(index), edge.id || `${edge.source}-${edge.target}-${index}`)
   }).filter(Boolean)
 
   return { nodes: laidNodes, edges: laidEdges, lanes: laneBands, canvasW, canvasH, direction: 'HORIZONTAL' }
@@ -339,32 +274,132 @@ function layoutSwimlaneFlowVertical(nodes, edges, lanes) {
     const s = nodeMap.get(String(edge.source))
     const t = nodeMap.get(String(edge.target))
     if (!s || !t) return null
-    const isBack = back.has(index)
-    let x1, y1, x2, y2, path
-    if (isBack) {
-      x1 = s.cx + FLOW_NODE_W / 2
-      y1 = s.cy
-      x2 = t.cx + FLOW_NODE_W / 2
-      y2 = t.cy
-      path = `M ${x1} ${y1} C ${x1 + 80} ${y1 - 20}, ${x2 + 80} ${y2 + 20}, ${x2} ${y2}`
-    } else {
-      x1 = s.cx
-      y1 = s.cy + FLOW_NODE_H / 2
-      x2 = t.cx
-      y2 = t.cy - FLOW_NODE_H / 2
-      const my = (y1 + y2) / 2
-      path = `M ${x1} ${y1} C ${x1} ${my}, ${x2} ${my}, ${x2} ${y2}`
-    }
-    return {
-      ...edge,
-      key: edge.id || `${edge.source}-${edge.target}-${index}`,
-      kind: isBack ? 'back' : (edge.type === 'branch' ? 'branch' : 'v'),
-      x1, y1, x2, y2, path,
-      label: edge.label || edge.condition || ''
-    }
+    return layoutVerticalEdge(edge, index, s, t, back.has(index), edge.id || `${edge.source}-${edge.target}-${index}`)
   }).filter(Boolean)
 
   return { nodes: laidNodes, edges: laidEdges, lanes: laneBands, canvasW, canvasH, direction: 'VERTICAL' }
+}
+
+function layoutVerticalEdge(edge, index, s, t, isBack, key) {
+  const branch = isBranchEdge(edge)
+  const fromDecision = isDecisionNode(s)
+  const dx = t.cx - s.cx
+  let x1, y1, x2, y2, path, kind
+
+  if (isBack) {
+    x1 = s.cx + FLOW_NODE_W / 2
+    y1 = s.cy
+    x2 = t.cx + FLOW_NODE_W / 2
+    y2 = t.cy
+    path = `M ${x1} ${y1} C ${x1 + 80} ${y1 - 20}, ${x2 + 80} ${y2 + 20}, ${x2} ${y2}`
+    kind = 'back'
+  } else if (branch && fromDecision && Math.abs(dx) > BRANCH_EXIT) {
+    const side = Math.sign(dx)
+    x1 = s.cx + side * BRANCH_EXIT
+    y1 = s.cy + FLOW_NODE_H * 0.18
+    x2 = t.cx
+    y2 = t.cy - FLOW_NODE_H / 2
+    const bendY = s.cy + Math.min(72, Math.max(42, (t.cy - s.cy) * 0.42))
+    path = `M ${x1} ${y1} C ${x1} ${bendY}, ${x2} ${bendY}, ${x2} ${y2}`
+    kind = 'branch'
+  } else {
+    x1 = s.cx
+    y1 = s.cy + FLOW_NODE_H / 2
+    x2 = t.cx
+    y2 = t.cy - FLOW_NODE_H / 2
+    const my = (y1 + y2) / 2
+    path = `M ${x1} ${y1} C ${x1} ${my}, ${x2} ${my}, ${x2} ${y2}`
+    kind = branch ? 'branch' : 'v'
+  }
+
+  return withEdgeLabel({
+    ...edge,
+    key,
+    kind,
+    x1, y1, x2, y2, path
+  }, s, t, 'VERTICAL')
+}
+
+function layoutHorizontalEdge(edge, index, s, t, isBack, key) {
+  const branch = isBranchEdge(edge)
+  const fromDecision = isDecisionNode(s)
+  const dy = t.cy - s.cy
+  let x1, y1, x2, y2, path, kind
+
+  if (isBack) {
+    x1 = s.cx
+    y1 = s.cy - FLOW_NODE_H / 2
+    x2 = t.cx
+    y2 = t.cy - FLOW_NODE_H / 2
+    const arcY = Math.min(y1, y2) - 70
+    path = `M ${x1} ${y1} C ${x1} ${arcY}, ${x2} ${arcY}, ${x2} ${y2}`
+    kind = 'back'
+  } else if (branch && fromDecision && Math.abs(dy) > BRANCH_EXIT) {
+    const side = Math.sign(dy)
+    x1 = s.cx + FLOW_NODE_W * 0.22
+    y1 = s.cy + side * BRANCH_EXIT
+    x2 = t.cx - FLOW_NODE_W / 2
+    y2 = t.cy
+    const bendX = s.cx + Math.min(82, Math.max(48, (t.cx - s.cx) * 0.42))
+    path = `M ${x1} ${y1} C ${bendX} ${y1}, ${bendX} ${y2}, ${x2} ${y2}`
+    kind = 'branch'
+  } else {
+    x1 = s.cx + FLOW_NODE_W / 2
+    y1 = s.cy
+    x2 = t.cx - FLOW_NODE_W / 2
+    y2 = t.cy
+    const mx = (x1 + x2) / 2
+    path = `M ${x1} ${y1} C ${mx} ${y1}, ${mx} ${y2}, ${x2} ${y2}`
+    kind = branch ? 'branch' : 'h'
+  }
+
+  return withEdgeLabel({
+    ...edge,
+    key,
+    kind,
+    x1, y1, x2, y2, path
+  }, s, t, 'HORIZONTAL')
+}
+
+function withEdgeLabel(edge, s, t, direction) {
+  const label = edge.label || edge.condition || ''
+  if (!label) return { ...edge, label: '' }
+
+  const branch = isBranchEdge(edge)
+  let labelX = (edge.x1 + edge.x2) / 2
+  let labelY = (edge.y1 + edge.y2) / 2
+
+  if (branch && isDecisionNode(s)) {
+    if (direction === 'VERTICAL') {
+      const dx = t.cx - s.cx
+      if (Math.abs(dx) > BRANCH_EXIT) {
+        labelX = s.cx + Math.sign(dx) * (BRANCH_EXIT + BRANCH_LABEL_GAP)
+        labelY = s.cy + FLOW_NODE_H * 0.42
+      } else {
+        labelX = s.cx
+        labelY = s.cy + FLOW_NODE_H / 2 + BRANCH_LABEL_GAP
+      }
+    } else {
+      const dy = t.cy - s.cy
+      if (Math.abs(dy) > BRANCH_EXIT) {
+        labelX = s.cx + FLOW_NODE_W * 0.36
+        labelY = s.cy + Math.sign(dy) * (BRANCH_EXIT + BRANCH_LABEL_GAP)
+      } else {
+        labelX = s.cx + FLOW_NODE_W / 2 + BRANCH_LABEL_GAP
+        labelY = s.cy
+      }
+    }
+  }
+
+  return { ...edge, label, labelX, labelY }
+}
+
+function isBranchEdge(edge = {}) {
+  return String(edge.type || '').toLowerCase() === 'branch' || Boolean(edge.label || edge.condition)
+}
+
+function isDecisionNode(node = {}) {
+  return String(node.type || '').toLowerCase() === 'decision'
 }
 
 // 墨实顺序：按 level 升序，每个节点先画其引导边再落节点；剩余边（分支/回流）最后画。

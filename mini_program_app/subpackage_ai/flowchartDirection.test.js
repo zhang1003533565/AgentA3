@@ -42,6 +42,34 @@ test('flowchart layout changes coordinates for vertical and horizontal direction
   assert.equal(horizontal.edges[0].kind, 'h')
 })
 
+test('flowchart decision branch labels stay near decision exits and outside target nodes', async () => {
+  const { layoutFlowchart, FLOW_NODE_H } = await loadLayoutModule()
+  const chart = {
+    resolvedLayoutDirection: 'VERTICAL',
+    nodes: [
+      { id: 'check', name: '验证码校验', type: 'decision' },
+      { id: 'ok', name: '验证验证码', type: 'process' },
+      { id: 'fail', name: '返回错误', type: 'end' }
+    ],
+    edges: [
+      { source: 'check', target: 'ok', label: '是', type: 'branch' },
+      { source: 'check', target: 'fail', label: '否', type: 'branch' }
+    ]
+  }
+
+  const laid = layoutFlowchart(chart)
+  const decision = laid.nodes.find(node => node.id === 'check')
+  const fail = laid.nodes.find(node => node.id === 'fail')
+  const noEdge = laid.edges.find(edge => edge.label === '否')
+  const yesEdge = laid.edges.find(edge => edge.label === '是')
+
+  assert.equal(noEdge.kind, 'branch')
+  assert.ok(Math.abs(noEdge.labelX - decision.cx) > 40)
+  assert.ok(noEdge.labelY < fail.cy - FLOW_NODE_H / 2)
+  assert.ok(yesEdge.labelY < fail.cy - FLOW_NODE_H / 2)
+  assert.match(noEdge.path, / C /)
+})
+
 test('flowchart direction is wired through generation page, API, animation, and viewer', () => {
   const generatePage = readFileSync(join(__dirname, 'flowchartGenerate/flowchartGenerate.vue'), 'utf8')
   const api = readFileSync(join(__dirname, '../api/aiDiagram.js'), 'utf8')
