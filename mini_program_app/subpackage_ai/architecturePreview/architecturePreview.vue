@@ -8,13 +8,7 @@
       :fixed="true"
       :placeholder="true"
       titleAlign="center"
-    >
-      <template #right>
-        <view class="nav-history-action" @tap="share">
-          <text class="nav-share-text">分享</text>
-        </view>
-      </template>
-    </nav-bar>
+    />
 
     <view class="canvas-wrapper" :class="{ 'canvas-wrapper--dragging': isDragging }">
       <scroll-view
@@ -707,27 +701,6 @@ loadArchitecture()
   flex-direction: column;
   background: #FAFBFC;
   color: #1C2E48;
-}
-
-.nav-history-action {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 64rpx;
-  height: 64rpx;
-  border-radius: 999rpx;
-  transition: background-color 0.18s ease, transform 0.12s ease;
-}
-
-.nav-history-action:active {
-  background: rgba(15, 23, 42, 0.06);
-  transform: scale(0.96);
-}
-
-.nav-share-text {
-  font-size: 26rpx;
-  color: #1D1D1F;
-  font-weight: 600;
 }
 
 /* ===== 画布区域（可缩放/可滚动/可拖动） ===== */
