@@ -75,7 +75,7 @@
           <svg v-else-if="sheet.type==='flow'" viewBox="0 0 118 88"><g stroke="#10B981" fill="none" stroke-width="1"><path d="M59 16v10M59 40v10M40 62h38"/></g><rect x="47" y="8" width="24" height="9" rx="4" fill="#10B981"/><rect x="47" y="27" width="24" height="12" rx="2" fill="#fff" stroke="#10B981"/><rect x="47" y="50" width="24" height="12" rx="2" fill="#fff" stroke="#10B981"/><rect x="24" y="66" width="22" height="10" rx="2" fill="#fff" stroke="#10B981"/><rect x="72" y="66" width="22" height="10" rx="2" fill="#fff" stroke="#10B981"/></svg>
           <svg v-else viewBox="0 0 118 88"><g fill="#fff" stroke="#8B5CF6"><rect x="20" y="8" width="78" height="12" rx="2"/><rect x="26" y="28" width="30" height="12" rx="2"/><rect x="62" y="28" width="30" height="12" rx="2"/><rect x="26" y="48" width="30" height="12" rx="2"/><rect x="62" y="48" width="30" height="12" rx="2"/><rect x="20" y="68" width="78" height="12" rx="2" fill="#ECFDF5" stroke="#10B981"/></g></svg>
         </view>
-        <text class="sheet-desc">{{ sheet.desc }}</text>
+        <text class="sheet-desc">{{ sheet.fullDesc || sheet.desc }}</text>
         <view class="sheet-actions">
           <view class="sa" @tap="preview"><view class="sa-ico"><svg viewBox="0 0 24 24"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg></view><text>预览</text></view>
           <view class="sa" @tap="toast('分享')"><view class="sa-ico"><svg viewBox="0 0 24 24"><circle cx="6" cy="12" r="2.5"/><circle cx="17" cy="6" r="2.5"/><circle cx="17" cy="18" r="2.5"/><path d="M8 11l7-4M8 13l7 4"/></svg></view><text>分享</text></view>
@@ -118,6 +118,7 @@ const keyword = ref('')
 const searchOn = ref(false)
 const sheet = ref(null)
 const all = ref({ mindmap: [], flow: [], arch: [] })
+const CARD_DESC_LIMIT = 34
 
 function fmt(t) {
   if (!t) return ''
@@ -148,11 +149,49 @@ function archDesc(record = {}) {
   const relation = record.resolvedRelationMode || record.requestedRelationMode || record.relationMode || record.relationType
   return `${systemTypeLabel(record.systemType)} · ${relationLabel(relation)}`
 }
+
+function firstText(...values) {
+  return values.find(value => String(value || '').trim()) || ''
+}
+
+function compactText(value = '') {
+  return String(value || '')
+    .replace(/\r\n/g, '\n')
+    .split('\n')
+    .map(part => part.trim())
+    .filter(Boolean)
+    .join(' ')
+}
+
+function truncateText(value = '', limit = CARD_DESC_LIMIT) {
+  const text = compactText(value)
+  if (!text) return ''
+  return text.length > limit ? `${text.slice(0, limit)}...` : text
+}
+
+function fullDesc(record = {}, type) {
+  if (type === 'arch') return archDesc(record)
+  const summary = String(record.summary || record.fileSummary || '').trim()
+  const description = String(record.description || record.preview || record.subtitle || '').trim()
+  if (summary && description && !description.includes(summary)) {
+    return `${description}\n\nAI 总结：${summary}`
+  }
+  return firstText(description, summary, typeMeta[type].label)
+}
+
+function cardDesc(record = {}, type) {
+  if (type === 'arch') return archDesc(record)
+  const raw = fullDesc(record, type)
+  const [beforeFileContent, fileContent = ''] = String(raw).split(/文件解析内容[:：]/)
+  return truncateText(firstText(beforeFileContent, fileContent, raw, typeMeta[type].label))
+}
+
 function norm(list, type) {
   return (list || []).map(r => ({
     id: r.id, type,
     title: r.title || '未命名',
-    desc: type === 'arch' ? archDesc(r) : (r.description || r.preview || r.subtitle || typeMeta[type].label),
+    desc: cardDesc(r, type),
+    fullDesc: fullDesc(r, type),
     time: fmt(r.createTime || r.updateTime || r.createdAt)
   }))
 }
@@ -166,7 +205,7 @@ async function load() {
 const list = computed(() => {
   const base = all.value[tab.value] || []
   if (!keyword.value.trim()) return base
-  return base.filter(i => i.title.includes(keyword.value.trim()))
+  return base.filter(i => i.title.includes(keyword.value.trim()) || String(i.fullDesc || '').includes(keyword.value.trim()))
 })
 
 function setTab(t) { tab.value = t }
@@ -214,14 +253,14 @@ onShow(() => { load() })
 .sort { color: #888; }
 
 .list { flex: 1; height: 0; padding: 8rpx 0 24rpx; }
-.card { background: #fff; border-radius: 32rpx; padding: 28rpx; display: flex; gap: 24rpx; margin: 0 32rpx 24rpx; box-sizing: border-box; position: relative; box-shadow: 0 4rpx 16rpx rgba(0,0,0,.03); }
+.card { height: 232rpx; background: #fff; border-radius: 32rpx; padding: 28rpx; display: flex; align-items: center; gap: 24rpx; margin: 0 32rpx 24rpx; box-sizing: border-box; position: relative; overflow: hidden; box-shadow: 0 4rpx 16rpx rgba(0,0,0,.03); }
 .thumb { width: 236rpx; height: 176rpx; border-radius: 20rpx; background: #FAFAFD; border: 2rpx solid #F0F0F4; position: relative; overflow: hidden; flex-shrink: 0; display: flex; align-items: center; justify-content: center; }
 .thumb svg { width: 100%; height: 100%; }
 .type-badge { position: absolute; left: 12rpx; top: 12rpx; width: 52rpx; height: 52rpx; border-radius: 16rpx; display: flex; align-items: center; justify-content: center; }
 .type-badge svg { width: 28rpx; height: 28rpx; }
-.card-main { flex: 1; min-width: 0; display: flex; flex-direction: column; justify-content: center; gap: 12rpx; }
-.card-title { font-size: 30rpx; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.card-desc { font-size: 24rpx; color: #8a8fa3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.card-main { flex: 1; min-width: 0; height: 176rpx; display: flex; flex-direction: column; justify-content: center; gap: 12rpx; overflow: hidden; }
+.card-title { display: block; width: 100%; font-size: 30rpx; font-weight: 700; line-height: 38rpx; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.card-desc { display: block; width: 100%; max-width: 100%; font-size: 24rpx; line-height: 32rpx; color: #8a8fa3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .card-time { display: flex; align-items: center; gap: 10rpx; font-size: 24rpx; color: #a3a7b8; }
 .card-time svg { width: 26rpx; height: 26rpx; stroke: #a3a7b8; fill: none; stroke-width: 2; }
 .card-more { position: absolute; right: 24rpx; top: 28rpx; color: #333; font-size: 32rpx; }
@@ -239,7 +278,7 @@ onShow(() => { load() })
 .sheet-sub { font-size: 24rpx; color: #8a8fa3; margin: 12rpx 0 24rpx 100rpx; display: block; }
 .sheet-preview { background: #FAFAFD; border: 2rpx solid #F0F0F4; border-radius: 28rpx; height: 400rpx; display: flex; align-items: center; justify-content: center; overflow: hidden; }
 .sheet-preview svg { width: 90%; height: 90%; }
-.sheet-desc { font-size: 26rpx; color: #555; margin: 24rpx 4rpx; display: block; }
+.sheet-desc { font-size: 26rpx; line-height: 1.6; color: #555; margin: 24rpx 4rpx; display: block; white-space: pre-wrap; word-break: break-word; }
 .sheet-actions { display: flex; justify-content: space-between; padding: 12rpx 8rpx 28rpx; }
 .sa { display: flex; flex-direction: column; align-items: center; gap: 12rpx; font-size: 24rpx; color: #333; }
 .sa-ico { width: 80rpx; height: 80rpx; border-radius: 50%; background: #F5F6FA; display: flex; align-items: center; justify-content: center; }
