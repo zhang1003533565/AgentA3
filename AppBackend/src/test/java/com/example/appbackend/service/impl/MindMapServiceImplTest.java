@@ -5,6 +5,7 @@ import com.example.appbackend.entity.MindMapRecord;
 import com.example.appbackend.repository.MindMapRecordRepository;
 import com.example.appbackend.repository.SystemConfigRepository;
 import com.example.appbackend.service.FileParseService;
+import com.example.appbackend.service.FileSummaryService;
 import com.example.appbackend.service.SystemConfigService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Assertions;
@@ -41,6 +42,7 @@ class MindMapServiceImplTest {
         MindMapServiceImpl service = new MindMapServiceImpl(
                 aiService,
                 fileParseService,
+                mock(FileSummaryService.class),
                 recordRepository,
                 objectMapper
         );
@@ -84,7 +86,7 @@ class MindMapServiceImplTest {
         when(aiService.generate(anyString(), anyString(), anyString(), anyString(), anyString(), anyString(), any())).thenReturn(data);
         when(recordRepository.save(any(MindMapRecord.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
-        MindMapServiceImpl service = new MindMapServiceImpl(aiService, fileParseService, recordRepository, objectMapper);
+        MindMapServiceImpl service = new MindMapServiceImpl(aiService, fileParseService, mock(FileSummaryService.class), recordRepository, objectMapper);
 
         MindMapDTO.GenerateRequest request = new MindMapDTO.GenerateRequest();
         request.setTopic("请重点整理实验实践部分");

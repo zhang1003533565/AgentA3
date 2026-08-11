@@ -4,6 +4,7 @@ import com.example.appbackend.dto.FlowchartDTO;
 import com.example.appbackend.entity.FlowchartRecord;
 import com.example.appbackend.repository.FlowchartRecordRepository;
 import com.example.appbackend.service.FileParseService;
+import com.example.appbackend.service.FileSummaryService;
 import com.example.appbackend.service.FlowchartAIService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Assertions;
@@ -27,6 +28,7 @@ class FlowchartServiceImplTest {
         FlowchartServiceImpl service = new FlowchartServiceImpl(
                 aiService,
                 mock(FileParseService.class),
+                mock(FileSummaryService.class),
                 recordRepository,
                 objectMapper
         );
@@ -70,6 +72,7 @@ class FlowchartServiceImplTest {
         FlowchartServiceImpl service = new FlowchartServiceImpl(
                 aiService,
                 mock(FileParseService.class),
+                mock(FileSummaryService.class),
                 recordRepository,
                 new ObjectMapper()
         );
@@ -97,6 +100,7 @@ class FlowchartServiceImplTest {
         FlowchartServiceImpl service = new FlowchartServiceImpl(
                 mock(FlowchartAIService.class),
                 mock(FileParseService.class),
+                mock(FileSummaryService.class),
                 recordRepository,
                 objectMapper
         );
