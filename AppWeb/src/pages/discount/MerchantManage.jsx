@@ -16,8 +16,10 @@ import {
   message,
 } from 'antd'
 import {
+  CheckCircleOutlined,
   DeleteOutlined,
   EditOutlined,
+  PauseCircleOutlined,
   PhoneOutlined,
   PlusOutlined,
   SearchOutlined,
@@ -184,10 +186,10 @@ export default function MerchantManage() {
     {
       title: '操作',
       key: 'action',
-      width: 200,
+      width: 280,
       fixed: 'right',
       render: (_, record) => (
-        <Space size="small">
+        <div className="action-buttons">
           <Button
             type="text"
             size="small"
@@ -212,7 +214,7 @@ export default function MerchantManage() {
               删除
             </Button>
           </Popconfirm>
-        </Space>
+        </div>
       ),
     },
   ]
@@ -256,16 +258,25 @@ export default function MerchantManage() {
 
       <div className="discount-stats">
         <button type="button" className="stat-item active">
-          <span className="stat-label">商家总数</span>
-          <span className="stat-number">{total}</span>
+          <div className="stat-icon-circle blue"><ShopOutlined /></div>
+          <div className="stat-text-group">
+            <span className="stat-number">{total}</span>
+            <span className="stat-label">商家总数</span>
+          </div>
         </button>
         <button type="button" className="stat-item">
-          <span className="stat-label">营业中</span>
-          <span className="stat-number">{openCount}</span>
+          <div className="stat-icon-circle green"><CheckCircleOutlined /></div>
+          <div className="stat-text-group">
+            <span className="stat-number">{openCount}</span>
+            <span className="stat-label">营业中</span>
+          </div>
         </button>
         <button type="button" className="stat-item">
-          <span className="stat-label">休息中</span>
-          <span className="stat-number">{closedCount}</span>
+          <div className="stat-icon-circle amber"><PauseCircleOutlined /></div>
+          <div className="stat-text-group">
+            <span className="stat-number">{closedCount}</span>
+            <span className="stat-label">休息中</span>
+          </div>
         </button>
       </div>
 
@@ -275,7 +286,7 @@ export default function MerchantManage() {
             columns={columns}
             dataSource={data}
             rowKey="id"
-            scroll={{ x: 900 }}
+            scroll={{ x: 1100 }}
             locale={{ emptyText: <Empty description="暂无商家数据" /> }}
             pagination={{
               current: pagination.current,

@@ -21,11 +21,21 @@ public interface DiscountActivityRepository extends JpaRepository<DiscountActivi
            "WHERE (da.remainCount IS NULL OR da.remainCount > 0) " +
            "AND (:merchantId IS NULL OR da.merchantId = :merchantId) " +
            "AND (:categoryId IS NULL OR m.categoryId = :categoryId) " +
-           "AND (:keyword IS NULL OR da.title LIKE CONCAT('%', :keyword, '%'))")
+           "AND (:keyword IS NULL OR m.merchantName LIKE CONCAT('%', :keyword, '%')) " +
+           "AND (:status IS NULL OR da.status = :status)")
     Page<DiscountActivity> findPublicList(@Param("merchantId") Long merchantId,
                                           @Param("categoryId") Long categoryId,
                                           @Param("keyword") String keyword,
+                                          @Param("status") Integer status,
                                           Pageable pageable);
+
+    @Modifying
+    @Query("UPDATE DiscountActivity da SET da.status = 3 WHERE da.endTime < :now AND da.status != 3")
+    int expireActivities(@Param("now") LocalDateTime now);
+
+    @Modifying
+    @Query("UPDATE DiscountActivity da SET da.status = 0 WHERE da.startTime > :now AND da.status NOT IN (0, 2, 3)")
+    int markPendingActivities(@Param("now") LocalDateTime now);
 
     @Query("SELECT COUNT(da) FROM DiscountActivity da WHERE da.remainCount IS NULL OR da.remainCount > 0")
     long countActive();
