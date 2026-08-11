@@ -144,6 +144,7 @@ const ROOT_GAP = 72
 const SIBLING_GAP = 24
 const SIDE_GAP = 48
 const STAGE_PADDING = 96
+const RESULT_BAR_RESERVE_RPX = 200
 const MIN_SCALE = 0.15
 const MAX_SCALE = 2.2
 
@@ -179,21 +180,28 @@ const currentMindMapData = ref({})
 const treeData = computed(() => toTreeData(mindmap))
 const layout = computed(() => buildMindMapLayout(treeData.value, collapsed))
 
-const stageStyle = computed(() => ({
-  width: `${layout.value.width}px`,
-  height: `${layout.value.height}px`,
-  left: `${Math.max(0, (canvasSize.width - layout.value.width * scale.value) / 2)}px`,
-  top: `${Math.max(0, (canvasSize.height - layout.value.height * scale.value) / 2)}px`,
-  // scroll-view 模式下，stage 在内容小于视口时居中，大内容仍由滚动条定位
-  transform: `scale(${scale.value})`,
-  transformOrigin: '0 0'
-}))
+const stageStyle = computed(() => {
+  const offset = getDisplayStageOffset()
+  return {
+    width: `${layout.value.width}px`,
+    height: `${layout.value.height}px`,
+    left: `${offset.left}px`,
+    top: `${offset.top}px`,
+    // scroll-view 模式下，stage 在首屏可视区内居中，大内容仍由滚动条定位
+    transform: `scale(${scale.value})`,
+    transformOrigin: '0 0'
+  }
+})
 
 // canvas-content 是 scroll-view 的可滚动内容，尺寸为缩放后的布局大小
-const contentStyle = computed(() => ({
-  width: `${Math.max(layout.value.width * scale.value, canvasSize.width)}px`,
-  height: `${Math.max(layout.value.height * scale.value, canvasSize.height)}px`,
-}))
+const contentStyle = computed(() => {
+  const viewport = getDisplayViewportSize()
+  const offset = getDisplayStageOffset(viewport)
+  return {
+    width: `${Math.max(layout.value.width * scale.value + offset.left, viewport.width)}px`,
+    height: `${Math.max(layout.value.height * scale.value + offset.top, viewport.height)}px`,
+  }
+})
 
 function readPageOptions() {
   const pages = getCurrentPages()
@@ -269,16 +277,18 @@ function resetView(fit = true) {
 
 function centerRoot() {
   if (!layout.value.root) { scrollLeft.value = 0; scrollTop.value = 0; return }
-  const width = canvasSize.width || uni.getSystemInfoSync().windowWidth
-  const height = canvasSize.height || Math.max(360, uni.getSystemInfoSync().windowHeight - 120)
-  // scroll-view 滚动模式下：默认把整张思维导图内容盒放到视口中心
-  scrollLeft.value = Math.max(0, Math.round(layout.value.width * scale.value / 2 - width / 2))
-  scrollTop.value = Math.max(0, Math.round(layout.value.height * scale.value / 2 - height / 2))
+  const viewport = getDisplayViewportSize()
+  const bounds = getVisibleNodeBounds()
+  const offset = getDisplayStageOffset(viewport, bounds)
+  const centerX = offset.left + (bounds.minX + bounds.maxX) * scale.value / 2
+  const centerY = offset.top + (bounds.minY + bounds.maxY) * scale.value / 2
+  // scroll-view 滚动模式下：默认把导图节点的可见边界居中到手机首屏，而不是居中到整张滚动画布
+  scrollLeft.value = Math.max(0, Math.round(centerX - viewport.width / 2))
+  scrollTop.value = Math.max(0, Math.round(centerY - viewport.height / 2))
 }
 
 function getFitScale() {
-  const width = canvasSize.width || uni.getSystemInfoSync().windowWidth
-  const height = canvasSize.height || Math.max(360, uni.getSystemInfoSync().windowHeight - 120)
+  const { width, height } = getDisplayViewportSize()
   const mapWidth = Math.max(layout.value.width, 1)
   const mapHeight = Math.max(layout.value.height, 1)
   // 方案C：分母加 STAGE_PADDING * 2 作为安全边距，确保整个布局（含 padding）能完整显示
@@ -291,6 +301,43 @@ function getFitScale() {
   // 关键修复：fit 不能再被 MIN_SCALE 卡住，否则大布局必然溢出
   // 单独用 0.05 作为兜底（再小线条完全不可见，没意义）
   return Math.max(0.05, Number(fit.toFixed(2)))
+}
+
+function getDisplayViewportSize() {
+  const info = uni.getSystemInfoSync()
+  const width = canvasSize.width || info.windowWidth || 375
+  const visibleHeight = Math.max(360, (info.windowHeight || 667) - (canvasSize.top || 0))
+  const measuredHeight = canvasSize.height ? Math.min(canvasSize.height, visibleHeight) : visibleHeight
+  const bottomReserve = RESULT_BAR_RESERVE_RPX * width / 750
+  return {
+    width,
+    height: Math.max(260, measuredHeight - bottomReserve)
+  }
+}
+
+function getVisibleNodeBounds() {
+  const nodes = layout.value.nodes || []
+  if (!nodes.length) {
+    return { minX: 0, maxX: layout.value.width, minY: 0, maxY: layout.value.height }
+  }
+  return nodes.reduce((bounds, node) => ({
+    minX: Math.min(bounds.minX, node.x - node.width / 2),
+    maxX: Math.max(bounds.maxX, node.x + node.width / 2),
+    minY: Math.min(bounds.minY, node.y - node.height / 2),
+    maxY: Math.max(bounds.maxY, node.y + node.height / 2)
+  }), {
+    minX: Infinity, maxX: -Infinity,
+    minY: Infinity, maxY: -Infinity
+  })
+}
+
+function getDisplayStageOffset(viewport = getDisplayViewportSize(), bounds = getVisibleNodeBounds()) {
+  const centerX = (bounds.minX + bounds.maxX) * scale.value / 2
+  const centerY = (bounds.minY + bounds.maxY) * scale.value / 2
+  return {
+    left: Math.max(0, Math.round(viewport.width / 2 - centerX)),
+    top: Math.max(0, Math.round(viewport.height / 2 - centerY))
+  }
 }
 
 // scroll-view 滚动事件：把原生滚动位置同步到 ref
