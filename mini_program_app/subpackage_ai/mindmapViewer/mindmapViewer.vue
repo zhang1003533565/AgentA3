@@ -1,6 +1,12 @@
 <template>
   <view class="page">
-    <nav-bar :title="mindmap.title || 'AI 思维导图'" :showBack="true" :border="false" :fixed="true" :placeholder="true" />
+    <nav-bar :title="mindmap.title || 'AI 思维导图'" :showBack="true" :border="false" :fixed="true" :placeholder="true">
+      <template #right>
+        <view class="nav-delete-action" @tap="deleteCurrentMindmap">
+          <image class="nav-delete-icon" src="/static/icons/diagram/trash-2-lucide.svg" mode="aspectFit" />
+        </view>
+      </template>
+    </nav-bar>
 
     <view class="canvas-wrapper">
       <scroll-view
@@ -128,7 +134,7 @@ import NavBar from '@/components/nav-bar/nav-bar.vue'
 import OptimizeMindMapSheet from './OptimizeMindMapSheet.vue'
 import AiResultBar from '../components/AiResultBar.vue'
 import AiThinkWindow from '../components/AiThinkWindow.vue'
-import { getErrorMessage, getMindmapDetail, optimizeMindmap } from '@/api/aiDiagram.js'
+import { deleteMindmapHistory, getErrorMessage, getMindmapDetail, optimizeMindmap } from '@/api/aiDiagram.js'
 // #ifdef H5
 import { domToPng } from '../components/domToPng.js'
 // #endif
@@ -162,6 +168,7 @@ const BRANCH_COLORS = [
 
 const loading = ref(false)
 const resultId = ref('')
+const isDeleting = ref(false)
 const mindmap = reactive({ title: '', nodes: [] })
 const collapsed = reactive({})
 const scale = ref(1)
@@ -223,6 +230,42 @@ async function loadMindmap(id) {
   } finally {
     loading.value = false
   }
+}
+
+function leaveAfterDelete() {
+  const pages = getCurrentPages()
+  if (pages.length > 1) {
+    uni.navigateBack({ delta: 1 })
+    return
+  }
+  uni.redirectTo({ url: '/subpackage_ai/mindmapGenerate/mindmapGenerate' })
+}
+
+function deleteCurrentMindmap() {
+  if (!resultId.value || isDeleting.value) {
+    uni.showToast({ title: '暂无可删除记录', icon: 'none' })
+    return
+  }
+  uni.showModal({
+    title: '删除记录',
+    content: `确定删除“${mindmap.title || 'AI 思维导图'}”吗？删除后不可恢复。`,
+    confirmText: '删除',
+    confirmColor: '#EF4444',
+    success: async (res) => {
+      if (!res.confirm) return
+      isDeleting.value = true
+      try {
+        await deleteMindmapHistory(resultId.value)
+        uni.removeStorageSync(`aiMindmapResult:${resultId.value}`)
+        uni.showToast({ title: '已删除', icon: 'none' })
+        setTimeout(leaveAfterDelete, 220)
+      } catch (error) {
+        uni.showToast({ title: getErrorMessage(error, '删除失败'), icon: 'none' })
+      } finally {
+        isDeleting.value = false
+      }
+    }
+  })
 }
 
 function applyMindmap(result = {}) {
@@ -746,6 +789,24 @@ onUnmounted(() => {
   flex-direction: column;
   background: #FAFBFC;
   color: #1C2E48;
+}
+
+.nav-delete-action {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 64rpx;
+  height: 64rpx;
+  border-radius: 999rpx;
+}
+
+.nav-delete-action:active {
+  background: rgba(15, 23, 42, 0.06);
+}
+
+.nav-delete-icon {
+  width: 34rpx;
+  height: 34rpx;
 }
 
 /* 画布外层：放浮动按钮、加载态文本 */

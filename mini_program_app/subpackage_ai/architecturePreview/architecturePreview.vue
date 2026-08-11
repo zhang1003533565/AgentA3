@@ -8,7 +8,13 @@
       :fixed="true"
       :placeholder="true"
       titleAlign="center"
-    />
+    >
+      <template #right>
+        <view class="nav-delete-action" @tap="deleteCurrentArchitecture">
+          <image class="nav-delete-icon" src="/static/icons/diagram/trash-2-lucide.svg" mode="aspectFit" />
+        </view>
+      </template>
+    </nav-bar>
 
     <view class="canvas-wrapper" :class="{ 'canvas-wrapper--dragging': isDragging }">
       <scroll-view
@@ -231,7 +237,7 @@ import AiResultBar from '../components/AiResultBar.vue'
 import AiThinkWindow from '../components/AiThinkWindow.vue'
 import OptimizeMindMapSheet from '../mindmapViewer/OptimizeMindMapSheet.vue'
 import { DEFAULT_ARCHITECTURE_DATA } from './architectureData.js'
-import { buildArchitecturePayload, generateArchitecture, getArchitectureDetail, normalizeArchitectureResult } from '@/api/architecture.js'
+import { buildArchitecturePayload, deleteArchitectureHistory, generateArchitecture, getArchitectureDetail, normalizeArchitectureResult } from '@/api/architecture.js'
 import { getErrorMessage } from '@/api/aiDiagram.js'
 // #ifdef H5
 import { domToPng } from '../components/domToPng.js'
@@ -259,6 +265,8 @@ const scrollLeft = ref(0)
 const canvasSize = ref({ width: 0, height: 0 })
 const canvasRef = ref(null)
 const stageSize = ref({ width: 0, height: 0 })
+const resultId = ref('')
+const isDeleting = ref(false)
 const autoExportImage = ref(false)
 let autoExportDone = false
 
@@ -540,6 +548,42 @@ function onCardTap(layer, node) {
 
 function share() { uni.showToast({ title: '分享能力预留', icon: 'none' }) }
 
+function leaveAfterDelete() {
+  const pages = getCurrentPages()
+  if (pages.length > 1) {
+    uni.navigateBack({ delta: 1 })
+    return
+  }
+  uni.redirectTo({ url: '/subpackage_ai/architectureGenerate/architectureGenerate' })
+}
+
+function deleteCurrentArchitecture() {
+  if (!resultId.value || isDeleting.value) {
+    uni.showToast({ title: '暂无可删除记录', icon: 'none' })
+    return
+  }
+  uni.showModal({
+    title: '删除记录',
+    content: `确定删除“${architectureData.value.title || 'AI 架构图'}”吗？删除后不可恢复。`,
+    confirmText: '删除',
+    confirmColor: '#EF4444',
+    success: async (res) => {
+      if (!res.confirm) return
+      isDeleting.value = true
+      try {
+        await deleteArchitectureHistory(resultId.value)
+        uni.removeStorageSync(`aiArchitectureResult:${resultId.value}`)
+        uni.showToast({ title: '已删除', icon: 'none' })
+        setTimeout(leaveAfterDelete, 220)
+      } catch (error) {
+        uni.showToast({ title: getErrorMessage(error, '删除失败'), icon: 'none' })
+      } finally {
+        isDeleting.value = false
+      }
+    }
+  })
+}
+
 function collectNodeNames(nodes = [], target = []) {
   nodes.forEach(node => {
     const name = node?.name || node?.label
@@ -709,6 +753,7 @@ async function loadArchitecture() {
     const id = options.recordId
       ? decodeURIComponent(options.recordId)
       : (options.id ? decodeURIComponent(options.id) : '')
+    resultId.value = id
 
     let normalized = null
     if (id) {
@@ -863,6 +908,24 @@ loadArchitecture()
   flex-direction: column;
   background: #FAFBFC;
   color: #1C2E48;
+}
+
+.nav-delete-action {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 64rpx;
+  height: 64rpx;
+  border-radius: 999rpx;
+}
+
+.nav-delete-action:active {
+  background: rgba(15, 23, 42, 0.06);
+}
+
+.nav-delete-icon {
+  width: 34rpx;
+  height: 34rpx;
 }
 
 /* ===== 画布区域（可缩放/可滚动/可拖动） ===== */

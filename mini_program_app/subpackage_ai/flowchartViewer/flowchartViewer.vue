@@ -9,8 +9,13 @@
       titleAlign="center"
     >
       <template #right>
-        <view class="nav-history-action" @tap="openHistory">
-          <image class="nav-history-icon" src="/static/icons/diagram/history.svg" mode="aspectFit" />
+        <view class="nav-result-actions">
+          <view class="nav-icon-action" @tap="openHistory">
+            <image class="nav-action-icon" src="/static/icons/diagram/history.svg" mode="aspectFit" />
+          </view>
+          <view class="nav-icon-action" @tap="deleteCurrentFlowchart">
+            <image class="nav-action-icon" src="/static/icons/diagram/trash-2-lucide.svg" mode="aspectFit" />
+          </view>
         </view>
       </template>
     </nav-bar>
@@ -106,7 +111,7 @@ import NavBar from '@/components/nav-bar/nav-bar.vue'
 import AiResultBar from '../components/AiResultBar.vue'
 import AiThinkWindow from '../components/AiThinkWindow.vue'
 import OptimizeMindMapSheet from '../mindmapViewer/OptimizeMindMapSheet.vue'
-import { getErrorMessage, getFlowchartDetail, getFlowchartHistory, generateFlowchart } from '@/api/aiDiagram.js'
+import { deleteFlowchartHistory, getErrorMessage, getFlowchartDetail, getFlowchartHistory, generateFlowchart } from '@/api/aiDiagram.js'
 import { layoutFlowchart, FLOW_NODE_W, FLOW_NODE_H } from '../flowchartLayout.js'
 // #ifdef H5
 import { domToPng } from '../components/domToPng.js'
@@ -120,6 +125,7 @@ const loading = ref(true)
 const zoom = ref(0.78)
 const chart = ref({ title: 'AI 流程图', type: 'FLOWCHART', lanes: [], nodes: [], edges: [] })
 const resultId = ref('')
+const isDeleting = ref(false)
 const autoExportImage = ref(false)
 let autoExportDone = false
 
@@ -234,6 +240,42 @@ onUnmounted(() => {
 
 function openHistory() {
   uni.navigateTo({ url: '/subpackage_ai/diagramHistory/diagramHistory?type=flowchart' })
+}
+
+function leaveAfterDelete() {
+  const pages = getCurrentPages()
+  if (pages.length > 1) {
+    uni.navigateBack({ delta: 1 })
+    return
+  }
+  uni.redirectTo({ url: '/subpackage_ai/flowchartGenerate/flowchartGenerate' })
+}
+
+function deleteCurrentFlowchart() {
+  if (!resultId.value || isDeleting.value) {
+    uni.showToast({ title: '暂无可删除记录', icon: 'none' })
+    return
+  }
+  uni.showModal({
+    title: '删除记录',
+    content: `确定删除“${chart.value.title || 'AI 流程图'}”吗？删除后不可恢复。`,
+    confirmText: '删除',
+    confirmColor: '#EF4444',
+    success: async (res) => {
+      if (!res.confirm) return
+      isDeleting.value = true
+      try {
+        await deleteFlowchartHistory(resultId.value)
+        uni.removeStorageSync(`aiFlowchartResult:${resultId.value}`)
+        uni.showToast({ title: '已删除', icon: 'none' })
+        setTimeout(leaveAfterDelete, 220)
+      } catch (error) {
+        uni.showToast({ title: getErrorMessage(error, '删除失败'), icon: 'none' })
+      } finally {
+        isDeleting.value = false
+      }
+    }
+  })
 }
 
 function goGenerate() {
@@ -497,8 +539,10 @@ onMounted(() => {
 
 <style lang="scss" scoped>
 .page { min-height: 100vh; display: flex; flex-direction: column; background: #fafbfc; color: #1e344f; }
-.nav-history-action { display: flex; align-items: center; justify-content: center; width: 64rpx; height: 64rpx; }
-.nav-history-icon { width: 34rpx; height: 34rpx; }
+.nav-result-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8rpx; }
+.nav-icon-action { display: flex; align-items: center; justify-content: center; width: 48rpx; height: 48rpx; border-radius: 999rpx; }
+.nav-icon-action:active { background: rgba(15, 23, 42, 0.06); }
+.nav-action-icon { width: 30rpx; height: 30rpx; }
 .diagram-stage { flex: 1; width: 100%; min-height: 0; background-color: #f7f9fb; background-image: radial-gradient(#dbe3ec 1px, transparent 1px); background-size: 22rpx 22rpx; }
 .diagram-movable { width: 100%; height: 100%; }
 .diagram-canvas { position: relative; margin: 36px; transform-origin: 0 0; }
