@@ -213,8 +213,8 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { onShow } from '@dcloudio/uni-app'
 import NavBar from '@/components/nav-bar/nav-bar.vue'
 import { getErrorMessage, getMindmapHistory, uploadMindmapFile } from '@/api/aiDiagram.js'
-import { BASE_URL } from '@/utils/config.js'
 import ImportFileButton from '../components/ImportFileButton.vue'
+import { previewUploadedDocument } from '../utils/filePreview.js'
 import { extractMindmapCenterTopic } from '../utils/mindmapTopicExtractor.js'
 
 const topic = ref('')
@@ -355,54 +355,8 @@ const removeUploadedFile = () => {
   uni.showToast({ title: '已移除文件', icon: 'none' })
 }
 
-const normalizePreviewUrl = (value = '') => {
-  const text = String(value || '').trim()
-  if (!text) return ''
-  if (/^https?:\/\//i.test(text) || text.startsWith('file://')) return text
-  if (text.startsWith('/')) return BASE_URL ? `${BASE_URL}${text}` : text
-  return BASE_URL ? `${BASE_URL}${text.startsWith('/') ? text : `/${text}`}` : text
-}
-
-const openLocalDocument = (filePath) => {
-  if (!filePath || typeof uni.openDocument !== 'function') {
-    uni.showToast({ title: '当前平台不支持预览', icon: 'none' })
-    return
-  }
-  uni.openDocument({
-    filePath,
-    showMenu: true,
-    fail: () => uni.showToast({ title: '文件暂时无法预览', icon: 'none' })
-  })
-}
-
 const previewUploadedFile = () => {
-  const localPath = uploadedFile.value?.filePath
-  const remoteUrl = normalizePreviewUrl(uploadedFile.value?.sourceFile)
-  if (localPath) {
-    openLocalDocument(localPath)
-    return
-  }
-  if (!remoteUrl) {
-    uni.showToast({ title: '暂无可预览文件', icon: 'none' })
-    return
-  }
-  if (!/^https?:\/\//i.test(remoteUrl)) {
-    openLocalDocument(remoteUrl)
-    return
-  }
-  uni.showLoading({ title: '打开中...' })
-  uni.downloadFile({
-    url: remoteUrl,
-    success: res => {
-      if (res.statusCode >= 200 && res.statusCode < 300) {
-        openLocalDocument(res.tempFilePath)
-      } else {
-        uni.showToast({ title: '文件下载失败', icon: 'none' })
-      }
-    },
-    fail: () => uni.showToast({ title: '文件下载失败', icon: 'none' }),
-    complete: () => uni.hideLoading()
-  })
+  previewUploadedDocument(uploadedFile.value)
 }
 
 const openRecent = (item) => {

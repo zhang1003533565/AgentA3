@@ -235,7 +235,6 @@
 import { computed, onMounted, ref } from 'vue'
 import { onShow } from '@dcloudio/uni-app'
 import NavBar from '@/components/nav-bar/nav-bar.vue'
-import { BASE_URL } from '@/utils/config.js'
 import {
   buildArchitecturePayload,
   getArchitectureHistory,
@@ -243,6 +242,7 @@ import {
 } from '@/api/architecture.js'
 import { getErrorMessage } from '@/api/aiDiagram.js'
 import ImportFileButton from '../components/ImportFileButton.vue'
+import { previewUploadedDocument } from '../utils/filePreview.js'
 
 const description = ref('')
 const selectedSystemType = ref('web')
@@ -464,82 +464,11 @@ async function importDocument() {
 }
 
 function previewFile() {
-  if (!uploadedFile.value) return
-  const localPath = uploadedFile.value.filePath
-  const remoteUrl = normalizePreviewUrl(
-    uploadedFile.value.sourceFile ||
-      uploadedFile.value.url ||
-      uploadedFile.value.fileUrl ||
-      uploadedFile.value.previewUrl,
-  )
-  if (localPath) {
-    openLocalDocument(localPath)
-    return
-  }
-  if (!remoteUrl) {
-    uni.showToast({
-      title: '暂无可预览文件',
-      icon: 'none',
-    })
-    return
-  }
-  if (!/^https?:\/\//i.test(remoteUrl)) {
-    openLocalDocument(remoteUrl)
-    return
-  }
-  uni.showLoading({ title: '打开中...' })
-  uni.downloadFile({
-    url: remoteUrl,
-    success: (res) => {
-      if (res.statusCode >= 200 && res.statusCode < 300) {
-        openLocalDocument(res.tempFilePath)
-      } else {
-        uni.showToast({
-          title: '文件下载失败',
-          icon: 'none',
-        })
-      }
-    },
-    fail: () => {
-      uni.showToast({
-        title: '文件下载失败',
-        icon: 'none',
-      })
-    },
-    complete: () => uni.hideLoading(),
-  })
-}
-
-function openLocalDocument(filePath) {
-  if (!filePath || typeof uni.openDocument !== 'function') {
-    uni.showToast({
-      title: '当前平台不支持预览',
-      icon: 'none',
-    })
-    return
-  }
-  uni.openDocument({
-    filePath,
-    showMenu: true,
-    fail: () => {
-      uni.showToast({
-        title: '文件暂时无法预览',
-        icon: 'none',
-      })
-    },
-  })
+  previewUploadedDocument(uploadedFile.value)
 }
 
 function removeFile() {
   uploadedFile.value = null
-}
-
-function normalizePreviewUrl(url) {
-  const text = String(url || '').trim()
-  if (!text) return ''
-  if (/^https?:\/\//i.test(text) || text.startsWith('file://')) return text
-  if (text.startsWith('/')) return BASE_URL ? `${BASE_URL}${text}` : text
-  return BASE_URL ? `${BASE_URL}/${text}` : text
 }
 
 function getSelectedRelationValue() {

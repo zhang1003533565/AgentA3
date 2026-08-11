@@ -98,6 +98,25 @@
 
           <view class="setting-section">
             <view class="section-title">
+              <image class="section-icon" src="/static/icons/diagram/layer.svg" mode="aspectFit" />
+              <text>显示方向</text>
+            </view>
+            <view class="segmented segmented--two">
+              <view
+                v-for="item in directionOptions"
+                :key="item.key"
+                class="segmented-item"
+                :class="{ 'segmented-item--active': selectedDirection === item.key }"
+                @tap="selectedDirection = item.key"
+              >
+                <text class="segmented-title">{{ item.label }}</text>
+                <text class="segmented-desc">{{ item.desc }}</text>
+              </view>
+            </view>
+          </view>
+
+          <view class="setting-section">
+            <view class="section-title">
               <image class="section-icon" src="/static/icons/diagram/database.svg" mode="aspectFit" />
               <text>判断节点</text>
               <view class="section-info"><text>i</text></view>
@@ -198,12 +217,13 @@ import {
   getFlowchartHistory,
   uploadFlowchartFile
 } from '@/api/aiDiagram.js'
-import { BASE_URL } from '@/utils/config.js'
 import ImportFileButton from '../components/ImportFileButton.vue'
+import { previewUploadedDocument } from '../utils/filePreview.js'
 
 const flowDescription = ref('')
 const selectedScene = ref('ADMIN')
 const selectedGranularity = ref('AUTO')
+const selectedDirection = ref('VERTICAL')
 const selectedDecision = ref('AUTO')
 const selectedLane = ref('AUTO')
 const uploadedDocument = ref(null)
@@ -223,6 +243,11 @@ const granularityOptions = [
   { key: 'SIMPLE', label: '简略', desc: '仅核心步骤' },
   { key: 'STANDARD', label: '标准', desc: '主要步骤+说明' },
   { key: 'DETAILED', label: '详细', desc: '完整步骤与分支' }
+]
+
+const directionOptions = [
+  { key: 'VERTICAL', label: '纵向显示', desc: '自上而下' },
+  { key: 'HORIZONTAL', label: '横向显示', desc: '从左到右' }
 ]
 
 const decisionOptions = [
@@ -314,51 +339,8 @@ const removeUploadedFile = () => {
   uni.showToast({ title: '已移除文件', icon: 'none' })
 }
 
-const normalizePreviewUrl = (value = '') => {
-  const text = String(value || '').trim()
-  if (!text) return ''
-  if (/^https?:\/\//i.test(text) || text.startsWith('file://')) return text
-  if (text.startsWith('/')) return BASE_URL ? `${BASE_URL}${text}` : text
-  return BASE_URL ? `${BASE_URL}/${text}` : text
-}
-
-const openLocalDocument = (filePath) => {
-  if (!filePath || typeof uni.openDocument !== 'function') {
-    uni.showToast({ title: '当前平台不支持预览', icon: 'none' })
-    return
-  }
-  uni.openDocument({
-    filePath,
-    showMenu: true,
-    fail: () => uni.showToast({ title: '文件暂时无法预览', icon: 'none' })
-  })
-}
-
 const previewUploadedFile = () => {
-  const localPath = uploadedDocument.value?.filePath
-  const remoteUrl = normalizePreviewUrl(uploadedDocument.value?.sourceFile)
-  if (localPath) {
-    openLocalDocument(localPath)
-    return
-  }
-  if (!remoteUrl) {
-    uni.showToast({ title: '暂无可预览文件', icon: 'none' })
-    return
-  }
-  if (!/^https?:\/\//i.test(remoteUrl)) {
-    openLocalDocument(remoteUrl)
-    return
-  }
-  uni.showLoading({ title: '打开中...' })
-  uni.downloadFile({
-    url: remoteUrl,
-    success: res => {
-      if (res.statusCode >= 200 && res.statusCode < 300) openLocalDocument(res.tempFilePath)
-      else uni.showToast({ title: '文件下载失败', icon: 'none' })
-    },
-    fail: () => uni.showToast({ title: '文件下载失败', icon: 'none' }),
-    complete: () => uni.hideLoading()
-  })
+  previewUploadedDocument(uploadedDocument.value)
 }
 
 const loadRecentItems = async () => {
@@ -371,6 +353,8 @@ const loadRecentItems = async () => {
       description: item.description || '',
       sceneType: item.sceneType,
       nodeGranularity: item.nodeGranularity,
+      requestedLayoutDirection: item.requestedLayoutDirection,
+      resolvedLayoutDirection: item.resolvedLayoutDirection,
       requestedSwimlaneMode: item.requestedSwimlaneMode,
       resolvedSwimlaneMode: item.resolvedSwimlaneMode,
       createTime: item.createTime || item.createdAt || ''
@@ -401,9 +385,15 @@ const swimlaneLabel = (value = '') => {
   return map[String(value || '').toUpperCase()] || '自动泳道'
 }
 
+const directionLabel = (value = '') => {
+  const map = { VERTICAL: '纵向', HORIZONTAL: '横向' }
+  return map[String(value || '').toUpperCase()] || '纵向'
+}
+
 const recentMeta = (item = {}) => {
   const lane = item.resolvedSwimlaneMode || item.requestedSwimlaneMode || 'AUTO'
-  return `${sceneLabel(item.sceneType)} · ${granularityLabel(item.nodeGranularity)} · ${swimlaneLabel(lane)}`
+  const direction = item.resolvedLayoutDirection || item.requestedLayoutDirection || 'VERTICAL'
+  return `${sceneLabel(item.sceneType)} · ${granularityLabel(item.nodeGranularity)} · ${directionLabel(direction)} · ${swimlaneLabel(lane)}`
 }
 
 const formatRecentTime = (timeStr = '') => {
@@ -462,6 +452,7 @@ const buildPayload = () => {
     processType: selectedScene.value,
     nodeGranularity: selectedGranularity.value,
     nodeLevel: selectedGranularity.value,
+    layoutDirection: selectedDirection.value,
     decisionMode: selectedDecision.value,
     swimlaneMode: selectedLane.value,
     swimlane: selectedLane.value,
@@ -903,6 +894,10 @@ onShow(() => {
 
 .segmented--three {
   grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.segmented--two {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .segmented-item {
