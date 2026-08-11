@@ -46,6 +46,21 @@ class FileParseServiceImplTest {
     }
 
     @Test
+    void parseDocExtensionWithDocxContentUsesOoxmlParser() throws Exception {
+        Path file = tempDir.resolve("misnamed.doc");
+        try (XWPFDocument document = new XWPFDocument()) {
+            document.createParagraph().createRun().setText("这是实际为 DOCX 的 Word 文档");
+            try (OutputStream output = Files.newOutputStream(file)) {
+                document.write(output);
+            }
+        }
+
+        ParsedFileContent parsed = service.parseDetailed(file.toFile());
+
+        Assertions.assertTrue(parsed.text().contains("实际为 DOCX"));
+    }
+
+    @Test
     void parsePptxKeepsSlideMarkersAndText() throws Exception {
         Path file = tempDir.resolve("architecture.pptx");
         try (XMLSlideShow slideShow = new XMLSlideShow()) {

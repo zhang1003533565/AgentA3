@@ -32,12 +32,15 @@ import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.util.List;
 import java.util.Locale;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipInputStream;
 
 @Service
 public class FileParseServiceImpl implements FileParseService {
@@ -61,7 +64,8 @@ public class FileParseServiceImpl implements FileParseService {
         String extension = extensionOf(file.getName());
         ParseStats stats = new ParseStats();
         try {
-            String text = switch (extension) {
+            String resolvedExtension = resolveOfficeExtension(extension, file);
+            String text = switch (resolvedExtension) {
                 case ".pdf" -> parsePdf(file, stats);
                 case ".docx" -> parseDocx(file, stats);
                 case ".doc" -> parseDoc(file, stats);
@@ -86,13 +90,15 @@ public class FileParseServiceImpl implements FileParseService {
         String extension = extensionOf(file.getOriginalFilename());
         ParseStats stats = new ParseStats();
         try (InputStream input = file.getInputStream()) {
-            String text = switch (extension) {
-                case ".pdf" -> parsePdf(input, stats);
-                case ".docx" -> parseDocx(input, stats);
-                case ".doc" -> parseDoc(input, stats);
-                case ".pptx" -> parsePptx(input, stats);
-                case ".ppt" -> parsePpt(input, stats);
-                case ".md", ".markdown" -> parseTextFile(input, stats);
+            byte[] bytes = input.readAllBytes();
+            String resolvedExtension = resolveOfficeExtension(extension, bytes);
+            String text = switch (resolvedExtension) {
+                case ".pdf" -> parsePdf(new ByteArrayInputStream(bytes), stats);
+                case ".docx" -> parseDocx(new ByteArrayInputStream(bytes), stats);
+                case ".doc" -> parseDoc(new ByteArrayInputStream(bytes), stats);
+                case ".pptx" -> parsePptx(new ByteArrayInputStream(bytes), stats);
+                case ".ppt" -> parsePpt(new ByteArrayInputStream(bytes), stats);
+                case ".md", ".markdown" -> parseTextFile(new ByteArrayInputStream(bytes), stats);
                 default -> throw new BusinessException(400, "仅支持 PDF、Word、PPT、Markdown 文件");
             };
             return normalizeText(text, stats);
@@ -376,6 +382,53 @@ public class FileParseServiceImpl implements FileParseService {
             }
         }
         return count;
+    }
+
+    private String resolveOfficeExtension(String extension, File file) throws Exception {
+        if (!isOfficeExtension(extension)) {
+            return extension;
+        }
+        try (InputStream input = Files.newInputStream(file.toPath())) {
+            return resolveOfficeExtension(extension, input.readAllBytes());
+        }
+    }
+
+    private String resolveOfficeExtension(String extension, byte[] bytes) throws Exception {
+        if (!isOfficeExtension(extension) || bytes == null || bytes.length < 4 || !isZip(bytes)) {
+            return extension;
+        }
+        String ooxmlExtension = detectOoxmlExtension(bytes);
+        return StringUtils.hasText(ooxmlExtension) ? ooxmlExtension : extension;
+    }
+
+    private boolean isOfficeExtension(String extension) {
+        return List.of(".doc", ".docx", ".ppt", ".pptx").contains(extension);
+    }
+
+    private boolean isZip(byte[] bytes) {
+        return bytes.length >= 4 && bytes[0] == 'P' && bytes[1] == 'K';
+    }
+
+    private String detectOoxmlExtension(byte[] bytes) throws Exception {
+        try (ZipInputStream zip = new ZipInputStream(new ByteArrayInputStream(bytes))) {
+            ZipEntry entry;
+            int checked = 0;
+            while ((entry = zip.getNextEntry()) != null && checked < 200) {
+                checked++;
+                String name = entry.getName();
+                if (name == null) {
+                    continue;
+                }
+                String normalized = name.replace('\\', '/');
+                if (normalized.startsWith("word/")) {
+                    return ".docx";
+                }
+                if (normalized.startsWith("ppt/")) {
+                    return ".pptx";
+                }
+            }
+        }
+        return "";
     }
 
     private String extensionOf(String filename) {
