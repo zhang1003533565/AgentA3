@@ -2,7 +2,6 @@
   <view class="page">
     <nav-bar
       :title="architectureData.title || 'AI 架构图'"
-      :subtitle="architectureData.subtitle || ''"
       :showBack="true"
       :border="false"
       :fixed="true"
