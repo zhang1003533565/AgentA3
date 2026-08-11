@@ -201,8 +201,24 @@
     <!-- 底部操作栏 -->
     <AiResultBar
       @export="exportImage"
-      @optimize="regenerate"
+      @optimize="openOptimizeSheet"
       @share="share"
+    />
+
+    <OptimizeMindMapSheet
+      title="优化架构图"
+      :visible="showOptimizeSheet"
+      :currentMindMap="currentArchitectureData"
+      @close="showOptimizeSheet = false"
+      @optimize="onOptimize"
+    />
+
+    <AiThinkWindow
+      :visible="showThinkWindow"
+      type="architecture"
+      :doneSub="optimizeDoneSub"
+      :done="thinkDone"
+      @view="onThinkView"
     />
   </view>
 </template>
@@ -212,8 +228,11 @@ import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
 import NavBar from '@/components/nav-bar/nav-bar.vue'
 import ArchIcon from './ArchIcon.vue'
 import AiResultBar from '../components/AiResultBar.vue'
+import AiThinkWindow from '../components/AiThinkWindow.vue'
+import OptimizeMindMapSheet from '../mindmapViewer/OptimizeMindMapSheet.vue'
 import { DEFAULT_ARCHITECTURE_DATA } from './architectureData.js'
-import { getArchitectureDetail, normalizeArchitectureResult } from '@/api/architecture.js'
+import { buildArchitecturePayload, generateArchitecture, getArchitectureDetail, normalizeArchitectureResult } from '@/api/architecture.js'
+import { getErrorMessage } from '@/api/aiDiagram.js'
 // #ifdef H5
 import { domToPng } from '../components/domToPng.js'
 // #endif
@@ -226,6 +245,12 @@ const CANVAS_BOTTOM_BUFFER_RPX = 360
 
 // 架构数据（默认匹配截图）
 const architectureData = ref(JSON.parse(JSON.stringify(DEFAULT_ARCHITECTURE_DATA)))
+const showOptimizeSheet = ref(false)
+const showThinkWindow = ref(false)
+const thinkDone = ref(false)
+const optimizeDoneSub = ref('结构已更新')
+const optimizePending = ref(null)
+const currentArchitectureData = ref({})
 
 // 缩放/滚动状态
 const scale = ref(1)
@@ -234,6 +259,8 @@ const scrollLeft = ref(0)
 const canvasSize = ref({ width: 0, height: 0 })
 const canvasRef = ref(null)
 const stageSize = ref({ width: 0, height: 0 })
+const autoExportImage = ref(false)
+let autoExportDone = false
 
 // 鼠标拖动状态
 const isDragging = ref(false)
@@ -512,7 +539,127 @@ function onCardTap(layer, node) {
 }
 
 function share() { uni.showToast({ title: '分享能力预留', icon: 'none' }) }
-function regenerate() { uni.navigateBack() }
+
+function collectNodeNames(nodes = [], target = []) {
+  nodes.forEach(node => {
+    const name = node?.name || node?.label
+    if (name) target.push(name)
+    collectNodeNames(node?.children || [], target)
+  })
+  return target
+}
+
+function describeCurrentArchitecture() {
+  const layerText = (architectureData.value.layers || [])
+    .map(layer => {
+      const names = collectNodeNames([...(layer.nodes || []), ...(layer.groups || []).flatMap(group => group.nodes || [])])
+        .slice(0, 8)
+        .join('、')
+      return names ? `${layer.name}：${names}` : ''
+    })
+    .filter(Boolean)
+    .join('\n')
+  const edgeText = (architectureData.value.edges || [])
+    .map(edge => {
+      const label = edge.label ? `（${edge.label}）` : ''
+      return `${edge.source} -> ${edge.target}${label}`
+    })
+    .filter(Boolean)
+    .slice(0, 24)
+    .join('；')
+
+  return [
+    `当前系统类型：${architectureData.value.systemType || 'WEB'}`,
+    `当前关系表达：${architectureData.value.resolvedRelationMode || architectureData.value.relationMode || 'MODULE'}`,
+    layerText ? `当前分层与模块：\n${layerText}` : '',
+    edgeText ? `当前连接关系：${edgeText}` : ''
+  ].filter(Boolean).join('\n')
+}
+
+function buildOptimizeDescription(base, userInstruction) {
+  const original = base.content || base.description || architectureData.value.title || ''
+  return [
+    '请基于当前架构图进行优化，不要重新生成无关架构。',
+    original ? `原始需求：${original}` : '',
+    describeCurrentArchitecture(),
+    userInstruction ? `优化要求：${userInstruction}` : ''
+  ].filter(Boolean).join('\n\n')
+}
+
+function buildOptimizePayload(userInstruction) {
+  const base = uni.getStorageSync('aiArchitecturePendingPayload') || {}
+  const optimizedDescription = buildOptimizeDescription(base, userInstruction)
+  const relationMode = architectureData.value.requestedRelationMode || base.relationMode || base.relationType || 'AUTO'
+  const architectureLayers = architectureData.value.architectureLayers?.length
+    ? architectureData.value.architectureLayers
+    : (base.architectureLayers || base.layers || [])
+  const focusContents = architectureData.value.focusContents?.length
+    ? architectureData.value.focusContents
+    : (base.focusContents || base.displayContent || [])
+
+  return buildArchitecturePayload({
+    ...base,
+    content: optimizedDescription,
+    description: optimizedDescription,
+    systemType: architectureData.value.systemType || base.systemType || 'WEB',
+    autoArchitectureLayers: architectureData.value.autoArchitectureLayers !== false,
+    architectureLayers,
+    layers: architectureLayers,
+    focusContents,
+    displayContent: focusContents,
+    relationMode,
+    relationType: relationMode,
+    hierarchyMode: architectureData.value.requestedHierarchyMode || base.hierarchyMode || 'STRUCTURED',
+    sourceText: base.sourceText || '',
+    fileId: base.fileId || '',
+    sourceFile: base.sourceFile || '',
+    files: Array.isArray(base.files) ? base.files : []
+  })
+}
+
+function openOptimizeSheet() {
+  currentArchitectureData.value = {
+    title: architectureData.value.title,
+    nodes: architectureData.value.nodes,
+    edges: architectureData.value.edges,
+    layers: architectureData.value.layers,
+    thirdParty: architectureData.value.thirdParty,
+    features: architectureData.value.features
+  }
+  showOptimizeSheet.value = true
+}
+
+async function onOptimize(payload) {
+  showOptimizeSheet.value = false
+  optimizePending.value = null
+  thinkDone.value = false
+  showThinkWindow.value = true
+  try {
+    const userInstruction = String(payload.userInstruction || '').trim()
+    const nextPayload = buildOptimizePayload(userInstruction)
+    const result = await generateArchitecture(nextPayload)
+    uni.setStorageSync('aiArchitecturePendingPayload', nextPayload)
+    uni.setStorageSync(`aiArchitectureResult:${result.id}`, result)
+    optimizePending.value = result
+    optimizeDoneSub.value = `已更新「${result.title || '架构图'}」`
+    thinkDone.value = true
+  } catch (error) {
+    showThinkWindow.value = false
+    thinkDone.value = false
+    uni.showToast({ title: getErrorMessage(error, '优化失败'), icon: 'none' })
+  }
+}
+
+function onThinkView() {
+  showThinkWindow.value = false
+  thinkDone.value = false
+  const result = optimizePending.value
+  if (!result?.id) return
+  uni.redirectTo({
+    url: `/subpackage_ai/architecturePreview/architecturePreview?recordId=${encodeURIComponent(result.id)}&title=${encodeURIComponent(result.title || '')}`
+  })
+}
+
 function exportImage() {
   // #ifdef H5
   if (!architectureData.value.layers?.length) {
@@ -541,12 +688,24 @@ function exportImage() {
   // #endif
 }
 
+function isAutoExport(value) {
+  return ['1', 'true', 'image', 'png'].includes(String(value || '').trim().toLowerCase())
+}
+
+function queueAutoExport() {
+  if (!autoExportImage.value || autoExportDone) return
+  if (!architectureData.value.layers?.length) return
+  autoExportDone = true
+  setTimeout(exportImage, 160)
+}
+
 // 加载后端数据
 async function loadArchitecture() {
   try {
     const pages = getCurrentPages()
     const current = pages[pages.length - 1] || {}
     const options = current.options || current.$page?.options || {}
+    autoExportImage.value = isAutoExport(options.autoExport || options.exportImage)
     const id = options.recordId
       ? decodeURIComponent(options.recordId)
       : (options.id ? decodeURIComponent(options.id) : '')
@@ -567,7 +726,10 @@ async function loadArchitecture() {
     nextTick(() => {
       measureAll(() => {
         scale.value = getFitScale()
-        nextTick(centerStage)
+        nextTick(() => {
+          centerStage()
+          queueAutoExport()
+        })
       })
     })
   }

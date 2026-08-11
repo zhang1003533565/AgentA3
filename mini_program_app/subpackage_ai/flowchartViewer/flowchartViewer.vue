@@ -101,7 +101,7 @@
 </template>
 
 <script setup>
-import { computed, getCurrentInstance, onMounted, onUnmounted, ref } from 'vue'
+import { computed, getCurrentInstance, nextTick, onMounted, onUnmounted, ref } from 'vue'
 import NavBar from '@/components/nav-bar/nav-bar.vue'
 import AiResultBar from '../components/AiResultBar.vue'
 import AiThinkWindow from '../components/AiThinkWindow.vue'
@@ -120,11 +120,17 @@ const loading = ref(true)
 const zoom = ref(0.78)
 const chart = ref({ title: 'AI 流程图', type: 'FLOWCHART', lanes: [], nodes: [], edges: [] })
 const resultId = ref('')
+const autoExportImage = ref(false)
+let autoExportDone = false
 
 function readPageOptions() {
   const pages = getCurrentPages()
   const current = pages[pages.length - 1] || {}
   return current.options || current.$page?.options || {}
+}
+
+function isAutoExport(value) {
+  return ['1', 'true', 'image', 'png'].includes(String(value || '').trim().toLowerCase())
 }
 
 const laidFlow = computed(() => layoutFlowchart(chart.value))
@@ -343,6 +349,7 @@ async function onOptimize(payload) {
     }
     const result = flattenLanes(await generateFlowchart(newPayload))
     if (result?.id) uni.setStorageSync(`aiFlowchartResult:${result.id}`, result)
+    uni.setStorageSync('aiFlowchartPendingPayload', newPayload)
     optimizePending.value = result
     optimizeDoneSub.value = `已更新「${result.title || '流程图'}」`
     thinkDone.value = true
@@ -358,9 +365,12 @@ function onThinkView() {
   thinkDone.value = false
   const r = optimizePending.value
   if (r) {
+    if (r.id) {
+      uni.redirectTo({ url: `/subpackage_ai/flowchartViewer/flowchartViewer?id=${encodeURIComponent(r.id)}` })
+      return
+    }
     chart.value = r
-    resultId.value = r.id
-    uni.showToast({ title: '已更新流程图', icon: 'success' })
+    resultId.value = r.id || ''
   }
 }
 
@@ -379,6 +389,7 @@ async function loadDiagram(id) {
     }
   } finally {
     loading.value = false
+    queueAutoExport()
   }
 }
 
@@ -469,8 +480,16 @@ function exportImage() {
   // #endif
 }
 
+function queueAutoExport() {
+  if (!autoExportImage.value || autoExportDone) return
+  if (!positionedNodes.value.length) return
+  autoExportDone = true
+  nextTick(() => setTimeout(exportImage, 160))
+}
+
 onMounted(() => {
   const options = readPageOptions()
+  autoExportImage.value = isAutoExport(options.autoExport || options.exportImage)
   if (options.id) loadDiagram(decodeURIComponent(options.id))
   else loading.value = false
 })
