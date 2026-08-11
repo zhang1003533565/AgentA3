@@ -62,6 +62,7 @@ $BackendPort = if ($env:SERVER_PORT) { [int]$env:SERVER_PORT } else { 8080 }
 $MysqlHostPort = if ($env:MYSQL_HOST_PORT) { [int]$env:MYSQL_HOST_PORT } else { 3306 }
 $Neo4jEnabled = if ($env:NEO4J_ENABLED) { @("1", "true", "yes", "on") -contains $env:NEO4J_ENABLED.ToLowerInvariant() } else { $false }
 $Neo4jWaitSeconds = if ($env:NEO4J_WAIT_SECONDS) { [int]$env:NEO4J_WAIT_SECONDS } else { $MysqlWaitSeconds }
+$RedisWaitSeconds = if ($env:REDIS_WAIT_SECONDS) { [int]$env:REDIS_WAIT_SECONDS } else { $MysqlWaitSeconds }
 $DataSqlPath = Join-Path $PSScriptRoot "src\main\resources\data.sql"
 $ImportDataSql = $false
 if ($env:IMPORT_DATA_SQL) {
@@ -263,7 +264,7 @@ function Import-DataSqlIfRequested {
 
 function Wait-ForRedis {
     Write-Log "Waiting for Redis container..."
-    for ($i = 0; $i -lt $MysqlWaitSeconds; $i++) {
+    for ($i = 0; $i -lt $RedisWaitSeconds; $i++) {
         $ErrorActionPreference = "SilentlyContinue"
         Invoke-Compose exec -T redis redis-cli ping *> $null
         $ErrorActionPreference = "Stop"
@@ -273,7 +274,7 @@ function Wait-ForRedis {
         Start-Sleep -Seconds 1
     }
 
-    Stop-WithError "Redis did not become ready within ${MysqlWaitSeconds}s."
+    Stop-WithError "Redis did not become ready within ${RedisWaitSeconds}s."
 }
 
 function Wait-ForNeo4j {
@@ -366,10 +367,8 @@ function Start-Backend {
     Write-Log "Backend API: http://localhost:$BackendPort"
     Write-Log "Swagger UI: http://localhost:$BackendPort/swagger-ui.html"
     Write-Log "Adminer: http://localhost:$AdminerPort"
-    Show-CosConfigStatus
-    Set-DataSourceUrl
     Write-Log "Starting Spring Boot backend..."
-    & mvn spring-boot:run
+    & mvn spring-boot:run -DskipTests
     exit $LASTEXITCODE
 }
 
@@ -390,4 +389,6 @@ Wait-ForNeo4j
 Ensure-Database
 Import-DataSqlIfRequested
 Ensure-BackendTools
+Show-CosConfigStatus
+Set-DataSourceUrl
 Start-Backend

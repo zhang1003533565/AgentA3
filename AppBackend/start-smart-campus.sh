@@ -90,6 +90,7 @@ BACKEND_PORT="${SERVER_PORT:-8080}"
 MYSQL_HOST_PORT="${MYSQL_HOST_PORT:-3306}"
 NEO4J_ENABLED="${NEO4J_ENABLED:-false}"
 NEO4J_WAIT_SECONDS="${NEO4J_WAIT_SECONDS:-${MYSQL_WAIT_SECONDS}}"
+REDIS_WAIT_SECONDS="${REDIS_WAIT_SECONDS:-${MYSQL_WAIT_SECONDS}}"
 IMPORT_DATA_SQL="${IMPORT_DATA_SQL:-}"
 DATA_SQL_PATH="${SCRIPT_DIR}/src/main/resources/data.sql"
 
@@ -198,14 +199,14 @@ import_data_sql_if_requested() {
 
 wait_for_redis() {
   log "Waiting for Redis container..."
-  for _ in $(seq 1 "$MYSQL_WAIT_SECONDS"); do
+  for _ in $(seq 1 "$REDIS_WAIT_SECONDS"); do
     if "${COMPOSE[@]}" exec -T redis redis-cli ping >/dev/null 2>&1; then
       return
     fi
     sleep 1
   done
 
-  fail "Redis did not become ready within ${MYSQL_WAIT_SECONDS}s."
+  fail "Redis did not become ready within ${REDIS_WAIT_SECONDS}s."
 }
 
 wait_for_neo4j() {
@@ -295,7 +296,7 @@ start_backend() {
   log "Swagger UI: http://localhost:${BACKEND_PORT}/swagger-ui.html"
   log "Adminer: http://localhost:${ADMINER_PORT}"
   log "Starting Spring Boot backend..."
-  exec mvn spring-boot:run
+  exec mvn spring-boot:run -DskipTests
 }
 
 main() {
