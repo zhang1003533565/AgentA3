@@ -38,10 +38,12 @@ import {
 import {
   createCampusCourse,
   createCampusCourseChapter,
+  createCampusCourseType,
   deleteCampusCourse,
   deleteCampusCourseChapter,
   getCampusCourse,
   getCampusCourses,
+  getCampusCourseTypes,
   linkCampusCourseExam,
   offlineCampusCourse,
   publishCampusCourse,
@@ -82,11 +84,18 @@ const COURSE_TYPE_OPTIONS = [
   { value: 'LAB', label: '实验课' },
 ]
 
-const COURSE_TYPE_META = {
-  REQUIRED: { label: '必修课', color: 'blue' },
-  ELECTIVE: { label: '选修课', color: 'green' },
-  PUBLIC: { label: '公共课', color: 'purple' },
-  LAB: { label: '实验课', color: 'orange' },
+/* 内置类型标签名与颜色（仅用于列渲染，课程列表已通过 customCourseTypeNames 返回自定义类型名称） */
+const COURSE_TYPE_LABELS = {
+  REQUIRED: '必修课',
+  ELECTIVE: '选修课',
+  PUBLIC: '公共课',
+  LAB: '实验课',
+}
+const BUILTIN_TYPE_COLORS = {
+  REQUIRED: 'blue',
+  ELECTIVE: 'green',
+  PUBLIC: 'purple',
+  LAB: 'orange',
 }
 
 // 与后端 course-material 白名单保持一致
@@ -146,6 +155,7 @@ const formatBytes = (bytes) => {
 const resolveFileUrl = (url = '') => (/^https?:\/\//.test(url) ? url : `${API_BASE_URL}${url}`)
 
 function CampusCourseManage() {
+  console.log('[DEBUG] CampusCourseManage 组件已挂载')
   const [courses, setCourses] = useState([])
   const [loading, setLoading] = useState(false)
   const [keyword, setKeyword] = useState('')
@@ -162,6 +172,10 @@ function CampusCourseManage() {
   const [examForm] = Form.useForm()
   const [paperOptions, setPaperOptions] = useState([])
   const [submitting, setSubmitting] = useState(false)
+  const [courseTypes, setCourseTypes] = useState([])
+  const [typeModalOpen, setTypeModalOpen] = useState(false)
+  const [typeForm] = Form.useForm()
+  const [typeSubmitting, setTypeSubmitting] = useState(false)
   const [coverUploading, setCoverUploading] = useState(false)
   const [displayImageUploading, setDisplayImageUploading] = useState(false)
   const coverUrl = Form.useWatch('coverUrl', courseForm)
@@ -174,6 +188,7 @@ function CampusCourseManage() {
   const [chapterMaterialIds, setChapterMaterialIds] = useState([])
   const [chapterAdditionalMaterialIds, setChapterAdditionalMaterialIds] = useState([])
   const [chapterWordMaterialIds, setChapterWordMaterialIds] = useState([])
+  const [selectedRowKeys, setSelectedRowKeys] = useState([])
   const folderInputRef = useRef(null)
 
   const loadCourses = useCallback(async () => {
@@ -186,9 +201,21 @@ function CampusCourseManage() {
     }
   }, [])
 
+  const loadCourseTypes = useCallback(async () => {
+    try {
+      const response = await getCampusCourseTypes()
+      const data = response.data || []
+      console.log('[DEBUG] loadCourseTypes 返回:', data.length, '条', data.map(t => `${t.typeCode}(${t.typeName})[${t.category}]`))
+      setCourseTypes(data)
+    } catch (error) {
+      message.error(error?.message || '加载课程类型失败')
+    }
+  }, [])
+
   useEffect(() => {
     loadCourses()
-  }, [loadCourses])
+    loadCourseTypes()
+  }, [loadCourses, loadCourseTypes])
 
   const loadMaterials = useCallback(async (courseId) => {
     if (!courseId) return
@@ -222,6 +249,31 @@ function CampusCourseManage() {
       `${item.name || ''} ${item.bookTitle || ''}`.toLowerCase().includes(text))
   }, [courses, keyword])
 
+  const selectedRows = useMemo(() =>
+    courses.filter((c) => selectedRowKeys.includes(c.id)),
+  [courses, selectedRowKeys])
+
+  const selectionCount = selectedRowKeys.length
+
+  const selectedStatusUniform = useMemo(() => {
+    if (!selectionCount) return null
+    const first = selectedRows[0]?.publishStatus
+    return first && selectedRows.every((r) => r.publishStatus === first) ? first : null
+  }, [selectedRows, selectionCount])
+
+  // 必选类型：单选必填；自定义类型：多选可选
+  const builtinTypeOptions = useMemo(() =>
+    courseTypes
+      .filter((item) => item.category === 'BUILTIN')
+      .map((item) => ({ value: item.typeCode, label: item.typeName })),
+  [courseTypes])
+
+  const customTypeOptions = useMemo(() =>
+    courseTypes
+      .filter((item) => item.category === 'CUSTOM')
+      .map((item) => ({ value: item.typeCode, label: item.typeName })),
+  [courseTypes])
+
   const materialMap = useMemo(() => {
     const map = new Map()
     materials.forEach((item) => map.set(item.id, item))
@@ -252,12 +304,15 @@ function CampusCourseManage() {
       ...course,
     } : {
       sortOrder: 0,
+      customCourseTypes: [],
     })
     setCourseModalOpen(true)
   }
 
   const saveCourse = async () => {
     const values = await courseForm.validateFields()
+    console.log('[DEBUG] saveCourse values:', JSON.stringify(values, null, 2))
+    console.log('[DEBUG] customCourseTypes:', values.customCourseTypes)
     setSubmitting(true)
     try {
       if (editingCourse) {
@@ -270,8 +325,25 @@ function CampusCourseManage() {
       setCourseModalOpen(false)
       await loadCourses()
       if (detail?.id === editingCourse?.id) await loadDetail(detail.id, false)
+    } catch (error) {
+      message.error(error?.message || '课程保存失败，请稍后重试')
     } finally {
       setSubmitting(false)
+    }
+  }
+
+  const saveCourseType = async () => {
+    const values = await typeForm.validateFields()
+    setTypeSubmitting(true)
+    try {
+      await createCampusCourseType(values)
+      message.success('课程类型已创建')
+      setTypeModalOpen(false)
+      await loadCourseTypes()
+    } catch (error) {
+      message.error(error?.message || '创建课程类型失败')
+    } finally {
+      setTypeSubmitting(false)
     }
   }
 
@@ -327,14 +399,39 @@ function CampusCourseManage() {
     if (detail?.id === course.id) await loadDetail(course.id, false)
   }
 
-  const removeCourse = async (id) => {
-    await deleteCampusCourse(id)
-    message.success('课程已删除')
-    if (detail?.id === id) {
-      setDetailOpen(false)
-      setDetail(null)
+  const batchChangeStatus = async (action) => {
+    setSubmitting(true)
+    try {
+      for (const course of selectedRows) {
+        if (action === 'publish') await publishCampusCourse(course.id)
+        else await offlineCampusCourse(course.id)
+      }
+      message.success(action === 'publish'
+        ? `已批量发布 ${selectionCount} 门课程`
+        : `已批量下架 ${selectionCount} 门课程`)
+      setSelectedRowKeys([])
+      await loadCourses()
+    } finally {
+      setSubmitting(false)
     }
-    await loadCourses()
+  }
+
+  const handleBatchDelete = async () => {
+    setSubmitting(true)
+    try {
+      for (const course of selectedRows) {
+        await deleteCampusCourse(course.id)
+      }
+      message.success(`已删除 ${selectionCount} 门课程`)
+      if (detail && selectedRows.some((r) => r.id === detail.id)) {
+        setDetailOpen(false)
+        setDetail(null)
+      }
+      setSelectedRowKeys([])
+      await loadCourses()
+    } finally {
+      setSubmitting(false)
+    }
   }
 
   const runBatchUpload = async (files) => {
@@ -552,40 +649,31 @@ function CampusCourseManage() {
     {
       title: '类型',
       dataIndex: 'courseType',
-      width: 90,
-      render: (type) => {
-        const meta = COURSE_TYPE_META[type]
-        return meta ? <Tag color={meta.color}>{meta.label}</Tag> : <span>-</span>
+      width: 220,
+      render: (type, record) => {
+        const codes = record.customCourseTypes || []
+        const names = record.customCourseTypeNames || []
+        // 自定义类型名称由后端 CourseSummary.customCourseTypeNames 直接返回，不依赖类型字典接口
+        const customs = codes.map((code, idx) => (
+          <Tag key={code} color="default">{idx < names.length ? names[idx] : code}</Tag>
+        ))
+        if (!type && !customs.length) return <span>-</span>
+        return (
+          <Space size={4} wrap>
+            {type ? <Tag color={BUILTIN_TYPE_COLORS[type] || 'default'}>{COURSE_TYPE_LABELS[type] || type}</Tag> : null}
+            {customs}
+          </Space>
+        )
       },
     },
     {
       title: '状态',
       dataIndex: 'publishStatus',
-      width: 100,
+      width: 90,
       render: (status) => {
         const meta = statusMeta[status] || statusMeta.DRAFT
         return <Tag color={meta.color}>{meta.label}</Tag>
       },
-    },
-    {
-      title: '操作',
-      width: 300,
-      render: (_, record) => (
-        <Space wrap>
-          <Button type="link" icon={<EyeOutlined />} onClick={() => loadDetail(record.id)}>内容配置</Button>
-          <Button type="link" icon={<EditOutlined />} onClick={() => openCourseForm(record)}>编辑</Button>
-          {record.publishStatus === 'PUBLISHED' ? (
-            <Popconfirm title="下架后学生将无法进入课程，确定继续吗？" onConfirm={() => changeStatus(record, 'offline')}>
-              <Button type="link">下架</Button>
-            </Popconfirm>
-          ) : (
-            <Button type="link" icon={<SendOutlined />} onClick={() => changeStatus(record, 'publish')}>发布</Button>
-          )}
-          <Popconfirm title="确定删除该课程及其章节配置吗？" onConfirm={() => removeCourse(record.id)}>
-            <Button type="link" danger icon={<DeleteOutlined />}>删除</Button>
-          </Popconfirm>
-        </Space>
-      ),
     },
   ]
 
@@ -707,8 +795,8 @@ function CampusCourseManage() {
   return (
     <div className="campus-course-manage">
       <div className="course-page-heading">
-        <div>
-          <span>课程学习</span>
+        <div className="course-page-heading__text">
+          <span className="course-page-heading__kicker">课程学习</span>
           <h1>校园课程管理</h1>
           <p>当前由管理员担任课程负责人，完成课程书、章节、学习范围和考试配置。</p>
         </div>
@@ -717,10 +805,50 @@ function CampusCourseManage() {
 
       <div className="course-table-card">
         <div className="course-list-toolbar">
-          <Input.Search placeholder="搜索课程或课程书" allowClear value={keyword} onChange={(event) => setKeyword(event.target.value)} />
+          <div className="course-list-toolbar__left">
+            <Input.Search placeholder="搜索课程或课程书" allowClear value={keyword} onChange={(event) => setKeyword(event.target.value)} />
+            <Space>
+              <Button icon={<EyeOutlined />} disabled={selectionCount !== 1} onClick={() => loadDetail(selectedRows[0].id)}>内容配置</Button>
+              <Button icon={<EditOutlined />} disabled={selectionCount !== 1} onClick={() => openCourseForm(selectedRows[0])}>编辑</Button>
+              {selectedStatusUniform === 'PUBLISHED' ? (
+                <Popconfirm title={`确定下架选中的 ${selectionCount} 门课程吗？`} onConfirm={() => batchChangeStatus('offline')}>
+                  <Button disabled={!selectedStatusUniform}>下架</Button>
+                </Popconfirm>
+              ) : (
+                <Button icon={<SendOutlined />} disabled={!selectedStatusUniform} onClick={() => batchChangeStatus('publish')}>发布</Button>
+              )}
+              <Popconfirm title={`确定删除选中的 ${selectionCount} 门课程及其章节配置吗？`} onConfirm={handleBatchDelete}>
+                <Button danger icon={<DeleteOutlined />} disabled={!selectionCount}>删除</Button>
+              </Popconfirm>
+            </Space>
+          </div>
           <span>共 {filteredCourses.length} 门课程</span>
         </div>
-        <Table rowKey="id" columns={columns} dataSource={filteredCourses} loading={loading} pagination={{ pageSize: 10 }} />
+        <Table
+          rowKey="id"
+          columns={columns}
+          dataSource={filteredCourses}
+          loading={loading}
+          pagination={{ pageSize: 10 }}
+          rowClassName={(record) => selectedRowKeys.includes(record.id) ? 'course-row-selected' : ''}
+          onRow={(record) => ({
+            onClick: () => {
+              setSelectedRowKeys((prev) =>
+                prev.includes(record.id)
+                  ? prev.filter((k) => k !== record.id)
+                  : [...prev, record.id],
+              )
+            },
+          })}
+          rowSelection={{
+            selectedRowKeys,
+            onChange: setSelectedRowKeys,
+            columnWidth: 28,
+            renderCell: (checked) => (
+              <span className={`course-row-dot${checked ? ' course-row-dot--active' : ''}`} />
+            ),
+          }}
+        />
       </div>
 
       <SidePanel
@@ -731,7 +859,7 @@ function CampusCourseManage() {
         footer={(
           <>
             <Button onClick={() => setCourseModalOpen(false)}>取消</Button>
-            <Button type="primary" loading={submitting || coverUploading || displayImageUploading} onClick={saveCourse}>保存</Button>
+            <Button type="primary" loading={submitting || coverUploading || displayImageUploading} onClick={() => { console.log('[DEBUG] 保存按钮被点击'); saveCourse(); }}>保存</Button>
           </>
         )}
       >
@@ -744,9 +872,18 @@ function CampusCourseManage() {
               <Input placeholder="例如：《Python程序设计基础》" maxLength={160} />
             </Form.Item>
             <Form.Item name="sortOrder" label="展示顺序"><InputNumber min={0} style={{ width: '100%' }} /></Form.Item>
-            <Form.Item name="courseType" label="课程类型">
-              <Select allowClear placeholder="选择课程类型" options={COURSE_TYPE_OPTIONS} />
+            <Form.Item name="courseType" label="必选类型" rules={[{ required: true, message: '请选择必选类型' }]}>
+              <Select placeholder="请选择必选类型" options={builtinTypeOptions} />
             </Form.Item>
+            <Form.Item name="customCourseTypes" label="自定义类型" extra="可选，可多选">
+              <Select mode="multiple" allowClear placeholder={customTypeOptions.length ? "选择自定义类型（可选）" : "暂无自定义类型，请点+创建"} options={customTypeOptions} disabled={!customTypeOptions.length} />
+            </Form.Item>
+            <div className="course-type-create-row">
+              <Button icon={<PlusOutlined />} onClick={() => {
+                typeForm.resetFields()
+                setTypeModalOpen(true)
+              }}>创建类型</Button>
+            </div>
           </div>
           <Form.Item name="coverUrl" hidden><Input /></Form.Item>
           <Form.Item name="displayImageUrl" hidden><Input /></Form.Item>
@@ -993,6 +1130,30 @@ function CampusCourseManage() {
           </Form.Item>
           <Form.Item name="chapterScope" label="考试范围"><Input placeholder="例如：第1—4章" maxLength={300} /></Form.Item>
           <Form.Item name="sortOrder" label="展示顺序"><InputNumber min={0} style={{ width: '100%' }} /></Form.Item>
+        </Form>
+      </Modal>
+
+      <Modal
+        title="创建自定义课程类型"
+        open={typeModalOpen}
+        onOk={saveCourseType}
+        confirmLoading={typeSubmitting}
+        onCancel={() => setTypeModalOpen(false)}
+        width={460}
+        okText="创建"
+      >
+        <Form form={typeForm} layout="vertical">
+          <Form.Item
+            name="typeName"
+            label="类型名称"
+            extra="创建的是自定义类型，名称不能与已有类型重复，存储代码由系统自动生成"
+            rules={[
+              { required: true, message: '请输入类型名称' },
+              { max: 20, message: '类型名称不能超过 20 个字符' },
+            ]}
+          >
+            <Input placeholder="例如：竞赛培训" maxLength={20} />
+          </Form.Item>
         </Form>
       </Modal>
     </div>

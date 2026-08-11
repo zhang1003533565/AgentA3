@@ -321,6 +321,24 @@ public class CourseMaterialService {
     }
 
     /**
+     * 按需获取单个材料信息（含 fileUrl）。
+     * 校验该材料确实属于指定章节（视频/附加/Word 三类任一）后才返回。
+     */
+    @Transactional(readOnly = true)
+    public MaterialDTO.MaterialView getChapterMaterial(Long courseId, Long chapterId, Long materialId) {
+        requireCourse(courseId);
+        CampusCourseChapter chapter = requireChapter(courseId, chapterId);
+        if (!materialIdsCodec.contains(chapter.getMaterialIds(), materialId)
+                && !materialIdsCodec.contains(chapter.getAdditionalMaterialIds(), materialId)
+                && !materialIdsCodec.contains(chapter.getWordMaterialIds(), materialId)) {
+            throw new BusinessException(404, "该材料不属于当前章节");
+        }
+        CampusCourseMaterial material = materialRepository.findByIdAndDeletedFalse(materialId)
+                .orElseThrow(() -> new BusinessException(404, "材料不存在或已下架"));
+        return toView(material);
+    }
+
+    /**
      * 绑定章节 Word 文本资料：将选中的资料 ID 数组写入章节 word_material_ids。
      * 仅允许 Word 类型（doc/docx），可多个。允许传空以清空。
      */

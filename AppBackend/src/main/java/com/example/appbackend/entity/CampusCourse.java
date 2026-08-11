@@ -55,8 +55,12 @@ public class CampusCourse {
     private String ownerType = "ADMIN";
 
     /** 课程类型：REQUIRED-必修, ELECTIVE-选修, PUBLIC-公共课, LAB-实验课 */
-    @Column(name = "course_type", length = 30)
+    @Column(name = "course_type", length = 10)
     private String courseType;
+
+    /** 自定义课程类型：逗号分隔的类型代码列表，对应 campus_course_type 中 category=CUSTOM 的项 */
+    @Column(name = "custom_course_types", columnDefinition = "TEXT")
+    private String customCourseTypes;
 
     @Column(name = "audience_type", nullable = false, length = 20)
     private String audienceType = AUDIENCE_ALL;
