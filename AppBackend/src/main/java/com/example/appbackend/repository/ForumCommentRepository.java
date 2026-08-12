@@ -31,6 +31,11 @@ public interface ForumCommentRepository extends JpaRepository<ForumComment, Long
 
     long countByPostId(Long postId);
 
+    long countByPostIdInAndUserIdNot(List<Long> postIds, Long userId);
+
+    @Query("SELECT c FROM ForumComment c WHERE c.postId IN :postIds AND c.userId <> :userId AND c.status = :status ORDER BY c.createTime DESC")
+    List<ForumComment> findReceivedByPostIds(@Param("postIds") List<Long> postIds, @Param("userId") Long userId, @Param("status") String status);
+
     long count();
     long countByStatus(String status);
 

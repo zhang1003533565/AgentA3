@@ -27,6 +27,8 @@ public interface PostService {
 
     PageResponse<UserLikeResponse> getUserLikes(Long userId, Integer pageNum, Integer pageSize);
 
+    ForumMessageUnreadResponse getMessageUnreadCount(Long userId);
+
     PostListItem toPostListItem(ForumPost post, Long currentUserId);
 
     void batchDeletePostsByAdmin(List<Long> ids);

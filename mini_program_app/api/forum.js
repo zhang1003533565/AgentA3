@@ -61,6 +61,14 @@ export function getPostDetail(postId) {
   })
 }
 
+/** 获取论坛消息未读数聚合（评论/点赞/系统通知一次返回） */
+export function getForumMessageUnread() {
+  return request({
+    url: '/api/forum/posts/messages/unread',
+    method: 'GET'
+  })
+}
+
 export function publishPost(data) {
   return request({
     url: '/api/forum/posts',
@@ -159,6 +167,14 @@ export function getCommentList(params = {}) {
     url: '/api/forum/comments',
     method: 'GET',
     params
+  })
+}
+
+/** 获取我收到的他人评论（聚合一次返回，避免逐个帖子查询） */
+export function getReceivedComments() {
+  return request({
+    url: '/api/forum/comments/received',
+    method: 'GET'
   })
 }
 

@@ -1,8 +1,13 @@
 import { useState, useEffect } from 'react'
-import { message, Modal, Form, Input, Button, Table, Space, Popconfirm, Tag, Select, Card } from 'antd'
-import { PlusOutlined, EditOutlined, DeleteOutlined, SearchOutlined, FireFilled, TagOutlined, CheckCircleOutlined } from '@ant-design/icons'
+import dayjs from 'dayjs'
+import { message, Modal, Form, Input, Button, Table, Space, Popconfirm, Tag, Select, Card, Popover, Tooltip } from 'antd'
+import { PlusOutlined, EditOutlined, DeleteOutlined, SearchOutlined, FireFilled } from '@ant-design/icons'
 import { getTopicList, createTopic, updateTopic, deleteTopic, getForumStatistics } from '../../../api/forum'
 import './TopicManage.css'
+
+const { Option } = Select
+
+const formatTime = (t) => (t ? dayjs(t).format('YYYY-MM-DD HH:mm') : '-')
 
 function TopicManage() {
   const [topics, setTopics] = useState([])
@@ -90,10 +95,22 @@ function TopicManage() {
     } catch (error) { console.error('删除失败:', error) }
   }
 
+  const renderRowPopover = (record) => (
+    <div className="tm-row-pop">
+      <div className="tm-row-pop-title">{record.topicIcon || '📌'} {record.topicName}</div>
+      <div className="tm-row-pop-desc">{record.description || '-'}</div>
+      <div className="tm-row-pop-meta">
+        <div><span className="tm-row-pop-label">帖子数</span>{record.postCount || 0}</div>
+        <div><span className="tm-row-pop-label">状态</span><Tag color={record.status === 'ACTIVE' ? 'green' : 'default'}>{record.status === 'ACTIVE' ? '启用' : '禁用'}</Tag></div>
+        <div><span className="tm-row-pop-label">创建时间</span>{formatTime(record.createTime)}</div>
+      </div>
+    </div>
+  )
+
   const columns = [
     { title: '图标', dataIndex: 'topicIcon', width: 60, render: (icon) => <span style={{ fontSize: 22 }}>{icon || '📌'}</span> },
     {
-      title: '话题名称', dataIndex: 'topicName', width: 180,
+      title: '话题名称', dataIndex: 'topicName', width: 150,
       render: (text, record) => (
         <Space>
           {text}
@@ -101,20 +118,31 @@ function TopicManage() {
         </Space>
       ),
     },
-    { title: '描述', dataIndex: 'description', ellipsis: true, width: 220, render: (text) => text || '-' },
-    { title: '帖子数', dataIndex: 'postCount', width: 100, sorter: (a, b) => (a.postCount || 0) - (b.postCount || 0) },
     {
-      title: '状态', dataIndex: 'status', width: 100,
+      title: '描述', dataIndex: 'description', ellipsis: true, width: 180,
+      render: (text, record) => (
+        <Popover content={renderRowPopover(record)} title="话题完整信息" trigger="hover" placement="bottomLeft" mouseEnterDelay={0.3}>
+          <span>{text || '-'}</span>
+        </Popover>
+      ),
+    },
+    { title: '帖子数', dataIndex: 'postCount', width: 80, sorter: (a, b) => (a.postCount || 0) - (b.postCount || 0) },
+    {
+      title: '状态', dataIndex: 'status', width: 80,
       render: (s) => <Tag color={s === 'ACTIVE' ? 'green' : 'default'}>{s === 'ACTIVE' ? '启用' : '禁用'}</Tag>,
     },
-    { title: '创建时间', dataIndex: 'createTime', width: 180 },
+    { title: '创建时间', dataIndex: 'createTime', width: 150, render: (t) => formatTime(t) },
     {
-      title: '操作', key: 'action', width: 160, fixed: 'right',
+      title: '操作', key: 'action', width: 100,
       render: (_, record) => (
-        <Space size="small">
-          <Button type="text" icon={<EditOutlined />} onClick={() => handleEdit(record)}>编辑</Button>
+        <Space size={0}>
+          <Tooltip title="编辑">
+            <Button type="text" size="small" icon={<EditOutlined />} onClick={() => handleEdit(record)} />
+          </Tooltip>
           <Popconfirm title="确定删除该话题吗？" onConfirm={() => handleDelete(record.id)} okText="确定" cancelText="取消">
-            <Button type="text" danger icon={<DeleteOutlined />}>删除</Button>
+            <Tooltip title="删除">
+              <Button type="text" size="small" danger icon={<DeleteOutlined />} />
+            </Tooltip>
           </Popconfirm>
         </Space>
       ),
@@ -122,31 +150,24 @@ function TopicManage() {
   ]
 
   const statItems = [
-    { icon: <TagOutlined />, label: '话题总数', value: stats.totalTopics, color: '#4a7fad', bg: '#eef4fa' },
-    { icon: <CheckCircleOutlined />, label: '启用中', value: stats.activeTopics, color: '#059669', bg: '#ecfdf5' },
-    { icon: <FireFilled />, label: '热门话题', value: stats.hotTopics, color: '#dc2626', bg: '#fef2f2' },
+    { label: '话题总数', value: stats.totalTopics, className: 'tm-header-stat-blue' },
+    { label: '启用中', value: stats.activeTopics, className: 'tm-header-stat-green' },
+    { label: '热门话题', value: stats.hotTopics, className: 'tm-header-stat-red' },
   ]
 
   return (
     <div className="tm-container">
 
-      {/* 顶部统计区（页题由布局顶栏面包屑统一渲染） */}
+      {/* 顶部统计区（白色矩形，仅保留统计） */}
       <div className="tm-header">
         <div className="tm-header-stats">
-          <span className="tm-stat-badge tm-badge-purple">共 {stats.totalTopics} 个</span>
-          <span className="tm-stat-badge tm-badge-active">启用 {stats.activeTopics}</span>
-          <span className="tm-stat-badge tm-badge-hot">热门 {stats.hotTopics}</span>
+          {statItems.map((s) => (
+            <div key={s.label} className={`tm-header-stat ${s.className}`}>
+              <span className="tm-header-stat-value">{s.value}</span>
+              <span className="tm-header-stat-label">{s.label}</span>
+            </div>
+          ))}
         </div>
-      </div>
-
-      <div className="tm-stat-row">
-        {statItems.map((s, i) => (
-          <Card key={i} className="tm-stat-card" style={{ borderTop: `3px solid ${s.color}`, background: s.bg }}>
-            <div className="tm-stat-card-icon" style={{ color: s.color }}>{s.icon}</div>
-            <div className="tm-stat-card-value">{s.value}</div>
-            <div className="tm-stat-card-label">{s.label}</div>
-          </Card>
-        ))}
       </div>
 
       <div className="tm-search-card">
@@ -182,7 +203,6 @@ function TopicManage() {
           dataSource={topics}
           rowKey="id"
           loading={loading}
-          scroll={{ x: 1400 }}
           pagination={{ ...pagination, showSizeChanger: true, showTotal: (t) => `共 ${t} 条`, pageSizeOptions: ['10', '20', '50'] }}
           onChange={(pag) => { setPagination({ ...pagination, current: pag.current, pageSize: pag.pageSize }); fetchTopics({ page: pag.current, size: pag.pageSize }) }}
           size="middle"

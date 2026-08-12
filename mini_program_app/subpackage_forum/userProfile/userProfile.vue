@@ -5,7 +5,6 @@
       <view class="profile-card">
         <image class="profile-avatar" :src="userInfo.avatar || '/static/logo.png'" mode="aspectFill" />
         <text class="profile-name">{{ userInfo.userName }}</text>
-        <text class="profile-bio" v-if="userInfo.bio">{{ userInfo.bio }}</text>
         <view class="profile-stats">
           <view class="stat-item" @click="goToFollowing">
             <text class="stat-num">{{ userInfo.followCount ?? 0 }}</text>
@@ -347,21 +346,8 @@ export default {
     font-size: 30rpx;
     font-weight: 700;
     color: #111827;
-    margin-bottom: 6rpx;
+    margin-bottom: 16rpx;
     letter-spacing: 0.02em;
-  }
-
-  .profile-bio {
-    font-size: 22rpx;
-    color: #6b7280;
-    text-align: center;
-    margin-bottom: 20rpx;
-    max-width: 100%;
-    line-height: 1.5;
-    display: -webkit-box;
-    -webkit-line-clamp: 1;
-    -webkit-box-orient: vertical;
-    overflow: hidden;
   }
 
   .profile-stats {
