@@ -28,7 +28,7 @@ const signupProgress = computed(() => {
   if (!activity.value) return 0
   const cur = activity.value.currentPeople || 0
   const max = activity.value.maxPeople || 1
-  return Math.round((cur / max) * 100)
+  return Math.round((cur / max) * 10000) / 100
 })
 
 const remainingSeats = computed(() => {
@@ -174,7 +174,7 @@ onMounted(load)
               <div class="signup-card">
                 <div class="progress-header">
                   <span>报名进度</span>
-                  <span class="progress-percent">{{ signupProgress }}%</span>
+                  <span class="progress-percent">{{ signupProgress.toFixed(2) }}%</span>
                 </div>
                 <div class="progress-bar">
                   <div class="progress-fill" :style="{ width: signupProgress + '%' }"></div>

@@ -24,7 +24,7 @@ const regPercent = (record) => {
   const cur = Number(record.currentPeople) || 0
   const max = Number(record.maxPeople) || 0
   if (max <= 0) return cur > 0 ? 100 : 0
-  return Math.min(100, Math.round((cur / max) * 100))
+  return Math.min(100, Math.round((cur / max) * 10000) / 100)
 }
 
 const formatShortTime = (text) => (text ? String(text).replace('T', ' ').replace(/:\d{2}$/, '') : '-')
@@ -175,7 +175,7 @@ function ActivityManage() {
       render: (_, record) => (
         <div className="am-people">
           <span className="am-people-count">{Number(record.currentPeople) || 0} / {Number(record.maxPeople) || 0}</span>
-          <Progress percent={regPercent(record)} size="small" />
+          <Progress percent={regPercent(record)} size="small" format={(p) => `${Number(p).toFixed(2)}%`} />
         </div>
       ),
     },
