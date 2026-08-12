@@ -281,13 +281,13 @@ import {
   getChatMessages,
   getChatSessionById,
   getChatSessions,
-  getTradeRecords,
+  getTradeRecordByItem,
   sendChatMessage
 } from '@/api/secondhand'
 import { getUploadErrorMessage, uploadImage } from '@/utils/upload'
 import {
   clearActiveChatSession,
-  refreshMessageState,
+  refreshChatListState,
   setActiveChatSession,
   subscribeMessageStore
 } from '@/utils/messageStore'
@@ -414,7 +414,8 @@ export default {
       contactVisibility: {},
       morePanelVisible: false,
       unsubscribeMessageStore: null,
-      messageSyncing: false
+      messageSyncing: false,
+      syncPendingTimer: null
     }
   },
   computed: {
@@ -548,10 +549,10 @@ export default {
       this.unsubscribeMessageStore = subscribeMessageStore((state, reason) => {
         if (reason === 'subscribe') return
         if (Number(state.activeChatSessionId) === Number(this.sessionId)) {
-          this.syncActiveChat(reason)
+          this.scheduleActiveChatSync(reason)
         }
       })
-      await refreshMessageState('chat-open')
+      await refreshChatListState('chat-open')
     }
   },
   onShow() {
@@ -563,7 +564,6 @@ export default {
       this.unsubscribeMessageStore = null
     }
     clearActiveChatSession(this.sessionId)
-    refreshMessageState('chat-close')
   },
   methods: {
     loadCurrentUser() {
@@ -588,14 +588,21 @@ export default {
     ownMessageAvatar(message) {
       return pickSenderAvatar(message) || this.ownAvatarUrl
     },
+    scheduleActiveChatSync(reason) {
+      if (this.syncPendingTimer) {
+        clearTimeout(this.syncPendingTimer)
+      }
+      this.syncPendingTimer = setTimeout(() => {
+        this.syncPendingTimer = null
+        this.syncActiveChat(reason)
+      }, 3000)
+    },
     async syncActiveChat(reason = 'message-sync') {
       if (!this.sessionId || this.messageSyncing) return
       this.messageSyncing = true
       try {
-        await this.loadSession()
-        await this.loadTradeInfo()
         await this.loadMessages()
-        await refreshMessageState(`chat-read-${reason}`)
+        await refreshChatListState(`chat-read-${reason}`)
       } finally {
         this.messageSyncing = false
       }
@@ -667,36 +674,23 @@ export default {
         return
       }
       try {
-        const res = await getTradeRecords({ current: 1, size: 100 })
-        const records = Array.isArray(res?.data?.records) ? res.data.records : []
-        const itemRecords = records.filter((record) => Number(record.itemId) === Number(this.curChat.itemId))
-        const currentSessionId = Number(this.sessionId || this.curChat.id)
-        const otherUserId = Number(this.curChat.otherUserId)
-        const sessionMatched = itemRecords.find((record) => {
-          const recordSessionId = Number(record.sessionId || record.chatSessionId)
-          return currentSessionId && recordSessionId === currentSessionId
-        })
-        const participantMatched = itemRecords.find((record) => {
-          if (!otherUserId) return false
-          return Number(record.buyerId) === otherUserId ||
-            Number(record.sellerId) === otherUserId ||
-            Number(record.buyerUserId) === otherUserId ||
-            Number(record.sellerUserId) === otherUserId
-        })
-        const matched = sessionMatched || participantMatched || itemRecords[0]
-        this.tradeInfo = matched
-          ? {
-              id: matched.id,
-              buyerId: matched.buyerId,
-              sellerId: matched.sellerId,
-              status: matched.status,
-              statusText: matched.statusText,
-              isSeller: matched.isSeller,
-              contactExchangeStatus: matched.contactExchangeStatus || '',
-              contactExchangeRequesterId: matched.contactExchangeRequesterId,
-              contactExchange: matched.contactExchange || null
-            }
-          : null
+        const res = await getTradeRecordByItem(this.curChat.itemId)
+        const data = res?.data
+        if (!data) {
+          this.tradeInfo = null
+          return
+        }
+        this.tradeInfo = {
+          id: data.id,
+          buyerId: data.buyerId,
+          sellerId: data.sellerId,
+          status: data.status,
+          statusText: data.statusText,
+          isSeller: data.isSeller,
+          contactExchangeStatus: data.contactExchangeStatus || '',
+          contactExchangeRequesterId: data.contactExchangeRequesterId,
+          contactExchange: data.contactExchange || null
+        }
       } catch (e) {
         console.warn('加载交易信息失败', e)
         this.tradeInfo = null
@@ -743,7 +737,7 @@ export default {
         })
         this.messageInput = ''
         await this.loadMessages()
-        await refreshMessageState('chat-send')
+        await refreshChatListState('chat-send')
       } catch (error) {
         console.error('发送消息失败', error)
       }
@@ -773,7 +767,7 @@ export default {
           messageType: 2
         })
         await this.loadMessages()
-        await refreshMessageState('chat-send-image')
+        await refreshChatListState('chat-send-image')
       } catch (error) {
         if (error?.errMsg && String(error.errMsg).includes('cancel')) return
         console.error('发送图片失败', error)
@@ -863,7 +857,7 @@ export default {
         await this.loadSession()
         await this.loadTradeInfo()
         await this.loadMessages()
-        await refreshMessageState('contact-exchange')
+        await refreshChatListState('contact-exchange')
       } catch (e) {
         console.error('交换联系方式失败', e)
         uni.showToast({ title: e?.data?.msg || e?.msg || '交换失败', icon: 'none' })
@@ -883,7 +877,7 @@ export default {
         await this.loadSession()
         await this.loadTradeInfo()
         await this.loadMessages()
-        await refreshMessageState('contact-decline')
+        await refreshChatListState('contact-decline')
       } catch (e) {
         console.error('暂不交换失败', e)
         uni.showToast({ title: e?.data?.msg || e?.msg || '操作失败', icon: 'none' })

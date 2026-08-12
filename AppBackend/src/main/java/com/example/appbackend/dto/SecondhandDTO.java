@@ -156,4 +156,25 @@ public class SecondhandDTO {
         private List<CountItem> dailyPublishTrend;
         private List<CountItem> categoryDistribution;
     }
+
+    @Data
+    @Schema(description = "浏览历史响应")
+    public static class BrowseHistoryVO {
+        private Long id;
+        private Long itemId;
+        private String title;
+        private List<String> images;
+        private BigDecimal price;
+        private String tradeType;
+        private Integer status;
+        private String location;
+        private String campusName;
+        private String tradeLocation;
+        private String pickupPoint;
+        private Long sellerId;
+        private String sellerName;
+        private String sellerAvatar;
+        private String browseTime;
+        private String createTime;
+    }
 }

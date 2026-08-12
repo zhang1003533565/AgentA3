@@ -19,5 +19,7 @@ public interface TradeService {
 
     ChatDTO.TradeRecordVO getTradeRecord(Long id, Long currentUserId);
 
-    PageResponse<ChatDTO.TradeRecordVO> getTradeList(Long currentUserId, Integer current, Integer size);
+    PageResponse<ChatDTO.TradeRecordVO> getTradeList(Long currentUserId, Integer current, Integer size, String role);
+
+    ChatDTO.TradeRecordVO getTradeRecordByItem(Long itemId, Long currentUserId);
 }

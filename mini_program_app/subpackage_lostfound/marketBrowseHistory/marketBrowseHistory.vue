@@ -77,8 +77,8 @@
 
 <script>
 import CommonPageHeader from '@/components/common-page-header/common-page-header.vue'
+import { getMyBrowseHistory, clearMyBrowseHistory } from '@/api/secondhand'
 
-const HISTORY_KEY = 'market_browse_history'
 const DAY = 24 * 60 * 60 * 1000
 const EMOJIS = ['📱', '💻', '📷', '🎧', '⌚', '📚', '👟', '🧥', '🪑', '🏠', '🎮', '🎸', '🖥️', '📦']
 const FILTERS = [
@@ -95,7 +95,11 @@ export default {
     return {
       items: [],
       activeFilter: 'all',
-      filters: FILTERS
+      filters: FILTERS,
+      loading: false,
+      currentPage: 1,
+      pageSize: 20,
+      hasMore: true
     }
   },
   computed: {
@@ -146,29 +150,61 @@ export default {
       if (!Number.isFinite(p) || p <= 0) return '免费'
       return p.toFixed(p % 1 === 0 ? 0 : 2)
     },
-    loadHistory() {
+    async loadHistory() {
+      if (this.loading) return
+      this.loading = true
       try {
-        const list = uni.getStorageSync(HISTORY_KEY)
-        this.items = Array.isArray(list) ? list : []
+        const res = await getMyBrowseHistory({ current: 1, size: this.pageSize })
+        const records = Array.isArray(res?.data?.records) ? res.data.records : []
+        this.items = records.map(this.normalizeItem)
+        this.hasMore = records.length >= this.pageSize
+        this.currentPage = 1
       } catch (e) {
+        console.error('加载浏览历史失败', e)
         this.items = []
+      } finally {
+        this.loading = false
       }
     },
-    confirmClear() {
+    normalizeItem(item) {
+      const images = Array.isArray(item.images) ? item.images : []
+      const firstImage = images.length > 0 ? images[0] : ''
+      return {
+        id: item.itemId || item.id,
+        title: item.title || '校园市集商品',
+        image: firstImage,
+        price: item.price,
+        tradeType: item.tradeType || 'sell',
+        status: item.status,
+        campusName: item.campusName,
+        tradeLocation: item.tradeLocation,
+        pickupPoint: item.pickupPoint,
+        userName: item.sellerName,
+        userAvatar: item.sellerAvatar,
+        viewTime: item.browseTime || item.createTime,
+        createTime: item.createTime
+      }
+    },
+    async confirmClear() {
       if (this.items.length === 0) {
         uni.showToast({ title: '暂无可清空记录', icon: 'none' })
         return
       }
       uni.showModal({
-        title: '清空浏览记录',
+        title: '清空浏览历史',
         content: '确定清空所有浏览记录吗？',
         confirmText: '清空',
         confirmColor: '#2F73E0',
-        success: (res) => {
+        success: async (res) => {
           if (!res.confirm) return
-          uni.removeStorageSync(HISTORY_KEY)
-          this.items = []
-          uni.showToast({ title: '已清空', icon: 'none' })
+          try {
+            await clearMyBrowseHistory()
+            this.items = []
+            uni.showToast({ title: '已清空', icon: 'none' })
+          } catch (e) {
+            console.error('清空失败', e)
+            uni.showToast({ title: '清空失败', icon: 'none' })
+          }
         }
       })
     },

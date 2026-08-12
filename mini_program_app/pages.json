@@ -358,6 +358,15 @@
 					}
 				},
 				{
+					"path": "userHomepage/userHomepage",
+					"style": {
+						"navigationBarTitleText": "TA 的主页",
+						"navigationStyle": "custom",
+						"navigationBarBackgroundColor": "#FFFFFF",
+						"navigationBarTextStyle": "black"
+					}
+				},
+				{
 					"path": "myPurchases/myPurchases",
 					"style": {
 						"navigationBarTitleText": "我的购买",

@@ -199,7 +199,7 @@
 import CommonPageHeader from '@/components/common-page-header/common-page-header.vue'
 import MarketProductGrid from '@/components/market-product-grid/market-product-grid.vue'
 import { getSecondhandItemList } from '@/api/secondhand'
-import { createDefaultMarketFilter, filterMarketItems } from '@/subpackage_lostfound/utils/marketFilter.js'
+import { createDefaultMarketFilter, filterMarketItems, buildItemListParams } from '@/subpackage_lostfound/utils/marketFilter.js'
 import { createMarketCategoryOptions, getMarketCategoryChildren } from '@/subpackage_lostfound/utils/marketCategories.js'
 import { normalizeSecondhandItem } from '@/subpackage_lostfound/utils/secondhandItem.js'
 
@@ -371,6 +371,17 @@ export default {
       this.contentRevealTimer = null
     }
   },
+  created() {
+    this._loadSeq = 0
+  },
+  watch: {
+    activeFilterForm: {
+      deep: true,
+      handler() {
+        this.loadItems({ clear: true })
+      }
+    }
+  },
   methods: {
     startContentReveal() {
       this.contentVisible = false
@@ -382,17 +393,25 @@ export default {
         this.contentVisible = true
       }, 300)
     },
-    async loadItems() {
+    async loadItems({ clear = false } = {}) {
       this.loading = true
+      if (clear) this.items = []
+      const seq = ++this._loadSeq
       try {
-        const res = await getSecondhandItemList({ current: 1, size: 100, sort: 'hot' })
+        const params = buildItemListParams({
+          ...this.activeFilterForm,
+          sort: 'hot'
+        })
+        const res = await getSecondhandItemList(params)
+        if (seq !== this._loadSeq) return
         const records = Array.isArray(res?.data?.records) ? res.data.records : []
         this.items = records.map(normalizeSecondhandItem)
       } catch (error) {
         console.error('加载热门商品失败', error)
+        if (seq !== this._loadSeq) return
         this.items = []
       } finally {
-        this.loading = false
+        if (seq === this._loadSeq) this.loading = false
       }
     },
     async refreshPage() {

@@ -93,7 +93,7 @@
               <view class="seller-name">{{ item.sellerName || '校园用户' }}</view>
               <view class="seller-time">{{ formatTime(item.createTime) }}发布</view>
             </view>
-            <view class="seller-action">查看主页 ›</view>
+            <view class="seller-action" @click.stop="goUserHomepage">查看主页 ›</view>
           </view>
 
           <view class="safety-card">
@@ -203,6 +203,7 @@ import {
   getSecondhandItemDetail,
   getTradeRecords,
   offlineSecondhandItem,
+  recordBrowseHistory,
   reportSecondhandItem,
   unfavoriteSecondhandItem
 } from '@/api/secondhand'
@@ -449,6 +450,17 @@ export default {
       // 刷新商品详情，显示编辑后的最新数据
       this.loadItem()
     },
+    goUserHomepage() {
+      if (!this.item.sellerId) {
+        uni.showToast({ title: '用户信息不存在', icon: 'none' })
+        return
+      }
+      const userName = encodeURIComponent(this.item.sellerName || '校园用户')
+      const avatar = encodeURIComponent(this.item.sellerAvatar || '')
+      uni.navigateTo({
+        url: `/subpackage_lostfound/userHomepage/userHomepage?userId=${this.item.sellerId}&userName=${userName}&avatar=${avatar}`
+      })
+    },
     calcPageBodyHeight() {
       this.$nextTick(() => {
         const query = uni.createSelectorQuery().in(this)
@@ -506,7 +518,7 @@ export default {
         console.warn('查询交易记录失败', e)
       }
     },
-    saveBrowseHistory() {
+    async saveBrowseHistory() {
       if (!this.item.id) return
       try {
         const current = uni.getStorageSync(BROWSE_HISTORY_KEY)
@@ -528,7 +540,15 @@ export default {
         const next = [nextItem, ...list.filter((item) => item.id !== this.item.id)].slice(0, 50)
         uni.setStorageSync(BROWSE_HISTORY_KEY, next)
       } catch (e) {
-        console.warn('保存浏览记录失败', e)
+        console.warn('保存浏览记录到本地失败', e)
+      }
+      try {
+        const token = getToken()
+        if (token) {
+          await recordBrowseHistory(this.item.id)
+        }
+      } catch (e) {
+        console.warn('保存浏览记录到服务器失败', e)
       }
     },
     emoji(id) {
