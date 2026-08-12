@@ -13,6 +13,7 @@ import ProfileRules from './pages/ai/ProfileRules/ProfileRules'
 import RagManage from './pages/ai/RagManage/RagManage'
 import AgentSettings from './pages/ai/AgentSettings/AgentSettings'
 import AgentCache from './pages/ai/AgentCache/AgentCache'
+import Observability from './pages/ai/Observability/Observability'
 import Login from './pages/Login/Login'
 import ReportManage from './pages/forum/ReportManage/ReportManage'
 import PostManage from './pages/forum/PostManage/PostManage'
@@ -83,6 +84,7 @@ function App() {
           <Route path="/ai/rag/agents" element={<RagManage page="agents" />} />
           <Route path="/ai/agent-settings" element={<AgentSettings />} />
           <Route path="/ai/agent-cache" element={<AgentCache />} />
+          <Route path="/ai/observability" element={<Observability />} />
           <Route path={QUESTION_BANK_ROUTES.questions} element={<QuestionBank />} />
           <Route path={QUESTION_BANK_ROUTES.generate} element={<QuestionBankGeneratePage />} />
           <Route path={QUESTION_BANK_ROUTES.createPaper} element={<ExamPaperCreatePage />} />
