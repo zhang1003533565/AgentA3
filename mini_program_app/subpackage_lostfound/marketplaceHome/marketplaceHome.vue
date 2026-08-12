@@ -216,11 +216,18 @@ export default {
   },
   onLoad() {
     this.startBannerAuto()
+    this.loadItems()
+    this._firstShow = true
   },
   onShow() {
-    this.loadItems()
     this.searchTransitioning = false
     this.searchTransitionNavigating = false
+    // 首次进入时 onLoad 已加载，跳过；返回时静默刷新
+    if (this._firstShow) {
+      this._firstShow = false
+      return
+    }
+    this.loadItems({ showLoading: false })
   },
   onUnload() {
     if (this.bannerTimer) {

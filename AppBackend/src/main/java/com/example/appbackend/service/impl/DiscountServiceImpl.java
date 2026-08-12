@@ -78,6 +78,7 @@ public class DiscountServiceImpl implements DiscountService {
     }
 
     @Override
+    @Transactional
     public PageResponse<DiscountDTO.ActivityVO> getActivityList(Integer current, Integer size, Long merchantId,
                                                                  Long categoryId, String keyword,
                                                                  Integer status,
@@ -85,8 +86,12 @@ public class DiscountServiceImpl implements DiscountService {
                                                                  String sort, Long currentUserId) {
         if (current == null) current = 1;
         if (size == null) size = 10;
+        // 同步状态：endTime 已过 → 已结束，startTime 未到 → 未开始
+        LocalDateTime now = LocalDateTime.now();
+        activityRepository.expireActivities(now);
+        activityRepository.markPendingActivities(now);
         PageRequest pageRequest = buildPageRequest(current, size, sort);
-        Page<DiscountActivity> page = activityRepository.findPublicList(merchantId, categoryId, keyword, pageRequest);
+        Page<DiscountActivity> page = activityRepository.findPublicList(merchantId, categoryId, keyword, status, pageRequest);
         List<DiscountDTO.ActivityVO> records = page.getContent().stream()
                 .map(a -> toActivityVO(a, lat, lng)).collect(Collectors.toList());
         return new PageResponse<>(records, page.getTotalElements(), current, size);
@@ -143,14 +148,23 @@ public class DiscountServiceImpl implements DiscountService {
         activityRepository.save(a);
     }
 
+    @Override
+    public void endActivityEarly(Long id, Long currentUserId) {
+        checkOwnership(id, currentUserId);
+        DiscountActivity a = activityRepository.findById(id)
+                .orElseThrow(() -> new BusinessException(404, "活动不存在"));
+        a.setStatus(2);
+        activityRepository.save(a);
+    }
+
     // ========== 领取 ==========
 
     @Override
     public void claimActivity(Long activityId, Long userId) {
         DiscountActivity a = activityRepository.findById(activityId)
                 .orElseThrow(() -> new BusinessException(404, "活动不存在"));
-        Integer realStatus = getRealStatus(a.getStartTime(), a.getEndTime());
-        if (realStatus == 2) throw new BusinessException(400, "活动已结束");
+        Integer realStatus = getRealStatus(a.getStartTime(), a.getEndTime(), a.getStatus());
+        if (realStatus == 3) throw new BusinessException(400, "活动已结束");
         if (a.getStartTime() != null && a.getStartTime().isAfter(LocalDateTime.now()))
             throw new BusinessException(400, "活动尚未开始");
         if (claimRepository.existsByUserIdAndActivityId(userId, activityId))
@@ -188,7 +202,7 @@ public class DiscountServiceImpl implements DiscountService {
             vo.setCoverImage(a.getCoverImage());
             vo.setStartTime(a.getStartTime() != null ? a.getStartTime().format(FMT) : null);
             vo.setEndTime(a.getEndTime() != null ? a.getEndTime().format(FMT) : null);
-            Integer realStatus = getRealStatus(a.getStartTime(), a.getEndTime());
+            Integer realStatus = getRealStatus(a.getStartTime(), a.getEndTime(), a.getStatus());
             vo.setStatus(realStatus);
             vo.setStatusText(getActivityStatusText(realStatus));
             if (a.getMerchant() != null) {
@@ -244,6 +258,7 @@ public class DiscountServiceImpl implements DiscountService {
         if (req.getUseRules() != null) a.setUseRules(req.getUseRules());
         if (req.getTotalCount() != null) a.setTotalCount(req.getTotalCount());
         if (req.getRemainCount() != null) a.setRemainCount(req.getRemainCount());
+        if (req.getStatus() != null) a.setStatus(req.getStatus());
     }
 
     static DiscountDTO.ActivityVO toActivityVO(DiscountActivity a) {
@@ -264,7 +279,7 @@ public class DiscountServiceImpl implements DiscountService {
         vo.setStartTime(a.getStartTime() != null ? a.getStartTime().format(FMT) : null);
         vo.setEndTime(a.getEndTime() != null ? a.getEndTime().format(FMT) : null);
         vo.setRemainCount(a.getRemainCount());
-        Integer realStatus = getRealStatus(a.getStartTime(), a.getEndTime());
+        Integer realStatus = getRealStatus(a.getStartTime(), a.getEndTime(), a.getStatus());
         vo.setStatus(realStatus);
         vo.setStatusText(getActivityStatusText(realStatus));
         vo.setCreateTime(a.getCreateTime() != null ? a.getCreateTime().format(FMT) : null);
@@ -308,7 +323,7 @@ public class DiscountServiceImpl implements DiscountService {
         vo.setStartTime(a.getStartTime() != null ? a.getStartTime().format(FMT) : null);
         vo.setEndTime(a.getEndTime() != null ? a.getEndTime().format(FMT) : null);
         vo.setRemainCount(a.getRemainCount());
-        Integer realStatus = getRealStatus(a.getStartTime(), a.getEndTime());
+        Integer realStatus = getRealStatus(a.getStartTime(), a.getEndTime(), a.getStatus());
         vo.setStatus(realStatus);
         vo.setStatusText(getActivityStatusText(realStatus));
         vo.setCreateTime(a.getCreateTime() != null ? a.getCreateTime().format(FMT) : null);
@@ -319,16 +334,29 @@ public class DiscountServiceImpl implements DiscountService {
         switch (status) {
             case 0: return "未开始";
             case 1: return "进行中";
-            case 2: return "已结束";
+            case 2: return "已领完";
+            case 3: return "已结束";
             default: return "";
         }
     }
 
-    private static Integer getRealStatus(LocalDateTime startTime, LocalDateTime endTime) {
+    /**
+     * 计算活动真实状态：
+     * - 结束时间已过 → 永远是 3（已结束）
+     * - 管理员手动设为 2（已领完）→ 保持 2，除非结束时间已过
+     * - 开始时间未到 → 0（未开始）
+     * - 其余 → 1（进行中）
+     */
+    private static Integer getRealStatus(LocalDateTime startTime, LocalDateTime endTime, Integer dbStatus) {
         LocalDateTime now = LocalDateTime.now();
+        // 已过结束时间 → 永远已结束
+        if (endTime != null && endTime.isBefore(now)) return 3;
+        // 手动已领完 → 保持
+        if (dbStatus != null && dbStatus == 2) return 2;
+        // 未到开始时间
         if (startTime != null && startTime.isAfter(now)) return 0;
-        if (endTime != null && endTime.isBefore(now)) return 2;
-        return 1;
+        // 默认进行中
+        return dbStatus != null ? dbStatus : 1;
     }
 
     private String toJson(List<String> list) {

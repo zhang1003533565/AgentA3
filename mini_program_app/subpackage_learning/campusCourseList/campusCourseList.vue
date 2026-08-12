@@ -5,29 +5,76 @@
     <!-- 搜索栏 -->
     <view class="header">
       <view class="search-bar">
-        <text class="search-icon">🔍</text>
-        <input type="text" placeholder="搜索课程名称、老师、关键词" v-model="searchKeyword" />
+        <input
+          type="text"
+          placeholder="搜索课程名称、老师、关键词"
+          placeholder-class="search-placeholder"
+          v-model="searchKeyword"
+        />
       </view>
     </view>
 
     <!-- 课程分类 -->
     <view class="category-section">
-      <view class="section-header">
+      <view class="section-header" @tap="categoryExpanded = !categoryExpanded">
         <view class="section-title">课程分类</view>
-      </view>
-      <view class="category-grid">
-        <view
-          class="category-item"
-          v-for="category in categories"
-          :key="category.id"
-          :class="{ active: selectedCategory === category.id }"
-          @tap="selectedCategory = category.id"
-        >
-          <view class="category-icon" :style="{ background: category.bg }">
-            <text>{{ category.icon }}</text>
-          </view>
-          <text class="category-name">{{ category.name }}</text>
+        <view class="category-toggle">
+          <text class="toggle-text">{{ categoryExpanded ? '收起' : '展开' }}</text>
+          <view class="toggle-arrow" :class="{ up: categoryExpanded }"></view>
         </view>
+      </view>
+
+      <view class="category-content" :class="{ collapsed: !categoryExpanded }">
+        <!-- 第一列：自定义类型（数据库动态） -->
+        <view v-if="customCategories.length" class="category-row">
+          <view class="category-row-label">自定义类型</view>
+          <scroll-view class="category-row-scroll" scroll-x :show-scrollbar="false">
+            <view class="category-row-list">
+              <view
+                class="category-item"
+                v-for="category in customCategories"
+                :key="category.typeCode"
+                :class="{ active: selectedCustomType === category.typeCode }"
+                @tap="selectedCustomType = selectedCustomType === category.typeCode ? '' : category.typeCode"
+              >
+                <text class="category-name">{{ category.typeName }}</text>
+              </view>
+            </view>
+          </scroll-view>
+        </view>
+
+        <!-- 第二列：必选类型（数据库动态） -->
+        <view v-if="builtinCategories.length" class="category-row">
+          <view class="category-row-label">课程类型</view>
+          <scroll-view class="category-row-scroll" scroll-x :show-scrollbar="false">
+            <view class="category-row-list">
+              <view
+                class="category-item"
+                v-for="category in builtinCategories"
+                :key="category.typeCode"
+                :class="{ active: selectedBuiltinType === category.typeCode }"
+                @tap="selectedBuiltinType = selectedBuiltinType === category.typeCode ? '' : category.typeCode"
+              >
+                <text class="category-name">{{ category.typeName }}</text>
+              </view>
+            </view>
+          </scroll-view>
+        </view>
+
+        <!-- 热门分类（写死，先不动） -->
+        <scroll-view class="category-row-scroll" scroll-x :show-scrollbar="false">
+          <view class="category-hot-list">
+            <view
+              class="category-item"
+              v-for="category in categories"
+              :key="category.id"
+              :class="{ active: selectedCategory === category.id }"
+              @tap="selectedCategory = category.id"
+            >
+              <text class="category-name">{{ category.name }}</text>
+            </view>
+          </view>
+        </scroll-view>
       </view>
     </view>
 
@@ -109,7 +156,7 @@
               <text class="tag duration-tag" v-if="course.chapterCount">{{ course.chapterCount }}章节</text>
             </view>
             <view class="course-footer">
-              <text class="students" v-if="course.examCount">{{ course.examCount }}场考试</text>
+              <text class="students">{{ course.examCount ? course.examCount + '场考试' : '无考试' }}</text>
               <view class="footer-right">
                 <view
                   class="add-btn"
@@ -126,6 +173,8 @@
         <view v-if="filteredCourses.length === 0 && !loading" class="state-box">
           暂无课程
         </view>
+        <view v-if="loadingMore" class="state-box">加载中...</view>
+        <view v-else-if="!hasMore && courses.length > 0 && !loading" class="state-box state-end">— 已加载全部课程 —</view>
       </view>
     </view>
   </view>
@@ -133,7 +182,7 @@
 
 <script>
 import NavBar from '@/components/nav-bar/nav-bar.vue'
-import { getCampusCourses, getMyCourses, enrollCourse, unenrollCourse } from '@/api/campusCourse.js'
+import { getCampusCourses, getCampusCoursesPage, getMyCourses, enrollCourse, unenrollCourse, getCampusCourseTypes } from '@/api/campusCourse.js'
 
 const COVER_COLORS = [
   'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
@@ -153,11 +202,18 @@ export default {
     return {
       searchKeyword: '',
       selectedCategory: 0,
+      selectedCustomType: '',
+      selectedBuiltinType: '',
       selectedLevel: '',
       sortBy: 'hot',
+      categoryExpanded: true,
       courses: [],
       myCourseIds: [],
       loading: false,
+      loadingMore: false,
+      page: 1,
+      pageSize: 8,
+      hasMore: true,
       errorMessage: '',
       enrollingId: null,
       categories: [
@@ -168,6 +224,8 @@ export default {
         { id: 4, name: '外语', icon: '🗣️', bg: '#f3e5f5' },
         { id: 5, name: '数据', icon: '📊', bg: '#e8f5e9' }
       ],
+      customCategories: [],
+      builtinCategories: [],
       levels: ['初级', '中级', '高级']
     }
   },
@@ -185,6 +243,12 @@ export default {
       if (this.selectedLevel) {
         list = list.filter(c => (c.level || '初级') === this.selectedLevel)
       }
+      if (this.selectedCustomType) {
+        list = list.filter(c => (c.customCourseTypes || []).includes(this.selectedCustomType))
+      }
+      if (this.selectedBuiltinType) {
+        list = list.filter(c => c.courseType === this.selectedBuiltinType)
+      }
       if (this.sortBy === 'name') {
         list.sort((a, b) => (a.name || '').localeCompare(b.name || ''))
       }
@@ -193,6 +257,7 @@ export default {
   },
   onLoad() {
     this.loadCourses()
+    this.loadCategories()
   },
   onShow() {
     this.loadMyCourseIds()
@@ -201,15 +266,37 @@ export default {
     async loadCourses() {
       this.loading = true
       this.errorMessage = ''
+      this.page = 1
       try {
-        const response = await getCampusCourses()
-        this.courses = response?.data || []
+        const response = await getCampusCoursesPage(1, this.pageSize)
+        const data = response?.data || {}
+        this.courses = data.list || []
+        this.hasMore = data.hasMore !== false
         await this.loadMyCourseIds()
       } catch (error) {
         this.courses = []
         this.errorMessage = error?.msg || error?.message || '加载课程失败'
       } finally {
         this.loading = false
+      }
+    },
+    async loadMore() {
+      if (this.loadingMore || !this.hasMore || this.loading) return
+      this.loadingMore = true
+      try {
+        const nextPage = this.page + 1
+        const response = await getCampusCoursesPage(nextPage, this.pageSize)
+        const data = response?.data || {}
+        const list = data.list || []
+        if (list.length > 0) {
+          this.courses = [...this.courses, ...list]
+          this.page = nextPage
+        }
+        this.hasMore = data.hasMore !== false
+      } catch (error) {
+        uni.showToast({ title: '加载失败', icon: 'none' })
+      } finally {
+        this.loadingMore = false
       }
     },
     async loadMyCourseIds() {
@@ -219,6 +306,16 @@ export default {
         this.myCourseIds = list.map(c => c.id)
       } catch (e) {
         // 静默失败
+      }
+    },
+    async loadCategories() {
+      try {
+        const response = await getCampusCourseTypes()
+        const types = response?.data || []
+        this.customCategories = types.filter(t => t.category === 'CUSTOM')
+        this.builtinCategories = types.filter(t => t.category === 'BUILTIN')
+      } catch (e) {
+        // 静默失败，保留空分类
       }
     },
     isEnrolled(courseId) {
@@ -257,6 +354,9 @@ export default {
     isHot(course) {
       return (course.progressPercent || 0) > 80 || (course.examCount || 0) > 3
     }
+  },
+  onReachBottom() {
+    this.loadMore()
   }
 }
 </script>
@@ -269,21 +369,18 @@ export default {
 }
 
 .header {
-  background: linear-gradient(180deg, #4a90d9 0%, #6ba3e8 100%);
-  padding: 30rpx 24rpx 24rpx;
+  background: #fff;
+  padding: 20rpx 24rpx;
+  border-bottom: 1px solid #f0f0f0;
 }
 
 .search-bar {
   display: flex;
   align-items: center;
-  background: #fff;
-  border-radius: 40rpx;
+  background: rgba(0, 0, 0, 0.04);
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  border-radius: 18rpx;
   padding: 18rpx 28rpx;
-  gap: 14rpx;
-}
-
-.search-icon {
-  font-size: 28rpx;
 }
 
 .search-bar input {
@@ -292,6 +389,11 @@ export default {
   flex: 1;
   font-size: 28rpx;
   color: #333;
+  background: transparent;
+}
+
+.search-placeholder {
+  color: #999;
 }
 
 .category-section {
@@ -316,44 +418,106 @@ export default {
   color: #999;
 }
 
-.category-grid {
+/* 分类展开/收起切换按钮 */
+.category-toggle {
   display: flex;
-  justify-content: space-between;
-  gap: 8rpx;
+  align-items: center;
+  gap: 10rpx;
+  padding: 10rpx 24rpx;
+  background: #fff;
+  border-radius: 28rpx;
+  font-size: 24rpx;
+  color: #666;
+  transition: opacity 0.2s;
+}
+
+.category-toggle:active {
+  opacity: 0.75;
+}
+
+.toggle-arrow {
+  width: 14rpx;
+  height: 14rpx;
+  border-right: 3rpx solid #999;
+  border-bottom: 3rpx solid #999;
+  transform: rotate(45deg);
+  transition: transform 0.25s;
+  margin-top: -6rpx;
+}
+
+.toggle-arrow.up {
+  transform: rotate(-135deg);
+  margin-top: 6rpx;
+}
+
+/* 分类内容：收起时高度归零并淡出 */
+.category-content {
+  overflow: hidden;
+  max-height: 1200rpx;
+  opacity: 1;
+  transition: max-height 0.3s ease, opacity 0.25s ease;
+}
+
+.category-content.collapsed {
+  max-height: 0;
+  opacity: 0;
+}
+
+/* 分类每行横向滚动容器 */
+.category-row-scroll {
+  white-space: nowrap;
+  width: 100%;
+}
+
+.category-row-list {
+  display: inline-flex;
+  gap: 16rpx;
+  white-space: nowrap;
+  padding-bottom: 4rpx;
+}
+
+.category-hot-list {
+  display: inline-flex;
+  gap: 16rpx;
+  white-space: nowrap;
+  padding-bottom: 4rpx;
+}
+
+.category-row {
+  margin-bottom: 24rpx;
+}
+
+.category-row-label {
+  font-size: 24rpx;
+  color: #999;
+  margin-bottom: 16rpx;
 }
 
 .category-item {
   display: flex;
-  flex-direction: column;
   align-items: center;
-  gap: 12rpx;
-  padding: 12rpx 4rpx;
-  border-radius: 16rpx;
-  transition: background 0.2s;
-  min-width: 100rpx;
+  justify-content: center;
+  padding: 16rpx 32rpx;
+  min-width: 140rpx;
+  border-radius: 36rpx;
+  background: #fff;
+  border: 2rpx solid #eef1f5;
+  transition: all 0.2s;
 }
 
 .category-item.active {
-  background: #e8f2fd;
-}
-
-.category-icon {
-  width: 80rpx;
-  height: 80rpx;
-  border-radius: 20rpx;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 36rpx;
+  background: #4a90d9;
+  border-color: #4a90d9;
 }
 
 .category-name {
-  font-size: 22rpx;
+  font-size: 26rpx;
   color: #666;
+  white-space: nowrap;
 }
 
 .category-item.active .category-name {
-  color: #4a90d9;
+  color: #fff;
   font-weight: 600;
 }
 
@@ -574,6 +738,12 @@ export default {
   text-align: center;
   color: #999;
   font-size: 28rpx;
+}
+
+.state-end {
+  padding: 40rpx 40rpx;
+  font-size: 24rpx;
+  color: #ccc;
 }
 
 .retry-btn {

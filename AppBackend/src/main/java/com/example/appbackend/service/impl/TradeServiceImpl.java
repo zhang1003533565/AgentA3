@@ -149,14 +149,29 @@ public class TradeServiceImpl implements TradeService {
 
     @Override
     @Transactional(readOnly = true)
-    public PageResponse<ChatDTO.TradeRecordVO> getTradeList(Long currentUserId, Integer current, Integer size) {
+    public PageResponse<ChatDTO.TradeRecordVO> getTradeList(Long currentUserId, Integer current, Integer size, String role) {
         if (current == null) current = 1;
         if (size == null) size = 20;
-        Page<TradeRecord> page = tradeRecordRepository.findByUserId(currentUserId, PageRequest.of(current - 1, size));
+        Page<TradeRecord> page;
+        if ("buyer".equals(role)) {
+            page = tradeRecordRepository.findByBuyerId(currentUserId, PageRequest.of(current - 1, size));
+        } else if ("seller".equals(role)) {
+            page = tradeRecordRepository.findBySellerId(currentUserId, PageRequest.of(current - 1, size));
+        } else {
+            page = tradeRecordRepository.findByUserId(currentUserId, PageRequest.of(current - 1, size));
+        }
         List<ChatDTO.TradeRecordVO> records = page.getContent().stream()
                 .map(record -> toVO(record, currentUserId))
                 .collect(Collectors.toList());
         return new PageResponse<>(records, page.getTotalElements(), current, size);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public ChatDTO.TradeRecordVO getTradeRecordByItem(Long itemId, Long currentUserId) {
+        List<TradeRecord> records = tradeRecordRepository.findByUserIdAndItemId(currentUserId, itemId);
+        if (records.isEmpty()) return null;
+        return toVO(records.get(0), currentUserId);
     }
 
     private void checkParticipant(TradeRecord tradeRecord, Long currentUserId) {

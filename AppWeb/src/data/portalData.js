@@ -82,6 +82,7 @@ export const portalGroups = [
       { path: '/ai/agent-settings', label: '智能体设置', icon: 'setting' },
       { path: '/ai/rag/agents', label: '智能体测试', icon: 'robot' },
       { path: '/ai/agent-cache', label: '缓存监控', icon: 'line-chart' },
+      { path: '/ai/observability', label: '观测配置', icon: 'line-chart' },
       { path: '/ai/knowledge', label: '知识库管理', icon: 'file-search' },
       { path: '/admin/knowledge-chat', label: '知识库聊天', icon: 'message' },
       { path: '/ai/profile-rules', label: '画像规则', icon: 'pie-chart' },

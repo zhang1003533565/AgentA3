@@ -1,0 +1,8 @@
+{
+  "name": "agenta3-presenton-runtime",
+  "presentationExportVersion": "v0.4.2",
+  "private": true,
+  "type": "module",
+  "scripts": {"build": "esbuild src/template-v2-json-to-html.ts --bundle --platform=node --format=esm --outfile=dist/template-v2-json-to-html.mjs"},
+  "dependencies": {"@playwright/test": "^1.62.1", "esbuild": "^0.25.8"}
+}

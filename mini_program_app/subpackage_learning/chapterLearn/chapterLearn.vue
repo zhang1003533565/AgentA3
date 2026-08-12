@@ -104,7 +104,7 @@
             <view class="video-player" v-if="activeVideoId === videoMaterial.id">
               <video
                 :id="`video-${videoMaterial.id}`"
-                :src="videoMaterial.fileUrl"
+                :src="videoUrl"
                 :controls="true"
                 :autoplay="false"
                 :show-center-play-btn="true"
@@ -120,7 +120,8 @@
             <view v-else class="video-placeholder" @tap="playVideo(videoMaterial)">
               <view class="player-overlay">
                 <view class="play-btn">
-                  <text class="play-icon">▶</text>
+                  <text v-if="loadingVideoUrl" class="play-icon">⟳</text>
+                  <text v-else class="play-icon">▶</text>
                 </view>
               </view>
             </view>
@@ -250,7 +251,7 @@ import NavBar from '@/components/nav-bar/nav-bar.vue'
 import SafeMarkdown from '@/components/safe-markdown/safe-markdown.vue'
 import {
   getChapterDetail, getCampusCourseDetail, updateCampusChapterProgress,
-  getChapterResources, getWordContent
+  getChapterResources, getWordContent, getMaterialUrl
 } from '@/api/campusCourse.js'
 
 const VIDEO_EXTS = new Set(['mp4', 'mov', 'avi', 'mkv', 'webm', 'flv', 'm3u8'])
@@ -272,6 +273,8 @@ export default {
       loading: false,
       errorMessage: '',
       activeVideoId: null,
+      videoUrl: '',
+      loadingVideoUrl: false,
       videoCtx: null,
       activeSection: 'content',
       isFavorited: false,
@@ -374,14 +377,6 @@ export default {
         ])
         this.chapterData = chapterRes?.data || null
         this.chapters = courseRes?.data?.chapters || []
-
-        // 3. 如果有 Word 文件，初始化默认 Tab 并加载第一页
-        const wordList = this.chapterData?.wordMaterials || []
-        if (wordList.length > 0) {
-          const first = wordList[0]
-          this.activeWordTab = first.id
-          await this.loadWordPage(first.id, 1)
-        }
       } catch (error) {
         this.chapterData = null
         this.chapters = []
@@ -425,45 +420,71 @@ export default {
       this.loadWordPage(this.activeWordTab, info.currentPage + 1)
     },
 
-    playVideo(material) {
-      this.activeVideoId = material.id
-      this.$nextTick(() => {
-        try {
-          this.videoCtx = uni.createVideoContext(`video-${material.id}`, this)
-          this.videoCtx.play()
-        } catch (e) { /* noop */ }
-      })
+    async playVideo(material) {
+      if (this.loadingVideoUrl) return
+      this.loadingVideoUrl = true
+      try {
+        const res = await getMaterialUrl(this.courseId, this.chapterId, material.id)
+        this.videoUrl = res?.data?.fileUrl || ''
+        if (!this.videoUrl) {
+          uni.showToast({ title: '视频地址获取失败', icon: 'none' })
+          return
+        }
+        this.activeVideoId = material.id
+        this.$nextTick(() => {
+          try {
+            this.videoCtx = uni.createVideoContext(`video-${material.id}`, this)
+            this.videoCtx.play()
+          } catch (e) { /* noop */ }
+        })
+      } catch (error) {
+        uni.showToast({ title: error?.msg || error?.message || '视频加载失败', icon: 'none' })
+      } finally {
+        this.loadingVideoUrl = false
+      }
     },
     closeVideo() {
       if (this.videoCtx) { try { this.videoCtx.pause() } catch (e) { /* noop */ } }
       this.activeVideoId = null
+      this.videoUrl = ''
       this.videoCtx = null
     },
     onVideoPlay() {},
     onVideoPause() {},
     onVideoEnded() {},
 
-    openAttachment(material) {
-      const url = material.fileUrl
-      if (!url) return
-      if (IMAGE_EXTS.has((material.fileType || '').toLowerCase())) {
-        const urls = this.attachmentMaterials.filter(m => IMAGE_EXTS.has((m.fileType || '').toLowerCase())).map(m => m.fileUrl)
-        uni.previewImage({ urls, current: urls.indexOf(url) || 0 })
-        return
+    async openAttachment(material) {
+      uni.showLoading({ title: '获取资源...' })
+      try {
+        const res = await getMaterialUrl(this.courseId, this.chapterId, material.id)
+        const url = res?.data?.fileUrl || material.fileUrl // fallback 兼容旧版直接传 URL 的情况
+        uni.hideLoading()
+        if (!url) {
+          uni.showToast({ title: '资源地址获取失败', icon: 'none' })
+          return
+        }
+        if (IMAGE_EXTS.has((material.fileType || '').toLowerCase())) {
+          const urls = this.attachmentMaterials
+            .filter(m => IMAGE_EXTS.has((m.fileType || '').toLowerCase()))
+            .map(m => m.fileUrl || url) // 图片预览暂时仍需 URL
+          uni.previewImage({ urls: urls.length ? urls : [url], current: 0 })
+          return
+        }
+        uni.downloadFile({
+          url,
+          success: (dres) => {
+            if (dres.statusCode >= 200 && dres.statusCode < 300) {
+              uni.openDocument({ filePath: dres.tempFilePath, showMenu: true, fail: () => { uni.setClipboardData({ data: url }); uni.showToast({ title: '已复制链接', icon: 'none' }) } })
+            } else {
+              uni.setClipboardData({ data: url }); uni.showToast({ title: '已复制链接', icon: 'none' })
+            }
+          },
+          fail: () => { uni.setClipboardData({ data: url }); uni.showToast({ title: '已复制链接', icon: 'none' }) }
+        })
+      } catch (error) {
+        uni.hideLoading()
+        uni.showToast({ title: error?.msg || error?.message || '加载失败', icon: 'none' })
       }
-      uni.showLoading({ title: '打开中...' })
-      uni.downloadFile({
-        url,
-        success: (res) => {
-          uni.hideLoading()
-          if (res.statusCode >= 200 && res.statusCode < 300) {
-            uni.openDocument({ filePath: res.tempFilePath, showMenu: true, fail: () => { uni.setClipboardData({ data: url }); uni.showToast({ title: '已复制链接', icon: 'none' }) } })
-          } else {
-            uni.setClipboardData({ data: url }); uni.showToast({ title: '已复制链接', icon: 'none' })
-          }
-        },
-        fail: () => { uni.hideLoading(); uni.setClipboardData({ data: url }); uni.showToast({ title: '已复制链接', icon: 'none' }) }
-      })
     },
 
     async toggleComplete() {
@@ -495,6 +516,7 @@ export default {
       this.closeVideo()
       this.activeSection = 'content'
       this.activeVideoId = null
+      this.videoUrl = ''
       this.wordContentMap = {}
       this.activeWordTab = null
       this.wordPageMap = {}

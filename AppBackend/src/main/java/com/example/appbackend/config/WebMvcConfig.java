@@ -27,6 +27,7 @@ public class WebMvcConfig implements WebMvcConfigurer {
                         "/api/auth/register",
                         "/api/auth/applogin",
                         "/api/auth/weblogin",
+                        "/api/ai/write/models",
                         "/api/realtime/messages",
                         "/api/meetings/*/asr/stream",
                         "/api/v1/facility/types",

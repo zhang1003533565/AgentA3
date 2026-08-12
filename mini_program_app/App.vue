@@ -1,7 +1,9 @@
 <script>
-        import { getMessageState, startMessageSync, refreshMessageState } from '@/utils/messageStore'
+        import { getMessageState, startMessageSync, refreshMessageState, refreshChatListState } from '@/utils/messageStore'
 
         const APP_MESSAGE_REFRESH_INTERVAL = 30000
+        const APP_FULL_REFRESH_INTERVAL = 120000
+        let lastFullRefreshAt = 0
 
         export default {
 		globalData: {
@@ -16,7 +18,13 @@
                         startMessageSync()
                         const lastSyncAt = Number(getMessageState().lastSyncAt || 0)
                         if (Date.now() - lastSyncAt > APP_MESSAGE_REFRESH_INTERVAL) {
-                                refreshMessageState('app-show')
+                                const now = Date.now()
+                                if (now - lastFullRefreshAt > APP_FULL_REFRESH_INTERVAL) {
+                                        lastFullRefreshAt = now
+                                        refreshMessageState('app-show')
+                                } else {
+                                        refreshChatListState('app-show')
+                                }
                         }
                 },
 		onHide: function() {

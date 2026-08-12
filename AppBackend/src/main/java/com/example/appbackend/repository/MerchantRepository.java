@@ -17,7 +17,7 @@ public interface MerchantRepository extends JpaRepository<Merchant, Long>, JpaSp
 
     Page<Merchant> findByStatus(Integer status, Pageable pageable);
 
-    @Query("SELECT m FROM Merchant m WHERE m.status = 1 " +
+    @Query("SELECT m FROM Merchant m WHERE 1=1 " +
            "AND (:categoryId IS NULL OR m.categoryId = :categoryId) " +
            "AND (:keyword IS NULL OR m.merchantName LIKE CONCAT('%', :keyword, '%')) " +
            "AND (:status IS NULL OR m.status = :status)")

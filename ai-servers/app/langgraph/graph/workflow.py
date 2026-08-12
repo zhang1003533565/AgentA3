@@ -110,7 +110,7 @@ def _answer_type_for_agent(agent_name: str) -> str:
         "diagram_architecture_agent": "image_generation",
         "textbook_knowledge_agent": "markdown",
         "ppt_outline_agent": "ppt_outline",
-        "ppt_layout_agent": "ppt_layout",
+        "ppt_structure_agent": "ppt_structure",
         "ppt_review_agent": "ppt_review",
         "ppt_image_agent": "ppt_image_prompt",
         "ppt_to_docx_agent": "document_conversion",

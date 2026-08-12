@@ -361,11 +361,12 @@ const handleToolTap = (tool) => {
 
 .hero-main-icon {
   position: absolute;
-  right: 20rpx;
-  bottom: 20rpx;
-  width: 80rpx;
-  height: 80rpx;
-  z-index: 2;
+  right: 12rpx;
+  bottom: 12rpx;
+  width: 68rpx;
+  height: 68rpx;
+  z-index: 0;
+  opacity: 0.95;
 }
 
 /* 右侧小卡片容器 */
