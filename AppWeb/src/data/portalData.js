@@ -546,6 +546,16 @@ export const getBreadcrumbByPath = (path) => {
     ]
   }
 
+  const indoorMatch = normalizedPath.match(/^\/facility\/canteen\/([^/]+)\/stalls\/indoor$/)
+  if (indoorMatch) {
+    return [
+      '校园设施',
+      { label: '食堂管理', path: '/facility/canteen' },
+      { label: '档口管理', path: `/facility/canteen/${indoorMatch[1]}/stalls` },
+      { label: '楼层档口定位' },
+    ]
+  }
+
   const dishManagementMatch = normalizedPath.match(/^\/facility\/canteen\/([^/]+)\/stalls\/[^/]+\/dishes$/)
   if (dishManagementMatch) {
     return [

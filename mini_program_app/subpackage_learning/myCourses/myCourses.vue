@@ -5,16 +5,17 @@
     <!-- 搜索栏 -->
     <view class="header">
       <view class="search-bar">
-        <text class="search-icon">🔍</text>
-        <input type="text" placeholder="搜索课程、老师..." v-model="searchKeyword" />
+        <input
+          type="text"
+          placeholder="搜索课程、老师..."
+          placeholder-class="search-placeholder"
+          v-model="searchKeyword"
+        />
       </view>
     </view>
 
     <!-- 校园课程入口 -->
     <view class="campus-entry" @tap="goToCourseList">
-      <view class="campus-entry-icon">
-        <text>📚</text>
-      </view>
       <view class="campus-entry-info">
         <text class="campus-entry-title">校园课程</text>
         <text class="campus-entry-desc">浏览全部校园公开课程</text>
@@ -132,8 +133,16 @@
                 <view class="recommend-name">{{ course.name }}</view>
                 <text class="recommend-meta">{{ course.ownerName || '' }} · {{ course.chapterCount }}章</text>
                 <view class="recommend-footer">
-                  <text class="students" v-if="course.examCount">{{ course.examCount }}场考试</text>
-                  <text class="level">{{ course.level || '初级' }}</text>
+                  <text class="students">{{ course.examCount ? course.examCount + '场考试' : '无考试' }}</text>
+                  <view class="recommend-footer-right">
+                    <text class="level">{{ course.level || '初级' }}</text>
+                    <view
+                      class="add-btn"
+                      @tap.stop="addToMyCourses(course)"
+                    >
+                      <text>{{ enrollingId === course.id ? '处理中...' : '添加' }}</text>
+                    </view>
+                  </view>
                 </view>
               </view>
             </view>
@@ -146,7 +155,7 @@
 
 <script>
 import NavBar from '@/components/nav-bar/nav-bar.vue'
-import { getMyCourses, getCampusCourses } from '@/api/campusCourse.js'
+import { getMyCourses, getCampusCourses, enrollCourse } from '@/api/campusCourse.js'
 
 const COVER_COLORS = [
   'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
@@ -168,7 +177,8 @@ export default {
       recommendCourses: [],
       loading: false,
       recommendLoading: false,
-      errorMessage: ''
+      errorMessage: '',
+      enrollingId: null
     }
   },
   computed: {
@@ -220,6 +230,20 @@ export default {
         this.recommendLoading = false
       }
     },
+    async addToMyCourses(course) {
+      if (this.enrollingId) return
+      this.enrollingId = course.id
+      try {
+        await enrollCourse(course.id)
+        this.recommendCourses = this.recommendCourses.filter(c => c.id !== course.id)
+        await this.loadMyCourses(false)
+        uni.showToast({ title: '已加入我的课程', icon: 'success' })
+      } catch (error) {
+        uni.showToast({ title: error?.msg || error?.message || '添加失败', icon: 'none' })
+      } finally {
+        this.enrollingId = null
+      }
+    },
     goToDetail(course) {
       uni.navigateTo({
         url: `/subpackage_learning/campusCourseDetail/campusCourseDetail?courseId=${encodeURIComponent(course.id)}`
@@ -258,14 +282,10 @@ export default {
 .search-bar {
   display: flex;
   align-items: center;
-  background: #f5f5f5;
-  border-radius: 40rpx;
+  background: rgba(0, 0, 0, 0.04);
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  border-radius: 18rpx;
   padding: 18rpx 28rpx;
-  gap: 14rpx;
-}
-
-.search-icon {
-  font-size: 28rpx;
 }
 
 .search-bar input {
@@ -273,35 +293,28 @@ export default {
   outline: none;
   flex: 1;
   font-size: 28rpx;
+  color: #333;
   background: transparent;
+}
+
+.search-placeholder {
+  color: #999;
 }
 
 .campus-entry {
   margin: 20rpx 24rpx 0;
-  background: linear-gradient(135deg, #4a90d9, #6ba3e8);
+  background: linear-gradient(135deg, #e8f2fd 0%, #f0f7ff 100%);
   border-radius: 20rpx;
   padding: 28rpx;
   display: flex;
   align-items: center;
   gap: 18rpx;
-  box-shadow: 0 6rpx 22rpx rgba(74, 144, 217, 0.28);
+  box-shadow: 0 4rpx 16rpx rgba(0, 0, 0, 0.06);
   transition: transform 0.15s;
 }
 
 .campus-entry:active {
   transform: scale(0.97);
-}
-
-.campus-entry-icon {
-  width: 64rpx;
-  height: 64rpx;
-  border-radius: 16rpx;
-  background: rgba(255,255,255,.22);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 32rpx;
-  flex-shrink: 0;
 }
 
 .campus-entry-info {
@@ -310,20 +323,20 @@ export default {
 
 .campus-entry-title {
   display: block;
-  color: #fff;
+  color: #333;
   font-size: 30rpx;
   font-weight: 700;
 }
 
 .campus-entry-desc {
   display: block;
-  color: rgba(255,255,255,.72);
+  color: #999;
   font-size: 24rpx;
   margin-top: 6rpx;
 }
 
 .campus-entry-arrow {
-  color: rgba(255,255,255,.72);
+  color: #ccc;
   font-size: 32rpx;
   flex-shrink: 0;
 }
@@ -626,6 +639,7 @@ export default {
 .recommend-footer {
   display: flex;
   justify-content: space-between;
+  align-items: center;
   font-size: 22rpx;
 }
 
@@ -633,11 +647,32 @@ export default {
   color: #999;
 }
 
+.recommend-footer-right {
+  display: flex;
+  align-items: center;
+  gap: 14rpx;
+}
+
 .level {
   color: #4a90d9;
   background: #e8f2fd;
   padding: 6rpx 16rpx;
   border-radius: 8rpx;
+}
+
+.add-btn {
+  background: linear-gradient(135deg, #4a90d9, #5b9fe0);
+  color: #fff;
+  padding: 10rpx 24rpx;
+  border-radius: 26rpx;
+  font-size: 22rpx;
+  font-weight: 600;
+  white-space: nowrap;
+  transition: all 0.2s;
+}
+
+.add-btn:active {
+  transform: scale(0.92);
 }
 
 .state-box {

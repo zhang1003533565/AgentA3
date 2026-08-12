@@ -10,6 +10,9 @@ export const publishCampusCourse = (id) => request.post(`${base}/${id}/publish`)
 export const offlineCampusCourse = (id) => request.post(`${base}/${id}/offline`)
 export const deleteCampusCourse = (id) => request.delete(`${base}/${id}`)
 
+export const getCampusCourseTypes = () => request.get(`${base}/types`)
+export const createCampusCourseType = (data) => request.post(`${base}/types`, data)
+
 export const createCampusCourseChapter = (courseId, data) =>
   request.post(`${base}/${courseId}/chapters`, data)
 export const updateCampusCourseChapter = (courseId, chapterId, data) =>

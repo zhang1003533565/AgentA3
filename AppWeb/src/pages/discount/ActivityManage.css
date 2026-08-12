@@ -1,0 +1,68 @@
+@import './discountCommon.css';
+
+/* ── Activity table cells ── */
+.activity-cover-img {
+  width: 72px;
+  height: 54px;
+  object-fit: cover;
+  border-radius: 10px;
+  border: 1px solid #e8ecf1;
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.06);
+  transition: transform 0.25s ease, box-shadow 0.25s ease;
+}
+
+.activity-cover-img:hover {
+  transform: scale(1.1);
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.14);
+}
+
+.activity-cover-placeholder {
+  width: 72px;
+  height: 54px;
+  border-radius: 10px;
+  background: linear-gradient(135deg, #f8fafc, #f1f5f9);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+  border: 1px dashed #cbd5e1;
+}
+
+.activity-title {
+  font-weight: 600;
+  color: #0f172a;
+  font-size: 14px;
+}
+
+.activity-id {
+  font-size: 11px;
+  color: #94a3b8;
+  font-family: 'SF Mono', 'Cascadia Code', monospace;
+  margin-top: 3px;
+}
+
+.time-range {
+  font-size: 13px;
+  color: #334155;
+  line-height: 1.8;
+}
+
+.time-range div {
+  display: flex;
+  align-items: center;
+}
+
+.time-range div:first-child {
+  color: #409EFF;
+}
+
+.time-range div:last-child {
+  color: #909399;
+}
+
+/* ── Upload tip ── */
+.discount-upload-tip {
+  margin-top: 6px;
+  color: #94a3b8;
+  font-size: 12px;
+}

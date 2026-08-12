@@ -33,6 +33,9 @@ public class MeetingSession {
     @Column(name = "user_id", nullable = false, columnDefinition = "BIGINT NOT NULL COMMENT '创建用户ID'")
     private Long userId;
 
+    @Column(name = "create_user_id", columnDefinition = "BIGINT COMMENT '会议创建人ID'")
+    private Long createUserId;
+
     @Column(nullable = false, length = 120, columnDefinition = "VARCHAR(120) NOT NULL COMMENT '会议标题'")
     private String title;
 

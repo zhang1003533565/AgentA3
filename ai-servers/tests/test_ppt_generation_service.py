@@ -84,13 +84,13 @@ def test_outline_provider_failure_returns_actionable_gateway_error(monkeypatch):
     assert "http://model.test" not in error.value.detail
 
 
-def test_slides_fall_back_to_outline_when_layout_agent_breaks_contract(monkeypatch):
+def test_slides_fall_back_to_template_when_structure_agent_breaks_contract(monkeypatch):
     service = PptGenerationService()
     monkeypatch.setattr(
         "app.ppt_generation.service.run_specialist_agent",
         lambda *args, **kwargs: (_ for _ in ()).throw(HTTPException(
             status_code=502,
-            detail="ppt_layout_agent 返回内容不符合约定格式，且自动规范化失败",
+            detail="ppt_structure_agent 未返回有效 JSON",
         )),
     )
 

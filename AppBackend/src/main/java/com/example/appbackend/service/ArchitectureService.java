@@ -28,4 +28,9 @@ public interface ArchitectureService {
      * 查询单条架构图详情（仅限本人记录）。
      */
     ArchitectureDTO.GenerateResponse detail(Long id, Long userId);
+
+    /**
+     * 删除单条架构图历史记录（仅限本人记录）。
+     */
+    void delete(Long id, Long userId);
 }

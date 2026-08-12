@@ -29,18 +29,22 @@ import StallIndoorManage from './pages/StallManage/StallIndoorManage'
 import MarkerManage from './pages/facility/MarkerManage/MarkerManage'
 import FacilityPlaceManage from './pages/facility/FacilityPlaceManage/FacilityPlaceManage'
 import CampusCourseManage from './pages/learning/CampusCourseManage'
+import DiscountActivityManage from './pages/discount/ActivityManage'
+import DiscountMerchantManage from './pages/discount/MerchantManage'
+import DiscountCategoryManage from './pages/discount/CategoryManage'
 import './App.css'
 
 // 论坛独立页面路径集合（不走 WorkspacePage）
 const FORUM_INDEPENDENT_PATHS = new Set(['/forum/post', '/forum/comment', '/forum/topic', '/forum/report'])
 const FACILITY_PLACE_PATHS = new Set(['/facility/sports', '/facility/teaching', '/facility/dormitory'])
+const DISCOUNT_PATHS = new Set(['/discount/merchant', '/discount/activity', '/discount/category'])
 const SECONDHAND_INDEPENDENT_PATHS = new Set(['/market/report'])
 
 function App() {
   // 过滤掉论坛相关路由，避免与独立页面冲突
   const workspaceRoutes = allNavItems
     .filter((item) => item.pageKey && item.path !== '/activity/manage' && item.path !== '/facility/canteen')
-    .filter((item) => item.pageKey && item.path !== '/activity/manage' && !FORUM_INDEPENDENT_PATHS.has(item.path))
+    .filter((item) => item.pageKey && item.path !== '/activity/manage' && !FORUM_INDEPENDENT_PATHS.has(item.path) && !DISCOUNT_PATHS.has(item.path))
     .filter((item) => !FACILITY_PLACE_PATHS.has(item.path))
     .filter((item) => !SECONDHAND_INDEPENDENT_PATHS.has(item.path))
     .map((item) => (
@@ -92,6 +96,9 @@ function App() {
           <Route path="/ai/profile-rules" element={<ProfileRules />} />
           <Route path="/facility/marker" element={<MarkerManage />} />
           <Route path="/learning/courses" element={<CampusCourseManage />} />
+          <Route path="/discount/merchant" element={<DiscountMerchantManage />} />
+          <Route path="/discount/activity" element={<DiscountActivityManage />} />
+          <Route path="/discount/category" element={<DiscountCategoryManage />} />
           {workspaceRoutes}
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
