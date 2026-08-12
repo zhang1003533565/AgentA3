@@ -18,14 +18,22 @@ public interface ActivityRepository extends JpaRepository<Activity, Long>, JpaSp
     @Query("SELECT a FROM Activity a WHERE " +
            "(:title IS NULL OR a.title LIKE %:title%) AND " +
            "(:categoryId IS NULL OR a.categoryId = :categoryId) AND " +
-           "(:status IS NULL OR a.status = :status)")
+           "(:status IS NULL OR a.status = :status) AND " +
+           "(:timePhase IS NULL OR " +
+           "  (:timePhase = 'upcoming' AND a.startTime > :now) " +
+           "  OR (:timePhase = 'ongoing' AND a.startTime <= :now AND a.endTime >= :now) " +
+           "  OR (:timePhase = 'ended' AND a.endTime < :now))")
     Page<Activity> findByConditions(
             @Param("title") String title,
             @Param("categoryId") Long categoryId,
             @Param("status") Status status,
+            @Param("timePhase") String timePhase,
+            @Param("now") java.time.LocalDateTime now,
             Pageable pageable);
 
     List<Activity> findByOrganizerId(Long organizerId);
+
+    Page<Activity> findByOrganizerId(Long organizerId, Pageable pageable);
 
     List<Activity> findByStatus(Status status);
 
