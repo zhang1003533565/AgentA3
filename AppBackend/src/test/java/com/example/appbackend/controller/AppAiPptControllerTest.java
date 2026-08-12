@@ -141,6 +141,14 @@ class AppAiPptControllerTest {
         }
 
         @Override
+        public Object replaceSlideImage(Long userId, String taskId, Integer slideIndex,
+                                        AiPptDTO.SlideImageRequest request, String authorization) {
+            this.userId = userId;
+            this.authorization = authorization;
+            return Map.of("taskId", taskId, "slideIndex", slideIndex);
+        }
+
+        @Override
         public SseEmitter streamTask(Long userId, String taskId, String authorization) {
             return new SseEmitter();
         }
