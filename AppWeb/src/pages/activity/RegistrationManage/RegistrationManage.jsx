@@ -27,7 +27,7 @@ function regPercent(activity) {
   const cur = Number(activity.currentPeople) || 0
   const max = Number(activity.maxPeople) || 0
   if (max <= 0) return cur > 0 ? 100 : 0
-  return Math.min(100, Math.round((cur / max) * 100))
+  return Math.min(100, Math.round((cur / max) * 10000) / 100)
 }
 
 function formatDateTime(str) {
@@ -230,7 +230,7 @@ function RegistrationManage() {
       title: '报名进度',
       key: 'progress',
       width: 180,
-      render: (_, record) => <Progress percent={regPercent(record)} size="small" />,
+      render: (_, record) => <Progress percent={regPercent(record)} size="small" format={(p) => `${Number(p).toFixed(2)}%`} />,
     },
     {
       title: '报名截止',
