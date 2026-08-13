@@ -20,10 +20,11 @@ public final class CampusCourseDTO {
         private String name;
         @NotBlank
         private String bookTitle;
+        private String teacherName;
+        private String level;
         private String coverUrl;
         private String displayImageUrl;
         private String description;
-        @NotBlank
         private String courseType;
         private List<String> customCourseTypes;
         private Integer sortOrder = 0;
@@ -35,6 +36,7 @@ public final class CampusCourseDTO {
         private String title;
         private String summary;
         private String content;
+        private String qaJson;
         @Min(1)
         @Max(100000)
         private Integer estimatedMinutes;
@@ -79,6 +81,8 @@ public final class CampusCourseDTO {
         private Long id;
         private String name;
         private String bookTitle;
+        private String teacherName;
+        private String level;
         private String coverUrl;
         private String displayImageUrl;
         private String description;
@@ -110,6 +114,7 @@ public final class CampusCourseDTO {
         private String title;
         private String summary;
         private String content;
+        private String qaJson;
         private Integer estimatedMinutes;
         private Boolean required;
         private Integer sortOrder;

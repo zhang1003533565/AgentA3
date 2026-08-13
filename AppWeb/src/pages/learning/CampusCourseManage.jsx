@@ -39,6 +39,7 @@ import {
   createCampusCourse,
   createCampusCourseChapter,
   createCampusCourseType,
+  deleteCampusCourseType,
   deleteCampusCourse,
   deleteCampusCourseChapter,
   getCampusCourse,
@@ -91,6 +92,12 @@ const COURSE_TYPE_LABELS = {
   PUBLIC: '公共课',
   LAB: '实验课',
 }
+
+// Fixed major categories shared with the mini-program course list.
+const MAJOR_CATEGORY_OPTIONS = [
+  '哲学类', '经济学类', '法学类', '教育学类', '文学类', '历史学类',
+  '理学类', '工学类', '农学类', '医学类', '管理学类', '艺术学类', '军事学类', '交叉学科类',
+].map(value => ({ value, label: value }))
 const BUILTIN_TYPE_COLORS = {
   REQUIRED: 'blue',
   ELECTIVE: 'green',
@@ -268,11 +275,42 @@ function CampusCourseManage() {
       .map((item) => ({ value: item.typeCode, label: item.typeName })),
   [courseTypes])
 
-  const customTypeOptions = useMemo(() =>
-    courseTypes
-      .filter((item) => item.category === 'CUSTOM')
-      .map((item) => ({ value: item.typeCode, label: item.typeName })),
-  [courseTypes])
+  const removeCourseType = async (type) => {
+    if (MAJOR_CATEGORY_OPTIONS.some(item => item.value === type.typeName)) {
+      message.warning('固定专业大类不可删除')
+      return
+    }
+    try {
+      await deleteCampusCourseType(type.typeCode)
+      message.success('分类已删除')
+      await loadCourseTypes()
+    } catch (error) {
+      message.error(error?.message || '分类删除失败')
+    }
+  }
+
+  const customTypeOptions = useMemo(() => {
+    const fixed = MAJOR_CATEGORY_OPTIONS
+    const custom = courseTypes
+      .filter((item) => item.category === 'CUSTOM'
+        && !MAJOR_CATEGORY_OPTIONS.some(fixed => fixed.value === item.typeName))
+      .map((item) => ({
+        value: item.typeCode,
+        label: (
+          <span className="course-type-option">
+            <span>{item.typeName}</span>
+            {!MAJOR_CATEGORY_OPTIONS.some(fixed => fixed.value === item.typeName) && (
+              <button type="button" className="course-type-option-delete"
+                onMouseDown={(event) => { event.preventDefault(); event.stopPropagation() }}
+                onClick={(event) => { event.stopPropagation(); removeCourseType(item) }}>
+                ×
+              </button>
+            )}
+          </span>
+        ),
+      }))
+    return [...fixed, ...custom.filter((item) => !fixed.some((fixedItem) => fixedItem.value === item.value))]
+  }, [courseTypes])
 
   const materialMap = useMemo(() => {
     const map = new Map()
@@ -304,6 +342,7 @@ function CampusCourseManage() {
       ...course,
     } : {
       sortOrder: 0,
+      courseType: 'PUBLIC',
       customCourseTypes: [],
     })
     setCourseModalOpen(true)
@@ -346,6 +385,7 @@ function CampusCourseManage() {
       setTypeSubmitting(false)
     }
   }
+
 
   const uploadCourseCover = async (file) => {
     if (!file.type?.startsWith('image/')) {
@@ -527,8 +567,22 @@ function CampusCourseManage() {
   const openChapterForm = async (chapter = null) => {
     setEditingChapter(chapter)
     chapterForm.resetFields()
+    let qaQuestion = ''
+    let qaAnswer = ''
+    if (chapter?.qaJson) {
+      try {
+        const parsed = JSON.parse(chapter.qaJson)
+        const first = Array.isArray(parsed) ? parsed[0] : parsed
+        qaQuestion = first?.question || ''
+        qaAnswer = first?.answer || ''
+      } catch {
+        // 忽略旧格式问答，允许重新填写
+      }
+    }
     chapterForm.setFieldsValue(chapter ? {
       ...chapter,
+      qaQuestion,
+      qaAnswer,
       required: chapter.required !== false,
     } : {
       required: true,
@@ -560,14 +614,22 @@ function CampusCourseManage() {
 
   const saveChapter = async () => {
     const values = await chapterForm.validateFields()
+    const chapterValues = {
+      ...values,
+      qaJson: values.qaQuestion || values.qaAnswer
+        ? JSON.stringify([{ question: values.qaQuestion || '', answer: values.qaAnswer || '' }])
+        : '',
+    }
+    delete chapterValues.qaQuestion
+    delete chapterValues.qaAnswer
     setSubmitting(true)
     try {
       let chapterId
       if (editingChapter) {
-        await updateCampusCourseChapter(detail.id, editingChapter.id, values)
+        await updateCampusCourseChapter(detail.id, editingChapter.id, chapterValues)
         chapterId = editingChapter.id
       } else {
-        const res = await createCampusCourseChapter(detail.id, values)
+        const res = await createCampusCourseChapter(detail.id, chapterValues)
         chapterId = res.data?.id
       }
       if (chapterId) {
@@ -581,6 +643,8 @@ function CampusCourseManage() {
       setChapterModalOpen(false)
       await loadDetail(detail.id, false)
       await loadCourses()
+    } catch (error) {
+      message.error(error?.message || error?.msg || '章节保存失败，请检查问答内容后重试')
     } finally {
       setSubmitting(false)
     }
@@ -630,6 +694,7 @@ function CampusCourseManage() {
     {
       title: '课程与课程书',
       key: 'course',
+      width: 360,
       render: (_, record) => (
         <div className="course-name-cell">
           <div className="course-cover-mini">
@@ -657,10 +722,9 @@ function CampusCourseManage() {
         const customs = codes.map((code, idx) => (
           <Tag key={code} color="default">{idx < names.length ? names[idx] : code}</Tag>
         ))
-        if (!type && !customs.length) return <span>-</span>
+        if (!customs.length) return <span>-</span>
         return (
           <Space size={4} wrap>
-            {type ? <Tag color={BUILTIN_TYPE_COLORS[type] || 'default'}>{COURSE_TYPE_LABELS[type] || type}</Tag> : null}
             {customs}
           </Space>
         )
@@ -829,6 +893,7 @@ function CampusCourseManage() {
           columns={columns}
           dataSource={filteredCourses}
           loading={loading}
+          tableLayout="fixed"
           pagination={{ pageSize: 10 }}
           rowClassName={(record) => selectedRowKeys.includes(record.id) ? 'course-row-selected' : ''}
           onRow={(record) => ({
@@ -871,11 +936,24 @@ function CampusCourseManage() {
             <Form.Item name="bookTitle" label="课程书名称" rules={[{ required: true, message: '请输入课程书名称' }]}>
               <Input placeholder="例如：《Python程序设计基础》" maxLength={160} />
             </Form.Item>
+            <Form.Item name="teacherName" label="课程老师" rules={[{ required: true, message: '请输入课程老师' }]}>
+              <Input placeholder="请输入课程老师姓名" maxLength={80} />
+            </Form.Item>
+            <Form.Item hidden name="level">
+              <Select
+                placeholder="请选择课程等级"
+                options={[
+                  { value: '初级', label: '初级' },
+                  { value: '中级', label: '中级' },
+                  { value: '高级', label: '高级' },
+                ]}
+              />
+            </Form.Item>
             <Form.Item name="sortOrder" label="展示顺序"><InputNumber min={0} style={{ width: '100%' }} /></Form.Item>
-            <Form.Item name="courseType" label="必选类型" rules={[{ required: true, message: '请选择必选类型' }]}>
+            <Form.Item hidden name="courseType">
               <Select placeholder="请选择必选类型" options={builtinTypeOptions} />
             </Form.Item>
-            <Form.Item name="customCourseTypes" label="自定义类型" extra="可选，可多选">
+            <Form.Item name="customCourseTypes" label="专业大类" extra="可选，可多选">
               <Select mode="multiple" allowClear placeholder={customTypeOptions.length ? "选择自定义类型（可选）" : "暂无自定义类型，请点+创建"} options={customTypeOptions} disabled={!customTypeOptions.length} />
             </Form.Item>
             <div className="course-type-create-row">
@@ -1002,6 +1080,12 @@ function CampusCourseManage() {
           </div>
           <Form.Item name="summary" label="章节说明"><Input maxLength={1000} /></Form.Item>
           <Form.Item name="content" label="课程正文"><TextArea rows={8} placeholder="录入学生需要阅读的课程内容" /></Form.Item>
+          <Form.Item name="qaQuestion" label="填写问题">
+            <Input placeholder="请输入本章节问题" maxLength={300} />
+          </Form.Item>
+          <Form.Item name="qaAnswer" label="填写答案">
+            <TextArea rows={4} placeholder="请输入问题答案" maxLength={1000} />
+          </Form.Item>
           <div className="chapter-material-block">
             <div className="chapter-material-block__head">
               <Typography.Text strong>附加下载资料</Typography.Text>

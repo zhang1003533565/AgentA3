@@ -26,9 +26,10 @@ public class AppCampusCourseController {
     @GetMapping
     public Result<?> list(HttpServletRequest request,
                           @RequestParam(required = false) Integer page,
-                          @RequestParam(required = false) Integer size) {
+                          @RequestParam(required = false) Integer size,
+                          @RequestParam(required = false) String customType) {
         if (page != null && size != null && page > 0 && size > 0) {
-            return Result.success(courseService.studentPage(userId(request), page, size));
+            return Result.success(courseService.studentPage(userId(request), page, size, customType));
         }
         return Result.success(courseService.studentList(userId(request)));
     }

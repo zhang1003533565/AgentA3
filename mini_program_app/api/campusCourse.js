@@ -5,11 +5,11 @@ export function getCampusCourses() {
 }
 
 /** 分页获取校园课程（触底加载更多），page 从 1 开始 */
-export function getCampusCoursesPage(page = 1, size = 8) {
+export function getCampusCoursesPage(page = 1, size = 8, customType = '') {
   return request({
     url: '/api/app/campus-courses',
     method: 'GET',
-    data: { page, size }
+    data: { page, size, customType }
   })
 }
 
