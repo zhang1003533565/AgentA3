@@ -249,6 +249,13 @@ export function endMeeting(sessionId) {
   })
 }
 
+export function leaveMeeting(sessionId) {
+  return request({
+    url: `/api/meetings/${encodeURIComponent(sessionId)}/leave`,
+    method: 'POST'
+  })
+}
+
 export function organizeMeeting(sessionId) {
   return request({
     url: `/api/meetings/${encodeURIComponent(sessionId)}/organize`,

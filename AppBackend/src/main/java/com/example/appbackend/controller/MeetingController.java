@@ -100,6 +100,14 @@ public class MeetingController {
         ));
     }
 
+    @PostMapping("/{sessionId}/leave")
+    @Operation(summary = "离开会议")
+    public Result<Void> leave(@PathVariable String sessionId,
+                              HttpServletRequest httpRequest) {
+        meetingService.leaveMeeting(currentUserId(httpRequest), sessionId);
+        return Result.success();
+    }
+
     @PostMapping("/{sessionId}/organize")
     @Operation(summary = "整理会后内容", description = "根据会议记录生成转写整理、会议纪要、流程调度、成员分析和资源推荐结果")
     public Result<MeetingDTO.SessionDetail> organize(@PathVariable String sessionId,

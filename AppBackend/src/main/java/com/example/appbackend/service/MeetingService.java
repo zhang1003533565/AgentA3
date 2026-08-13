@@ -17,6 +17,8 @@ public interface MeetingService {
 
     MeetingDTO.SessionDetail joinMeeting(Long userId, MeetingDTO.JoinRoomRequest request);
 
+    void leaveMeeting(Long userId, String sessionId);
+
     MeetingDTO.SessionDetail getMeeting(Long userId, String sessionId);
 
     MeetingDTO.SessionDetail startMeeting(Long userId, String sessionId);
