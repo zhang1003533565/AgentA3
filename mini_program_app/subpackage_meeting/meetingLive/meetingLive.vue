@@ -381,7 +381,8 @@ export default {
 			members: [],
 			memberPageIndex: 0,
 			swipeStartX: 0,
-			refreshTimer: null
+			refreshTimer: null,
+			meetingEndedHandled: false
 		}
 	},
 	onLoad(options) {
@@ -509,6 +510,10 @@ export default {
 			const creatorId = session?.creatorId
 			const currentId = getCurrentUserId()
 			this.isHost = !!currentId && creatorId != null && String(creatorId) === String(currentId)
+			// 参会人轮询发现会议已被主持人结束：提示并自动退出会议现场（主持人自身在 endMeeting 中已跳转）
+			if (session.status === 'ended' && !this.isHost) {
+				this.handleMeetingEndedByHost()
+			}
 		},
 		initCurrentMember() {
 			const currentName = getCurrentDisplayName()
@@ -1305,6 +1310,18 @@ export default {
 				const message = error?.msg || error?.message || '结束会议失败'
 				uni.showToast({ title: message, icon: 'none' })
 			}
+		},
+		// 主持人已结束会议：参会人端提示并退出，后端 endMeeting 已为在线参会人写入 leaveTime，无需再调 leave 接口
+		handleMeetingEndedByHost() {
+			if (this.meetingEndedHandled) return
+			this.meetingEndedHandled = true
+			uni.showToast({ title: '主持人已结束会议', icon: 'none' })
+			this.stopTimer()
+			this.stopRefreshTimer()
+			this.closeAsr()
+			setTimeout(() => {
+				uni.redirectTo({ url: '/subpackage_meeting/meetingRoom/meetingRoom' })
+			}, 800)
 		},
 	}
 }
