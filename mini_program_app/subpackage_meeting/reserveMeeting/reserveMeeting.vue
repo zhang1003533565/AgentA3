@@ -99,9 +99,11 @@ export default {
 			}
 			this.creating = true
 			try {
+				const durationMap = [15, 30, 45, 60, 90, 120]
 				await reserveMeeting({
 					title,
 					scheduledStartTime: `${this.scheduledDate}T${this.scheduledTime}:00`,
+					expectedDurationMinutes: durationMap[this.durationIndex],
 					participants: buildMeetingParticipants()
 				})
 				uni.showToast({ title: '会议已预约', icon: 'none' })
@@ -109,7 +111,7 @@ export default {
 					uni.redirectTo({ url: '/subpackage_meeting/meetingSchedule/meetingSchedule' })
 				}, 450)
 			} catch (error) {
-				uni.showToast({ title: '会议预约失败，请稍后重试', icon: 'none' })
+				uni.showToast({ title: (error && (error.msg || error.message)) || '会议预约失败，请稍后重试', icon: 'none' })
 			} finally {
 				this.creating = false
 			}

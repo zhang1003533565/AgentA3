@@ -74,6 +74,7 @@ public class MeetingServiceImpl implements MeetingService {
     private static final char[] ROOM_CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789".toCharArray();
     private static final int ROOM_CODE_LENGTH = 6;
     private static final SecureRandom ROOM_CODE_RANDOM = new SecureRandom();
+    private static final int DEFAULT_EXPECTED_DURATION_MINUTES = 30;
 
     private final MeetingSessionRepository sessionRepository;
     private final MeetingParticipantRepository participantRepository;
@@ -125,7 +126,8 @@ public class MeetingServiceImpl implements MeetingService {
         }
         // 防止通过 createMeeting 绕过预约冲突校验
         if (MeetingSession.STATUS_IDLE.equals(session.getStatus()) && session.getScheduledStartTime() != null) {
-            assertNoReservedConflict(userId, session.getScheduledStartTime());
+            session.setExpectedDurationMinutes(resolveExpectedDurationMinutes(request == null ? null : request.getExpectedDurationMinutes()));
+            assertNoTimeOverlap(userId, session.getScheduledStartTime(), session.getExpectedDurationMinutes(), null);
         }
         session = sessionRepository.save(session);
         syncParticipants(session.getId(), withCurrentUser(userId, request == null ? List.of() : request.getParticipants()));
@@ -167,8 +169,9 @@ public class MeetingServiceImpl implements MeetingService {
         session.setTitle(normalizeTitle(request == null ? null : request.getTitle()));
         session.setStatus(MeetingSession.STATUS_IDLE);
         session.setScheduledStartTime(resolveScheduledStartTime(request == null ? null : request.getScheduledStartTime()));
-        // 预约冲突校验：同一主持人不能在同一时间预约多场会议
-        assertNoReservedConflict(userId, session.getScheduledStartTime());
+        session.setExpectedDurationMinutes(resolveExpectedDurationMinutes(request == null ? null : request.getExpectedDurationMinutes()));
+        // 预约冲突校验：同一主持人不能在同一时间段预约多场会议
+        assertNoTimeOverlap(userId, session.getScheduledStartTime(), session.getExpectedDurationMinutes(), null);
         session = sessionRepository.save(session);
         syncParticipants(session.getId(), withCurrentUser(userId, request == null ? List.of() : request.getParticipants()));
         refreshCounters(session);
@@ -201,6 +204,9 @@ public class MeetingServiceImpl implements MeetingService {
             if (request.getScheduledStartTime() != null) {
                 session.setScheduledStartTime(request.getScheduledStartTime());
             }
+            if (request.getExpectedDurationMinutes() != null && request.getExpectedDurationMinutes() > 0) {
+                session.setExpectedDurationMinutes(request.getExpectedDurationMinutes());
+            }
             if (request.getParticipants() != null) {
                 syncParticipants(session.getId(), request.getParticipants());
             }
@@ -211,6 +217,11 @@ public class MeetingServiceImpl implements MeetingService {
                     saveRecord(session, normalizedNotes, MeetingRecord.SOURCE_MANUAL);
                 }
             }
+        }
+        if (session.getScheduledStartTime() != null && !MeetingSession.STATUS_ENDED.equals(session.getStatus())) {
+            assertNoTimeOverlap(userId, session.getScheduledStartTime(),
+                    session.getExpectedDurationMinutes() != null ? session.getExpectedDurationMinutes() : DEFAULT_EXPECTED_DURATION_MINUTES,
+                    session.getSessionId());
         }
         refreshCounters(session);
         return buildDetail(session);
@@ -315,6 +326,7 @@ public class MeetingServiceImpl implements MeetingService {
         }
         session.setStatus(MeetingSession.STATUS_ENDED);
         session.setEndTime(LocalDateTime.now());
+        session.setRoomCode(null);
         refreshCounters(session);
         MeetingDTO.SessionDetail detail = buildDetail(session);
         // 事务提交后再启动 AI 整理，避免异步任务读到事务提交前的旧状态而覆盖 ended
@@ -339,6 +351,72 @@ public class MeetingServiceImpl implements MeetingService {
         organizeMeetingResults(session, authorization, true);
         refreshCounters(session);
         return buildDetail(session);
+    }
+
+    @Override
+    @Transactional
+    public MeetingDTO.SessionDetail transferHost(Long userId, String sessionId, String newHostName) {
+        MeetingSession session = findOwnedSession(userId, sessionId);
+        if (!StringUtils.hasText(newHostName)) {
+            throw new BusinessException(Result.BAD_REQUEST_CODE, "请选择新主持人");
+        }
+        String hostName = newHostName.trim();
+        List<MeetingParticipant> participants = participantRepository.findByMeetingSessionIdOrderBySortOrderAscIdAsc(session.getId());
+        boolean inMeeting = participants.stream().anyMatch(participant -> hostName.equals(participant.getName()));
+        if (!inMeeting) {
+            throw new BusinessException(Result.BAD_REQUEST_CODE, "该成员不在会议中");
+        }
+        Long newHostUserId = resolveUserIdByDisplayName(hostName);
+        if (newHostUserId == null) {
+            throw new BusinessException(Result.BAD_REQUEST_CODE, "无法识别新主持人身份");
+        }
+        session.setUserId(newHostUserId);
+        reorderParticipantsForNewHost(session.getId(), hostName);
+        refreshCounters(session);
+        return buildDetail(session);
+    }
+
+    private Long resolveUserIdByDisplayName(String displayName) {
+        if (!StringUtils.hasText(displayName)) {
+            return null;
+        }
+        String name = displayName.trim();
+        Optional<User> byRealName = userRepository.findByRealName(name);
+        if (byRealName.isPresent()) {
+            return byRealName.get().getId();
+        }
+        Optional<User> byUsername = userRepository.findByUsername(name);
+        if (byUsername.isPresent()) {
+            return byUsername.get().getId();
+        }
+        Optional<User> byPersonalNumber = userRepository.findByPersonalNumber(name);
+        return byPersonalNumber.map(User::getId).orElse(null);
+    }
+
+    private void reorderParticipantsForNewHost(Long meetingSessionId, String newHostName) {
+        List<MeetingParticipant> participants = participantRepository.findByMeetingSessionIdOrderBySortOrderAscIdAsc(meetingSessionId);
+        if (participants.isEmpty()) {
+            return;
+        }
+        MeetingParticipant newHost = null;
+        List<MeetingParticipant> others = new ArrayList<>();
+        for (MeetingParticipant participant : participants) {
+            if (newHostName.equals(participant.getName())) {
+                newHost = participant;
+            } else {
+                others.add(participant);
+            }
+        }
+        if (newHost == null) {
+            return;
+        }
+        List<MeetingParticipant> reordered = new ArrayList<>();
+        reordered.add(newHost);
+        reordered.addAll(others);
+        for (int i = 0; i < reordered.size(); i++) {
+            reordered.get(i).setSortOrder(i);
+        }
+        participantRepository.saveAll(reordered);
     }
 
     @Override
@@ -626,10 +704,25 @@ public class MeetingServiceImpl implements MeetingService {
         }
     }
 
-    private void assertNoReservedConflict(Long userId, LocalDateTime scheduledStartTime) {
-        if (userId != null && scheduledStartTime != null
-                && sessionRepository.existsByUserIdAndStatusAndScheduledStartTime(userId, MeetingSession.STATUS_IDLE, scheduledStartTime)) {
-            throw new BusinessException(Result.BAD_REQUEST_CODE, "你已预约了相同开始时间的会议，请选择其他时间");
+    private void assertNoTimeOverlap(Long userId, LocalDateTime proposedStartTime, Integer expectedDurationMinutes, String excludeSessionId) {
+        if (userId == null || proposedStartTime == null || expectedDurationMinutes == null || expectedDurationMinutes <= 0) {
+            return;
+        }
+        LocalDateTime proposedEndTime = proposedStartTime.plusMinutes(expectedDurationMinutes);
+        List<MeetingSession> candidates = sessionRepository.findPotentialOverlaps(userId, MeetingSession.STATUS_ENDED, proposedEndTime);
+        for (MeetingSession candidate : candidates) {
+            if (excludeSessionId != null && excludeSessionId.equals(candidate.getSessionId())) {
+                continue;
+            }
+            LocalDateTime existingStart = candidate.getScheduledStartTime();
+            if (existingStart == null) {
+                continue;
+            }
+            int existingDuration = candidate.getExpectedDurationMinutes() != null ? candidate.getExpectedDurationMinutes() : DEFAULT_EXPECTED_DURATION_MINUTES;
+            LocalDateTime existingEnd = existingStart.plusMinutes(existingDuration);
+            if (existingEnd.isAfter(proposedStartTime)) {
+                throw new BusinessException(Result.BAD_REQUEST_CODE, "该时间段与已有会议重叠，请选择其他时间");
+            }
         }
     }
 
@@ -744,7 +837,7 @@ public class MeetingServiceImpl implements MeetingService {
     }
 
     private void refreshCounters(MeetingSession session) {
-        if (!StringUtils.hasText(session.getRoomCode())) {
+        if (!StringUtils.hasText(session.getRoomCode()) && !MeetingSession.STATUS_ENDED.equals(session.getStatus())) {
             session.setRoomCode(generateRoomCode());
         }
         session.setRecordCount((int) recordRepository.countByMeetingSessionId(session.getId()));
@@ -875,6 +968,10 @@ public class MeetingServiceImpl implements MeetingService {
 
     private LocalDateTime resolveScheduledStartTime(LocalDateTime scheduledStartTime) {
         return scheduledStartTime == null ? LocalDateTime.now().plusHours(1) : scheduledStartTime;
+    }
+
+    private Integer resolveExpectedDurationMinutes(Integer expectedDurationMinutes) {
+        return expectedDurationMinutes != null && expectedDurationMinutes > 0 ? expectedDurationMinutes : DEFAULT_EXPECTED_DURATION_MINUTES;
     }
 
     private String normalizeRoomCode(String roomCode) {

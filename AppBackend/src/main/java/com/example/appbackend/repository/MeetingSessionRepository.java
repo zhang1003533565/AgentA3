@@ -9,6 +9,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Optional;
 
 public interface MeetingSessionRepository extends JpaRepository<MeetingSession, Long> {
@@ -24,6 +25,16 @@ public interface MeetingSessionRepository extends JpaRepository<MeetingSession, 
     boolean existsByUserIdAndStatus(Long userId, String status);
 
     boolean existsByUserIdAndStatusAndScheduledStartTime(Long userId, String status, LocalDateTime scheduledStartTime);
+
+    @Query("""
+            SELECT s FROM MeetingSession s
+            WHERE s.userId = :userId
+              AND s.status <> :status
+              AND s.scheduledStartTime < :proposedEndTime
+            """)
+    List<MeetingSession> findPotentialOverlaps(@Param("userId") Long userId,
+                                               @Param("status") String status,
+                                               @Param("proposedEndTime") LocalDateTime proposedEndTime);
 
     @Query("""
             SELECT session FROM MeetingSession session

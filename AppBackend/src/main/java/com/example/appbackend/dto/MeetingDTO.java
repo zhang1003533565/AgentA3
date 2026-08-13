@@ -28,6 +28,8 @@ public class MeetingDTO {
 
         private LocalDateTime scheduledStartTime;
 
+        private Integer expectedDurationMinutes;
+
         @Size(max = 20, message = "参会成员最多20人")
         private List<@Size(max = 80, message = "成员名称最多80字符") String> participants = new ArrayList<>();
 
@@ -52,6 +54,8 @@ public class MeetingDTO {
         private String title;
 
         private LocalDateTime scheduledStartTime;
+
+        private Integer expectedDurationMinutes;
 
         @Size(max = 20, message = "参会成员最多20人")
         private List<@Size(max = 80, message = "成员名称最多80字符") String> participants = new ArrayList<>();
