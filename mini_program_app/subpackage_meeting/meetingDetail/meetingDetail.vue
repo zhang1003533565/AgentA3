@@ -48,7 +48,7 @@
 
 			<!-- 参会人 -->
 			<view class="section-card participant-summary-card">
-				<view class="section-title">参会人（{{ participants.length }}）</view>
+				<view class="section-title">参会人（{{ allParticipantNames.length }}）</view>
 				<view class="participant-summary" @click="goMeetingHistory">
 					<view class="participant-avatars">
 						<view
@@ -140,6 +140,7 @@ export default {
 			startTime: '',
 			scheduledStartTime: '',
 			participants: [],
+				allParticipantNames: [],
 			records: [],
 			results: [],
 			organizing: false,
@@ -168,12 +169,12 @@ export default {
 			return `${month}-${day} ${hour}:${minute}`
 		},
 		displayedParticipants() {
-			return this.participants.slice(0, 4)
+			return this.allParticipantNames.slice(0, 4)
 		},
 		participantSummaryText() {
-			const total = this.participants.length
+			const total = this.allParticipantNames.length
 			if (total === 0) return '暂无参会人'
-			const firstTwo = this.participants.slice(0, 2).join('、')
+			const firstTwo = this.allParticipantNames.slice(0, 2).join('、')
 			return `${firstTwo} 等 ${total} 人`
 		},
 		hasResults() {
@@ -213,6 +214,9 @@ export default {
 			this.startTime = session.startTime || ''
 			this.scheduledStartTime = session.scheduledStartTime || ''
 			this.participants = Array.isArray(detail.participants) ? detail.participants : []
+						// 参会人数以最多人数为准：优先使用全部参会记录（含中途离开者），无记录时退回在线名单
+						const records = Array.isArray(detail.participantRecords) ? detail.participantRecords : []
+						this.allParticipantNames = records.length > 0 ? records.map(item => item && item.name).filter(Boolean) : this.participants
 			this.records = Array.isArray(detail.records) ? detail.records : []
 			this.results = Array.isArray(detail.results) ? detail.results : []
 		},

@@ -29,6 +29,9 @@ public class MeetingParticipant {
     @Column(name = "create_time", columnDefinition = "DATETIME COMMENT '创建时间'")
     private LocalDateTime createTime;
 
+    @Column(name = "leave_time", columnDefinition = "DATETIME COMMENT '离开时间'")
+    private LocalDateTime leaveTime;
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "meeting_session_id", insertable = false, updatable = false)
     private MeetingSession session;

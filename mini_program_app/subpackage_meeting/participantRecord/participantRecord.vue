@@ -31,10 +31,10 @@
 								<view v-if="member.status !== '多次进出'" class="status-tag" :class="`status-tag--${statusClass(member.status)}`">{{ member.status }}</view>
 								<text v-else class="multi-label">多次进出</text>
 							</view>
-							<text class="member-duration">{{ member.duration }}分钟</text>
+							<text class="member-duration">{{ durationText(member) }}</text>
 						</view>
 						<view v-if="member.status !== '多次进出'" class="member-time">
-							<text>{{ member.joinTime }} 加入 · {{ member.leaveTime }} 离开</text>
+							<text>{{ memberTimeText(member) }}</text>
 						</view>
 						<view v-else class="member-multi">
 							<view class="multi-summary">
@@ -117,11 +117,19 @@ export default {
 				this.title = session.title || this.title
 				this.startTime = session.startTime || ''
 				this.endTime = session.endTime || session.scheduledStartTime || ''
-				this.participantCount = Array.isArray(detail.participants) ? detail.participants.length : 0
 				this.duration = this.computeDuration(this.startTime, this.endTime)
 
 				if (Array.isArray(detail.participantRecords) && detail.participantRecords.length > 0) {
-					this.members = detail.participantRecords.map(m => ({ ...m, showDetail: false }))
+					this.members = detail.participantRecords.map(m => ({
+						name: m.name || '成员',
+						status: m.status || '全程参会',
+						joinTime: m.joinTime || '',
+						leaveTime: m.leaveTime || '',
+						duration: m.duration,
+						entries: [],
+						showDetail: false
+					}))
+					this.participantCount = detail.participantRecords.length
 				} else {
 					this.useMockData()
 				}
@@ -147,6 +155,14 @@ export default {
 		statusClass(status) {
 			const map = { '全程参会': 'full', '迟到加入': 'late', '提前离开': 'early' }
 			return map[status] || 'full'
+		},
+		durationText(member) {
+			return member.duration != null ? `${member.duration}分钟` : '—'
+		},
+		memberTimeText(member) {
+			if (member.leaveTime) return `${member.joinTime} 加入 · ${member.leaveTime} 离开`
+			if (member.status === '提前离开') return `${member.joinTime} 加入 · 提前离开`
+			return `${member.joinTime} 加入 · 进行中`
 		},
 		toggleDetail(member) {
 			member.showDetail = !member.showDetail

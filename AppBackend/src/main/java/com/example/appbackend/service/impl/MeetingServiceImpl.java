@@ -36,7 +36,9 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 import org.springframework.util.StringUtils;
 
 import java.security.SecureRandom;
+import java.time.Duration;
 import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -75,6 +77,9 @@ public class MeetingServiceImpl implements MeetingService {
     private static final int ROOM_CODE_LENGTH = 6;
     private static final SecureRandom ROOM_CODE_RANDOM = new SecureRandom();
     private static final int DEFAULT_EXPECTED_DURATION_MINUTES = 30;
+    private static final long PARTICIPANT_LATE_MINUTES = 5L;
+    private static final long PARTICIPANT_LEAVE_EARLY_MINUTES = 5L;
+    private static final DateTimeFormatter PARTICIPANT_TIME_FORMAT = DateTimeFormatter.ofPattern("HH:mm");
 
     private final MeetingSessionRepository sessionRepository;
     private final MeetingParticipantRepository participantRepository;
@@ -271,6 +276,7 @@ public class MeetingServiceImpl implements MeetingService {
             participantRepository.findByMeetingSessionIdAndName(session.getId(), displayName)
                     .ifPresent(participant -> {
                         participant.setOnline(false);
+                        participant.setLeaveTime(LocalDateTime.now());
                         participantRepository.save(participant);
                     });
         }
@@ -281,7 +287,10 @@ public class MeetingServiceImpl implements MeetingService {
     @Transactional
     public MeetingDTO.SessionDetail getMeeting(Long userId, String sessionId) {
         MeetingSession session = findAccessibleSession(userId, sessionId);
-        restoreParticipantOnline(userId, session.getId());
+        // 已结束的会议只允许查看，不再恢复在线状态，避免清空已记录的离开时间
+        if (!MeetingSession.STATUS_ENDED.equals(session.getStatus())) {
+            restoreParticipantOnline(userId, session.getId());
+        }
         return buildDetail(session);
     }
 
@@ -294,6 +303,7 @@ public class MeetingServiceImpl implements MeetingService {
                 .ifPresent(participant -> {
                     if (Boolean.FALSE.equals(participant.getOnline())) {
                         participant.setOnline(true);
+                        participant.setLeaveTime(null);
                         participantRepository.save(participant);
                     }
                 });
@@ -327,6 +337,7 @@ public class MeetingServiceImpl implements MeetingService {
         session.setStatus(MeetingSession.STATUS_ENDED);
         session.setEndTime(LocalDateTime.now());
         session.setRoomCode(null);
+        markOnlineParticipantsLeave(session);
         refreshCounters(session);
         MeetingDTO.SessionDetail detail = buildDetail(session);
         // 事务提交后再启动 AI 整理，避免异步任务读到事务提交前的旧状态而覆盖 ended
@@ -809,6 +820,7 @@ public class MeetingServiceImpl implements MeetingService {
             MeetingParticipant participant = existing.get();
             if (Boolean.FALSE.equals(participant.getOnline())) {
                 participant.setOnline(true);
+                participant.setLeaveTime(null);
                 participantRepository.save(participant);
             }
             return;
@@ -885,6 +897,7 @@ public class MeetingServiceImpl implements MeetingService {
                 .filter(participant -> Boolean.TRUE.equals(participant.getOnline()))
                 .map(MeetingParticipant::getName)
                 .collect(Collectors.toList()));
+        detail.setParticipantRecords(buildParticipantRecords(session));
         detail.setRecords(recordRepository.findByMeetingSessionIdOrderByCreateTimeAscIdAsc(session.getId()).stream()
                 .map(this::toRecordItem)
                 .collect(Collectors.toList()));
@@ -892,6 +905,54 @@ public class MeetingServiceImpl implements MeetingService {
                 .map(this::toResultItem)
                 .collect(Collectors.toList()));
         return detail;
+    }
+
+    private List<MeetingDTO.ParticipantRecordItem> buildParticipantRecords(MeetingSession session) {
+        LocalDateTime start = session.getStartTime() != null ? session.getStartTime()
+                : (session.getScheduledStartTime() != null ? session.getScheduledStartTime() : session.getCreateTime());
+        LocalDateTime end = session.getEndTime();
+        boolean ended = MeetingSession.STATUS_ENDED.equals(session.getStatus()) && end != null;
+        return participantRepository.findByMeetingSessionIdOrderBySortOrderAscIdAsc(session.getId()).stream()
+                .map(participant -> toParticipantRecordItem(participant, start, end, ended))
+                .collect(Collectors.toList());
+    }
+
+    private MeetingDTO.ParticipantRecordItem toParticipantRecordItem(MeetingParticipant participant, LocalDateTime start,
+                                                                     LocalDateTime end, boolean ended) {
+        MeetingDTO.ParticipantRecordItem item = new MeetingDTO.ParticipantRecordItem();
+        item.setName(participant.getName());
+        LocalDateTime join = participant.getCreateTime();
+        LocalDateTime leave = participant.getLeaveTime();
+        item.setJoinTime(join != null ? join.format(PARTICIPANT_TIME_FORMAT) : "");
+        item.setLeaveTime(leave != null ? leave.format(PARTICIPANT_TIME_FORMAT) : null);
+        if (join != null && leave != null) {
+            item.setDuration(Math.max(0L, Duration.between(join, leave).toMinutes()));
+        } else if (join != null && !ended) {
+            item.setDuration(Math.max(0L, Duration.between(join, LocalDateTime.now()).toMinutes()));
+        }
+        item.setStatus(resolveParticipantStatus(join, leave, start, end, ended));
+        return item;
+    }
+
+    private String resolveParticipantStatus(LocalDateTime join, LocalDateTime leave,
+                                            LocalDateTime start, LocalDateTime end, boolean ended) {
+        if (ended && (leave == null || leave.isBefore(end.minusMinutes(PARTICIPANT_LEAVE_EARLY_MINUTES)))) {
+            return "提前离开";
+        }
+        if (join != null && start != null && join.isAfter(start.plusMinutes(PARTICIPANT_LATE_MINUTES))) {
+            return "迟到加入";
+        }
+        return "全程参会";
+    }
+
+    private void markOnlineParticipantsLeave(MeetingSession session) {
+        List<MeetingParticipant> participants = participantRepository.findByMeetingSessionIdOrderBySortOrderAscIdAsc(session.getId());
+        for (MeetingParticipant participant : participants) {
+            if (Boolean.TRUE.equals(participant.getOnline()) && participant.getLeaveTime() == null) {
+                participant.setLeaveTime(session.getEndTime());
+                participantRepository.save(participant);
+            }
+        }
     }
 
     private Long creatorOf(MeetingSession session) {

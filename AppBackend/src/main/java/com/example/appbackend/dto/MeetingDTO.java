@@ -130,8 +130,19 @@ public class MeetingDTO {
     public static class SessionDetail {
         private SessionItem session;
         private List<String> participants = new ArrayList<>();
+        private List<ParticipantRecordItem> participantRecords = new ArrayList<>();
         private List<RecordItem> records = new ArrayList<>();
         private List<AgentResultItem> results = new ArrayList<>();
+    }
+
+    @Data
+    @Schema(description = "参会记录项")
+    public static class ParticipantRecordItem {
+        private String name;
+        private String status;
+        private String joinTime;
+        private String leaveTime;
+        private Long duration;
     }
 
     @Data
