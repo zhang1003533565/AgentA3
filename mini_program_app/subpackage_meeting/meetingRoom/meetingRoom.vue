@@ -106,10 +106,6 @@
 								<image class="meta-icon" src="@/static/icons/line/clock.svg" mode="aspectFit" />
 								<text>{{ historyTime(meeting) }}</text>
 							</view>
-							<view class="meeting-meta">
-								<image class="meta-icon" src="@/static/icons/line/id-card.svg" mode="aspectFit" />
-								<text>会议号 {{ formatRoomCode(meeting.roomCode) }}</text>
-							</view>
 						</view>
 						<!-- 右侧操作区 - 固定宽度保证对齐 -->
 						<view class="action-side">
