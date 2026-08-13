@@ -227,6 +227,26 @@
   color: #e25555;
 }
 
+/* 已选中的专业大类只展示名称，不显示标签删除按钮。 */
+.course-form .ant-select-selection-item-remove {
+  display: none;
+}
+
+:deep(.course-form .ant-select-selection-item .course-type-option-delete),
+:deep(.course-form .ant-select-selection-item-remove),
+:deep(.course-form .ant-select-clear) {
+  display: none !important;
+}
+
+.course-form .ant-select-selection-item .course-type-option-delete {
+  display: none !important;
+}
+
+.course-form .ant-select-selection-item-remove,
+.course-form .ant-select-clear {
+  display: none !important;
+}
+
 /* ---- 封面上传 ---- */
 .course-cover-upload__trigger {
   display: grid;
