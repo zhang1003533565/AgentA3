@@ -5,6 +5,7 @@ import com.example.appbackend.dto.LlmChatResponse;
 import com.example.appbackend.entity.SystemConfig;
 import com.example.appbackend.exception.BusinessException;
 import com.example.appbackend.repository.SystemConfigRepository;
+import com.example.appbackend.service.LangfuseConfigService;
 import com.example.appbackend.service.SystemConfigService;
 import com.example.appbackend.util.JwtUtil;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -29,8 +30,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
+
+import static org.mockito.Mockito.mock;
 
 class PythonAiProxyServiceTest {
 
@@ -705,6 +708,7 @@ class PythonAiProxyServiceTest {
                 jwtUtil,
                 systemConfigService,
                 systemConfigRepository,
+                mock(LangfuseConfigService.class),
                 "http://localhost:" + port,
                 5,
                 300,

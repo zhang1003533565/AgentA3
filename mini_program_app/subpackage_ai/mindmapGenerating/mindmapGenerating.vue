@@ -496,8 +496,8 @@ async function run() {
       sourceFile: sourceFile.value,
       fileId: fileId.value
     })
-    // 先取数据再播放（与 demo 一致：数据就绪才播），并加超时防止请求挂起导致无限等待
-    const result = await withTimeout(requestGenerateMindmap(payload), 20000)
+    // 先取数据再播放；超时统一由 API 层的 120 秒配置控制
+    const result = await requestGenerateMindmap(payload)
     uni.setStorageSync(`aiMindmapResult:${result.id}`, result)
     state.resultData = result
     handleAIData(result)

@@ -11,7 +11,12 @@ public interface ActivityService {
     /**
      * 获取活动列表
      */
-    PageResponse<Activity> getActivityList(Integer page, Integer size, String title, Long categoryId, Status status);
+    PageResponse<Activity> getActivityList(Integer page, Integer size, String title, Long categoryId, Status status, String timePhase);
+
+    /**
+     * 获取我发起的活动（按组织者分页）
+     */
+    PageResponse<Activity> getActivitiesByOrganizer(Long organizerId, Integer page, Integer size);
 
     /**
      * 获取活动详情

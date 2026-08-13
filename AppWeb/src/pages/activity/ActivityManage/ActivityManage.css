@@ -5,7 +5,7 @@
 
 /* 主内容区 */
 .manage-main {
-  max-width: 1400px;
+  max-width: 1600px;
   margin: 0 auto;
 }
 
@@ -113,6 +113,20 @@
   font-size: 14px;
 }
 
+/* 报名人数列 */
+.am-people {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.am-people-count {
+  font-size: 13px;
+  font-weight: 600;
+  color: #334155;
+  white-space: nowrap;
+}
+
 /* 响应式 */
 @media (max-width: 768px) {
   .search-bar {
@@ -127,5 +141,69 @@
   
   .search-bar .ant-form-item {
     margin-bottom: 8px;
+  }
+}
+
+/* 状态统计卡片 */
+.activity-stats {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+}
+
+.activity-stats .stat-item {
+  appearance: none;
+  font: inherit;
+  text-align: left;
+  background: #fff;
+  border-radius: 8px;
+  padding: 12px 28px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  border: 1px solid #e2e8f0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 128px;
+  justify-content: center;
+}
+
+.activity-stats .stat-item:hover {
+  border-color: #1677ff;
+  box-shadow: 0 2px 8px rgba(22, 119, 255, 0.1);
+}
+
+.activity-stats .stat-item.active {
+  border-color: #1677ff;
+  background: #fff;
+  box-shadow: 0 0 0 1px rgba(22, 119, 255, 0.08);
+}
+
+.activity-stats .stat-item.active .stat-label,
+.activity-stats .stat-item.active .stat-number {
+  color: #1677ff;
+}
+
+.activity-stats .stat-number {
+  font-size: 16px;
+  font-weight: 700;
+  color: inherit;
+  line-height: 1;
+}
+
+.activity-stats .stat-label {
+  font-size: 16px;
+  color: inherit;
+}
+
+@media (max-width: 768px) {
+  .activity-stats {
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .activity-stats .stat-item {
+    justify-content: space-between;
   }
 }

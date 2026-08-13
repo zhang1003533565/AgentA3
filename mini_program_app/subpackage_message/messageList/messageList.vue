@@ -28,8 +28,8 @@
 
 <script>
 	import NavBar from '@/components/nav-bar/nav-bar.vue'
-	import { getCommentList, getPostList, getTopicPosts } from '@/api/forum.js'
-	import { getCurrentUserId, markForumCategoryRead, isForumCategoryRead } from '@/utils/storage.js'
+	import { getForumMessageUnread } from '@/api/forum.js'
+	import { markForumCategoryRead, isForumCategoryRead } from '@/utils/storage.js'
 	export default {
 		components: { NavBar },
 		data() {
@@ -56,39 +56,23 @@
 		},
 		methods: {
 			async loadUnreadStats() {
-				// 与消息列表页同源：真实统计帖子评论/点赞/公告，已读状态覆盖
-				const uid = getCurrentUserId()
-				let commentCount = 0
-				let likeCount = 0
-				let myPosts = []
+				// 聚合接口一次返回三类未读数，避免逐个帖子请求评论的 N+1 问题
+				let stats = { comment: 0, like: 0, system: 0 }
 				try {
-					const res = await getPostList({ userId: uid, pageNum: 1, pageSize: 20 })
-					myPosts = res?.data?.records || []
+					const res = await getForumMessageUnread()
+					stats = {
+						comment: Number(res?.data?.commentCount || 0),
+						like: Number(res?.data?.likeCount || 0),
+						system: Number(res?.data?.systemCount || 0)
+					}
 				} catch (error) {
-					myPosts = []
-				}
-				for (const post of myPosts) {
-					if (post.likeCount > 0) likeCount += 1
-					try {
-						const res = await getCommentList({ postId: post.id, pageNum: 1, pageSize: 20 })
-						const comments = res?.data?.records || []
-						for (const comment of comments) {
-							if (String(comment.userId) !== String(uid)) commentCount += 1
-						}
-					} catch (error) {}
-				}
-				let systemCount = 0
-				try {
-					const res = await getTopicPosts(3, { pageNum: 1, pageSize: 20 })
-					systemCount = (res?.data?.records || []).length
-				} catch (error) {
-					systemCount = 0
+					stats = { comment: 0, like: 0, system: 0 }
 				}
 				// 已读状态覆盖未读数
 				this.unreadStats = {
-					like: isForumCategoryRead('like') ? 0 : likeCount,
-					comment: isForumCategoryRead('comment') ? 0 : commentCount,
-					system: isForumCategoryRead('system') ? 0 : systemCount
+					like: isForumCategoryRead('like') ? 0 : stats.like,
+					comment: isForumCategoryRead('comment') ? 0 : stats.comment,
+					system: isForumCategoryRead('system') ? 0 : stats.system
 				}
 			},
 			goToSection(section) {

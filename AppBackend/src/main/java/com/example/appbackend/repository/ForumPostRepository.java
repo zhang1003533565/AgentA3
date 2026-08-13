@@ -29,6 +29,7 @@ public interface ForumPostRepository extends JpaRepository<ForumPost, Long> {
     @Query("SELECT p FROM ForumPost p WHERE " +
            "(:topicId IS NULL OR p.topicId = :topicId) " +
            "AND (:status IS NULL OR p.status = :status) " +
+           "AND (:status IS NOT NULL OR p.status <> 'DELETED') " +
            "AND (:keyword IS NULL OR p.title LIKE %:keyword% OR p.content LIKE %:keyword%)")
     Page<ForumPost> findAdminPosts(
             @Param("topicId") Long topicId,

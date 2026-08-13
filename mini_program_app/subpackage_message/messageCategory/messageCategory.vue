@@ -36,7 +36,7 @@
 
 <script>
 	import NavBar from '@/components/nav-bar/nav-bar.vue'
-	import { getCommentList, getPostList, getPostDetail, getTopicPosts, getUserLikes, parseImageList } from '@/api/forum.js'
+	import { getPostList, getReceivedComments, getTopicPosts, parseImageList } from '@/api/forum.js'
 	import { getCurrentUserId, markForumCategoryRead, isForumCategoryRead } from '@/utils/storage.js'
 	export default {
 		components: { NavBar },
@@ -95,39 +95,26 @@
 				// 进入列表页即视为已读：持久化标记并通知来源页清除红点（静默，不弹提示）
 				this.autoMarkRead()
 			},
-			// 收到的评论：别人在我帖子下的真实评论
+			// 收到的评论：别人在我帖子下的真实评论（聚合接口一次返回，避免 N+1 查询）
 			async loadCommentMessages() {
-				const uid = this.currentUserId
-				// 拉取我的帖子
-				let myPosts = []
+				let items = []
 				try {
-					const res = await getPostList({ userId: uid, pageNum: 1, pageSize: 20 })
-					myPosts = res?.data?.records || []
+					const res = await getReceivedComments()
+					const records = res?.data || []
+					items = records.map((comment) => ({
+						id: comment.id,
+						name: comment.username || '匿名用户',
+						avatar: comment.avatar || '',
+						action: `评论了你的帖子「${comment.postTitle || ''}」`,
+						desc: comment.content || '',
+						time: this.formatTime(comment.createTime),
+						isRead: false,
+						bgColor: '#E8F5E9',
+						target: 'post',
+						postId: comment.postId
+					}))
 				} catch (error) {
-					myPosts = []
-				}
-				const items = []
-				for (const post of myPosts) {
-					try {
-						const res = await getCommentList({ postId: post.id, pageNum: 1, pageSize: 20 })
-						const comments = res?.data?.records || []
-						for (const comment of comments) {
-							// 排除自己评论自己的
-							if (String(comment.userId) === String(uid)) continue
-							items.push({
-								id: comment.id,
-								name: comment.username || '匿名用户',
-								avatar: comment.avatar || '',
-								action: '评论了你的帖子',
-								desc: comment.content || '',
-								time: this.formatTime(comment.createTime),
-								isRead: false,
-								bgColor: '#E8F5E9',
-								target: 'post',
-								postId: post.id
-							})
-						}
-					} catch (error) {}
+					items = []
 				}
 				items.sort((a, b) => String(b.time).localeCompare(String(a.time)))
 				this.list = items

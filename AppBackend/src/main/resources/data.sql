@@ -1558,6 +1558,16 @@ CREATE TABLE IF NOT EXISTS system_config (
     update_time DATETIME COMMENT '更新时间'
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='系统配置表';
 
+CREATE TABLE IF NOT EXISTS langfuse_config (
+    id BIGINT PRIMARY KEY COMMENT '固定为 1 的 Langfuse 配置记录',
+    enabled TINYINT NOT NULL DEFAULT 0 COMMENT '是否启用 Langfuse 观测',
+    base_url VARCHAR(500) NULL COMMENT 'Langfuse 服务地址',
+    public_key TEXT NULL COMMENT '加密保存的 Langfuse Public Key',
+    secret_key TEXT NULL COMMENT '加密保存的 Langfuse Secret Key',
+    create_time DATETIME NULL COMMENT '创建时间',
+    update_time DATETIME NULL COMMENT '更新时间'
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Langfuse AI 观测配置';
+
 DELETE FROM system_config WHERE config_key IN (
   'ai.provider', 'ai.base-url', 'ai.api-key', 'ai.model',
   'ai.app.models', 'ai.app.default-model', 'ai.app.word-count-options', 'ai.app.tone-options',

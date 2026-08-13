@@ -6,6 +6,7 @@ import com.example.appbackend.entity.Result;
 import com.example.appbackend.exception.BusinessException;
 import com.example.appbackend.repository.SystemConfigRepository;
 import com.example.appbackend.service.SystemConfigService;
+import com.example.appbackend.service.LangfuseConfigService;
 import com.example.appbackend.util.JwtUtil;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
@@ -54,6 +55,7 @@ public class PythonAiProxyService {
     private final JwtUtil jwtUtil;
     private final SystemConfigService systemConfigService;
     private final SystemConfigRepository systemConfigRepository;
+    private final LangfuseConfigService langfuseConfigService;
     private final String pythonBaseUrl;
     private final long timeoutSeconds;
     private final long pptTimeoutSeconds;
@@ -86,6 +88,7 @@ public class PythonAiProxyService {
                                 JwtUtil jwtUtil,
                                 SystemConfigService systemConfigService,
                                 SystemConfigRepository systemConfigRepository,
+                                LangfuseConfigService langfuseConfigService,
                                 @Value("${ai.python.base-url:http://localhost:8081}") String pythonBaseUrl,
                                 @Value("${ai.python.timeout-seconds:65}") long timeoutSeconds,
                                 @Value("${ai.python.ppt-timeout-seconds:300}") long pptTimeoutSeconds,
@@ -96,6 +99,7 @@ public class PythonAiProxyService {
         this.jwtUtil = jwtUtil;
         this.systemConfigService = systemConfigService;
         this.systemConfigRepository = systemConfigRepository;
+        this.langfuseConfigService = langfuseConfigService;
         this.pythonBaseUrl = pythonBaseUrl;
         this.timeoutSeconds = timeoutSeconds;
         this.pptTimeoutSeconds = pptTimeoutSeconds;
@@ -1007,6 +1011,7 @@ public class PythonAiProxyService {
         headers.set(HttpHeaders.AUTHORIZATION, authorization);
         headers.set("X-User-Id", userId.toString());
         applyInternalToken(headers);
+        langfuseConfigService.applyPythonHeaders(headers);
     }
 
     private void applyInternalToken(HttpHeaders headers) {

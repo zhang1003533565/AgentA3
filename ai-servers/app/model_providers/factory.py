@@ -3,6 +3,7 @@ from typing import Dict
 from fastapi import HTTPException
 
 from app.model_providers.base import ChatModelProvider
+from app.observability.langfuse import provider_cache_key
 from app.model_providers.deepseek import DeepSeekProvider
 from app.model_providers.qwen import QwenProvider
 from app.model_providers.qwen.provider import QWEN_PROVIDER_ALIASES
@@ -36,7 +37,7 @@ def get_chat_model_provider() -> ChatModelProvider:
     except RuntimeError as exc:
         raise HTTPException(status_code=500, detail=str(exc))
 
-    cache_key = config.cache_key()
+    cache_key = (config.cache_key(), provider_cache_key())
     if cache_key in _provider_cache:
         return _provider_cache[cache_key]
 

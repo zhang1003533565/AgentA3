@@ -42,132 +42,83 @@
       </view>
     </view>
 
-    <!-- 帖子列表 -->
-    <scroll-view 
-      class="post-list" 
-      scroll-y 
-      @scrolltolower="loadMore"
-      refresher-enabled
-      :refresher-triggered="isRefreshing"
-      @refresherrefresh="onRefresh"
-    >
-      <!-- 全部：按时间排序显示所有帖子 -->
-      <view v-if="currentTopic === 0" class="all-posts">
-        <view 
-          v-for="(item, index) in sortedPosts" 
-          :key="index"
-          class="post-item"
-          @click="goToDetail(item.id)"
+    <!-- 帖子列表（swiper 多面板，支持左右滑动切换话题） -->
+    <swiper class="post-swiper" :current="currentTopicIndex" @change="onSwiperChange">
+      <swiper-item v-for="(topic, index) in topics" :key="topic.id" class="post-swiper-item">
+        <scroll-view 
+          class="post-list" 
+          scroll-y 
+          @scrolltolower="loadMore(topic.id)"
+          :refresher-enabled="currentTopicIndex === index"
+          :refresher-triggered="isRefreshing"
+          @refresherrefresh="onRefresh"
         >
-          <!-- 用户信息 -->
-          <view class="post-header">
-            <image class="user-avatar" :src="item.avatar || '/static/logo.png'" mode="aspectFill" @click.stop="goToUserProfile(item)" />
-            <view class="user-info">
-              <text class="user-name">{{ item.userName }}</text>
-              <text class="post-time">{{ item.createTime }}</text>
+          <!-- 该话题的帖子列表 -->
+          <view 
+            v-for="(item, idx) in getTopicPosts(topic.id)" 
+            :key="idx"
+            class="post-item"
+            @click="goToDetail(item.id)"
+          >
+            <!-- 用户信息 -->
+            <view class="post-header">
+              <image class="user-avatar" :src="item.avatar || '/static/logo.png'" mode="aspectFill" @click.stop="goToUserProfile(item)" />
+              <view class="user-info">
+                <text class="user-name">{{ item.userName }}</text>
+                <text class="post-time">{{ item.createTime }}</text>
+              </view>
+            </view>
+
+            <!-- 帖子内容 -->
+            <view class="post-content">
+              <text class="post-title" v-if="item.title">{{ item.title }}</text>
+              <text class="post-text">{{ item.content }}</text>
+              <view class="post-images" v-if="item.images && item.images.length">
+                <image 
+                  v-for="(img, imgIndex) in item.images.slice(0, 3)" 
+                  :key="imgIndex"
+                  class="post-image"
+                  :src="img"
+                  mode="aspectFill"
+                />
+              </view>
+            </view>
+
+            <!-- 互动数据 -->
+            <view class="post-footer">
+              <view class="action-item" @click.stop="toggleLike(item)">
+                <image
+                  class="action-icon-img"
+                  :src="item.isLiked ? '/static/icons/line/thumb-up-filled.svg' : '/static/icons/line/thumb-up.svg'"
+                  mode="aspectFit"
+                />
+                <text class="action-count">{{ item.likeCount || 0 }}</text>
+              </view>
+              <view class="action-item">
+                <text class="action-icon">💬</text>
+                <text class="action-count">{{ item.commentCount || 0 }}</text>
+              </view>
+              <view class="action-item view-count">
+                <text class="action-icon">👁️</text>
+                <text class="action-count">{{ item.viewCount || 0 }}</text>
+              </view>
             </view>
           </view>
 
-          <!-- 帖子内容 -->
-          <view class="post-content">
-            <text class="post-title" v-if="item.title">{{ item.title }}</text>
-            <text class="post-text">{{ item.content }}</text>
-            <view class="post-images" v-if="item.images && item.images.length">
-              <image 
-                v-for="(img, imgIndex) in item.images.slice(0, 3)" 
-                :key="imgIndex"
-                class="post-image"
-                :src="img"
-                mode="aspectFill"
-              />
+          <!-- 加载更多 / 空状态 -->
+          <view class="load-more">
+            <view v-if="isTopicLoading(topic.id)" class="loading-indicator">
+              <view class="loading-spinner" />
+              <text>正在刷新...</text>
             </view>
+            <text v-else-if="isTopicNoMore(topic.id)">没有更多了</text>
+            <text v-else-if="!getTopicPosts(topic.id).length">暂无帖子，快来发布第一篇吧~</text>
           </view>
-
-          <!-- 互动数据 -->
-          <view class="post-footer">
-            <view class="action-item" @click.stop="toggleLike(item)">
-              <image
-                class="action-icon-img"
-                :src="item.isLiked ? '/static/icons/line/thumb-up-filled.svg' : '/static/icons/line/thumb-up.svg'"
-                mode="aspectFit"
-              />
-              <text class="action-count">{{ item.likeCount || 0 }}</text>
-            </view>
-            <view class="action-item">
-              <text class="action-icon">💬</text>
-              <text class="action-count">{{ item.commentCount || 0 }}</text>
-            </view>
-            <view class="action-item view-count">
-              <text class="action-icon">👁️</text>
-              <text class="action-count">{{ item.viewCount || 0 }}</text>
-            </view>
-          </view>
-        </view>
-      </view>
-      
-      <!-- 选中具体分类时，显示该分类的所有帖子（也按时间排序） -->
-      <view v-else>
-        <view 
-          v-for="(item, index) in sortedPosts" 
-          :key="index"
-          class="post-item"
-          @click="goToDetail(item.id)"
-        >
-          <!-- 用户信息 -->
-          <view class="post-header">
-            <image class="user-avatar" :src="item.avatar || '/static/logo.png'" mode="aspectFill" @click.stop="goToUserProfile(item)" />
-            <view class="user-info">
-              <text class="user-name">{{ item.userName }}</text>
-              <text class="post-time">{{ item.createTime }}</text>
-            </view>
-          </view>
-
-          <!-- 帖子内容 -->
-          <view class="post-content">
-            <text class="post-title" v-if="item.title">{{ item.title }}</text>
-            <text class="post-text">{{ item.content }}</text>
-            <view class="post-images" v-if="item.images && item.images.length">
-              <image 
-                v-for="(img, imgIndex) in item.images.slice(0, 3)" 
-                :key="imgIndex"
-                class="post-image"
-                :src="img"
-                mode="aspectFill"
-              />
-            </view>
-          </view>
-
-          <!-- 互动数据 -->
-          <view class="post-footer">
-            <view class="action-item" @click.stop="toggleLike(item)">
-              <image
-                class="action-icon-img"
-                :src="item.isLiked ? '/static/icons/line/thumb-up-filled.svg' : '/static/icons/line/thumb-up.svg'"
-                mode="aspectFit"
-              />
-              <text class="action-count">{{ item.likeCount || 0 }}</text>
-            </view>
-            <view class="action-item">
-              <text class="action-icon">💬</text>
-              <text class="action-count">{{ item.commentCount || 0 }}</text>
-            </view>
-            <view class="action-item view-count">
-              <text class="action-icon">👁️</text>
-              <text class="action-count">{{ item.viewCount || 0 }}</text>
-            </view>
-          </view>
-        </view>
-      </view>
-
-      <!-- 加载更多 -->
-      <view class="load-more">
-        <text v-if="loading">加载中...</text>
-        <text v-else-if="noMore">没有更多了</text>
-        <text v-else-if="postList.length === 0 && currentTopic !== 0">暂无帖子，快来发布第一篇吧~</text>
-      </view>
           <!-- 底部留白 -->
-      <view class="post-list-bottom-pad" />
-    </scroll-view>
+          <view class="post-list-bottom-pad" />
+        </scroll-view>
+      </swiper-item>
+    </swiper>
 
     <!-- 底部悬浮发帖按钮 -->
     <view class="fab-publish-btn" v-if="!showPublishModal" @click="openPublishModal">
@@ -284,9 +235,12 @@ export default {
         { id: 10, name: '📚学习资料' },
         { id: 11, name: '🌸影忆青春' }
       ],
-      postList: [],
+      currentTopic: 0,
+      currentTopicIndex: 0,
+      // 按话题分组的分页状态：topicId -> { list, page, pageSize, loading, noMore }
+      topicState: {},
       page: 1,
-      pageSize: 10,
+      pageSize: 4,
       loading: false,
       noMore: false,
       isRefreshing: false,
@@ -310,12 +264,6 @@ export default {
     }
   },
   computed: {
-    // 按时间排序的帖子（时间晚的在上面）
-    sortedPosts() {
-      return [...this.postList].sort((a, b) => {
-        return new Date(b.createTime) - new Date(a.createTime)
-      })
-    },
     canPublish() {
       return this.publishForm.content.trim().length >= 10
     }
@@ -329,14 +277,16 @@ export default {
     this.loadCurrentUser()
     await this.loadTopics()
     await this.loadHotTopicList()
-    this.loadPostList()
+    // 初始只加载当前话题（全部），其余面板懒加载
+    this.loadPostList(0)
   },
   onShow() {
-    // 从帖子详情返回时静默刷新，保证删除/举报后的列表状态一致
-    if (this.postList.length > 0 && !this.loading) {
-      this.page = 1
-      this.noMore = false
-      this.loadPostList()
+    // 从帖子详情返回时静默刷新当前话题，保证删除/举报后的列表状态一致
+    const state = this.getTopicState(this.currentTopic)
+    if (state.list.length > 0 && !state.loading) {
+      state.page = 1
+      state.noMore = false
+      this.loadPostList(this.currentTopic)
     }
   },
   methods: {
@@ -373,32 +323,62 @@ export default {
         this.hotTopics = []
       }
     },
-    async loadPostList() {
-      if (this.loading || this.noMore) return
-      this.loading = true
+    // 获取指定话题的分页状态（懒初始化）
+    getTopicState(topicId) {
+      if (!this.topicState[topicId]) {
+        this.topicState[topicId] = {
+          list: [],
+          page: 1,
+          loading: false,
+          noMore: false,
+          loaded: false
+        }
+      }
+      return this.topicState[topicId]
+    },
+    getTopicPosts(topicId) {
+      return this.getTopicState(topicId).list
+    },
+    isTopicLoading(topicId) {
+      return this.getTopicState(topicId).loading
+    },
+    isTopicNoMore(topicId) {
+      return this.getTopicState(topicId).noMore
+    },
+    async loadPostList(topicId) {
+      const state = this.getTopicState(topicId)
+      if (state.loading || state.noMore) return
+      state.loading = true
+      const startTime = Date.now()
       try {
         const params = {
-          pageNum: this.page,
+          pageNum: state.page,
           pageSize: this.pageSize
         }
         // id=1 热门 → 按点赞量排序；id=2 最新 → 按时间倒序（后端默认）
-        if (this.currentTopic === 1) {
+        if (topicId === 1) {
           params.sortBy = 'likeCount'
-        } else if (this.currentTopic !== 0 && this.currentTopic !== 2) {
-          params.topicId = this.currentTopic
+        } else if (topicId !== 0 && topicId !== 2) {
+          params.topicId = topicId
         }
         if (this.searchKeyword && this.searchKeyword.trim()) params.keyword = this.searchKeyword.trim()
         const res = await getPostList(params)
+        // 保证加载提示至少可见一小段时间，避免一闪而过
+        const elapsed = Date.now() - startTime
+        if (elapsed < 600) {
+          await new Promise((resolve) => setTimeout(resolve, 600 - elapsed))
+        }
         const data = res?.data || {}
         const posts = data.records || []
         const formattedPosts = posts.map(this.formatPostItem)
-        this.postList = this.page === 1 ? formattedPosts : [...this.postList, ...formattedPosts]
+        state.list = state.page === 1 ? formattedPosts : [...state.list, ...formattedPosts]
         const total = Number(data.total || 0)
-        this.noMore = this.postList.length >= total || formattedPosts.length < this.pageSize
+        state.noMore = state.list.length >= total || formattedPosts.length < this.pageSize
+        state.loaded = true
       } catch (error) {
-        if (this.page === 1) this.postList = []
+        if (state.page === 1) state.list = []
       } finally {
-        this.loading = false
+        state.loading = false
         this.isRefreshing = false
       }
     },
@@ -425,28 +405,56 @@ export default {
       return String(value).replace('T', ' ').slice(0, 16)
     },
     handleSearch() {
-      this.page = 1
-      this.noMore = false
-      this.loadPostList()
+      // 搜索时刷新所有话题面板
+      Object.keys(this.topicState).forEach((key) => {
+        const state = this.topicState[key]
+        state.page = 1
+        state.noMore = false
+        state.loaded = false
+      })
+      const state = this.getTopicState(this.currentTopic)
+      state.list = []
+      this.loadPostList(this.currentTopic)
     },
+    // 点击 Tab：切换到对应话题并同步 swiper
     selectTopic(topicId) {
+      const index = this.topics.findIndex((item) => item.id === topicId)
       this.currentTopic = topicId
-      this.page = 1
-      this.noMore = false
-      this.loadPostList()
+      this.currentTopicIndex = index >= 0 ? index : 0
+      const state = this.getTopicState(topicId)
+      if (!state.loaded && !state.loading) {
+        this.loadPostList(topicId)
+      }
     },
-    loadMore() {
-      if (!this.loading && !this.noMore) {
-        this.page++
-        this.loadPostList()
+    // swiper 滑动：同步 Tab 高亮，懒加载新面板
+    onSwiperChange(e) {
+      const index = e?.detail?.current
+      if (index === undefined || index === null) return
+      this.currentTopicIndex = index
+      const topic = this.topics[index]
+      if (!topic) return
+      this.currentTopic = topic.id
+      const state = this.getTopicState(topic.id)
+      if (!state.loaded && !state.loading) {
+        this.loadPostList(topic.id)
+      }
+    },
+    loadMore(topicId) {
+      const state = this.getTopicState(topicId)
+      if (!state.loading && !state.noMore) {
+        state.page++
+        this.loadPostList(topicId)
       }
     },
     onRefresh() {
+      if (this.isRefreshing) return
       this.isRefreshing = true
-      this.page = 1
-      this.noMore = false
+      const state = this.getTopicState(this.currentTopic)
+      state.page = 1
+      state.noMore = false
+      state.loaded = false
       this.loadHotTopicList()
-      this.loadPostList()
+      this.loadPostList(this.currentTopic)
     },
     goToDetail(id) {
       uni.navigateTo({
@@ -575,10 +583,17 @@ export default {
         }
         setTimeout(() => {
           this.closePublishModal()
-          this.page = 1
-          this.noMore = false
+          // 刷新全部与发帖话题的面板
+          Object.keys(this.topicState).forEach((key) => {
+            const state = this.topicState[key]
+            state.page = 1
+            state.noMore = false
+            state.loaded = false
+            state.list = []
+          })
           this.loadHotTopicList()
-          this.loadPostList()
+          this.loadPostList(0)
+          this.loadPostList(this.currentTopic)
         }, 300)
       } catch (error) {
         uni.hideLoading()
@@ -726,9 +741,19 @@ export default {
   border-radius: 2rpx;
 }
 
-.post-list {
+.post-swiper {
   flex: 1;
   height: 0;
+  min-height: 0;
+
+  .post-swiper-item {
+    height: 100%;
+    overflow: hidden;
+  }
+}
+
+.post-list {
+  height: 100%;
   padding: 20rpx 20rpx 0;
   box-sizing: border-box;
   
@@ -852,7 +877,28 @@ export default {
     padding: 30rpx;
     color: #999;
     font-size: 26rpx;
+
+    .loading-indicator {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 12rpx;
+
+      .loading-spinner {
+        width: 28rpx;
+        height: 28rpx;
+        border: 3rpx solid #E5E7EB;
+        border-top-color: #5C7A99;
+        border-radius: 50%;
+        animation: load-more-spin 0.8s linear infinite;
+      }
+    }
   }
+}
+
+@keyframes load-more-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
 }
 
 /* 悬浮发帖按钮 */

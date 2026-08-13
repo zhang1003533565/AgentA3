@@ -9,6 +9,8 @@ import com.example.appbackend.service.support.MindMapGenerationConstraints;
 import com.example.appbackend.service.support.MindMapTopicExtractor;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 import org.springframework.web.reactive.function.client.WebClient;
@@ -24,7 +26,9 @@ import java.util.Set;
 
 @Service
 public class MindMapAIServiceImpl implements MindMapAIService {
+    private static final Logger log = LoggerFactory.getLogger(MindMapAIServiceImpl.class);
     private static final int MAX_AI_INPUT_CHARS = 60_000;
+    private static final int MAX_RESPONSE_LOG_CHARS = 4_000;
     private static final String MIND_MAP_AGENT_NAME = "diagram_mind_map_agent";
     private static final String DEFAULT_AGENT_NAME = "leader_agent";
     private static final String AGENT_MODEL_BINDING_PREFIX = "ai.agent-bindings.";
@@ -74,7 +78,7 @@ public class MindMapAIServiceImpl implements MindMapAIService {
 
         Map<String, Object> payload = new HashMap<>();
         payload.put("model", aiConfig.model());
-        payload.put("messages", List.of(systemMessage, userMessage));
+        payload.put("messages", textMessages(prompt));
         payload.put("temperature", 0.2);
 
         try {
@@ -91,8 +95,9 @@ public class MindMapAIServiceImpl implements MindMapAIService {
                     .block();
 
             JsonNode root = objectMapper.readTree(responseText);
-            String content = root.path("choices").path(0).path("message").path("content").asText("");
+            String content = extractResponseContent(root);
             if (!StringUtils.hasText(content)) {
+                log.warn("AI mind-map response contains no usable text: {}", abbreviateResponse(responseText));
                 throw new BusinessException(500, "AI 未返回思维导图 JSON");
             }
             return parseAndValidate(content, constraints, inputText);
@@ -159,7 +164,7 @@ public class MindMapAIServiceImpl implements MindMapAIService {
 
         Map<String, Object> payload = new HashMap<>();
         payload.put("model", aiConfig.model());
-        payload.put("messages", List.of(systemMessage, userMessage));
+        payload.put("messages", textMessages(prompt));
         payload.put("temperature", 0.3);
 
         try {
@@ -176,8 +181,9 @@ public class MindMapAIServiceImpl implements MindMapAIService {
                     .block();
 
             JsonNode root = objectMapper.readTree(responseText);
-            String content = root.path("choices").path(0).path("message").path("content").asText("");
+            String content = extractResponseContent(root);
             if (!StringUtils.hasText(content)) {
+                log.warn("AI mind-map optimization response contains no usable text: {}", abbreviateResponse(responseText));
                 throw new BusinessException(500, "AI 未返回优化后的思维导图 JSON");
             }
             return parseAndValidate(content, currentMindMap == null ? "" : currentMindMap.getTitle(), userInstruction);
@@ -271,6 +277,117 @@ public class MindMapAIServiceImpl implements MindMapAIService {
                 constraints.detailLevel(),
                 normalizedInput
         );
+    }
+
+    /**
+     * The configured AI gateway accepts only user messages whose content is a
+     * list of parts. Keep the output rule in the same user message.
+     */
+    private List<Map<String, Object>> textMessages(String prompt) {
+        String instructions = "你是专业的知识结构化助手。你必须只返回严格 JSON，"
+                + "不要输出 Markdown、解释、代码块或多余文本。";
+        Map<String, Object> textPart = Map.of(
+                "type", "text",
+                "text", instructions + "\n\n" + prompt
+        );
+        return List.of(Map.of(
+                "role", "user",
+                "content", List.of(textPart)
+        ));
+    }
+
+    private String extractResponseContent(JsonNode root) {
+        List<JsonNode> candidates = List.of(
+                root.path("choices").path(0).path("message").path("content"),
+                root.path("output").path("choices").path(0).path("message").path("content"),
+                root.path("data").path("choices").path(0).path("message").path("content"),
+                root.path("choices").path(0).path("text"),
+                root.path("output").path("choices").path(0).path("text"),
+                root.path("choices").path(0).path("message").path("reasoning_content"),
+                root.path("output").path("choices").path(0).path("message").path("reasoning_content"),
+                root.path("output_text"),
+                root.path("output")
+        );
+        for (JsonNode candidate : candidates) {
+            String text = contentText(candidate);
+            if (StringUtils.hasText(text)) {
+                return text;
+            }
+        }
+        return findTextContent(root);
+    }
+
+    private String findTextContent(JsonNode node) {
+        if (node == null || node.isMissingNode() || node.isNull()) {
+            return "";
+        }
+        if (node.isArray()) {
+            for (JsonNode item : node) {
+                String text = findTextContent(item);
+                if (StringUtils.hasText(text)) {
+                    return text;
+                }
+            }
+            return "";
+        }
+        if (!node.isObject()) {
+            return "";
+        }
+
+        for (String field : List.of("output_text", "content", "text", "reasoning_content", "arguments")) {
+            if (node.has(field)) {
+                String text = contentText(node.path(field));
+                if (StringUtils.hasText(text)) {
+                    return text;
+                }
+            }
+        }
+
+        var fields = node.fields();
+        while (fields.hasNext()) {
+            JsonNode child = fields.next().getValue();
+            if (child.isContainerNode()) {
+                String text = findTextContent(child);
+                if (StringUtils.hasText(text)) {
+                    return text;
+                }
+            }
+        }
+        return "";
+    }
+
+    private String contentText(JsonNode node) {
+        if (node == null || node.isMissingNode() || node.isNull()) {
+            return "";
+        }
+        if (node.isTextual()) {
+            return node.asText();
+        }
+        if (!node.isArray()) {
+            String text = contentText(node.path("text"));
+            return StringUtils.hasText(text) ? text : contentText(node.path("content"));
+        }
+        StringBuilder result = new StringBuilder();
+        for (JsonNode part : node) {
+            String text = part.isTextual() ? part.asText() : contentText(part.path("text"));
+            if (!StringUtils.hasText(text)) {
+                text = contentText(part.path("content"));
+            }
+            if (StringUtils.hasText(text)) {
+                result.append(text);
+            }
+        }
+        return result.toString();
+    }
+
+    private String abbreviateResponse(String responseText) {
+        if (responseText == null) {
+            return "<null>";
+        }
+        String normalized = responseText.replaceAll("[\\r\\n]+", " ").trim();
+        return normalized.length() <= MAX_RESPONSE_LOG_CHARS
+                ? normalized
+                : normalized.substring(0, MAX_RESPONSE_LOG_CHARS) + "...<truncated>";
     }
 
     private MindMapDTO.MindMapData parseAndValidate(String content, MindMapGenerationConstraints constraints, String inputText) {
@@ -441,8 +558,8 @@ public class MindMapAIServiceImpl implements MindMapAIService {
 
     private AiRuntimeConfig resolveRuntimeConfig() {
         String configPrefix = firstText(
-                resolveAgentBoundModel(MIND_MAP_AGENT_NAME),
-                resolveAgentBoundModel(DEFAULT_AGENT_NAME),
+                resolveAgentBoundTextModel(MIND_MAP_AGENT_NAME),
+                resolveAgentBoundTextModel(DEFAULT_AGENT_NAME),
                 firstTestedTextConfigPrefix(),
                 firstCompleteTextConfigPrefix(),
                 hasCompleteConfig(LEGACY_TEXT_CONFIG_PREFIX) ? LEGACY_TEXT_CONFIG_PREFIX : ""
@@ -459,10 +576,23 @@ public class MindMapAIServiceImpl implements MindMapAIService {
         );
     }
 
-    private String resolveAgentBoundModel(String agentName) {
+    private String resolveAgentBoundTextModel(String agentName) {
         String key = AGENT_MODEL_BINDING_PREFIX + agentName + ".model";
         String value = systemConfigService.getValue(key, "");
-        return StringUtils.hasText(value) ? value.trim() : "";
+        if (!StringUtils.hasText(value)) {
+            return "";
+        }
+        String configPrefix = value.trim();
+        if (!isTextConfigPrefix(configPrefix)) {
+            log.warn("Ignoring non-text model binding for {}: {}", agentName, configPrefix);
+            return "";
+        }
+        return configPrefix;
+    }
+
+    private boolean isTextConfigPrefix(String configPrefix) {
+        return LEGACY_TEXT_CONFIG_PREFIX.equals(configPrefix)
+                || configPrefix.startsWith(LEGACY_TEXT_CONFIG_PREFIX + ".");
     }
 
     private boolean hasCompleteConfig(String configPrefix) {
