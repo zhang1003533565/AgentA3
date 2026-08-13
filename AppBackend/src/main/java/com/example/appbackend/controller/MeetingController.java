@@ -108,6 +108,14 @@ public class MeetingController {
         return Result.success();
     }
 
+    @PostMapping("/{sessionId}/transfer-host")
+    @Operation(summary = "转交主持人")
+    public Result<MeetingDTO.SessionDetail> transferHost(@PathVariable String sessionId,
+                                                         @Valid @RequestBody MeetingDTO.TransferHostRequest request,
+                                                         HttpServletRequest httpRequest) {
+        return Result.success(meetingService.transferHost(currentUserId(httpRequest), sessionId, request.getNewHostName()));
+    }
+
     @PostMapping("/{sessionId}/organize")
     @Operation(summary = "整理会后内容", description = "根据会议记录生成转写整理、会议纪要、流程调度、成员分析和资源推荐结果")
     public Result<MeetingDTO.SessionDetail> organize(@PathVariable String sessionId,

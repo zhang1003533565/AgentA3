@@ -381,9 +381,9 @@ public class MeetingServiceImpl implements MeetingService {
             return null;
         }
         String name = displayName.trim();
-        Optional<User> byRealName = userRepository.findByRealName(name);
-        if (byRealName.isPresent()) {
-            return byRealName.get().getId();
+        List<User> byRealName = userRepository.findByRealName(name);
+        if (!byRealName.isEmpty()) {
+            return byRealName.get(0).getId();
         }
         Optional<User> byUsername = userRepository.findByUsername(name);
         if (byUsername.isPresent()) {

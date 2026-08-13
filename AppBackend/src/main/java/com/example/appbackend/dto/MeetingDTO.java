@@ -62,6 +62,14 @@ public class MeetingDTO {
     }
 
     @Data
+    @Schema(description = "转交主持人请求")
+    public static class TransferHostRequest {
+        @NotBlank(message = "新主持人姓名不能为空")
+        @Size(max = 80, message = "成员名称最多80字符")
+        private String newHostName;
+    }
+
+    @Data
     @Schema(description = "保存会议记录请求")
     public static class RecordRequest {
         @NotBlank(message = "会议记录不能为空")

@@ -27,6 +27,8 @@ public interface MeetingService {
 
     MeetingDTO.SessionDetail organizeMeeting(Long userId, String sessionId, String authorization);
 
+    MeetingDTO.SessionDetail transferHost(Long userId, String sessionId, String newHostName);
+
     void deleteMeeting(Long userId, String sessionId);
 
     MeetingDTO.RecordItem addRecord(Long userId, String sessionId, MeetingDTO.RecordRequest request);

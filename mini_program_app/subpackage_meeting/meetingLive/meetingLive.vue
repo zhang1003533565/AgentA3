@@ -15,6 +15,10 @@
 		<!-- 中间主区域：参会画面居中（核心视觉） -->
 		<view class="main-view-area">
 			<view class="member-slider" @touchstart="handleSwipeStart" @touchend="handleSwipeEnd" @mousedown="handleSwipeStart" @mouseup="handleSwipeEnd">
+				<!-- 顶部弹幕滚动层：扣字消息从右向左飘过，不阻挡成员滑动 -->
+				<view class="danmaku-layer">
+					<text v-for="item in danmakuItems" :key="item.id" class="danmaku-item">{{ item.text }}</text>
+				</view>
 				<view class="member-pages" :style="{ transform: 'translateX(-' + memberPageIndex * 100 + '%)' }">
 					<view v-for="(page, pageIndex) in pagedMembers" :key="pageIndex" class="member-grid">
 						<view
@@ -24,6 +28,7 @@
 							:class="{ 'member-card--speaking': member.speaking }"
 						>
 							<view v-if="member.speaking" class="speaking-tag">正在发言</view>
+							<view v-if="member.name === hostName" class="host-tag">主持人</view>
 							<view class="member-avatar">
 								<svg class="member-avatar-icon" viewBox="0 0 96 96" fill="currentColor">
 									<circle cx="48" cy="30" r="20"/>
@@ -52,17 +57,28 @@
 					</view>
 				</view>
 			</view>
-			<!-- 分页指示器：对齐图二，多页时显示 -->
-			<view v-if="pagedMembers.length > 1" class="member-pager">
-				<view class="member-pager-dots">
-					<view
-						v-for="(page, pageIndex) in pagedMembers"
-						:key="pageIndex"
-						class="member-pager-dot"
-						:class="{ 'member-pager-dot--active': pageIndex === memberPageIndex }"
-					></view>
+			<!-- 分页行：左侧扣字聊天浮窗 + 居中分页指示器（多页时显示） -->
+			<view class="pager-chat-row">
+				<view class="chat-float">
+					<input
+						class="chat-input"
+						v-model="chatDraft"
+						confirm-type="send"
+						@confirm="sendChatMessage"
+					/>
+					<view class="chat-send" @click="sendChatMessage">发送</view>
 				</view>
-				<text class="member-pager-text">{{ memberPageIndex + 1 }} / {{ pagedMembers.length }}</text>
+				<view v-if="pagedMembers.length > 1" class="member-pager">
+					<view class="member-pager-dots">
+						<view
+							v-for="(page, pageIndex) in pagedMembers"
+							:key="pageIndex"
+							class="member-pager-dot"
+							:class="{ 'member-pager-dot--active': pageIndex === memberPageIndex }"
+						></view>
+					</view>
+					<text class="member-pager-text">{{ memberPageIndex + 1 }} / {{ pagedMembers.length }}</text>
+				</view>
 			</view>
 
 			<!-- 实时字幕区域 -->
@@ -117,7 +133,7 @@
 							<circle cx="15" cy="10" r="1" fill="currentColor"/>
 						</svg>
 					</view>
-					<text class="control-label">字幕</text>
+					<text class="control-label">记录</text>
 				</view>
 				<view class="control-item" @click="shareMeeting">
 					<view class="control-icon">
@@ -204,7 +220,7 @@
 								<text class="subtitle-record-name">{{ item.speaker }}</text>
 								<text class="subtitle-record-time">{{ item.time }}</text>
 							</view>
-							<text class="subtitle-record-text">{{ item.text }}</text>
+							<text class="subtitle-record-text">{{ item.text }}{{ item.isDanmaku ? '（弹幕）' : '' }}</text>
 						</view>
 					</view>
 				</view>
@@ -302,7 +318,7 @@
 </template>
 
 <script>
-import { endMeeting as finishMeetingApi, getMeetingDetail, leaveMeeting as leaveMeetingApi, streamLlmChat } from '@/api/ai.js'
+import { endMeeting as finishMeetingApi, getMeetingDetail, leaveMeeting as leaveMeetingApi, streamLlmChat, transferHost } from '@/api/ai.js'
 import { getCurrentDisplayName, toMeetingMembers } from '@/utils/meetingUser.js'
 import { BASE_URL } from '@/utils/config.js'
 import { getToken, getUserInfo, getCurrentUserId } from '@/utils/storage.js'
@@ -357,7 +373,11 @@ export default {
 			transferHostVisible: false,
 			selectedTransferMember: '',
 			isHost: false,
+			hostName: '',
 			subtitleRecords: [],
+			chatDraft: '',
+			danmakuItems: [],
+			danmakuSeq: 0,
 			members: [],
 			memberPageIndex: 0,
 			swipeStartX: 0,
@@ -373,6 +393,7 @@ export default {
 		if (options?.shareScreen === '1') this.shareScreenOpen = true
 
 		this.initCurrentMember()
+		this.restoreDanmakuRecords()
 		this.startTimer()
 		this.loadMeeting()
 		this.initAsr()
@@ -472,18 +493,22 @@ export default {
 			if (!this.sessionId) return
 			try {
 				const res = await getMeetingDetail(this.sessionId)
-				const detail = res?.data || {}
-				const session = detail.session || {}
-				if (session.title) this.title = session.title
-				if (session.roomCode) this.roomCode = session.roomCode
-				if (Array.isArray(detail.participants) && detail.participants.length > 0) {
-					this.members = toMeetingMembers(detail.participants)
-				}
-				// 与 meetingRoom 主持人逻辑对齐：creatorId 与当前用户 id 一致即为主持人
-				const creatorId = session?.creatorId
-				const currentId = getCurrentUserId()
-				this.isHost = !!currentId && creatorId != null && String(creatorId) === String(currentId)
+				this.applyMeetingDetail(res?.data || {})
 			} catch (error) {}
+		},
+		applyMeetingDetail(detail) {
+			const session = detail.session || {}
+			if (session.title) this.title = session.title
+			if (session.roomCode) this.roomCode = session.roomCode
+			if (Array.isArray(detail.participants) && detail.participants.length > 0) {
+				this.members = toMeetingMembers(detail.participants)
+				// 与 meetingDetail 页一致：participants[0] 为主持人姓名，用于卡片标注展示
+				this.hostName = String(detail.participants[0] || '').trim()
+			}
+			// 与 meetingRoom 主持人逻辑对齐：creatorId 与当前用户 id 一致即为主持人
+			const creatorId = session?.creatorId
+			const currentId = getCurrentUserId()
+			this.isHost = !!currentId && creatorId != null && String(creatorId) === String(currentId)
 		},
 		initCurrentMember() {
 			const currentName = getCurrentDisplayName()
@@ -1098,6 +1123,51 @@ export default {
 				this.memberPageIndex -= 1
 			}
 		},
+		// 扣字弹幕：顶部滚动飘过 + 写入下方记录（带（弹幕）后缀标注），不进入实时字幕与AI总结源
+		sendChatMessage() {
+			const text = (this.chatDraft || '').trim()
+			if (!text) return
+			const speaker = getCurrentDisplayName() || '参会成员'
+			// 顶部弹幕：从右向左滚动，动画结束后自动移除
+			const danmaku = { id: `dm-${Date.now()}-${this.danmakuSeq++}`, text: `${speaker}：${text}` }
+			this.danmakuItems.push(danmaku)
+			setTimeout(() => {
+				this.danmakuItems = this.danmakuItems.filter(d => d.id !== danmaku.id)
+			}, 6000)
+			// 写入下方记录：isDanmaku 标记用于追加（弹幕）后缀，与语音字幕区分
+			const now = new Date()
+			const time = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`
+			this.subtitleRecords.push({
+				speaker,
+				text,
+				time,
+				isSelf: true,
+				isDanmaku: true
+			})
+			if (this.subtitleRecords.length > 200) {
+				this.subtitleRecords = this.subtitleRecords.slice(-200)
+			}
+			this.persistDanmakuRecords()
+			this.chatDraft = ''
+		},
+		// 弹幕记录本地持久化：按会议 sessionId 存储，托管/离开页面后再次进入可恢复
+		persistDanmakuRecords() {
+			if (!this.sessionId) return
+			const list = this.subtitleRecords.filter(item => item.isDanmaku)
+			try {
+				uni.setStorageSync(`meeting_danmaku_${this.sessionId}`, list)
+			} catch (error) {}
+		},
+		// 进入会议时恢复该会议的历史弹幕记录（语音字幕仍由识别实时产生）
+		restoreDanmakuRecords() {
+			if (!this.sessionId) return
+			try {
+				const list = uni.getStorageSync(`meeting_danmaku_${this.sessionId}`)
+				if (Array.isArray(list) && list.length > 0) {
+					this.subtitleRecords = list.filter(item => item && item.isDanmaku)
+				}
+			} catch (error) {}
+		},
 		showMembers() {
 			this.morePanelVisible = false
 			this.memberPanelVisible = true
@@ -1173,10 +1243,23 @@ export default {
 		selectTransferMember(member) {
 			this.selectedTransferMember = member.name
 		},
-		confirmTransferHost() {
-			// 前端模拟：保存选择结果
+		async confirmTransferHost() {
+			if (!this.selectedTransferMember) {
+				uni.showToast({ title: '请选择新主持人', icon: 'none' })
+				return
+			}
 			this.transferHostVisible = false
-			this.leaveMeeting()
+			uni.showLoading({ title: '转交中...', mask: true })
+			try {
+				const res = await transferHost(this.sessionId, this.selectedTransferMember)
+				this.applyMeetingDetail(res?.data || {})
+				uni.hideLoading()
+				this.leaveMeeting()
+			} catch (error) {
+				uni.hideLoading()
+				const message = error?.msg || error?.message || '转交主持人失败'
+				uni.showToast({ title: message, icon: 'none' })
+			}
 		},
 		// TODO 前端模拟，正式环境接入 AI 托管接口
 		handleAiHost() {
@@ -1266,11 +1349,38 @@ export default {
 	box-sizing: border-box;
 }
 .member-slider {
+	position: relative;
 	flex: 1;
 	min-height: 0;
 	width: 100%;
 	overflow: hidden;
 	user-select: none;
+}
+/* 顶部弹幕滚动层 */
+.danmaku-layer {
+	position: absolute;
+	top: 0;
+	left: 0;
+	right: 0;
+	height: 56rpx;
+	overflow: hidden;
+	pointer-events: none;
+	z-index: 3;
+}
+.danmaku-item {
+	position: absolute;
+	top: 10rpx;
+	left: 100%;
+	white-space: nowrap;
+	padding: 6rpx 18rpx;
+	border-radius: 999rpx;
+	background: rgba(21, 31, 37, .55);
+	color: #ffffff;
+	font-size: 22rpx;
+	animation: danmaku-scroll 6s linear forwards;
+}
+@keyframes danmaku-scroll {
+	to { transform: translateX(calc(-100vw - 100%)); }
 }
 .member-pages {
 	display: flex;
@@ -1312,6 +1422,14 @@ export default {
 	font-size: 20rpx;
 	font-weight: 500;
 }
+.host-tag {
+	position: absolute;
+	top: 16rpx;
+	left: 16rpx;
+	color: #86C9A8;
+	font-size: 20rpx;
+	font-weight: 500;
+}
 .member-avatar {
 	width: 220rpx;
 	height: 220rpx;
@@ -1348,7 +1466,6 @@ export default {
 }
 /* 成员分页指示器 */
 .member-pager {
-	margin-top: 20rpx;
 	display: flex;
 	flex-direction: column;
 	align-items: center;
@@ -1371,6 +1488,47 @@ export default {
 .member-pager-text {
 	color: #8a9299;
 	font-size: 20rpx;
+}
+/* 分页行容器：浮窗绝对定位于左侧，分页指示器保持居中 */
+.pager-chat-row {
+	position: relative;
+	margin-top: 20rpx;
+	min-height: 64rpx;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+}
+/* 扣字聊天浮窗：限制最大宽度，不遮挡右侧分页圆点 */
+.chat-float {
+	position: absolute;
+	left: 0;
+	top: 50%;
+	transform: translateY(-50%);
+	display: flex;
+	align-items: center;
+	gap: 8rpx;
+	max-width: 300rpx;
+	padding: 8rpx 8rpx 8rpx 20rpx;
+	border-radius: 999rpx;
+	background: #ffffff;
+	border: 2rpx solid #f0f0f0;
+	box-shadow: 0 8rpx 24rpx rgba(31,42,48,.06);
+	box-sizing: border-box;
+	z-index: 2;
+}
+.chat-input {
+	width: 150rpx;
+	font-size: 22rpx;
+	color: #151f25;
+}
+.chat-send {
+	flex-shrink: 0;
+	padding: 6rpx 16rpx;
+	border-radius: 999rpx;
+	background: rgba(134, 201, 168, .14);
+	color: #86C9A8;
+	font-size: 20rpx;
+	font-weight: 850;
 }
 /* 实时字幕区域 */
 .subtitle-card {
