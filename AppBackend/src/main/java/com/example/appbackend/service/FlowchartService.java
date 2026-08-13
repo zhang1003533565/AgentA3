@@ -13,4 +13,6 @@ public interface FlowchartService {
     List<FlowchartDTO.HistoryItem> history(Long userId);
 
     FlowchartDTO.GenerateResponse detail(Long userId, String id);
+
+    void delete(Long userId, String id);
 }

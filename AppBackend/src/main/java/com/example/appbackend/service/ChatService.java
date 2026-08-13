@@ -20,4 +20,6 @@ public interface ChatService {
     long countUnreadTradeNotifications(Long userId);
     void markTradeNotificationRead(Long id, Long userId);
     void markAllTradeNotificationsRead(Long userId);
+
+    ChatDTO.MessageSummaryVO getMessageSummary(Long userId, Integer current, Integer size);
 }

@@ -128,6 +128,16 @@ public class DiscountController {
         return Result.success("下架成功", (Void) null);
     }
 
+    @PutMapping("/activity/{id}/end-early")
+    @Operation(summary = "提前结束优惠活动", description = "管理员将活动状态改为已领完")
+    public Result<Void> endActivityEarly(
+            @PathVariable Long id,
+            HttpServletRequest httpRequest) {
+        if (!isAdminOrMerchant(httpRequest)) throw new BusinessException(Result.FORBIDDEN_CODE, "无权限");
+        discountService.endActivityEarly(id, getUserId(httpRequest));
+        return Result.success("活动已提前结束", (Void) null);
+    }
+
     // ========== 领取 ==========
 
     @PostMapping("/claim/{activityId}")

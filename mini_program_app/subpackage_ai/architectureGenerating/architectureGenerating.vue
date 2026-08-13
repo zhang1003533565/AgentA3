@@ -8,7 +8,7 @@
           <text class="header-sparkle">✦</text>
           <text class="header-title-text">AI 正在生成架构图</text>
         </view>
-        <text class="header-subtitle-text">{{ stageSubtitle }}</text>
+        <text class="header-subtitle-text">{{ animationSubtitle }}</text>
       </view>
       <view v-else class="header-center">
         <view class="header-title-row">
@@ -33,12 +33,58 @@
               </view>
               <text class="layer-name" :style="{ color: layer.color }">{{ layer.name }}</text>
             </view>
-            <view class="layer-cards">
+            <view v-if="layerHasGroups(layer)" class="layer-groups">
+              <view
+                v-for="(group, gi) in visibleLayerGroups(layer)"
+                :key="group.id || group.name || gi"
+                class="layer-group"
+                :class="{ in: groupIn[li + '-' + gi] }"
+                :style="{ borderColor: layer.border }"
+              >
+                <view class="layer-group-head">
+                  <text class="layer-group-title" :style="{ color: layer.color }">{{ group.name }}</text>
+                  <text v-if="group.description" class="layer-group-desc">{{ group.description }}</text>
+                </view>
+                <view class="layer-cards">
+                  <view
+                    v-for="(node, ci) in group.nodes"
+                    :key="node.id || node.name || ci"
+                    class="arch-card"
+                    :class="{ in: cardIn[groupCardKey(li, gi, ci)] }"
+                    :style="{ borderColor: layer.border }"
+                  >
+                    <text class="arch-card-name">{{ node.name }}</text>
+                    <text v-if="node.description" class="arch-card-desc">{{ node.description }}</text>
+                    <view v-if="node.tech && node.tech.length" class="arch-card-tech">
+                      <text
+                        v-for="t in node.tech"
+                        :key="t"
+                        class="tech"
+                        :style="{ color: layer.color, borderColor: layer.color + '55' }"
+                      >{{ t }}</text>
+                    </view>
+                    <view v-if="nodeChildren(node).length" class="node-children">
+                      <view
+                        v-for="(child, childIndex) in nodeChildren(node)"
+                        :key="child.id || child.name || childIndex"
+                        class="node-child"
+                        :class="{ in: childIn[groupChildKey(li, gi, ci, childIndex)] }"
+                        :style="{ borderColor: layer.color + '33', background: layer.bg }"
+                      >
+                        <text class="node-child-dot" :style="{ background: layer.color }"></text>
+                        <text class="node-child-name">{{ child.name }}</text>
+                      </view>
+                    </view>
+                  </view>
+                </view>
+              </view>
+            </view>
+            <view v-else class="layer-cards">
               <view
                 v-for="(node, ci) in layer.nodes"
-                :key="node.name || ci"
+                :key="node.id || node.name || ci"
                 class="arch-card"
-                :class="{ in: cardIn[li + '-' + ci] }"
+                :class="{ in: cardIn[cardKey(li, ci)] }"
                 :style="{ borderColor: layer.border }"
               >
                 <text class="arch-card-name">{{ node.name }}</text>
@@ -50,6 +96,18 @@
                     class="tech"
                     :style="{ color: layer.color, borderColor: layer.color + '55' }"
                   >{{ t }}</text>
+                </view>
+                <view v-if="nodeChildren(node).length" class="node-children">
+                  <view
+                    v-for="(child, childIndex) in nodeChildren(node)"
+                    :key="child.id || child.name || childIndex"
+                    class="node-child"
+                    :class="{ in: childIn[childKey(li, ci, childIndex)] }"
+                    :style="{ borderColor: layer.color + '33', background: layer.bg }"
+                  >
+                    <text class="node-child-dot" :style="{ background: layer.color }"></text>
+                    <text class="node-child-name">{{ child.name }}</text>
+                  </view>
                 </view>
               </view>
             </view>
@@ -96,12 +154,12 @@
           <text class="status-float-label">✦ AI 正在构建分层架构</text>
           <view class="status-float-dots"><view class="status-float-dot"></view><view class="status-float-dot"></view><view class="status-float-dot"></view></view>
         </view>
-        <text class="status-float-msg">{{ waitingText }}</text>
+        <text class="status-float-msg">{{ animationWaitingText }}</text>
         <view class="status-float-meta">
-          <text class="status-float-count">已生成 {{ madeCount }} 个组件</text>
-          <text class="status-float-pct">{{ progressPercent }}%</text>
+          <text class="status-float-count">已生成 {{ madeCount }} 个结构项</text>
+          <text class="status-float-pct">{{ animationProgressPercent }}%</text>
         </view>
-        <view class="status-float-bar"><view class="status-float-bar-fill" :style="{ width: progressPercent + '%' }"></view></view>
+        <view class="status-float-bar"><view class="status-float-bar-fill" :style="{ width: animationProgressPercent + '%' }"></view></view>
       </view>
     </view>
 
@@ -125,7 +183,7 @@
 </template>
 
 <script setup>
-import { ref, computed, reactive } from 'vue'
+import { ref, computed, reactive, nextTick } from 'vue'
 import { onLoad, onUnload } from '@dcloudio/uni-app'
 import ArchIcon from '../architecturePreview/ArchIcon.vue'
 import {
@@ -135,6 +193,7 @@ import {
 import { getErrorMessage } from '@/api/aiDiagram.js'
 
 const state = reactive({ result: null })
+const pendingPayload = ref(null)
 const isCompleted = ref(false)
 const pageState = ref('loading')
 const errorMessage = ref('')
@@ -170,8 +229,75 @@ const progressPercent = computed(() => {
 })
 
 // 揭示状态（class 绑定，避免 v-if+v-for 优先级问题）
+function normalizeRelationMode(value = 'AUTO') {
+  const text = String(value || 'AUTO').trim().toUpperCase()
+  if (text === 'DATA' || text === 'DATAFLOW') return 'DATA_FLOW'
+  if (text === 'CALL_CHAIN' || text === 'CALLING' || text === 'DEPENDENCY') return 'CALL'
+  if (['AUTO', 'MODULE', 'DATA_FLOW', 'CALL'].includes(text)) return text
+  return 'AUTO'
+}
+
+const requestedRelationMode = computed(() => normalizeRelationMode(
+  state.result?.requestedRelationMode ||
+    pendingPayload.value?.relationMode ||
+    pendingPayload.value?.relationType ||
+    'AUTO'
+))
+
+const resolvedRelationMode = computed(() => {
+  const resolved = normalizeRelationMode(state.result?.resolvedRelationMode || state.result?.relationMode)
+  if (resolved !== 'AUTO') return resolved
+  const requested = requestedRelationMode.value
+  return requested === 'AUTO' ? 'MODULE' : requested
+})
+
+const RELATION_COPY = {
+  MODULE: {
+    subtitles: ['正在解析系统需求', '正在规划分层骨架', '正在展开层内模块', '正在建立层级关系', '正在优化架构布局'],
+    waiting: ['识别系统组成与边界', '生成架构层与模块组', '填充分组、节点与子模块', '建立结构连接与上下游关系', '准备输出模块关系架构图'],
+    progress: [16, 34, 62, 86, 95],
+  },
+  DATA_FLOW: {
+    subtitles: ['正在解析数据来源', '正在规划数据层级', '正在展开处理模块', '正在连接数据路径', '正在优化箭头与路径'],
+    waiting: ['识别输入、处理与存储位置', '生成数据入口、服务与存储分组', '填充数据处理节点和子模块', '建立跨层数据流向', '准备输出数据流架构图'],
+    progress: [16, 32, 64, 88, 95],
+  },
+  CALL: {
+    subtitles: ['正在识别系统服务', '正在拆解服务层级', '正在解析模块依赖', '正在建立调用方向', '正在优化服务布局'],
+    waiting: ['识别 API、Service 与模块边界', '展开服务、适配器与组件', '生成调用链路与依赖关系', '标注跨层调用方向', '准备输出调用关系架构图'],
+    progress: [16, 33, 63, 87, 95],
+  },
+}
+
+const activeAnimationCopy = computed(() => {
+  const base = RELATION_COPY[resolvedRelationMode.value] || RELATION_COPY.MODULE
+  if (requestedRelationMode.value !== 'AUTO') return base
+  return {
+    ...base,
+    subtitles: ['正在分析架构需求', '正在判断最合适的关系表达', `识别为：${relationModeLabel(resolvedRelationMode.value)}`, ...base.subtitles.slice(2)],
+    waiting: ['分析需求中的模块、数据与调用线索', '选择关系表达模式', '进入对应架构生成流程', ...base.waiting.slice(2)],
+  }
+})
+
+const animationSubtitle = computed(() => activeAnimationCopy.value.subtitles[stageIndex.value] || '')
+const animationWaitingText = computed(() => activeAnimationCopy.value.waiting[stageIndex.value] || '')
+const animationProgressPercent = computed(() => {
+  if (isCompleted.value) return 100
+  return activeAnimationCopy.value.progress[stageIndex.value] || progressPercent.value
+})
+
+function relationModeLabel(mode) {
+  return {
+    MODULE: '模块关系',
+    DATA_FLOW: '数据流向',
+    CALL: '调用关系',
+  }[mode] || '模块关系'
+}
+
 const layerIn = reactive({})
+const groupIn = reactive({})
 const cardIn = reactive({})
+const childIn = reactive({})
 const arrowIn = reactive({})
 const tpIn = ref(false)
 const tpItemIn = reactive({})
@@ -183,17 +309,60 @@ const madeCount = ref(0)
 const smooth = ref(false)
 const scale = ref(1)
 const cameraY = ref(0)
+const CAMERA_TRANSITION_MS = 420
+const CAMERA_EPSILON = 1
 const stageStyle = computed(() => ({
   transform: `translateY(${cameraY.value}px) scale(${scale.value})`,
   transformOrigin: '0 0',
-  transition: smooth.value ? 'transform 0.6s cubic-bezier(0.22,1,0.36,1)' : 'none'
+  transition: smooth.value ? `transform ${CAMERA_TRANSITION_MS}ms cubic-bezier(0.22,1,0.36,1)` : 'none'
 }))
 
 function layerStyle(layer) {
   return { borderColor: layer.border, background: layer.bg }
 }
+
+function nodeChildren(node) {
+  return Array.isArray(node?.children) ? node.children : []
+}
+
+function visibleLayerGroups(layer) {
+  return Array.isArray(layer?.groups)
+    ? layer.groups.filter(group => Array.isArray(group?.nodes) && group.nodes.length)
+    : []
+}
+
+function layerHasGroups(layer) {
+  return visibleLayerGroups(layer).length > 0
+}
+
+function cardKey(layerIndex, nodeIndex) {
+  return `${layerIndex}-${nodeIndex}`
+}
+
+function childKey(layerIndex, nodeIndex, childIndex) {
+  return `${layerIndex}-${nodeIndex}-${childIndex}`
+}
+
+function groupCardKey(layerIndex, groupIndex, nodeIndex) {
+  return `${layerIndex}-g${groupIndex}-${nodeIndex}`
+}
+
+function groupChildKey(layerIndex, groupIndex, nodeIndex, childIndex) {
+  return `${layerIndex}-g${groupIndex}-${nodeIndex}-${childIndex}`
+}
+
+function layerComponentCount(layer) {
+  const groups = visibleLayerGroups(layer)
+  if (groups.length) {
+    return groups.reduce((sum, group) => (
+      sum + 1 + (group.nodes || []).reduce((nodeSum, node) => nodeSum + 1 + nodeChildren(node).length, 0)
+    ), 0)
+  }
+  return (layer.nodes || []).reduce((sum, node) => sum + 1 + nodeChildren(node).length, 0)
+}
+
 function totalComponents() {
-  return layers.value.reduce((s, l) => s + (l.nodes || []).length, 0) + thirdParty.value.length
+  return layers.value.reduce((s, l) => s + layerComponentCount(l), 0) + thirdParty.value.length
 }
 
 function fitStage() {
@@ -207,43 +376,51 @@ function fitStage() {
   }).exec()
 }
 
+function getCameraTargetY(canvas, target) {
+  const targetCenterY = (target.top - canvas.top) + target.height / 2
+  const deltaY = canvas.height / 2 - targetCenterY
+  return Math.round(cameraY.value + deltaY)
+}
+
+async function settleCameraTo(canvas, target) {
+  const nextCameraY = getCameraTargetY(canvas, target)
+  if (Math.abs(nextCameraY - cameraY.value) <= CAMERA_EPSILON) return
+  cameraY.value = nextCameraY
+  await sleep(CAMERA_TRANSITION_MS)
+}
+
 // 镜头跟随：让目标 layer 垂直中心对齐 canvas-area 垂直中心
-// 只在换 layer 时调用，避免层内卡片生成时频繁抖动
-function followCamera(layerIdx) {
+// 只在换 layer 时调用，并等待镜头落稳后再进入下一段，避免读到过渡中坐标造成上下抖动。
+async function followCamera(layerIdx) {
+  await nextTick()
   return new Promise(resolve => {
     const canvasSel = '.canvas-area'
     const layerSel = `.layer[data-idx="${layerIdx}"]`
     uni.createSelectorQuery()
       .select(canvasSel).boundingClientRect()
       .select(layerSel).boundingClientRect()
-      .exec(res => {
+      .exec(async res => {
         const canvas = res && res[0]
         const layer = res && res[1]
         if (!canvas || !layer) { resolve(); return }
-        // layer 中心相对 canvas-area 顶部的偏移
-        const layerCenterY = (layer.top - canvas.top) + layer.height / 2
-        // 目标：layer 中心对齐 canvas-area 中心
-        // 当前 stage transform = translateY(cameraY) scale(scale)
-        // layer.top 已是缩放后坐标，故平移量直接用像素差
-        const targetCameraY = canvas.height / 2 - layerCenterY
-        cameraY.value = targetCameraY
+        await settleCameraTo(canvas, layer)
         resolve()
       })
   })
 }
 
 // 镜头跟随到第三方服务区域
-function followCameraThirdParty() {
+async function followCameraThirdParty() {
+  await nextTick()
   return new Promise(resolve => {
     uni.createSelectorQuery()
       .select('.canvas-area').boundingClientRect()
       .select('.third-party').boundingClientRect()
-      .exec(res => {
+      .exec(async res => {
         const canvas = res && res[0]
         const tp = res && res[1]
         if (!canvas || !tp) { resolve(); return }
-        const tpCenterY = (tp.top - canvas.top) + tp.height / 2
-        cameraY.value = canvas.height / 2 - tpCenterY
+        await settleCameraTo(canvas, tp)
         resolve()
       })
   })
@@ -271,15 +448,41 @@ async function runAnimation() {
   // 阶段2 逐层构建
   stageIndex.value = 2
   for (let li = 0; li < layers.value.length; li++) {
-    const nodes = layers.value[li].nodes || []
+    const layer = layers.value[li]
     // 换 layer 时镜头跟随到当前 layer
     smooth.value = true
     await followCamera(li)
-    await sleep(120)
-    for (let ci = 0; ci < nodes.length; ci++) {
-      cardIn[li + '-' + ci] = true
-      madeCount.value += 1
-      await sleep(70)
+    await sleep(60)
+    const groups = visibleLayerGroups(layer)
+    if (groups.length) {
+      for (let gi = 0; gi < groups.length; gi++) {
+        groupIn[`${li}-${gi}`] = true
+        madeCount.value += 1
+        await sleep(70)
+        const nodes = groups[gi].nodes || []
+        for (let ci = 0; ci < nodes.length; ci++) {
+          cardIn[groupCardKey(li, gi, ci)] = true
+          madeCount.value += 1
+          await sleep(70)
+          for (let childIndex = 0; childIndex < nodeChildren(nodes[ci]).length; childIndex++) {
+            childIn[groupChildKey(li, gi, ci, childIndex)] = true
+            madeCount.value += 1
+            await sleep(45)
+          }
+        }
+      }
+    } else {
+      const nodes = layer.nodes || []
+      for (let ci = 0; ci < nodes.length; ci++) {
+        cardIn[cardKey(li, ci)] = true
+        madeCount.value += 1
+        await sleep(70)
+        for (let childIndex = 0; childIndex < nodeChildren(nodes[ci]).length; childIndex++) {
+          childIn[childKey(li, ci, childIndex)] = true
+          madeCount.value += 1
+          await sleep(45)
+        }
+      }
     }
     if (li < layers.value.length - 1) { arrowIn[li] = true; await sleep(60) }
   }
@@ -289,7 +492,7 @@ async function runAnimation() {
   tpIn.value = true
   // 镜头跟随到第三方区域
   await followCameraThirdParty()
-  await sleep(150)
+  await sleep(80)
   for (let ti = 0; ti < thirdParty.value.length; ti++) { tpItemIn[ti] = true; madeCount.value += 1; await sleep(70) }
   for (let fi = 0; fi < features.value.length; fi++) { featureIn[fi] = true; await sleep(60) }
 
@@ -310,6 +513,7 @@ async function run() {
   errorMessage.value = ''
   try {
     const payload = uni.getStorageSync('aiArchitecturePendingPayload')
+    pendingPayload.value = payload || null
     if (!payload || !payload.description) throw new Error('缺少架构描述')
     let result
     try {
@@ -341,7 +545,21 @@ function startAnimation(result) {
 function revealAll() {
   layers.value.forEach((l, li) => {
     layerIn[li] = true
-    ;(l.nodes || []).forEach((n, ci) => { cardIn[li + '-' + ci] = true })
+    const groups = visibleLayerGroups(l)
+    if (groups.length) {
+      groups.forEach((group, gi) => {
+        groupIn[`${li}-${gi}`] = true
+        ;(group.nodes || []).forEach((node, ci) => {
+          cardIn[groupCardKey(li, gi, ci)] = true
+          nodeChildren(node).forEach((child, childIndex) => { childIn[groupChildKey(li, gi, ci, childIndex)] = true })
+        })
+      })
+    } else {
+      ;(l.nodes || []).forEach((node, ci) => {
+        cardIn[cardKey(li, ci)] = true
+        nodeChildren(node).forEach((child, childIndex) => { childIn[childKey(li, ci, childIndex)] = true })
+      })
+    }
     if (li < layers.value.length - 1) arrowIn[li] = true
   })
   tpIn.value = true
@@ -362,7 +580,9 @@ function skipAnimation() {
 function retry() {
   clearTimers()
   Object.keys(layerIn).forEach(k => delete layerIn[k])
+  Object.keys(groupIn).forEach(k => delete groupIn[k])
   Object.keys(cardIn).forEach(k => delete cardIn[k])
+  Object.keys(childIn).forEach(k => delete childIn[k])
   Object.keys(arrowIn).forEach(k => delete arrowIn[k])
   Object.keys(tpItemIn).forEach(k => delete tpItemIn[k])
   Object.keys(featureIn).forEach(k => delete featureIn[k])
@@ -401,7 +621,7 @@ onUnload(() => { clearTimers() })
 
 .canvas-area { flex: 1; position: relative; overflow: hidden; }
 .g-stage { position: absolute; left: 0; top: 0; width: 100%; padding: 24rpx 24rpx 40rpx; transform-origin: 0 0; }
-.g-stage.smooth { transition: transform 0.6s cubic-bezier(0.22, 1, 0.36, 1); }
+.g-stage.smooth { transition: transform 0.42s cubic-bezier(0.22, 1, 0.36, 1); }
 
 .layer { border: 2rpx solid #d8dee6; border-radius: 24rpx; padding: 18rpx; margin-bottom: 0; opacity: 0; transform: translateY(14px); transition: opacity 0.34s ease, transform 0.34s ease; }
 .layer.in { opacity: 1; transform: translateY(0); }
@@ -409,12 +629,23 @@ onUnload(() => { clearTimers() })
 .layer-icon { width: 44rpx; height: 44rpx; border-radius: 14rpx; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
 .layer-name { font-size: 26rpx; font-weight: 700; }
 .layer-cards { display: flex; flex-wrap: wrap; gap: 14rpx; }
+.layer-groups { display: flex; flex-direction: column; gap: 14rpx; }
+.layer-group { border: 2rpx solid #e2e8ef; border-radius: 18rpx; padding: 14rpx; background: rgba(255, 255, 255, 0.58); opacity: 0; transform: translateY(10px); transition: opacity 0.3s ease, transform 0.3s ease; }
+.layer-group.in { opacity: 1; transform: translateY(0); }
+.layer-group-head { display: flex; align-items: baseline; gap: 10rpx; margin-bottom: 10rpx; min-width: 0; }
+.layer-group-title { font-size: 22rpx; font-weight: 800; line-height: 1.25; }
+.layer-group-desc { color: #64748B; font-size: 19rpx; line-height: 1.25; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .arch-card { background: #fff; border: 2rpx solid #e2e8ef; border-radius: 18rpx; padding: 12rpx 16rpx; min-width: 150rpx; opacity: 0; transform: translateY(10px) scale(0.85); transition: opacity 0.34s ease, transform 0.34s cubic-bezier(0.34, 1.56, 0.64, 1); }
 .arch-card.in { opacity: 1; transform: translateY(0) scale(1); }
 .arch-card-name { font-size: 24rpx; font-weight: 700; color: #1e344f; display: block; }
 .arch-card-desc { font-size: 20rpx; color: #8290a1; display: block; margin-top: 4rpx; max-width: 220rpx; }
 .arch-card-tech { display: flex; gap: 8rpx; margin-top: 8rpx; flex-wrap: wrap; }
 .tech { font-size: 18rpx; padding: 2rpx 10rpx; border-radius: 10rpx; border: 2rpx solid; }
+.node-children { width: 100%; display: flex; flex-direction: column; gap: 7rpx; margin-top: 10rpx; padding-top: 8rpx; border-top: 1rpx solid #eef2f7; }
+.node-child { display: flex; align-items: center; gap: 8rpx; padding: 7rpx 9rpx; border: 1rpx solid; border-radius: 10rpx; opacity: 0; transform: translateY(6px); transition: opacity 0.24s ease, transform 0.24s ease; }
+.node-child.in { opacity: 1; transform: translateY(0); }
+.node-child-dot { width: 8rpx; height: 8rpx; border-radius: 50%; flex-shrink: 0; }
+.node-child-name { color: #1f2937; font-size: 18rpx; line-height: 1.25; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .layer-arrow { display: flex; flex-direction: column; align-items: center; height: 36rpx; opacity: 0; transition: opacity 0.3s; }
 .layer-arrow.in { opacity: 1; }
 .layer-arrow-line { width: 4rpx; height: 22rpx; background: #b9c6d6; }

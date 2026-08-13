@@ -3,7 +3,6 @@ import { onMounted, ref, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import AppTabBar from '../components/AppTabBar.vue'
 import { getActivityDetail } from '../api/activity'
-import { mockActivities } from '../mock/activityData'
 
 const route = useRoute()
 const router = useRouter()
@@ -13,14 +12,13 @@ const error = ref('')
 
 async function load() {
   loading.value = true
+  error.value = ''
   try {
     const id = route.params.activityId
     const res = await getActivityDetail(id)
     activity.value = res.data
   } catch (e) {
-    const id = Number(route.params.activityId)
-    const mock = mockActivities.find(a => a.id === id) || mockActivities[0]
-    activity.value = { ...mock }
+    error.value = e?.message || '活动不存在或加载失败'
   } finally {
     loading.value = false
   }
@@ -30,7 +28,7 @@ const signupProgress = computed(() => {
   if (!activity.value) return 0
   const cur = activity.value.currentPeople || 0
   const max = activity.value.maxPeople || 1
-  return Math.round((cur / max) * 100)
+  return Math.round((cur / max) * 10000) / 100
 })
 
 const remainingSeats = computed(() => {
@@ -72,6 +70,23 @@ function formatDate(dateStr) {
   const d = new Date(String(dateStr).replace(' ', 'T'))
   if (isNaN(d.getTime())) return dateStr
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`
+}
+
+function formatTimeRange(startStr, endStr) {
+  const start = formatDate(startStr)
+  const end = formatDate(endStr)
+  if (!start) return end
+  if (!end) return start
+  const sd = new Date(String(startStr).replace(' ', 'T'))
+  const ed = new Date(String(endStr).replace(' ', 'T'))
+  const sameDay = sd.getFullYear() === ed.getFullYear() && sd.getMonth() === ed.getMonth() && sd.getDate() === ed.getDate()
+  const sameTime = sameDay && sd.getHours() === ed.getHours() && sd.getMinutes() === ed.getMinutes()
+  if (sameTime) return start
+  if (sameDay) {
+    const hm = `${String(ed.getHours()).padStart(2,'0')}:${String(ed.getMinutes()).padStart(2,'0')}`
+    return `${start} - ${hm}`
+  }
+  return `${start} - ${end}`
 }
 
 function goBack() {
@@ -121,21 +136,21 @@ onMounted(load)
 
           <div class="info-cards">
             <div class="info-card">
-              <div class="info-icon">🕐</div>
+              <div class="info-icon"><svg class="info-icon__svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></div>
               <div class="info-content">
                 <span class="info-label">活动时间</span>
-                <span class="info-value">{{ formatDate(activity.startTime) }} - {{ formatDate(activity.endTime) }}</span>
+                <span class="info-value">{{ formatTimeRange(activity.startTime, activity.endTime) }}</span>
               </div>
             </div>
             <div class="info-card">
-              <div class="info-icon">📍</div>
+              <div class="info-icon"><svg class="info-icon__svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg></div>
               <div class="info-content">
                 <span class="info-label">活动地点</span>
                 <span class="info-value">{{ activity.location || '线上活动' }}</span>
               </div>
             </div>
             <div class="info-card">
-              <div class="info-icon">👥</div>
+              <div class="info-icon"><svg class="info-icon__svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></div>
               <div class="info-content">
                 <span class="info-label">报名情况</span>
                 <span class="info-value">{{ activity.currentPeople || 0 }} / {{ activity.maxPeople || 0 }} 人</span>
@@ -147,7 +162,7 @@ onMounted(load)
             <div class="main-content">
               <section class="intro-section">
                 <h2>活动介绍</h2>
-                <p>{{ activity.description || '暂无活动介绍信息' }}</p>
+                <p>{{ activity.content || activity.description || '暂无活动介绍信息' }}</p>
               </section>
 
               <section v-if="activity.tags && activity.tags.length" class="tags-section">
@@ -159,7 +174,7 @@ onMounted(load)
               <div class="signup-card">
                 <div class="progress-header">
                   <span>报名进度</span>
-                  <span class="progress-percent">{{ signupProgress }}%</span>
+                  <span class="progress-percent">{{ signupProgress.toFixed(2) }}%</span>
                 </div>
                 <div class="progress-bar">
                   <div class="progress-fill" :style="{ width: signupProgress + '%' }"></div>
@@ -172,17 +187,6 @@ onMounted(load)
                 >
                   {{ signupButtonText }}
                 </button>
-              </div>
-
-              <div v-if="activity.contactName" class="contact-card">
-                <h3>负责人信息</h3>
-                <div class="contact-info">
-                  <div class="contact-avatar">{{ activity.contactName.charAt(0) }}</div>
-                  <div class="contact-detail">
-                    <span class="contact-name">{{ activity.contactName }}</span>
-                    <span v-if="activity.contactPhone" class="contact-phone">{{ activity.contactPhone }}</span>
-                  </div>
-                </div>
               </div>
             </aside>
           </div>
@@ -326,8 +330,16 @@ onMounted(load)
   gap: 14px;
   padding: 18px 20px;
   background: #ffffff;
-  border-radius: 12px;
+  border-radius: 14px;
   border: 1px solid #e2e8f0;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.04);
+  transition: box-shadow 0.25s ease, border-color 0.25s ease, transform 0.25s ease;
+}
+
+.info-card:hover {
+  border-color: #cbd5e1;
+  box-shadow: 0 6px 16px rgba(15, 23, 42, 0.08);
+  transform: translateY(-1px);
 }
 
 .info-icon {
@@ -337,8 +349,14 @@ onMounted(load)
   display: flex;
   align-items: center;
   justify-content: center;
-  background: #f1f5f9;
-  border-radius: 10px;
+  background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%);
+  border-radius: 12px;
+}
+
+.info-icon__svg {
+  width: 20px;
+  height: 20px;
+  color: #2563eb;
 }
 
 .info-content {
@@ -367,9 +385,10 @@ onMounted(load)
 
 .main-content {
   background: #ffffff;
-  border-radius: 12px;
+  border-radius: 14px;
   border: 1px solid #e2e8f0;
   padding: 28px;
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.05);
 }
 
 .intro-section h2 {
@@ -414,9 +433,10 @@ onMounted(load)
 
 .signup-card {
   background: #ffffff;
-  border-radius: 12px;
+  border-radius: 14px;
   border: 1px solid #e2e8f0;
   padding: 24px;
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.05);
 }
 
 .progress-header {
@@ -479,56 +499,6 @@ onMounted(load)
   background: #94a3b8;
   cursor: not-allowed;
   box-shadow: none;
-}
-
-.contact-card {
-  background: #ffffff;
-  border-radius: 12px;
-  border: 1px solid #e2e8f0;
-  padding: 20px;
-}
-
-.contact-card h3 {
-  font-size: 15px;
-  font-weight: 600;
-  color: #0f172a;
-  margin: 0 0 16px;
-}
-
-.contact-info {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.contact-avatar {
-  width: 44px;
-  height: 44px;
-  border-radius: 50%;
-  background: linear-gradient(135deg, #3b82f6, #2563eb);
-  color: #ffffff;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 18px;
-  font-weight: 600;
-}
-
-.contact-detail {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.contact-name {
-  font-size: 14px;
-  font-weight: 600;
-  color: #1e293b;
-}
-
-.contact-phone {
-  font-size: 13px;
-  color: #64748b;
 }
 
 @media (max-width: 768px) {

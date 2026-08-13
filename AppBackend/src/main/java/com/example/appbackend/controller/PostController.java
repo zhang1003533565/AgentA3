@@ -75,6 +75,11 @@ public class PostController {
         return Result.success("批量删除成功", null);
     }
 
+    @GetMapping("/messages/unread")
+    public Result<ForumMessageUnreadResponse> getMessageUnreadCount(HttpServletRequest request) {
+        return Result.success("操作成功", postService.getMessageUnreadCount(getCurrentUserId(request)));
+    }
+
     @GetMapping("/{id}")
     public Result<PostResponse> getPostDetail(@PathVariable Long id, HttpServletRequest request) {
         return Result.success("操作成功", postService.getPostDetail(id, getCurrentUserId(request)));

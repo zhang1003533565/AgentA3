@@ -129,9 +129,36 @@
 					}
 				},
 				{
+					"path": "reportPost/reportPost",
+					"style": {
+						"navigationBarTitleText": "举报帖子",
+						"navigationStyle": "custom",
+						"navigationBarBackgroundColor": "#FFFFFF",
+						"navigationBarTextStyle": "black"
+					}
+				},
+				{
 					"path": "userProfile/userProfile",
 					"style": {
 						"navigationBarTitleText": "个人主页",
+						"navigationStyle": "custom",
+						"navigationBarBackgroundColor": "#FFFFFF",
+						"navigationBarTextStyle": "black"
+					}
+				},
+				{
+					"path": "followingList/followingList",
+					"style": {
+						"navigationBarTitleText": "关注列表",
+						"navigationStyle": "custom",
+						"navigationBarBackgroundColor": "#FFFFFF",
+						"navigationBarTextStyle": "black"
+					}
+				},
+				{
+					"path": "followersList/followersList",
+					"style": {
+						"navigationBarTitleText": "粉丝列表",
 						"navigationStyle": "custom",
 						"navigationBarBackgroundColor": "#FFFFFF",
 						"navigationBarTextStyle": "black"
@@ -160,6 +187,15 @@
 						"navigationBarBackgroundColor": "#FFFFFF",
 						"navigationBarTextStyle": "black",
 						"enablePullDownRefresh": true
+					}
+				},
+				{
+					"path": "messageCategory/messageCategory",
+					"style": {
+						"navigationBarTitleText": "消息列表",
+						"navigationStyle": "custom",
+						"navigationBarBackgroundColor": "#FFFFFF",
+						"navigationBarTextStyle": "black"
 					}
 				},
 				{
@@ -352,6 +388,15 @@
 					"path": "myFavorites/myFavorites",
 					"style": {
 						"navigationBarTitleText": "我的收藏",
+						"navigationStyle": "custom",
+						"navigationBarBackgroundColor": "#FFFFFF",
+						"navigationBarTextStyle": "black"
+					}
+				},
+				{
+					"path": "userHomepage/userHomepage",
+					"style": {
+						"navigationBarTitleText": "TA 的主页",
 						"navigationStyle": "custom",
 						"navigationBarBackgroundColor": "#FFFFFF",
 						"navigationBarTextStyle": "black"
@@ -581,6 +626,33 @@
 					}
 				},
 				{
+					"path": "smartWritingHistory/smartWritingHistory",
+					"style": {
+						"navigationBarTitleText": "智能写作历史",
+						"navigationStyle": "custom",
+						"navigationBarBackgroundColor": "#FFFFFF",
+						"navigationBarTextStyle": "black"
+					}
+				},
+				{
+					"path": "smartWritingGenerating/smartWritingGenerating",
+					"style": {
+						"navigationBarTitleText": "智能写作生成中",
+						"navigationStyle": "custom",
+						"navigationBarBackgroundColor": "#FFFFFF",
+						"navigationBarTextStyle": "black"
+					}
+				},
+				{
+					"path": "smartWritingDetail/smartWritingDetail",
+					"style": {
+						"navigationBarTitleText": "作品详情页",
+						"navigationStyle": "custom",
+						"navigationBarBackgroundColor": "#FFFFFF",
+						"navigationBarTextStyle": "black"
+					}
+				},
+				{
 					"path": "imageGenerate/imageGenerate",
 					"style": {
 						"navigationBarTitleText": "AI 文生图",
@@ -677,6 +749,15 @@
 						"navigationBarTitleText": "",
 						"navigationStyle": "custom",
 						"navigationBarBackgroundColor": "#FCFAFC",
+						"navigationBarTextStyle": "black"
+					}
+				},
+				{
+					"path": "filePreview/filePreview",
+					"style": {
+						"navigationBarTitleText": "",
+						"navigationStyle": "custom",
+						"navigationBarBackgroundColor": "#FFFFFF",
 						"navigationBarTextStyle": "black"
 					}
 				},
@@ -805,7 +886,61 @@
 						"navigationBarBackgroundColor": "#FFFFFF",
 						"navigationBarTextStyle": "black"
 					}
-				}
+				},
+				{
+   				"path": "watermarkHome/watermarkHome",
+  			  	"style": {
+        			"navigationBarTitleText": "水印工具",
+        			"navigationStyle": "custom",
+        			"navigationBarBackgroundColor": "#ffffff",
+        			"navigationBarTextStyle": "black"
+    				}
+				},
+				{
+				"path": "watermarkAddEdit/watermarkAddEdit",
+				"style": {
+					"navigationBarTitleText": "",
+					"navigationStyle": "custom",
+					"navigationBarBackgroundColor": "#FFFFFF",
+					"navigationBarTextStyle": "black"
+					}
+			},
+				{
+    			"path": "watermarkRemoveEdit/watermarkRemoveEdit",
+    			"style": {
+        			"navigationBarTitleText": "",
+        			"navigationStyle": "custom",
+        			"navigationBarBackgroundColor": "#ffffff",
+        			"navigationBarTextStyle": "black"
+    				}
+			},
+			{
+    			"path": "watermarkBatch/watermarkBatch",
+    			"style": {
+        			"navigationBarTitleText": "",
+        			"navigationStyle": "custom",
+        			"navigationBarBackgroundColor": "#ffffff",
+        			"navigationBarTextStyle": "black"
+    				}
+			},
+			{
+    			"path": "watermarkHistory/watermarkHistory",
+    			"style": {
+        			"navigationBarTitleText": "",
+        			"navigationStyle": "custom",
+        			"navigationBarBackgroundColor": "#ffffff",
+        			"navigationBarTextStyle": "black"
+    				}
+			},
+			{
+    			"path": "watermarkHelp/watermarkHelp",
+    			"style": {
+        			"navigationBarTitleText": "",
+        			"navigationStyle": "custom",
+        			"navigationBarBackgroundColor": "#ffffff",
+        			"navigationBarTextStyle": "black"
+    				}
+			}
 			]
 		},
 		{

@@ -21,6 +21,9 @@ function conversationRoute(tool) {
 
 export function resolveAiToolDestination(tool = {}) {
   const name = String(tool?.name || '').trim()
+  // =====新增：AI伪原创跳转水印工具页面=====
+  if (name === 'AI伪原创') return '/subpackage_ai/watermarkHome/watermarkHome'
+
   if (name === '智能写作') return '/subpackage_ai/smartWriting/smartWriting'
   if (name === 'AI对话') return CONVERSATION
   if (name === 'AI玩图' || name === '文生图') return '/subpackage_ai/imageGenerate/imageGenerate'

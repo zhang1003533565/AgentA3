@@ -125,12 +125,9 @@ export default {
     },
     async loadRecords() {
       try {
-        const res = await getTradeRecords({ current: 1, size: 100 })
+        const res = await getTradeRecords({ current: 1, size: 100, role: 'buyer' })
         const records = Array.isArray(res?.data?.records) ? res.data.records : (Array.isArray(res?.data) ? res.data : [])
-        this.items = records.filter((item) => {
-          const buyerId = getRecordBuyerId(item)
-          return Boolean(this.currentUserId && buyerId && String(buyerId) === String(this.currentUserId))
-        })
+        this.items = records
       } catch (e) {
         console.error('加载购买记录失败', e)
         this.items = []

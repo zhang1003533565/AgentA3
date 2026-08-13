@@ -21,6 +21,7 @@ public interface ForumTopicRepository extends JpaRepository<ForumTopic, Long> {
     long count();
     long countByStatus(String status);
     long countByIsHot(Integer isHot);
+    long countById(Long id);
 
     List<ForumTopic> findByStatusOrderByPostCountDesc(String status, Pageable pageable);
 

@@ -4,6 +4,20 @@ export function getCampusCourses() {
   return request({ url: '/api/app/campus-courses', method: 'GET' })
 }
 
+/** 分页获取校园课程（触底加载更多），page 从 1 开始 */
+export function getCampusCoursesPage(page = 1, size = 8) {
+  return request({
+    url: '/api/app/campus-courses',
+    method: 'GET',
+    data: { page, size }
+  })
+}
+
+/** 获取课程类型列表（category: BUILTIN-必选类型 / CUSTOM-自定义类型） */
+export function getCampusCourseTypes() {
+  return request({ url: '/api/app/campus-courses/types', method: 'GET' })
+}
+
 export function getCampusCourseDetail(courseId) {
   return request({
     url: `/api/app/campus-courses/${encodeURIComponent(courseId)}`,
@@ -61,5 +75,13 @@ export function getWordContent(courseId, chapterId, materialId, page = 1, size =
     url: `/api/app/campus-courses/${encodeURIComponent(courseId)}/chapters/${encodeURIComponent(chapterId)}/word/${encodeURIComponent(materialId)}/content`,
     method: 'GET',
     data: { page, size }
+  })
+}
+
+/** 按需获取单个材料的访问 URL（含 fileUrl），用于视频播放、附件下载等场景 */
+export function getMaterialUrl(courseId, chapterId, materialId) {
+  return request({
+    url: `/api/app/campus-courses/${encodeURIComponent(courseId)}/chapters/${encodeURIComponent(chapterId)}/materials/${encodeURIComponent(materialId)}/url`,
+    method: 'GET'
   })
 }

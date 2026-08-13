@@ -171,6 +171,8 @@ public class PostServiceImpl implements PostService {
                     UserPostResponse response = new UserPostResponse();
                     response.setId(post.getId());
                     response.setTitle(post.getTitle());
+                    response.setContent(post.getContent());
+                    response.setImages(post.getImages());
                     response.setViewCount(post.getViewCount());
                     response.setLikeCount(post.getLikeCount());
                     response.setCommentCount(post.getCommentCount());
@@ -194,12 +196,42 @@ public class PostServiceImpl implements PostService {
                     response.setId(like.getId());
                     response.setPostId(like.getTargetId());
                     ForumPost post = postRepository.findById(like.getTargetId()).orElse(null);
-                    response.setPostTitle(post != null && STATUS_PUBLISHED.equals(post.getStatus()) ? post.getTitle() : null);
+                    if (post != null && STATUS_PUBLISHED.equals(post.getStatus())) {
+                        response.setPostTitle(post.getTitle());
+                        response.setContent(post.getContent());
+                        response.setImages(post.getImages());
+                        response.setLikeCount(post.getLikeCount());
+                        response.setCommentCount(post.getCommentCount());
+                    }
                     response.setCreateTime(like.getCreateTime());
                     return response;
                 })
                 .collect(Collectors.toList());
         return new PageResponse<>(items, likePage.getTotalElements(), safePage, safeSize);
+    }
+
+    @Override
+    public ForumMessageUnreadResponse getMessageUnreadCount(Long userId) {
+        ForumMessageUnreadResponse response = new ForumMessageUnreadResponse(0L, 0L, 0L);
+        if (userId == null) {
+            return response;
+        }
+        // 我的帖子
+        List<ForumPost> myPosts = postRepository.findByUserIdAndStatus(userId, STATUS_PUBLISHED, PageRequest.of(0, 1000)).getContent();
+        if (myPosts.isEmpty()) {
+            return response;
+        }
+        // 收到的评论数：他人（非本人）评论了我的帖子（顶级评论 + 子评论）
+        List<Long> postIds = myPosts.stream().map(ForumPost::getId).collect(Collectors.toList());
+        long commentCount = commentRepository.countByPostIdInAndUserIdNot(postIds, userId);
+        response.setCommentCount(commentCount);
+        // 被点赞的帖子数
+        long likeCount = myPosts.stream().filter(p -> p.getLikeCount() != null && p.getLikeCount() > 0).count();
+        response.setLikeCount(likeCount);
+        // 系统通知数：公告话题（topicId=3）下的帖子数
+        long systemCount = topicRepository.countById(3L);
+        response.setSystemCount(systemCount);
+        return response;
     }
 
     @Override
