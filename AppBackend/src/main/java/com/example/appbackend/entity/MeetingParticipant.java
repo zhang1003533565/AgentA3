@@ -23,6 +23,9 @@ public class MeetingParticipant {
     @Column(name = "sort_order", columnDefinition = "INT DEFAULT 0 COMMENT '排序'")
     private Integer sortOrder = 0;
 
+    @Column(nullable = false, columnDefinition = "TINYINT(1) DEFAULT 1 COMMENT '是否在线'")
+    private Boolean online = true;
+
     @Column(name = "create_time", columnDefinition = "DATETIME COMMENT '创建时间'")
     private LocalDateTime createTime;
 
@@ -35,6 +38,9 @@ public class MeetingParticipant {
         createTime = LocalDateTime.now();
         if (sortOrder == null) {
             sortOrder = 0;
+        }
+        if (online == null) {
+            online = true;
         }
     }
 }

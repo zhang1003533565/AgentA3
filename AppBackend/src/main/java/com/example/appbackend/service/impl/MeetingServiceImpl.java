@@ -31,6 +31,8 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.util.StringUtils;
 
 import java.security.SecureRandom;
@@ -40,6 +42,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.HashMap;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
@@ -120,6 +123,10 @@ public class MeetingServiceImpl implements MeetingService {
             assertNoOngoingHosting(userId);
             session.setStartTime(LocalDateTime.now());
         }
+        // 防止通过 createMeeting 绕过预约冲突校验
+        if (MeetingSession.STATUS_IDLE.equals(session.getStatus()) && session.getScheduledStartTime() != null) {
+            assertNoReservedConflict(userId, session.getScheduledStartTime());
+        }
         session = sessionRepository.save(session);
         syncParticipants(session.getId(), withCurrentUser(userId, request == null ? List.of() : request.getParticipants()));
         if (request != null && StringUtils.hasText(request.getNotes())) {
@@ -160,6 +167,8 @@ public class MeetingServiceImpl implements MeetingService {
         session.setTitle(normalizeTitle(request == null ? null : request.getTitle()));
         session.setStatus(MeetingSession.STATUS_IDLE);
         session.setScheduledStartTime(resolveScheduledStartTime(request == null ? null : request.getScheduledStartTime()));
+        // 预约冲突校验：同一主持人不能在同一时间预约多场会议
+        assertNoReservedConflict(userId, session.getScheduledStartTime());
         session = sessionRepository.save(session);
         syncParticipants(session.getId(), withCurrentUser(userId, request == null ? List.of() : request.getParticipants()));
         refreshCounters(session);
@@ -213,7 +222,9 @@ public class MeetingServiceImpl implements MeetingService {
         int safePage = pageNum == null || pageNum < 1 ? 1 : pageNum;
         int safeSize = pageSize == null || pageSize < 1 ? 20 : Math.min(pageSize, 50);
         String normalizedKeyword = StringUtils.hasText(keyword) ? keyword.trim() : "";
-        Page<MeetingSession> page = sessionRepository.searchByUserId(userId, normalizedKeyword, PageRequest.of(safePage - 1, safeSize));
+        // 参会人可见性：显示名与 joinMeeting() 写入 meeting_participant.name 的来源一致（resolveUserDisplayName）
+        String displayName = resolveUserDisplayName(userId);
+        Page<MeetingSession> page = sessionRepository.searchAccessibleByUserId(userId, displayName, normalizedKeyword, PageRequest.of(safePage - 1, safeSize));
         List<MeetingDTO.SessionItem> records = page.getContent().stream()
                 .map(this::toSessionItem)
                 .collect(Collectors.toList());
@@ -241,9 +252,40 @@ public class MeetingServiceImpl implements MeetingService {
     }
 
     @Override
-    @Transactional(readOnly = true)
+    @Transactional
+    public void leaveMeeting(Long userId, String sessionId) {
+        MeetingSession session = findAccessibleSession(userId, sessionId);
+        String displayName = resolveUserDisplayName(userId);
+        if (StringUtils.hasText(displayName)) {
+            participantRepository.findByMeetingSessionIdAndName(session.getId(), displayName)
+                    .ifPresent(participant -> {
+                        participant.setOnline(false);
+                        participantRepository.save(participant);
+                    });
+        }
+        refreshCounters(session);
+    }
+
+    @Override
+    @Transactional
     public MeetingDTO.SessionDetail getMeeting(Long userId, String sessionId) {
-        return buildDetail(findAccessibleSession(userId, sessionId));
+        MeetingSession session = findAccessibleSession(userId, sessionId);
+        restoreParticipantOnline(userId, session.getId());
+        return buildDetail(session);
+    }
+
+    private void restoreParticipantOnline(Long userId, Long meetingSessionId) {
+        String displayName = resolveUserDisplayName(userId);
+        if (!StringUtils.hasText(displayName)) {
+            return;
+        }
+        participantRepository.findByMeetingSessionIdAndName(meetingSessionId, displayName)
+                .ifPresent(participant -> {
+                    if (Boolean.FALSE.equals(participant.getOnline())) {
+                        participant.setOnline(true);
+                        participantRepository.save(participant);
+                    }
+                });
     }
 
     @Override
@@ -275,7 +317,18 @@ public class MeetingServiceImpl implements MeetingService {
         session.setEndTime(LocalDateTime.now());
         refreshCounters(session);
         MeetingDTO.SessionDetail detail = buildDetail(session);
-        triggerPostMeetingOrganization(session.getSessionId(), authorization);
+        // 事务提交后再启动 AI 整理，避免异步任务读到事务提交前的旧状态而覆盖 ended
+        String meetingSessionId = session.getSessionId();
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    triggerPostMeetingOrganization(meetingSessionId, authorization);
+                }
+            });
+        } else {
+            triggerPostMeetingOrganization(meetingSessionId, authorization);
+        }
         return detail;
     }
 
@@ -377,7 +430,9 @@ public class MeetingServiceImpl implements MeetingService {
             try {
                 MeetingSession latestSession = findSession(sessionId);
                 organizeMeetingResults(latestSession, authorization, false);
-                refreshCounters(latestSession);
+                // AI整理完成后重新查询最新会议数据，避免用旧实体覆盖主事务已提交的status='ended'
+                MeetingSession freshSession = findSession(sessionId);
+                refreshCounters(freshSession);
             } catch (Exception error) {
                 log.warn("post meeting organization skipped sessionId={}: {}", sessionId, error.getMessage());
             }
@@ -571,6 +626,13 @@ public class MeetingServiceImpl implements MeetingService {
         }
     }
 
+    private void assertNoReservedConflict(Long userId, LocalDateTime scheduledStartTime) {
+        if (userId != null && scheduledStartTime != null
+                && sessionRepository.existsByUserIdAndStatusAndScheduledStartTime(userId, MeetingSession.STATUS_IDLE, scheduledStartTime)) {
+            throw new BusinessException(Result.BAD_REQUEST_CODE, "你已预约了相同开始时间的会议，请选择其他时间");
+        }
+    }
+
     private MeetingSession findAccessibleSession(Long userId, String sessionId) {
         MeetingSession session = findSession(sessionId);
         if (userId != null && userId.equals(creatorOf(session))) {
@@ -601,6 +663,7 @@ public class MeetingServiceImpl implements MeetingService {
             participant.setMeetingSessionId(meetingSessionId);
             participant.setName(names.get(i));
             participant.setSortOrder(i);
+            participant.setOnline(true);
             entities.add(participant);
         }
         participantRepository.saveAll(entities);
@@ -646,14 +709,25 @@ public class MeetingServiceImpl implements MeetingService {
             return;
         }
         List<MeetingParticipant> participants = participantRepository.findByMeetingSessionIdOrderBySortOrderAscIdAsc(meetingSessionId);
-        boolean exists = participants.stream().anyMatch(participant -> name.equals(participant.getName()));
-        if (exists || participants.size() >= 20) {
+        Optional<MeetingParticipant> existing = participants.stream()
+                .filter(participant -> name.equals(participant.getName()))
+                .findFirst();
+        if (existing.isPresent()) {
+            MeetingParticipant participant = existing.get();
+            if (Boolean.FALSE.equals(participant.getOnline())) {
+                participant.setOnline(true);
+                participantRepository.save(participant);
+            }
+            return;
+        }
+        if (participants.size() >= 20) {
             return;
         }
         MeetingParticipant participant = new MeetingParticipant();
         participant.setMeetingSessionId(meetingSessionId);
         participant.setName(name);
         participant.setSortOrder(participants.size());
+        participant.setOnline(true);
         participantRepository.save(participant);
     }
 
@@ -699,6 +773,7 @@ public class MeetingServiceImpl implements MeetingService {
 
     private String buildAgentInput(MeetingSession session, String content) {
         List<String> participantNames = participantRepository.findByMeetingSessionIdOrderBySortOrderAscIdAsc(session.getId()).stream()
+                .filter(participant -> Boolean.TRUE.equals(participant.getOnline()))
                 .map(MeetingParticipant::getName)
                 .toList();
         return String.join("\n",
@@ -714,6 +789,7 @@ public class MeetingServiceImpl implements MeetingService {
         MeetingDTO.SessionDetail detail = new MeetingDTO.SessionDetail();
         detail.setSession(toSessionItem(session));
         detail.setParticipants(participantRepository.findByMeetingSessionIdOrderBySortOrderAscIdAsc(session.getId()).stream()
+                .filter(participant -> Boolean.TRUE.equals(participant.getOnline()))
                 .map(MeetingParticipant::getName)
                 .collect(Collectors.toList()));
         detail.setRecords(recordRepository.findByMeetingSessionIdOrderByCreateTimeAscIdAsc(session.getId()).stream()
