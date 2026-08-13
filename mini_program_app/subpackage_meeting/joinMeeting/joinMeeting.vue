@@ -11,7 +11,7 @@
 			<view class="field-block">
 				<text class="field-title">请输入会议号</text>
 				<view class="input-wrap">
-					<input v-model="roomCode" class="join-input" type="number" maxlength="11" placeholder="请输入9–11位会议号" placeholder-class="placeholder" />
+					<input v-model="roomCode" class="join-input" type="text" maxlength="12" placeholder="请输入会议号" placeholder-class="placeholder" />
 					<view v-if="roomCode" class="clear-btn" @click="roomCode = ''">
 						<text class="clear-icon">×</text>
 					</view>

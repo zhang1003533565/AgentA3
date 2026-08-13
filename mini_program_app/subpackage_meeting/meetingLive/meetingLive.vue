@@ -264,14 +264,48 @@
 			</view>
 			<view class="end-cancel" @click="closeEndPanel">取消</view>
 		</view>
+
+		<!-- 主持人离开操作选择弹窗 -->
+		<view v-if="leaveActionVisible" class="panel-mask" @click="closeLeaveAction"></view>
+		<view v-if="leaveActionVisible" class="end-panel-wrap">
+			<view class="end-panel">
+				<view class="end-action end-action--danger" @click="onLeaveActionEndAll">全员结束会议</view>
+				<view class="end-action end-action--transfer" @click="openTransferHost">转交主持人并离开</view>
+				<view class="end-action end-action--cancel-leave" @click="closeLeaveAction">暂不离开</view>
+			</view>
+			<view class="end-cancel" @click="closeLeaveAction">取消</view>
+		</view>
+
+		<!-- 转交主持人成员选择弹窗 -->
+		<view v-if="transferHostVisible" class="panel-mask" @click="closeTransferHost"></view>
+		<view v-if="transferHostVisible" class="sheet-panel">
+			<view class="sheet-handle"></view>
+			<view class="sheet-title-row">
+				<text class="sheet-title">选择新主持人</text>
+				<text class="sheet-close" @click="closeTransferHost">×</text>
+			</view>
+			<view class="member-list">
+				<view v-for="member in transferableMembers" :key="member.name" class="member-row" @click="selectTransferMember(member)">
+					<view class="member-avatar">{{ member.name.slice(0, 1) }}</view>
+					<view class="member-info">
+						<text class="member-name">{{ member.name }}</text>
+						<text class="member-role">参会成员</text>
+					</view>
+					<text v-if="selectedTransferMember === member.name" class="transfer-check">✓</text>
+				</view>
+			</view>
+			<view class="transfer-confirm-row">
+				<view class="end-action end-action--transfer" @click="confirmTransferHost">确认转交并离开</view>
+			</view>
+		</view>
 	</view>
 </template>
 
 <script>
-import { endMeeting as finishMeetingApi, getMeetingDetail, streamLlmChat } from '@/api/ai.js'
+import { endMeeting as finishMeetingApi, getMeetingDetail, leaveMeeting as leaveMeetingApi, streamLlmChat } from '@/api/ai.js'
 import { getCurrentDisplayName, toMeetingMembers } from '@/utils/meetingUser.js'
 import { BASE_URL } from '@/utils/config.js'
-import { getToken, getUserInfo } from '@/utils/storage.js'
+import { getToken, getUserInfo, getCurrentUserId } from '@/utils/storage.js'
 
 export default {
 	data() {
@@ -319,25 +353,15 @@ export default {
 			asrPanelVisible: false,
 			subtitlePanelVisible: false,
 			endPanelVisible: false,
+			leaveActionVisible: false,
+			transferHostVisible: false,
+			selectedTransferMember: '',
 			isHost: false,
 			subtitleRecords: [],
 			members: [],
 			memberPageIndex: 0,
 			swipeStartX: 0,
-			// TODO 测试数据，正式环境删除
-			mockMemberList: [
-				{ id: 1, nickname: '测试学生', avatar: '', speaking: true, muted: false },
-				{ id: 2, nickname: '成员2', avatar: '', speaking: false, muted: true },
-				{ id: 3, nickname: '成员3', avatar: '', speaking: false, muted: false },
-				{ id: 4, nickname: '成员4', avatar: '', speaking: false, muted: true },
-				{ id: 5, nickname: '成员5', avatar: '', speaking: false, muted: false },
-				{ id: 6, nickname: '成员6', avatar: '', speaking: false, muted: true },
-				{ id: 7, nickname: '成员7', avatar: '', speaking: false, muted: false },
-				{ id: 8, nickname: '成员8', avatar: '', speaking: false, muted: true },
-				{ id: 9, nickname: '成员9', avatar: '', speaking: false, muted: false },
-				{ id: 10, nickname: '成员10', avatar: '', speaking: false, muted: true }
-			]
-			// TODO 测试数据结束
+			refreshTimer: null
 		}
 	},
 	onLoad(options) {
@@ -349,16 +373,15 @@ export default {
 		if (options?.shareScreen === '1') this.shareScreenOpen = true
 
 		this.initCurrentMember()
-		// TODO 测试数据，正式环境删除
-		this.initMockMembers()
-		// TODO 测试数据结束
 		this.startTimer()
 		this.loadMeeting()
 		this.initAsr()
+		this.startRefreshTimer()
 	},
 	onUnload() {
 		this.stopTimer()
 		this.closeAsr()
+		this.stopRefreshTimer()
 	},
 	computed: {
 		elapsedText() {
@@ -399,6 +422,9 @@ export default {
 		},
 		asrReconnectVisible() {
 			return !this.asrSocketReady && !this.muted && !!this.sessionId
+		},
+		transferableMembers() {
+			return this.members.filter(m => !m.isSelf)
 		}
 	},
 	methods: {
@@ -430,6 +456,18 @@ export default {
 				this.timer = null
 			}
 		},
+		startRefreshTimer() {
+			this.stopRefreshTimer()
+			this.refreshTimer = setInterval(() => {
+				this.loadMeeting()
+			}, 3000)
+		},
+		stopRefreshTimer() {
+			if (this.refreshTimer) {
+				clearInterval(this.refreshTimer)
+				this.refreshTimer = null
+			}
+		},
 		async loadMeeting() {
 			if (!this.sessionId) return
 			try {
@@ -439,32 +477,18 @@ export default {
 				if (session.title) this.title = session.title
 				if (session.roomCode) this.roomCode = session.roomCode
 				if (Array.isArray(detail.participants) && detail.participants.length > 0) {
-					// TODO 测试数据，正式环境删除：使用模拟成员时不覆盖
-					if (this.members.length === 0 || !this.mockMemberList.length) {
-						this.members = toMeetingMembers(detail.participants.slice(0, 6))
-					}
-					// TODO 测试数据结束
+					this.members = toMeetingMembers(detail.participants)
 				}
-				// 与 meetingDetail 主持人逻辑对齐：第一位参会人即主持人
-				const hostName = Array.isArray(detail.participants) ? String(detail.participants[0] || '').trim() : ''
-				const currentName = getCurrentDisplayName()
-				this.isHost = !!hostName && !!currentName && hostName === currentName
+				// 与 meetingRoom 主持人逻辑对齐：creatorId 与当前用户 id 一致即为主持人
+				const creatorId = session?.creatorId
+				const currentId = getCurrentUserId()
+				this.isHost = !!currentId && creatorId != null && String(creatorId) === String(currentId)
 			} catch (error) {}
 		},
 		initCurrentMember() {
 			const currentName = getCurrentDisplayName()
 			this.members = currentName ? toMeetingMembers([currentName], currentName) : []
 		},
-		// TODO 测试数据，正式环境删除
-		initMockMembers() {
-			this.members = this.mockMemberList.map((item, index) => ({
-				...item,
-				name: item.nickname,
-				isSelf: index === 0,
-				className: `avatar-${['a', 'b', 'c', 'd'][index % 4]}`
-			}))
-		},
-		// TODO 测试数据结束
 		toggleMute() {
 			this.muted = !this.muted
 			if (this.muted) {
@@ -1122,29 +1146,83 @@ export default {
 		},
 		// 普通参会人：仅自己离开，不结束会议
 		handleLeaveMeeting() {
-			this.closeEndPanel()
+			if (this.isHost) {
+				this.closeEndPanel()
+				this.leaveActionVisible = true
+			} else {
+				this.closeEndPanel()
+				this.leaveMeeting()
+			}
+		},
+		// 主持人离开操作弹窗
+		closeLeaveAction() {
+			this.leaveActionVisible = false
+		},
+		onLeaveActionEndAll() {
+			this.leaveActionVisible = false
+			this.handleEndAll()
+		},
+		openTransferHost() {
+			this.leaveActionVisible = false
+			this.transferHostVisible = true
+			this.selectedTransferMember = ''
+		},
+		closeTransferHost() {
+			this.transferHostVisible = false
+		},
+		selectTransferMember(member) {
+			this.selectedTransferMember = member.name
+		},
+		confirmTransferHost() {
+			// 前端模拟：保存选择结果
+			this.transferHostVisible = false
 			this.leaveMeeting()
 		},
 		// TODO 前端模拟，正式环境接入 AI 托管接口
 		handleAiHost() {
 			this.closeEndPanel()
 			uni.showToast({ title: '已开启 AI 托管', icon: 'none' })
-			this.leaveMeeting()
-		},
-		leaveMeeting() {
 			this.stopTimer()
+			this.stopRefreshTimer()
+			uni.redirectTo({ url: '/subpackage_meeting/meetingRoom/meetingRoom' })
+		},
+		async leaveMeeting() {
+			this.closeEndPanel()
+			this.stopTimer()
+			this.stopRefreshTimer()
+			let leaveError = ''
+			if (this.sessionId) {
+				try {
+					await leaveMeetingApi(this.sessionId)
+				} catch (error) {
+					leaveError = error?.msg || error?.message || '离开会议失败'
+				}
+			}
+			if (leaveError) {
+				uni.showToast({ title: leaveError, icon: 'none' })
+			}
 			uni.redirectTo({ url: '/subpackage_meeting/meetingRoom/meetingRoom' })
 		},
 		async endMeeting() {
-			if (this.sessionId) {
-				try {
-					await finishMeetingApi(this.sessionId)
-					uni.showToast({ title: '会议已结束，AI正在整理', icon: 'none' })
-				} catch (error) {}
+			if (!this.sessionId) return
+			this.closeEndPanel()
+			uni.showLoading({ title: '结束中...', mask: true })
+			try {
+				await finishMeetingApi(this.sessionId)
+				uni.hideLoading()
+				uni.showToast({ title: '会议已结束，AI正在整理', icon: 'none' })
+				this.stopTimer()
+				this.stopRefreshTimer()
+				this.closeAsr()
+				setTimeout(() => {
+					uni.redirectTo({ url: '/subpackage_meeting/meetingRoom/meetingRoom' })
+				}, 800)
+			} catch (error) {
+				uni.hideLoading()
+				const message = error?.msg || error?.message || '结束会议失败'
+				uni.showToast({ title: message, icon: 'none' })
 			}
-			this.stopTimer()
-			uni.redirectTo({ url: '/subpackage_meeting/meetingRoom/meetingRoom' })
-		}
+		},
 	}
 }
 </script>
@@ -1717,4 +1795,8 @@ export default {
 	justify-content: center;
 	box-shadow: 0 12rpx 28rpx rgba(31,42,48,.10);
 }
+.end-action--transfer { background: #86C9A8; color: #ffffff; }
+.end-action--cancel-leave { background: #ffffff; border: 2rpx solid #d1d5db; color: #151f25; box-sizing: border-box; }
+.transfer-check { color: #86C9A8; font-size: 28rpx; font-weight: 900; }
+.transfer-confirm-row { margin-top: 24rpx; }
 </style>
