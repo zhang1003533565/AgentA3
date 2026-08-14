@@ -17,8 +17,13 @@ from app.models.schemas import (
     RagQueryResponse,
     RagTraceResponse,
 )
-from app.model_providers.multimodal import append_image_references_to_text, collect_request_image_references
+from app.model_providers.multimodal import (
+    append_attachment_references_to_text,
+    append_image_references_to_text,
+    collect_request_image_references,
+)
 from app.model_providers.runtime_config import build_llm_runtime_config, reset_active_llm_config, set_active_llm_config
+from app.observability.langfuse import observe_request, settings_from_headers, use_settings
 from app.multi_agents.catalog import (
     LEADER_CALLABLE_AGENT_ORDER,
     get_agent_catalog,
@@ -125,6 +130,20 @@ VISUAL_GENERATION_TOOLS = [
     for tool_name, config in VISUAL_GENERATION_TOOL_CONFIG.items()
 ]
 VISUAL_GENERATION_TOOL_NAMES = frozenset(VISUAL_GENERATION_TOOL_CONFIG)
+IMAGE_RECOGNITION_TOOL_NAME = "recognize_image_tool"
+IMAGE_RECOGNITION_AGENT_NAME = "vision_agent"
+IMAGE_RECOGNITION_TOOL = {
+    "name": IMAGE_RECOGNITION_TOOL_NAME,
+    "zhName": "图片识别工具",
+    "displayName": "图片识别工具（recognize_image_tool）",
+    "category": "vision_understanding",
+    "purpose": "识别聊天中上传的图片，支持视觉问答、OCR、截图理解、图表分析和多图对比。",
+    "trigger": "聊天消息包含图片附件、图片 URL 或图片数据时自动调用。",
+    "outputs": ["image_analysis_text"],
+    "status": "implemented",
+    "configurable": True,
+    "boundAgent": IMAGE_RECOGNITION_AGENT_NAME,
+}
 
 
 class AgentExecutionError(Exception):
@@ -206,6 +225,18 @@ GENERATED_CONTENT_TOOLS = [
         "trigger": "用户明确要求 PPT/PPTX/幻灯片文件。",
         "outputs": ["pptx"],
         "status": "implemented",
+    },
+    {
+        "name": "ai_ppt_generation_tool",
+        "zhName": "AI 复习 PPT 生成工具",
+        "displayName": "AI 复习 PPT 生成工具（ai_ppt_generation_tool）",
+        "category": "presentation_generation",
+        "purpose": "接收已确认的大纲、逐页内容、公共提示词和单页私有提示词，生成可预览、可导出的复习资料 PPT 任务结果。",
+        "trigger": "仅供 AIPPT 专用流程显式调用；当前只注册工具与开关，暂未接入 Leader 或工作流调用。",
+        "outputs": ["outline_json", "slide_json", "preview", "pptx", "pdf"],
+        "status": "registered",
+        "configurable": True,
+        "invocation": "unwired",
     },
     {
         "name": "content_archive_tool",
@@ -301,6 +332,7 @@ CAMPUS_SERVICE_TOOLS = [
 SERVICE_TOOL_NAMES = {tool["name"] for tool in CAMPUS_SERVICE_TOOLS}
 
 LEADER_CALLABLE_TOOLS = [
+    IMAGE_RECOGNITION_TOOL,
     *VISUAL_GENERATION_TOOLS,
     {
         "name": "text_to_sql",
@@ -648,6 +680,10 @@ def run_rag_query(
     x_ai_base_url: Optional[str] = Header(default=None, alias="X-AI-Base-Url"),
     x_ai_api_key: Optional[str] = Header(default=None, alias="X-AI-Api-Key"),
     x_ai_model: Optional[str] = Header(default=None, alias="X-AI-Model"),
+    x_langfuse_enabled: Optional[str] = Header(default=None, alias="X-Langfuse-Enabled"),
+    x_langfuse_base_url: Optional[str] = Header(default=None, alias="X-Langfuse-Base-Url"),
+    x_langfuse_public_key: Optional[str] = Header(default=None, alias="X-Langfuse-Public-Key"),
+    x_langfuse_secret_key: Optional[str] = Header(default=None, alias="X-Langfuse-Secret-Key"),
 ) -> RagQueryResponse:
     request_started_at = time.perf_counter()
     _require_authorization(authorization)
@@ -677,7 +713,17 @@ def run_rag_query(
         model=x_ai_model,
     ))
     try:
-        response = _run_rag_query_core(request, authorization or "")
+        with use_settings(settings_from_headers(x_langfuse_enabled, x_langfuse_base_url, x_langfuse_public_key, x_langfuse_secret_key)):
+            with observe_request(
+                "internal.rag.query",
+                session_id=str((request.metadata or {}).get("sessionId") or "") or None,
+                metadata={
+                    "agentName": request.agentName or "leader_agent",
+                    "ragStrategy": request.ragStrategy or "",
+                    "streaming": False,
+                },
+            ):
+                response = _run_rag_query_core(request, authorization or "")
         finalization_started_at = time.perf_counter()
         response = _finalize_rag_response(request, response)
         finalization_ms = _elapsed_ms(finalization_started_at)
@@ -715,6 +761,10 @@ async def run_rag_query_stream(
     x_ai_api_key: Optional[str] = Header(default=None, alias="X-AI-Api-Key"),
     x_ai_model: Optional[str] = Header(default=None, alias="X-AI-Model"),
     x_user_id: Optional[str] = Header(default=None, alias="X-User-Id"),
+    x_langfuse_enabled: Optional[str] = Header(default=None, alias="X-Langfuse-Enabled"),
+    x_langfuse_base_url: Optional[str] = Header(default=None, alias="X-Langfuse-Base-Url"),
+    x_langfuse_public_key: Optional[str] = Header(default=None, alias="X-Langfuse-Public-Key"),
+    x_langfuse_secret_key: Optional[str] = Header(default=None, alias="X-Langfuse-Secret-Key"),
 ):
     request_started_at = time.perf_counter()
     _require_authorization(authorization)
@@ -729,6 +779,19 @@ async def run_rag_query_stream(
 
     async def event_stream():
         stream_started_at = request_started_at
+        settings_scope = use_settings(settings_from_headers(x_langfuse_enabled, x_langfuse_base_url, x_langfuse_public_key, x_langfuse_secret_key))
+        settings_scope.__enter__()
+        observation_scope = observe_request(
+            "internal.rag.query",
+            session_id=str((request.metadata or {}).get("sessionId") or "") or None,
+            user_id=int(x_user_id) if x_user_id and x_user_id.isdigit() else None,
+            metadata={
+                "agentName": request.agentName or "leader_agent",
+                "ragStrategy": request.ragStrategy or "",
+                "streaming": True,
+            },
+        )
+        observation_scope.__enter__()
         token = set_active_llm_config(llm_config)
         generation_started = False
         plan = None
@@ -755,14 +818,18 @@ async def run_rag_query_stream(
                 callable_catalog = _build_leader_callable_catalog(request)
                 conversation_context = _apply_conversation_context(request, authorization or "")
                 try:
-                    plan = await asyncio.to_thread(
-                        leader_agent.plan,
-                        request.input,
-                        request.ragStrategy or "",
-                        profile_context=profile_context,
-                        callable_catalog=callable_catalog,
-                        conversation_context=conversation_context,
-                    )
+                    plan = _requested_image_recognition_plan(request)
+                    if plan is None:
+                        plan = _requested_file_transform_plan(request)
+                    if plan is None:
+                        plan = await asyncio.to_thread(
+                            leader_agent.plan,
+                            request.input,
+                            request.ragStrategy or "",
+                            profile_context=profile_context,
+                            callable_catalog=callable_catalog,
+                            conversation_context=conversation_context,
+                        )
                 except AgentExecutionError:
                     raise
                 except Exception as exc:
@@ -878,6 +945,8 @@ async def run_rag_query_stream(
                 yield build_sse("error", _build_stream_error_payload(request, exc, llm_config))
         finally:
             reset_active_llm_config(token)
+            observation_scope.__exit__(None, None, None)
+            settings_scope.__exit__(None, None, None)
 
     return StreamingResponse(
         event_stream(),
@@ -1355,7 +1424,9 @@ def _run_leader_orchestration(request: RagQueryRequest, authorization: str) -> R
     profile_context = _profile_context_from_request(request)
     callable_catalog = _build_leader_callable_catalog(request)
     conversation_context = _apply_conversation_context(request, authorization)
-    plan = _requested_file_transform_plan(request)
+    plan = _requested_image_recognition_plan(request)
+    if plan is None:
+        plan = _requested_file_transform_plan(request)
     if plan is None:
         plan = leader_agent.plan(
             request.input,
@@ -1374,6 +1445,22 @@ def _run_leader_orchestration(request: RagQueryRequest, authorization: str) -> R
         profileMs=_profile_ms_from_request(request),
         planMs=plan_ms,
         executionMs=execution_ms,
+    )
+
+
+def _requested_image_recognition_plan(request: RagQueryRequest) -> Optional[LeaderPlan]:
+    image_urls = collect_request_image_references(request)
+    if not image_urls:
+        return None
+    return LeaderPlan(
+        intent="image_understanding",
+        target_agent=IMAGE_RECOGNITION_AGENT_NAME,
+        need_retrieval=False,
+        rag_strategy="",
+        action="call_tool",
+        tool_name=IMAGE_RECOGNITION_TOOL_NAME,
+        route_reason=f"检测到 {len(image_urls)} 个图片资源，自动调用图片识别工具。",
+        route_mode="attachment",
     )
 
 
@@ -1401,7 +1488,8 @@ def _requested_file_transform_plan(request: RagQueryRequest) -> Optional[LeaderP
 
 
 def _prepare_request_input(request: RagQueryRequest) -> str:
-    return append_image_references_to_text(request.input, collect_request_image_references(request))
+    with_images = append_image_references_to_text(request.input, collect_request_image_references(request))
+    return append_attachment_references_to_text(with_images, request.attachments)
 
 
 def _apply_conversation_context(request: RagQueryRequest, authorization: str) -> Dict[str, Any]:
@@ -1686,6 +1774,8 @@ def _execute_leader_plan(
             return _run_service_tool(request, authorization, plan)
         if plan.tool_name == "generated_export_tools":
             return _run_generated_export_tool(request, plan)
+        if plan.tool_name == IMAGE_RECOGNITION_TOOL_NAME:
+            return _run_image_recognition_tool(request, plan)
         if plan.tool_name in VISUAL_GENERATION_TOOL_NAMES:
             return _run_visual_generation_tool(request, plan)
         raise HTTPException(status_code=502, detail=f"Leader 选择了未注册工具：{plan.tool_name or '空'}，已停止执行。")
@@ -1905,6 +1995,8 @@ def _leader_callable_tool_item(tool: Dict[str, Any], request: Optional[RagQueryR
     enabled = True if request is None else _is_tool_enabled(request, name)
     if enabled and request is not None and name in VISUAL_GENERATION_TOOL_NAMES:
         enabled = _visual_tool_dependencies_enabled(request, name)
+    if enabled and request is not None and name == IMAGE_RECOGNITION_TOOL_NAME:
+        enabled = _is_agent_enabled(request, IMAGE_RECOGNITION_AGENT_NAME)
     return {
         **tool,
         "zhName": tool.get("zhName") or _tool_zh_name(name),
@@ -2305,6 +2397,69 @@ def _run_visual_generation_tool(
         trace=trace,
         metadata=metadata,
         attachments=image_attachments,
+    ))
+
+
+def _run_image_recognition_tool(
+    request: RagQueryRequest,
+    leader_plan,
+) -> RagQueryResponse:
+    image_urls = collect_request_image_references(request)
+    if not image_urls:
+        raise HTTPException(status_code=400, detail="图片识别工具需要至少一个图片资源。")
+    if not _is_agent_enabled(request, IMAGE_RECOGNITION_AGENT_NAME):
+        return _run_disabled_tool_response(request, IMAGE_RECOGNITION_TOOL_NAME, leader_plan=leader_plan)
+
+    answer, model_metadata = _run_specialist_agent_with_bound_model(
+        request,
+        IMAGE_RECOGNITION_AGENT_NAME,
+        request.input,
+        [],
+        leader_plan=leader_plan,
+    )
+    metadata = {
+        "agentName": "leader_agent",
+        "targetAgent": IMAGE_RECOGNITION_AGENT_NAME,
+        "executedAgent": IMAGE_RECOGNITION_AGENT_NAME,
+        "toolName": IMAGE_RECOGNITION_TOOL_NAME,
+        "toolDisplayName": _tool_display_name(IMAGE_RECOGNITION_TOOL_NAME),
+        "boundAgent": IMAGE_RECOGNITION_AGENT_NAME,
+        "imageCount": len(image_urls),
+        "intent": getattr(leader_plan, "intent", "") or "image_understanding",
+        "needRetrieval": False,
+        "retrievalSkipped": True,
+        "strategyLabel": "图片识别",
+        "executionMode": "leader_call_tool",
+        "executionModeLabel": "Leader 调用图片识别工具",
+        "answerType": "image_analysis",
+        "toolToggles": _tool_toggles_from_request(request),
+        "leaderAction": leader_plan.action,
+        "leaderActionLabel": _leader_action_label(leader_plan.action),
+        "routeReason": leader_plan.route_reason,
+        **model_metadata,
+    }
+    metadata.update(_context_metadata_from_request(request))
+    trace = [
+        RagTraceResponse(stage="leader_route", detail=_leader_plan_detail(leader_plan)),
+        RagTraceResponse(stage="tool_call", detail={
+            "toolName": IMAGE_RECOGNITION_TOOL_NAME,
+            "toolDisplayName": _tool_display_name(IMAGE_RECOGNITION_TOOL_NAME),
+            "boundAgent": IMAGE_RECOGNITION_AGENT_NAME,
+            "imageCount": len(image_urls),
+        }),
+        RagTraceResponse(stage="vision_agent", detail={
+            "agentName": IMAGE_RECOGNITION_AGENT_NAME,
+            "answerLength": len(answer or ""),
+            **model_metadata,
+        }),
+    ]
+    return _decorate_output_response(RagQueryResponse(
+        strategy=IMAGE_RECOGNITION_TOOL_NAME,
+        answer=answer,
+        answerType="image_analysis",
+        documents=[],
+        trace=trace,
+        metadata=metadata,
     ))
 
 
@@ -2970,7 +3125,6 @@ def _follow_up_actions_for_output(answer_type: str, metadata: Dict[str, Any], ou
         "meeting_summary_agent",
         "meeting_resource_recommendation_agent",
         "ppt_outline_agent",
-        "ppt_layout_agent",
         "diagram_mind_map_agent",
         "diagram_flowchart_agent",
         "diagram_activity_agent",
@@ -3250,6 +3404,7 @@ def _strategy_label(strategy_name: str) -> str:
         "java_secondhand_api": "旧物查询工具",
         "generated_export_tools": "内容导出工具",
         "text_to_sql": "Text-to-SQL",
+        IMAGE_RECOGNITION_TOOL_NAME: "图片识别工具",
         **{
             tool_name: config["zhName"]
             for tool_name, config in VISUAL_GENERATION_TOOL_CONFIG.items()
@@ -3262,6 +3417,7 @@ def _strategy_label(strategy_name: str) -> str:
 
 def _tool_zh_name(tool_name: str) -> str:
     labels = {
+        IMAGE_RECOGNITION_TOOL_NAME: "图片识别工具",
         "text_to_sql": "结构化查询工具",
         "java_schedule_api": "课表查询工具",
         "java_activity_api": "活动查询工具",
@@ -3296,6 +3452,7 @@ def _answer_type_for_agent(agent_name: str) -> str:
     mapping = {
         "leader_agent": "text",
         "profile_summary_agent": "profile_summary_json",
+        IMAGE_RECOGNITION_AGENT_NAME: "image_analysis",
         "mind_map_agent": "image_prompt",
         "diagram_mind_map_agent": "mermaid_mindmap",
         "diagram_flowchart_agent": "mermaid_flowchart",
@@ -3303,7 +3460,7 @@ def _answer_type_for_agent(agent_name: str) -> str:
         "diagram_architecture_agent": "mermaid_architecture",
         "textbook_knowledge_agent": "markdown",
         "ppt_outline_agent": "ppt_outline",
-        "ppt_layout_agent": "ppt_layout",
+        "ppt_structure_agent": "ppt_structure",
         "ppt_review_agent": "ppt_review",
         "ppt_image_agent": "ppt_image_prompt",
         "ppt_to_docx_agent": "document_conversion",

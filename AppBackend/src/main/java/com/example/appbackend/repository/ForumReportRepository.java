@@ -4,9 +4,12 @@ import com.example.appbackend.entity.ForumReport;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
+
+import java.util.List;
 
 @Repository
 public interface ForumReportRepository extends JpaRepository<ForumReport, Long> {
@@ -22,4 +25,8 @@ public interface ForumReportRepository extends JpaRepository<ForumReport, Long> 
     long countByStatus(Integer status);
 
     long countByTargetType(Integer targetType);
+
+    @Modifying
+    @Query("DELETE FROM ForumReport r WHERE r.id IN :ids")
+    void deleteByIds(@Param("ids") List<Long> ids);
 }

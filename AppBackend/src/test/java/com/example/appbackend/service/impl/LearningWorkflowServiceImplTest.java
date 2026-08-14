@@ -270,7 +270,7 @@ class LearningWorkflowServiceImplTest {
         assertThat(done.keySet()).containsExactlyInAnyOrder(
                 "workflowId", "courseKey", "topic", "intent", "status", "stage", "progress",
                 "message", "activeAgentName", "activeResourceType", "resources", "errors",
-                "path", "messageId", "startedAt", "updatedAt");
+                "trace", "path", "messageId", "startedAt", "updatedAt");
 
         ArgumentCaptor<LearningPathDTO.PathDraft> draftCaptor =
                 ArgumentCaptor.forClass(LearningPathDTO.PathDraft.class);

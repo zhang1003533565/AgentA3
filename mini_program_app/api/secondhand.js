@@ -30,9 +30,25 @@ export function createSecondhandItem(data) {
   })
 }
 
+export function updateSecondhandItem(id, data) {
+  return request({
+    url: `/api/secondhand/item/${id}`,
+    method: 'PUT',
+    data
+  })
+}
+
 export function getMySecondhandItems(params = {}) {
   return request({
     url: '/api/secondhand/item/my',
+    method: 'GET',
+    params
+  })
+}
+
+export function getUserPublicItems(userId, params = {}) {
+  return request({
+    url: `/api/secondhand/user/${userId}/items`,
     method: 'GET',
     params
   })
@@ -52,11 +68,25 @@ export function onlineSecondhandItem(id) {
   })
 }
 
+export function deleteSecondhandItem(id) {
+  return request({
+    url: `/api/secondhand/item/${id}`,
+    method: 'DELETE'
+  })
+}
+
 export function getChatSessions(params = {}) {
   return request({
     url: '/api/chat/session/list',
     method: 'GET',
     params
+  })
+}
+
+export function getChatSessionById(sessionId) {
+  return request({
+    url: `/api/chat/session/${sessionId}`,
+    method: 'GET'
   })
 }
 
@@ -103,6 +133,14 @@ export function getTradeNotificationUnreadCount() {
   return request({
     url: '/api/chat/trade-notifications/unread/count',
     method: 'GET'
+  })
+}
+
+export function getChatMessageSummary(params = {}) {
+  return request({
+    url: '/api/chat/messages/summary',
+    method: 'GET',
+    params
   })
 }
 
@@ -175,6 +213,13 @@ export function getTradeRecord(id) {
   })
 }
 
+export function getTradeRecordByItem(itemId) {
+  return request({
+    url: `/api/trade/record/by-item/${itemId}`,
+    method: 'GET'
+  })
+}
+
 export function favoriteSecondhandItem(itemId) {
   return request({
     url: `/api/secondhand/favorite/${itemId}`,
@@ -194,5 +239,35 @@ export function getMyFavorites(params = {}) {
     url: '/api/secondhand/favorite/my',
     method: 'GET',
     params
+  })
+}
+
+export function reportSecondhandItem(data) {
+  return request({
+    url: '/api/secondhand/reports',
+    method: 'POST',
+    data
+  })
+}
+
+export function recordBrowseHistory(itemId) {
+  return request({
+    url: `/api/secondhand/browse-history/${itemId}`,
+    method: 'POST'
+  })
+}
+
+export function getMyBrowseHistory(params = {}) {
+  return request({
+    url: '/api/secondhand/browse-history/my',
+    method: 'GET',
+    params
+  })
+}
+
+export function clearMyBrowseHistory() {
+  return request({
+    url: '/api/secondhand/browse-history/my',
+    method: 'DELETE'
   })
 }

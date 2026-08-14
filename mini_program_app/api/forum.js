@@ -46,6 +46,23 @@ export function getPostList(params = {}) {
   })
 }
 
+/** 热门/最新话题自动收录列表：type=hot|latest */
+export function getRecommendedPosts(type, params = {}) {
+  return request({
+    url: '/api/forum/posts/recommended',
+    method: 'GET',
+    params: { type, ...params }
+  })
+}
+
+/** 热门/最新话题收录标准说明 */
+export function getForumRules() {
+  return request({
+    url: '/api/forum/statistics/rules',
+    method: 'GET'
+  })
+}
+
 export function getHotPosts(params = {}) {
   return request({
     url: '/api/forum/posts/hot',
@@ -57,6 +74,14 @@ export function getHotPosts(params = {}) {
 export function getPostDetail(postId) {
   return request({
     url: `/api/forum/posts/${postId}`,
+    method: 'GET'
+  })
+}
+
+/** 获取论坛消息未读数聚合（评论/点赞/系统通知一次返回） */
+export function getForumMessageUnread() {
+  return request({
+    url: '/api/forum/posts/messages/unread',
     method: 'GET'
   })
 }
@@ -159,6 +184,14 @@ export function getCommentList(params = {}) {
     url: '/api/forum/comments',
     method: 'GET',
     params
+  })
+}
+
+/** 获取我收到的他人评论（聚合一次返回，避免逐个帖子查询） */
+export function getReceivedComments() {
+  return request({
+    url: '/api/forum/comments/received',
+    method: 'GET'
   })
 }
 

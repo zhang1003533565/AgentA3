@@ -17,6 +17,16 @@ test('learning progress stays monotonic and resources are keyed by reviewed type
   assert.equal(state.progress, 49)
   assert.equal(state.resources.code_lab.id, 'r1')
   assert.equal(state.stage, 'retrieval')
+  assert.equal(state.trace.length, 2)
+})
+
+test('workflow snapshots restore the persisted agent trace', async () => {
+  const { createLearningState, restoreLearningState } = await modulePromise
+  const trace = [{ sequence: 1, eventName: 'planning_done', status: 'completed' }]
+  const restored = restoreLearningState(createLearningState('wf-trace'), {
+    workflowId: 'wf-trace', trace
+  })
+  assert.deepEqual(restored.trace, trace)
 })
 
 test('events from a different workflow cannot corrupt the active generation', async () => {

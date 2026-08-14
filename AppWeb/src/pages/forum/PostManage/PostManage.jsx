@@ -1,11 +1,12 @@
 import { useState, useEffect } from 'react'
-import { message, Drawer, Button, Table, Tag, Space, Popconfirm, Input, Select, Form, Card } from 'antd'
+import { useNavigate } from 'react-router-dom'
+import dayjs from 'dayjs'
+import { message, Drawer, Button, Table, Tag, Space, Popconfirm, Input, Select, Form, Card, Popover, Tooltip } from 'antd'
 import {
-  EyeOutlined, DeleteOutlined, SearchOutlined, PushpinOutlined, StarOutlined,
+  EyeOutlined, DeleteOutlined, SearchOutlined, PushpinOutlined,
   CloseCircleOutlined, LikeOutlined, MessageOutlined,
-  FolderOpenOutlined, InboxOutlined, CloudUploadOutlined, CheckCircleOutlined,
 } from '@ant-design/icons'
-import { getPostList, deletePost, batchDeletePosts, togglePostPin, togglePostHighlight, togglePostHidden, getForumStatistics } from '../../../api/forum'
+import { getAdminPostList, deletePost, batchDeletePosts, togglePostPin, togglePostHidden, getForumStatistics } from '../../../api/forum'
 import './PostManage.css'
 
 const { Option } = Select
@@ -17,9 +18,10 @@ const statusMap = {
   'DELETED': { text: '已删除', color: 'red' },
 }
 
-const STAT_COLORS = ['#1677ff', '#52c41a', '#fa8c16', '#f5222d']
+const formatTime = (t) => (t ? dayjs(t).format('YYYY-MM-DD HH:mm') : '-')
 
 function PostManage() {
+  const navigate = useNavigate()
   const [posts, setPosts] = useState([])
   const [loading, setLoading] = useState(false)
   const [searchForm] = Form.useForm()
@@ -32,15 +34,17 @@ function PostManage() {
   const fetchPosts = async (params = {}) => {
     setLoading(true)
     try {
-      const res = await getPostList({
-        page: pagination.current,
-        size: pagination.pageSize,
+      const pageNum = params.pageNum ?? pagination.current
+      const pageSize = params.pageSize ?? pagination.pageSize
+      const res = await getAdminPostList({
+        pageNum,
+        pageSize,
         ...params,
       })
       if (res.code === 200) {
         const records = res.data?.records || res.data?.list || res.data || []
         setPosts(Array.isArray(records) ? records : [])
-        setPagination({ ...pagination, total: res.data?.total || 0 })
+        setPagination((prev) => ({ ...prev, current: pageNum, pageSize, total: res.data?.total || 0 }))
       }
     } catch (error) {
       console.error('获取帖子列表失败:', error)
@@ -69,14 +73,12 @@ function PostManage() {
   }, [])
 
   const handleSearch = (values) => {
-    setPagination({ ...pagination, current: 1 })
-    fetchPosts(values)
+    fetchPosts({ pageNum: 1, ...values })
   }
 
   const handleReset = () => {
     searchForm.resetFields()
-    setPagination({ ...pagination, current: 1 })
-    fetchPosts()
+    fetchPosts({ pageNum: 1 })
   }
 
   const handleView = (record) => { setCurrentPost(record); setDrawerOpen(true) }
@@ -108,13 +110,6 @@ function PostManage() {
     } catch (error) { console.error('置顶操作失败:', error) }
   }
 
-  const handleToggleHighlight = async (id) => {
-    try {
-      const res = await togglePostHighlight(id)
-      if (res.code === 200) { message.success('操作成功'); fetchPosts() }
-    } catch (error) { console.error('加精操作失败:', error) }
-  }
-
   const handleToggleHidden = async (id) => {
     try {
       const res = await togglePostHidden(id)
@@ -122,59 +117,73 @@ function PostManage() {
     } catch (error) { console.error('隐藏操作失败:', error) }
   }
 
+  const renderRowPopover = (record) => (
+    <div className="pm-row-pop">
+      <div className="pm-row-pop-title">{record.title}</div>
+      <div className="pm-row-pop-meta">
+        <div><span className="pm-row-pop-label">作者</span>{record.isAnonymous ? '匿名' : (record.username || '未知')}</div>
+        <div><span className="pm-row-pop-label">话题</span>{record.topic?.topicName || record.topicName || '-'}</div>
+        <div><span className="pm-row-pop-label">状态</span><Tag color={statusMap[record.status]?.color}>{statusMap[record.status]?.text}</Tag></div>
+        <div><span className="pm-row-pop-label">浏览 / 赞 / 评</span>{record.viewCount || 0} / {record.likeCount || 0} / {record.commentCount || 0}</div>
+        <div><span className="pm-row-pop-label">发布时间</span>{formatTime(record.createTime)}</div>
+      </div>
+      {record.content && <div className="pm-row-pop-content">{record.content}</div>}
+    </div>
+  )
+
   const columns = [
-    { title: 'ID', dataIndex: 'id', width: 60 },
     {
-      title: '标题', dataIndex: 'title', ellipsis: true, width: 300,
+      title: '标题', dataIndex: 'title', ellipsis: true, width: 140,
       render: (text, record) => (
-        <Space>
-          {record.pinOrder > 0 && <PushpinOutlined style={{ color: '#faad14', fontSize: 16 }} title="置顶" />}
-          {record.highlighted && <StarOutlined style={{ color: '#f5222d', fontSize: 16 }} title="加精" />}
-          <span>{text}</span>
-        </Space>
+        <Popover content={renderRowPopover(record)} title="帖子完整信息" trigger="hover" placement="bottomLeft" mouseEnterDelay={0.3}>
+          <Space>
+            {record.pinOrder > 0 && <PushpinOutlined style={{ color: '#faad14', fontSize: 16 }} title="置顶" />}
+            <span>{text}</span>
+          </Space>
+        </Popover>
       ),
     },
-    { title: '作者', dataIndex: 'username', width: 100, render: (u, r) => r.isAnonymous ? '匿名' : (u || '未知') },
+    { title: '作者', dataIndex: 'username', width: 80, render: (u, r) => r.isAnonymous ? '匿名' : (u || '未知') },
     {
-      title: '话题', dataIndex: 'topicName', width: 110,
+      title: '话题', dataIndex: 'topicName', width: 100,
       render: (_, r) => r.topic?.topicName || r.topicName || '-',
     },
     {
-      title: '浏览/赞/评', key: 'stats', width: 140,
+      title: '浏览/赞/评', key: 'stats', width: 130,
       render: (_, r) => (
         <Space size={6}>
-          <span><FolderOpenOutlined /> {r.viewCount || 0}</span>
+          <span><EyeOutlined /> {r.viewCount || 0}</span>
           <span><LikeOutlined style={{color:'#f5222d'}} /> {r.likeCount || 0}</span>
           <span><MessageOutlined /> {r.commentCount || 0}</span>
         </Space>
       ),
     },
     {
-      title: '状态', dataIndex: 'status', width: 90,
+      title: '状态', dataIndex: 'status', width: 70,
       render: (s) => <Tag color={statusMap[s]?.color}>{statusMap[s]?.text}</Tag>,
     },
-    { title: '发布时间', dataIndex: 'createTime', width: 170 },
+    { title: '发布时间', dataIndex: 'createTime', width: 130, render: (t) => formatTime(t) },
     {
-      title: '操作', key: 'action', width: 360, fixed: 'right',
+      title: '操作', key: 'action', width: 160,
       render: (_, record) => (
-        <Space size={4} direction="vertical" style={{ minWidth: 140 }}>
-          <Space size={4}>
-            <Button type="link" size="small" icon={<EyeOutlined />} onClick={() => handleView(record)}>查看</Button>
-            <Button type="link" size="small" icon={<PushpinOutlined />} onClick={() => handleTogglePin(record.id)} title={record.pinOrder > 0 ? '取消置顶' : '置顶'}>
-              {record.pinOrder > 0 ? '取消置顶' : '置顶'}
-            </Button>
-          </Space>
-          <Space size={4}>
-            <Button type="link" size="small" icon={<StarOutlined />} onClick={() => handleToggleHighlight(record.id)} title={record.highlighted ? '取消加精' : '加精'}>
-              {record.highlighted ? '取消加精' : '加精'}
-            </Button>
-            <Button type="link" size="small" icon={<CloseCircleOutlined />} onClick={() => handleToggleHidden(record.id)} title={record.status === 'HIDDEN' ? '恢复' : '隐藏'}>
-              {record.status === 'HIDDEN' ? '恢复' : '隐藏'}
-            </Button>
-            <Popconfirm title="确定删除该帖子吗？" onConfirm={() => handleDelete(record.id)} okText="确定" cancelText="取消">
-              <Button type="link" size="small" danger icon={<DeleteOutlined />}>删除</Button>
-            </Popconfirm>
-          </Space>
+        <Space size={0}>
+          <Tooltip title="查看">
+            <Button type="text" size="small" icon={<EyeOutlined />} onClick={() => handleView(record)} />
+          </Tooltip>
+          <Tooltip title="查看该帖评论">
+            <Button type="text" size="small" icon={<MessageOutlined />} onClick={() => navigate(`/forum/comment?postId=${record.id}&postTitle=${encodeURIComponent(record.title || '')}`)} />
+          </Tooltip>
+          <Tooltip title={record.pinOrder > 0 ? '取消置顶' : '置顶'}>
+            <Button type="text" size="small" icon={<PushpinOutlined />} onClick={() => handleTogglePin(record.id)} />
+          </Tooltip>
+          <Tooltip title={record.status === 'HIDDEN' ? '恢复' : '隐藏'}>
+            <Button type="text" size="small" icon={<CloseCircleOutlined />} onClick={() => handleToggleHidden(record.id)} />
+          </Tooltip>
+          <Popconfirm title="确定删除该帖子吗？" onConfirm={() => handleDelete(record.id)} okText="确定" cancelText="取消">
+            <Tooltip title="删除">
+              <Button type="text" size="small" danger icon={<DeleteOutlined />} />
+            </Tooltip>
+          </Popconfirm>
         </Space>
       ),
     },
@@ -183,35 +192,24 @@ function PostManage() {
   const rowSelection = { selectedRowKeys, onChange: (keys) => setSelectedRowKeys(keys) }
 
   const statItems = [
-    { icon: <CloudUploadOutlined />, label: '帖子总数', value: stats.totalPosts, color: STAT_COLORS[0], bg: '#e6f7ff' },
-    { icon: <CheckCircleOutlined />, label: '已发布', value: stats.publishedPosts, color: STAT_COLORS[1], bg: '#f6ffed' },
-    { icon: <InboxOutlined />, label: '已隐藏', value: stats.hiddenPosts, color: STAT_COLORS[2], bg: '#fff7e6' },
-    { icon: <DeleteOutlined />, label: '已删除', value: stats.deletedPosts, color: STAT_COLORS[3], bg: '#fff1f0' },
+    { label: '帖子总数', value: stats.totalPosts, className: 'pm-header-stat-blue' },
+    { label: '已发布', value: stats.publishedPosts, className: 'pm-header-stat-green' },
+    { label: '已隐藏', value: stats.hiddenPosts, className: 'pm-header-stat-orange' },
   ]
 
   return (
     <div className="pm-container">
-      {/* 背景装饰 */}
-      <div className="pm-bg-shapes" />
 
-      {/* 顶部统计区（页题由布局顶栏面包屑统一渲染） */}
+      {/* 顶部统计区（白色矩形，仅保留统计） */}
       <div className="pm-header">
         <div className="pm-header-stats">
-          <span className="pm-stat-badge pm-badge-blue">共 {stats.totalPosts} 篇</span>
-          <span className="pm-stat-badge pm-badge-green">发布 {stats.publishedPosts}</span>
-          <span className="pm-stat-badge pm-badge-orange">隐藏 {stats.hiddenPosts}</span>
+          {statItems.map((s) => (
+            <div key={s.label} className={`pm-header-stat ${s.className}`}>
+              <span className="pm-header-stat-value">{s.value}</span>
+              <span className="pm-header-stat-label">{s.label}</span>
+            </div>
+          ))}
         </div>
-      </div>
-
-      {/* 统计卡片行 */}
-      <div className="pm-stat-row">
-        {statItems.map((s, i) => (
-          <Card key={i} className="pm-stat-card" style={{ borderTop: `3px solid ${s.color}`, background: s.bg }}>
-            <div className="pm-stat-card-icon" style={{ color: s.color }}>{s.icon}</div>
-            <div className="pm-stat-card-value">{s.value}</div>
-            <div className="pm-stat-card-label">{s.label}</div>
-          </Card>
-        ))}
       </div>
 
       {/* 搜索栏 */}
@@ -222,7 +220,9 @@ function PostManage() {
           </Form.Item>
           <Form.Item name="status">
             <Select placeholder="选择状态" allowClear style={{ width: 130 }}>
-              {Object.entries(statusMap).map(([key, val]) => (<Option key={key} value={key}>{val.text}</Option>))}
+              {Object.entries(statusMap)
+                .filter(([key]) => key !== 'DELETED' && key !== 'DRAFT')
+                .map(([key, val]) => (<Option key={key} value={key}>{val.text}</Option>))}
             </Select>
           </Form.Item>
           <Form.Item>
@@ -254,10 +254,9 @@ function PostManage() {
             ...pagination, showSizeChanger: true, showTotal: (t) => `共 ${t} 条`,
             pageSizeOptions: ['10', '20', '50'],
           }}
-          onChange={(pag) => { setPagination({ ...pagination, current: pag.current, pageSize: pag.pageSize }); fetchPosts({ page: pag.current, size: pag.pageSize }) }}
-          scroll={{ x: 1500 }}
+          onChange={(pag) => fetchPosts({ pageNum: pag.current, pageSize: pag.pageSize })}
           size="middle"
-          rowClassName={(record) => record.pinOrder > 0 ? 'pm-row-pin' : record.highlighted ? 'pm-row-highlight' : ''}
+          rowClassName={(record) => record.pinOrder > 0 ? 'pm-row-pin' : ''}
         />
       </Card>
 
@@ -267,7 +266,7 @@ function PostManage() {
           <PushpinOutlined style={{ color: '#faad14' }} />
           <span>帖子详情</span>
         </Space>
-      } placement="right" width={640} open={drawerOpen} onClose={() => setDrawerOpen(false)}>
+      } placement="right" width={460} open={drawerOpen} onClose={() => setDrawerOpen(false)}>
         {currentPost && (
           <div className="pm-drawer">
             <div className="pm-drawer-section">
@@ -275,16 +274,15 @@ function PostManage() {
               <Space wrap className="pm-drawer-tags">
                 <Tag color={statusMap[currentPost.status]?.color}>{statusMap[currentPost.status]?.text}</Tag>
                 {currentPost.pinOrder > 0 && <Tag color="gold">📌 置顶</Tag>}
-                {currentPost.highlighted && <Tag color="red">⭐ 加精</Tag>}
               </Space>
             </div>
             <div className="pm-drawer-info">
               <div className="pm-info-row"><span className="pm-info-label">作者</span><span>{currentPost.username || '未知'}</span></div>
               <div className="pm-info-row"><span className="pm-info-label">话题</span><span>{currentPost.topicName || '无'}</span></div>
-              <div className="pm-info-row"><span className="pm-info-label">浏览量</span><span><FolderOpenOutlined /> {currentPost.viewCount}</span></div>
+              <div className="pm-info-row"><span className="pm-info-label">浏览量</span><span><EyeOutlined /> {currentPost.viewCount}</span></div>
               <div className="pm-info-row"><span className="pm-info-label">点赞数</span><span><LikeOutlined style={{color:'#f5222d'}} /> {currentPost.likeCount}</span></div>
               <div className="pm-info-row"><span className="pm-info-label">评论数</span><span><MessageOutlined /> {currentPost.commentCount}</span></div>
-              <div className="pm-info-row"><span className="pm-info-label">发布时间</span><span>{currentPost.createTime}</span></div>
+              <div className="pm-info-row"><span className="pm-info-label">发布时间</span><span>{formatTime(currentPost.createTime)}</span></div>
             </div>
             <div className="pm-drawer-content">
               <h4 className="pm-drawer-subtitle">📝 正文内容</h4>

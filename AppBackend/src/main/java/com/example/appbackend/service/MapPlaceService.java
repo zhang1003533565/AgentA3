@@ -11,6 +11,7 @@ import java.util.List;
 public interface MapPlaceService {
     List<MapPlaceResponse> list(String sceneType, Long parentId, String placeType, String status, String keyword);
     List<MapPlaceResponse> tree(String sceneType);
+    List<MapPlaceResponse> canteenStructure(Long canteenId);
     MapPlaceResponse detail(Long id);
     MapPlaceResponse create(MapPlaceRequest request);
     MapPlaceResponse update(Long id, MapPlaceRequest request);
@@ -18,6 +19,7 @@ public interface MapPlaceService {
 
     List<MapPlaceImage> listImages(Long placeId);
     MapPlaceImage addImage(Long placeId, MapPlaceImageRequest request);
+    MapPlaceImage updateImage(Long imageId, MapPlaceImageRequest request);
     void deleteImage(Long imageId);
 
     MapPlaceFence getFence(Long placeId);

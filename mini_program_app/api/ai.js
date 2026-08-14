@@ -15,6 +15,42 @@ export function writeWithAi(data) {
   })
 }
 
+export function getAiWritingModels() {
+  return request({
+    url: '/api/ai/write/models',
+    method: 'GET'
+  })
+}
+
+export function exportSmartWritingAsWord(data) {
+  const token = getToken()
+  return new Promise((resolve, reject) => {
+    if (typeof fetch === 'function') {
+      fetch(`${BASE_URL}/api/ai/write/export`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {})
+        },
+        body: JSON.stringify(data)
+      }).then(response => {
+        if (!response.ok) {
+          return response.text().then(text => {
+            let msg = `导出失败: ${response.status}`
+            try { const parsed = JSON.parse(text); msg = parsed.msg || parsed.message || msg } catch (e) {}
+            reject(new Error(msg))
+          })
+        }
+        return response.blob()
+      }).then(blob => {
+        resolve(blob)
+      }).catch(reject)
+      return
+    }
+    reject(new Error('当前环境暂不支持导出 Word 文档'))
+  })
+}
+
 export function generateImage(data) {
   return request({
     url: '/api/ai/images/generate',
@@ -258,7 +294,7 @@ export function streamLlmChat(data, handlers = {}) {
   return streamSse('/api/llm/chat/stream', data, handlers, '当前运行环境暂不支持流式总结')
 }
 
-export function streamSse(url, data, handlers = {}, unsupportedMessage = '当前运行环境暂不支持流式响应') {
+export function streamSse(url, data, handlers = {}, unsupportedMessage = '当前运行环境暂不支持流式响应', method = 'POST') {
   const controller = typeof AbortController === 'function' ? new AbortController() : null
   const done = (async () => {
     if (typeof fetch !== 'function' || !controller) {
@@ -267,17 +303,28 @@ export function streamSse(url, data, handlers = {}, unsupportedMessage = '当前
       throw error
     }
     const token = getToken()
+    const normalizedMethod = String(method || 'POST').toUpperCase()
     const response = await fetch(`${BASE_URL}${url}`, {
-      method: 'POST',
+      method: normalizedMethod,
       headers: {
-        'Content-Type': 'application/json',
+        ...(normalizedMethod === 'GET' ? {} : { 'Content-Type': 'application/json' }),
         ...(token ? { Authorization: `Bearer ${token}` } : {})
       },
-      body: JSON.stringify(data || {}),
+      ...(normalizedMethod === 'GET' ? {} : { body: JSON.stringify(data || {}) }),
       signal: controller.signal
     })
     if (!response.ok) {
-      const error = new Error(`流式请求失败: ${response.status}`)
+      let message = `流式请求失败: ${response.status}`
+      try {
+        const raw = await response.text()
+        if (raw) {
+          const parsed = JSON.parse(raw)
+          message = parsed.msg || parsed.message || parsed.data?.message || message
+        }
+      } catch (parseError) {
+        // Keep the status-code fallback when the server returns a non-JSON error body.
+      }
+      const error = new Error(message)
       error.status = response.status
       error.statusCode = response.status
       throw error

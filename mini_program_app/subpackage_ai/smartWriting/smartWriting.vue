@@ -9,25 +9,23 @@
           class="input-area"
           v-model="prompt"
           maxlength="600"
-          placeholder="请输入您的文章需求，例如，请写一篇关于春天的文章，800字左右。"
+          :placeholder="currentScenePlaceholder"
           placeholder-class="input-placeholder"
         />
 
         <view class="tool-row">
-          <view class="tool-btns">
-            <view class="tool-btn">
-              <image class="tool-icon-svg" src="/static/icons/line/globe.svg" mode="aspectFit" />
-              <text class="tool-text">深度思考</text>
-            </view>
-            <view class="tool-btn">
-              <image class="tool-icon-svg" src="/static/icons/line/atom.svg" mode="aspectFit" />
-              <text class="tool-text">联网搜索</text>
-            </view>
-          </view>
           <view class="history-btn" @tap="showHistory">
             <text class="history-icon">◷</text>
             <text class="history-text">历史</text>
           </view>
+        </view>
+
+        <view class="word-count-row" @tap="selectWordCount">
+          <view class="word-count-left">
+            <text class="word-count-label">字数</text>
+            <text class="word-count-value">{{ selectedWordCount }}</text>
+          </view>
+          <text class="word-count-arrow">▼</text>
         </view>
       </view>
 
@@ -41,33 +39,29 @@
             </view>
             <view class="model-info">
               <text class="config-label">选择模型</text>
-              <text class="config-value">{{ selectedModel }}</text>
+              <text class="config-value">{{ selectedModelLabel }}</text>
             </view>
           </view>
           <text class="arrow-icon">›</text>
         </view>
 
-        <!-- Parameters Grid -->
-        <view class="params-grid">
-          <view class="param-card" @tap="selectWordCount">
-            <view class="param-left">
-              <text class="param-icon">▣</text>
-              <text class="param-label">字数</text>
-            </view>
-            <view class="param-right">
-              <text class="param-value">{{ selectedWordCount }}</text>
-              <text class="param-arrow">▼</text>
-            </view>
+        <!-- 创作场景 -->
+        <view class="scene-card">
+          <view class="field-header">
+            <text class="field-title">创作场景</text>
           </view>
-
-          <view class="param-card" @tap="selectTone">
-            <view class="param-left">
-              <text class="param-icon">♫</text>
-              <text class="param-label">语气</text>
-            </view>
-            <view class="param-right">
-              <text class="param-value">{{ selectedTone }}</text>
-              <text class="param-arrow">▼</text>
+          <view class="scene-grid">
+            <view
+              v-for="item in sceneOptions"
+              :key="item.key"
+              class="scene-item"
+              :class="{ 'scene-item--active': selectedScene === item.key }"
+              @tap="selectScene(item.key)"
+            >
+              <view class="scene-icon" :style="{ background: item.bgColor }">
+                <text class="scene-icon-text">{{ item.icon }}</text>
+              </view>
+              <text class="scene-label">{{ item.label }}</text>
             </view>
           </view>
         </view>
@@ -76,66 +70,36 @@
       <!-- Main CTA -->
       <view class="create-btn" @tap="onCreate">AI创作</view>
 
-      <view v-if="loading" class="result-card result-card--loading">
-        <text class="result-title">生成中</text>
-        <text class="result-content">正在调用 DeepSeek，请稍候...</text>
-      </view>
-
-      <view v-if="result" class="result-card">
-        <view class="result-head">
-          <text class="result-title">生成结果</text>
-          <text class="result-model">{{ resultModel }}</text>
-        </view>
-        <text class="result-content">{{ result }}</text>
-      </view>
-
-      <!-- Examples Section -->
+      <!-- Saved Works Section -->
       <view class="examples-section">
         <view class="examples-header">
           <view class="header-line"></view>
-          <text class="header-text">点击使用示例</text>
+          <text class="header-text">已保存作品</text>
           <view class="header-line"></view>
         </view>
 
-        <view class="examples-list">
-          <!-- Example 1: 新闻稿 -->
-          <view class="example-item" @tap="applyExample('苹果公司宣布取消造车计划')">
+        <view v-if="savedRecords.length" class="examples-list">
+          <view
+            v-for="item in savedRecords"
+            :key="item.id"
+            class="example-item"
+            @tap="openSavedRecord(item.id)"
+          >
             <view class="example-header">
               <view class="tag-icon-wrapper">
-                <text class="tag-icon">✦</text>
+                <text class="tag-icon">{{ sceneIcon(item.sceneKey) }}</text>
               </view>
-              <text class="example-title">新闻稿</text>
+              <text class="example-title">{{ item.title }}</text>
             </view>
             <view class="example-content">
-              <text class="example-desc">苹果公司宣布取消造车计划</text>
+              <text class="example-desc">{{ item.prompt }}</text>
             </view>
           </view>
+        </view>
 
-          <!-- Example 2: 知识科普 -->
-          <view class="example-item" @tap="applyExample('春季流感如何防治')">
-            <view class="example-header">
-              <view class="tag-icon-wrapper">
-                <text class="tag-icon">✦</text>
-              </view>
-              <text class="example-title">知识科普</text>
-            </view>
-            <view class="example-content">
-              <text class="example-desc">春季流感如何防治</text>
-            </view>
-          </view>
-
-          <!-- Example 3: 产品种草 -->
-          <view class="example-item" @tap="applyExample('兰蔻小黑瓶')">
-            <view class="example-header">
-              <view class="tag-icon-wrapper">
-                <text class="tag-icon">✦</text>
-              </view>
-              <text class="example-title">产品种草</text>
-            </view>
-            <view class="example-content">
-              <text class="example-desc">兰蔻小黑瓶</text>
-            </view>
-          </view>
+        <view v-else class="saved-empty">
+          <text class="saved-empty-title">暂无保存的作品</text>
+          <text class="saved-empty-desc">完成一次 AI 创作后，作品会显示在这里</text>
         </view>
       </view>
     </view>
@@ -152,10 +116,10 @@
         <scroll-view class="popup-scroll" scroll-y>
           <view class="popup-content">
             <view
-              v-for="(model, index) in models"
-              :key="index"
+              v-for="model in models"
+              :key="model.value"
               class="model-item"
-              :class="{ active: selectedModel === model.name }"
+              :class="{ active: selectedModel === model.value }"
               @tap="selectModelItem(model)"
             >
               <view class="model-item-left">
@@ -167,9 +131,13 @@
                   <text class="model-item-desc">{{ model.desc }}</text>
                 </view>
               </view>
-              <view class="model-item-check" v-if="selectedModel === model.name">
+              <view class="model-item-check" v-if="selectedModel === model.value">
                 <text class="check-icon">✓</text>
               </view>
+            </view>
+            <view v-if="!models.length" class="model-empty">
+              <text class="model-empty-title">暂无可用模型</text>
+              <text class="model-empty-desc">请先在后台完成模型配置并测试成功</text>
             </view>
           </view>
         </scroll-view>
@@ -208,83 +176,118 @@
       </view>
     </view>
 
-    <!-- Tone Selection Popup -->
-    <view class="model-popup-mask" v-if="showTonePopup" @tap="closeTonePopup">
-      <view class="model-popup" :style="{ height: tonePopupHeight }" @tap.stop>
-        <view class="popup-header">
-          <text class="popup-title">选择语气</text>
-          <view class="popup-close" @tap="closeTonePopup">
-            <text class="close-icon">×</text>
-          </view>
-        </view>
-        <scroll-view class="popup-scroll" scroll-y>
-          <view class="popup-content">
-            <view
-              v-for="(item, index) in toneOptions"
-              :key="index"
-              class="model-item"
-              :class="{ active: selectedTone === item }"
-              @tap="selectToneItem(item)"
-            >
-              <view class="model-item-left">
-                <view class="model-item-info">
-                  <text class="model-item-name">{{ item }}</text>
-                </view>
-              </view>
-              <view class="model-item-check" v-if="selectedTone === item">
-                <text class="check-icon">✓</text>
-              </view>
-            </view>
-          </view>
-        </scroll-view>
-      </view>
-    </view>
   </view>
 </template>
 
 <script setup>
 import { ref, computed } from 'vue'
+import { onLoad, onShow } from '@dcloudio/uni-app'
 import NavBar from '@/components/nav-bar/nav-bar.vue'
-import { writeWithAi } from '@/api/ai.js'
+import { getAiWritingModels } from '@/api/ai.js'
+import { getSmartWritingSavedWorks } from '@/utils/smartWritingHistory.js'
 
 const prompt = ref('')
 const showModelPopup = ref(false)
 const showWordCountPopup = ref(false)
-const showTonePopup = ref(false)
-const loading = ref(false)
-const result = ref('')
-const resultModel = ref('')
-const selectedModel = ref('DeepSeek')
+const selectedModel = ref('')
 const selectedWordCount = ref('自动')
-const selectedTone = ref('正式')
+const selectedScene = ref('')
+const savedRecords = ref([])
+const defaultWritingPlaceholder = '开始你的写作之旅，选择一个创作场景后，我会帮你生成更贴合的内容...'
 
 const wordCountOptions = ref(['自动', '200字以内', '500字左右', '800字以上', '1000字以上'])
-const toneOptions = ref(['正式', '幽默', '严谨', '感性', '专业'])
-
-const models = ref([
+const sceneOptions = ref([
   {
-    name: 'DeepSeek',
-    desc: '深度求索，擅长逻辑推理',
-    icon: '/static/icons/ai create/DeepSeek.png'
+    key: 'weekly',
+    label: '周报',
+    icon: '周',
+    bgColor: '#EEF2FF',
+    placeholder: '帮我撰写一篇周报，内容包括工作内容和工作成果...'
   },
   {
-    name: '豆包',
-    desc: '字节跳动，多模态能力强',
-    icon: '/static/icons/ai create/doubao.png'
+    key: 'summary',
+    label: '工作总结',
+    icon: '总',
+    bgColor: '#EAF7F0',
+    placeholder: '帮我撰写一份工作总结，内容包括完成情况和工作成果...'
   },
   {
-    name: '通义千问',
-    desc: '阿里巴巴，综合能力出色',
-    icon: '/static/icons/ai create/Tongyi-Qianwen.png'
+    key: 'holiday',
+    label: '节日祝福',
+    icon: '节',
+    bgColor: '#FFF4E8',
+    placeholder: '帮我写一条节日祝福，送给对象...'
+  },
+  {
+    key: 'review',
+    label: '评语',
+    icon: '评',
+    bgColor: '#F6ECFF',
+    placeholder: '帮我写一段评语，围绕表现来写...'
   }
 ])
+
+const loadSavedRecords = () => {
+  savedRecords.value = getSmartWritingSavedWorks().slice(0, 6)
+}
+
+const models = ref([])
+
+const providerIcon = (providerName = '', provider = '', model = '') => {
+  const value = `${providerName} ${provider} ${model}`.toLowerCase()
+  if (value.includes('deepseek')) return '/static/icons/ai create/DeepSeek.png'
+  if (value.includes('豆包') || value.includes('doubao') || value.includes('volc') || value.includes('bytedance')) {
+    return '/static/icons/ai create/doubao.png'
+  }
+  if (value.includes('通义') || value.includes('tongyi') || value.includes('qwen') || value.includes('dashscope')) {
+    return '/static/icons/ai create/Tongyi-Qianwen.png'
+  }
+  return '/static/icons/ai create/DeepSeek.png'
+}
+
+const normalizeModelOption = (item) => {
+  const model = String(item?.model || item?.displayName || '').trim()
+  const providerName = String(item?.providerName || item?.provider || '文本模型').trim()
+  const configPrefix = String(item?.configPrefix || '').trim()
+  const value = configPrefix || model
+  return {
+    value,
+    name: model || providerName,
+    desc: providerName,
+    configPrefix,
+    model,
+    icon: providerIcon(providerName, item?.provider, model)
+  }
+}
+
+const loadModels = async () => {
+  try {
+    const response = await getAiWritingModels()
+    const modelList = Array.isArray(response?.data) ? response.data : (Array.isArray(response) ? response : [])
+    const nextModels = modelList.map(normalizeModelOption).filter(item => item.value)
+    models.value = nextModels
+    if (!nextModels.some(item => item.value === selectedModel.value)) {
+      selectedModel.value = nextModels[0]?.value || ''
+    }
+  } catch (error) {
+    models.value = []
+    selectedModel.value = ''
+  }
+}
+
+onShow(() => {
+  loadSavedRecords()
+  loadModels()
+})
 
 const popupHeight = computed(() => {
   const itemHeight = uni.upx2px(146) // 130rpx item + 16rpx margin
   const headerHeight = uni.upx2px(130) // 120rpx header + extra
   const paddingBottom = uni.upx2px(100) // Extra padding for safety
+  const emptyHeight = uni.upx2px(260)
   const count = models.value.length
-  const totalHeight = headerHeight + itemHeight * count + paddingBottom
+  const contentHeight = count > 0 ? itemHeight * count : emptyHeight
+  const totalHeight = headerHeight + contentHeight + paddingBottom
   const systemInfo = uni.getSystemInfoSync()
   const maxHeight = Math.floor(systemInfo.windowHeight * 0.85)
   return Math.min(totalHeight, maxHeight) + 'px'
@@ -301,20 +304,14 @@ const wordCountPopupHeight = computed(() => {
   return Math.min(totalHeight, maxHeight) + 'px'
 })
 
-const tonePopupHeight = computed(() => {
-  const itemHeight = uni.upx2px(112)
-  const headerHeight = uni.upx2px(130)
-  const paddingBottom = uni.upx2px(100)
-  const count = toneOptions.value.length
-  const totalHeight = headerHeight + itemHeight * count + paddingBottom
-  const systemInfo = uni.getSystemInfoSync()
-  const maxHeight = Math.floor(systemInfo.windowHeight * 0.85)
-  return Math.min(totalHeight, maxHeight) + 'px'
+const currentModelIcon = computed(() => {
+  const model = models.value.find((m) => m.value === selectedModel.value)
+  return model ? model.icon : '/static/icons/ai create/DeepSeek.png'
 })
 
-const currentModelIcon = computed(() => {
-  const model = models.value.find((m) => m.name === selectedModel.value)
-  return model ? model.icon : ''
+const selectedModelLabel = computed(() => {
+  const model = models.value.find((m) => m.value === selectedModel.value)
+  return model ? model.name : '暂无可用模型'
 })
 
 const selectModel = () => {
@@ -326,7 +323,7 @@ const closeModelPopup = () => {
 }
 
 const selectModelItem = (model) => {
-  selectedModel.value = model.name
+  selectedModel.value = model.value
   showModelPopup.value = false
 }
 
@@ -343,61 +340,64 @@ const selectWordCountItem = (item) => {
   showWordCountPopup.value = false
 }
 
-const selectTone = () => {
-  showTonePopup.value = true
-}
-
-const closeTonePopup = () => {
-  showTonePopup.value = false
-}
-
-const selectToneItem = (item) => {
-  selectedTone.value = item
-  showTonePopup.value = false
-}
-
 const showHistory = () => {
-  uni.showToast({ title: '历史记录', icon: 'none' })
+  uni.navigateTo({ url: '/subpackage_ai/smartWritingHistory/smartWritingHistory' })
 }
 
-const applyExample = (content) => {
-  prompt.value = content
+const applyScenePlaceholder = (sceneKey) => {
+  const scene = sceneOptions.value.find((item) => item.key === sceneKey)
+  if (!scene) return
+  selectedScene.value = sceneKey
+  prompt.value = ''
 }
 
-const onCreate = async () => {
-  if (!prompt.value.trim()) {
+onLoad((options) => {
+  if (options?.scene) {
+    selectedScene.value = decodeURIComponent(options.scene)
+  }
+  if (options?.prompt) {
+    prompt.value = decodeURIComponent(options.prompt)
+  }
+})
+
+const currentScenePlaceholder = computed(() => {
+  return sceneOptions.value.find(item => item.key === selectedScene.value)?.placeholder || defaultWritingPlaceholder
+})
+
+const selectScene = (sceneKey) => {
+  applyScenePlaceholder(sceneKey)
+}
+
+const sceneIcon = (sceneKey) => ({
+  weekly: '周',
+  summary: '总',
+  holiday: '节',
+  review: '评'
+}[sceneKey] || '文')
+
+const openSavedRecord = (id) => {
+  uni.navigateTo({
+    url: `/subpackage_ai/smartWritingDetail/smartWritingDetail?id=${encodeURIComponent(id)}&source=saved`
+  })
+}
+
+const onCreate = () => {
+  const content = prompt.value.trim()
+  if (!content) {
     uni.showToast({ title: '请输入内容', icon: 'none' })
     return
   }
-  loading.value = true
-  result.value = ''
-  resultModel.value = ''
-  try {
-    const res = await writeWithAi({
-      prompt: prompt.value.trim(),
-      tone: selectedTone.value,
-      wordCount: selectedWordCount.value,
-      modelName: selectedModel.value
-    })
-    result.value = res.data?.content || ''
-    resultModel.value = res.data?.model || selectedModel.value
-    if (!result.value) {
-      uni.showToast({ title: 'AI 未返回内容', icon: 'none' })
-      return
-    }
-    uni.showToast({ title: '创作完成', icon: 'success' })
-  } catch (error) {
-    console.error('AI创作失败', error)
-    const message =
-      error?.msg ||
-      error?.message ||
-      error?.data?.msg ||
-      error?.data?.message ||
-      'AI 创作失败'
-    uni.showToast({ title: message, icon: 'none' })
-  } finally {
-    loading.value = false
+  if (!selectedScene.value) {
+    uni.showToast({ title: '请选择创作场景', icon: 'none' })
+    return
   }
+  if (!selectedModel.value) {
+    uni.showToast({ title: '暂无可用模型', icon: 'none' })
+    return
+  }
+  uni.navigateTo({
+    url: `/subpackage_ai/smartWritingGenerating/smartWritingGenerating?prompt=${encodeURIComponent(content)}&scene=${encodeURIComponent(selectedScene.value)}&wordCount=${encodeURIComponent(selectedWordCount.value)}&model=${encodeURIComponent(selectedModel.value)}`
+  })
 }
 </script>
 
@@ -435,39 +435,8 @@ const onCreate = async () => {
 .tool-row {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
   margin-top: 24rpx;
-}
-
-.tool-btns {
-  display: flex;
-  gap: 12rpx;
-}
-
-.tool-btn {
-  height: 48rpx;
-  padding: 0 16rpx;
-  border-radius: 999rpx;
-  background: #f2f3ff;
-  display: inline-flex;
-  align-items: center;
-  gap: 8rpx;
-}
-
-.tool-icon {
-  font-size: 20rpx;
-  color: #434655;
-}
-
-.tool-icon-svg {
-  width: 28rpx;
-  height: 28rpx;
-}
-
-.tool-text {
-  font-size: 22rpx;
-  color: #434655;
-  font-weight: 500;
 }
 
 .history-btn {
@@ -487,50 +456,44 @@ const onCreate = async () => {
   font-weight: 500;
 }
 
+.word-count-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 24rpx;
+  padding-top: 22rpx;
+  border-top: 1rpx solid #eef0f7;
+}
+
+.word-count-left {
+  display: flex;
+  align-items: center;
+  gap: 18rpx;
+}
+
+.word-count-label {
+  font-size: 24rpx;
+  color: #434655;
+  font-weight: 600;
+}
+
+.word-count-value,
+.word-count-arrow {
+  font-size: 24rpx;
+  color: #0052d7;
+  font-weight: 700;
+}
+
+.word-count-arrow {
+  font-size: 20rpx;
+}
+
 /* Configuration Section */
 .config-section {
   margin-top: 32rpx;
   display: flex;
   flex-direction: column;
   gap: 24rpx;
-}
-
-.result-card {
-  margin-top: 28rpx;
-  background: #ffffff;
-  border-radius: 16rpx;
-  padding: 28rpx 32rpx;
-  box-shadow: 0 20rpx 40rpx rgba(25, 27, 35, 0.04);
-}
-
-.result-card--loading {
-  background: linear-gradient(180deg, #eef3ff 0%, #ffffff 100%);
-}
-
-.result-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16rpx;
-  margin-bottom: 16rpx;
-}
-
-.result-title {
-  font-size: 30rpx;
-  font-weight: 700;
-  color: #191b23;
-}
-
-.result-model {
-  font-size: 22rpx;
-  color: #4f46e5;
-}
-
-.result-content {
-  font-size: 28rpx;
-  line-height: 1.8;
-  color: #434655;
-  white-space: pre-wrap;
 }
 
 .config-card {
@@ -544,6 +507,78 @@ const onCreate = async () => {
 
 .model-card {
   background: #f2f3ff;
+}
+
+.scene-card {
+  background: #ffffff;
+  border-radius: 16rpx;
+  padding: 28rpx 24rpx;
+}
+
+.field-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 22rpx;
+}
+
+.field-title {
+  font-size: 26rpx;
+  color: #191b23;
+  font-weight: 700;
+}
+
+.scene-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12rpx;
+}
+
+.scene-item {
+  min-width: 0;
+  padding: 16rpx 4rpx;
+  border: 2rpx solid transparent;
+  border-radius: 12rpx;
+  background: #f8f9ff;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10rpx;
+}
+
+.scene-item--active {
+  border-color: #4d6bfe;
+  background: #f2f4ff;
+}
+
+.scene-icon {
+  width: 64rpx;
+  height: 64rpx;
+  border-radius: 14rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.scene-icon-text {
+  font-size: 26rpx;
+  color: #4d5aa7;
+  font-weight: 700;
+}
+
+.scene-label {
+  width: 100%;
+  font-size: 20rpx;
+  line-height: 1.3;
+  color: #434655;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.scene-item--active .scene-label {
+  color: #3f51d9;
+  font-weight: 700;
 }
 
 .config-left {
@@ -586,56 +621,6 @@ const onCreate = async () => {
 .arrow-icon {
   font-size: 36rpx;
   color: #737686;
-}
-
-/* Parameters Grid */
-.params-grid {
-  display: flex;
-  gap: 24rpx;
-}
-
-.param-card {
-  flex: 1;
-  background: #ffffff;
-  border-radius: 16rpx;
-  padding: 32rpx 40rpx 32rpx 32rpx;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.param-left {
-  display: flex;
-  align-items: center;
-  gap: 16rpx;
-}
-
-.param-icon {
-  font-size: 32rpx;
-  color: rgba(67, 70, 85, 0.7);
-}
-
-.param-label {
-  font-size: 26rpx;
-  color: #191b23;
-  font-weight: 500;
-}
-
-.param-right {
-  display: flex;
-  align-items: center;
-  gap: 8rpx;
-}
-
-.param-value {
-  font-size: 26rpx;
-  color: #0052d7;
-  font-weight: 700;
-}
-
-.param-arrow {
-  font-size: 22rpx;
-  color: #0052d7;
 }
 
 /* Create Button */
@@ -738,6 +723,26 @@ const onCreate = async () => {
 .example-desc {
   font-size: 24rpx;
   color: #434655;
+}
+
+.saved-empty {
+  display: flex;
+  align-items: center;
+  flex-direction: column;
+  padding: 32rpx 20rpx 12rpx;
+  text-align: center;
+}
+
+.saved-empty-title {
+  color: #4d5360;
+  font-size: 25rpx;
+  font-weight: 700;
+}
+
+.saved-empty-desc {
+  margin-top: 10rpx;
+  color: #9aa1ae;
+  font-size: 21rpx;
 }
 
 /* Model Popup */
@@ -876,5 +881,27 @@ const onCreate = async () => {
 .check-icon {
   font-size: 24rpx;
   color: #ffffff;
+}
+
+.model-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  min-height: 220rpx;
+  padding: 56rpx 24rpx;
+  text-align: center;
+}
+
+.model-empty-title {
+  color: #4d5360;
+  font-size: 28rpx;
+  font-weight: 700;
+}
+
+.model-empty-desc {
+  margin-top: 12rpx;
+  color: #9aa1ae;
+  font-size: 23rpx;
 }
 </style>

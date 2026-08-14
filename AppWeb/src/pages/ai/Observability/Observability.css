@@ -1,0 +1,14 @@
+.observability-page { display: flex; min-height: 100%; flex-direction: column; gap: 12px; }
+.observability-toolbar { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 16px 18px; border: 1px solid #e5e7eb; border-radius: 8px; background: #fff; }
+.observability-toolbar h2 { margin: 3px 0 5px; color: #111827; font-size: 24px; }
+.observability-kicker { color: #5b7fa5; font-size: 12px; font-weight: 600; }
+.observability-card { border: 1px solid #e5e7eb; border-radius: 8px; box-shadow: none; }
+.observability-card .ant-card-body, .observability-card .ant-spin-container { display: flex; flex-direction: column; gap: 18px; }
+.observability-card .ant-card-body { padding: 22px; }
+.observability-status { display: flex; align-items: center; gap: 12px; }
+.observability-status-icon { display: grid; width: 42px; height: 42px; place-items: center; border-radius: 8px; color: #4c7fae; background: #edf5fc; font-size: 20px; }
+.observability-status .ant-tag { margin: 5px 8px 0 0; }
+.observability-form { max-width: 860px; }
+.observability-key-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.observability-note { display: flex; gap: 8px; padding: 11px 12px; border: 1px solid #dbeafe; border-radius: 8px; color: #475569; background: #f8fbff; }
+@media (max-width: 768px) { .observability-toolbar { flex-direction: column; } .observability-key-grid { grid-template-columns: 1fr; } }

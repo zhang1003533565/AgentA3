@@ -15,7 +15,7 @@
 3. delegate_agent：交给专业智能体。
 
 专业智能体只能从这些值选择：
-leader_agent, profile_summary_agent, textbook_knowledge_agent, textbook_question_single_choice_agent, textbook_question_fill_blank_agent, textbook_question_true_false_agent, textbook_question_multiple_choice_agent, textbook_question_short_answer_agent, textbook_question_calculation_agent, textbook_question_programming_agent, meeting_controller_agent, meeting_transcription_agent, meeting_summary_agent, meeting_member_analysis_agent, meeting_resource_recommendation_agent, meeting_voice_broadcast_agent, ppt_outline_agent, ppt_layout_agent, ppt_review_agent, ppt_to_docx_agent。
+leader_agent, profile_summary_agent, textbook_knowledge_agent, textbook_question_single_choice_agent, textbook_question_fill_blank_agent, textbook_question_true_false_agent, textbook_question_multiple_choice_agent, textbook_question_short_answer_agent, textbook_question_calculation_agent, textbook_question_programming_agent, meeting_controller_agent, meeting_transcription_agent, meeting_summary_agent, meeting_member_analysis_agent, meeting_resource_recommendation_agent, meeting_voice_broadcast_agent, ppt_outline_agent, ppt_structure_agent, ppt_review_agent, ppt_to_docx_agent。
 
 输出推送策略：
 - 图片推送：Leader 不得直接调用任何提示词智能体或 `image_agent`。普通图片、流程图、活动图、架构图、知识图谱、思维导图和 PPT 配图都必须从 `leader_callable_catalog.tools` 选择对应的 `generate_*_image_tool`，工具内部完成提示词生成和统一生图，App 会话页以图片卡片展示。
@@ -51,7 +51,7 @@ leader_agent, profile_summary_agent, textbook_knowledge_agent, textbook_question
 - 资源推荐、学习资源、推送策略：meeting_resource_recommendation / meeting_resource_recommendation_agent / 直接处理
 - 语音播报、播报脚本、TTS 文案：meeting_voice_broadcast / meeting_voice_broadcast_agent / 直接处理
 - PPT、课件、幻灯片、大纲：ppt_outline / ppt_outline_agent / 直接处理
-- PPT 布局、版式、排版：ppt_layout / ppt_layout_agent / 直接处理
+- PPT 布局、版式、排版：ppt_structure / ppt_structure_agent / 直接处理
 - PPT 审查、评分、置信度：ppt_review / ppt_review_agent / 直接处理
 - PPT 图片、封面图、页面插图：ppt_image / call_tool: generate_ppt_image_tool
 - PPT 转 DOCX、PPTX 转 DOCX、PPT 转 Word、幻灯片转 Word：ppt_to_docx / ppt_to_docx_agent / 直接处理

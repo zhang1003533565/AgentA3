@@ -5,7 +5,7 @@
       <!-- 列表页 -->
       <view v-if="currentPage === 'list'" class="page page-list">
         <view class="page-content">
-          <common-page-header title="校园集市" :fixed="true" :placeholder="true" :showBack="true" :autoBack="false" @back="onBackToApp" />
+          <common-page-header class="market-list-header" title="校园集市" :fixed="true" :placeholder="true" :showBack="true" :autoBack="false" @back="onBackToApp" />
 
           <view class="market-hero">
             <view class="market-list-search-row" :class="{ 'market-list-search-row--transitioning': searchTransitioning }">
@@ -13,44 +13,6 @@
                 <view class="market-search-pill">
                   <image class="market-search-pill-icon" src="/static/icons/search.svg" mode="aspectFit" />
                   <input class="market-search-pill-input" value="搜索商品、书籍、用品等" disabled />
-                </view>
-              </view>
-              <view class="search-filter-btn" @click.stop="openFilter">
-                <image class="search-filter-icon" src="/static/icons/mage-filter-fill.svg" mode="aspectFit" />
-                <view v-if="hasActiveFilter" class="search-filter-dot"></view>
-              </view>
-            </view>
-          </view>
-
-          <view class="category-shell" :class="{ 'category-shell--expanded': categoryExpanded }">
-            <view class="category-summary" @click="toggleCategoryPanel">
-              <view class="category-summary-main">
-                <text class="category-summary-title">分类浏览</text>
-              </view>
-              <view class="category-summary-action">
-                <text>{{ categoryExpanded ? '收起' : '展开' }}</text>
-                <view
-                  class="category-summary-arrow"
-                  :class="{ 'category-summary-arrow--expanded': categoryExpanded }"
-                ></view>
-              </view>
-            </view>
-            <view class="category-collapse" :class="{ 'category-collapse--expanded': categoryExpanded }">
-              <view class="category-collapse-inner">
-                <view class="cat-grid">
-                  <view
-                    v-for="cat in marketCategoryTabs"
-                    :key="cat.key"
-                    class="cat-item"
-                    :class="{ on: currentCat === cat.key || (cat.activeKey && currentCat === cat.activeKey) }"
-                    @click="selectMarketCategory(cat)"
-                  >
-                    <view class="cat-icon-wrap">
-                      <image v-if="cat.icon" class="cat-icon-img" :src="cat.icon" mode="aspectFit" />
-                      <text v-else class="cat-icon-text">{{ cat.label.slice(0, 1) }}</text>
-                    </view>
-                    <text class="cat-label">{{ cat.label }}</text>
-                  </view>
                 </view>
               </view>
             </view>
@@ -61,21 +23,27 @@
               v-for="s in sortOptions"
               :key="s.value"
               class="sort-tab"
-              :class="{ on: sortBy === s.value }"
-              @click="sortBy = s.value"
+              :class="{ on: activeSortTab === s.value }"
+              @click="onSortTabClick(s)"
             >
               {{ s.label }}
             </view>
             <view class="sort-spacer"></view>
-            <view class="sort-filter" :class="{ on: hasActiveFilter }" @click="openFilter">
-              <text>{{ hasActiveFilter ? '已筛选' : '筛选' }}</text>
-              <image class="sort-filter-icon" src="/static/icons/mage-filter-fill.svg" mode="aspectFit" />
-            </view>
           </view>
 
-          <scroll-view scroll-y class="page-body market-list-scroll">
+          <scroll-view
+            scroll-y
+            class="page-body market-list-scroll"
+            refresher-enabled
+            :refresher-triggered="refreshing"
+            refresher-background="#F7F7F9"
+            @refresherrefresh="refreshPage"
+          >
             <view class="product-grid">
-              <view v-if="filteredItems.length === 0" class="empty-block">
+              <view v-if="pageLoading && filteredItems.length === 0" class="empty-block">
+                <text class="empty-title">加载中…</text>
+              </view>
+              <view v-else-if="filteredItems.length === 0" class="empty-block">
                 <view class="empty-icon"></view>
                 <text class="empty-title">暂无商品</text>
                 <text class="empty-sub">发布第一个闲置吧</text>
@@ -90,23 +58,17 @@
                 <view class="product-img">
                   <image v-if="item.images && item.images.length" class="product-img-src" :src="item.images[0]" mode="aspectFill" />
                   <view v-else class="product-img-placeholder">
-                    <text class="product-img-emoji">{{ emoji(item.id) }}</text>
-                    <text class="product-img-placeholder-text">{{ itemCategoryLabel(item) }}</text>
+                    <text class="product-img-emoji">{{ itemEmoji(item.id) }}</text>
                   </view>
-                  <text class="product-status-badge" :class="'product-status-badge--' + item.status">{{ item.statusText }}</text>
+                  <view class="product-badge-type" :class="'product-badge-type--' + (item.tradeType || 'sell')">
+                    {{ item.tradeType === 'buy' ? '收' : '出' }}
+                  </view>
                 </view>
                 <view class="product-body">
-                  <text class="product-name">{{ item.name }}</text>
-                  <text class="product-desc">{{ item.categoryLevel2Name || item.categoryName || itemCategoryLabel(item) }}</text>
-                  <view class="product-price-line">
-                    <view class="product-price-row">
-                      <text v-if="priceDisplay(item).prefix" class="product-price-symbol">{{ priceDisplay(item).prefix }}</text>
-                      <text class="product-price-num" :class="{ 'product-price-text': !priceDisplay(item).prefix }">{{ priceDisplay(item).text }}</text>
-                    </view>
-                    <text class="product-info-chip">{{ itemConditionLabel(item) }}</text>
-                  </view>
-                  <view class="product-location-row">
-                    <image class="product-location-icon" src="/static/icons/mi-location.svg" mode="aspectFit" />
+                  <view class="product-title">{{ item.name }}</view>
+                  <view class="product-price">¥{{ priceDisplay(item).text }}</view>
+                  <view class="product-location-row" v-if="item.pickupPoint || item.location">
+                    <view class="product-loc-icon"></view>
                     <text class="product-location">{{ itemLocationLabel(item) }}</text>
                   </view>
                   <view class="product-user">
@@ -135,36 +97,40 @@
                 >{{ item.label }}</view>
               </view>
 
-              <scroll-view scroll-y class="filter-body">
+              <scroll-view scroll-y class="filter-body" :show-scrollbar="false">
                 <view class="filter-group">
                   <view class="filter-group-title">商品分类</view>
-                  <view class="filter-options">
-                    <view
-                      v-for="cat in categories"
-                      :key="'filter-cat-' + cat.key"
-                      class="filter-opt"
-                      :class="{ on: filterForm.categoryLevel1Id === cat.key }"
-                      @click="selectFilterCategoryLevel1(cat.key)"
-                    >{{ cat.label }}</view>
-                  </view>
+                  <scroll-view scroll-x class="filter-chip-scroll" :show-scrollbar="false">
+                    <view class="filter-options filter-options--inline">
+                      <view
+                        v-for="cat in categories"
+                        :key="'filter-cat-' + cat.key"
+                        class="filter-opt filter-opt--chip"
+                        :class="{ on: filterForm.categoryLevel1Id === cat.key }"
+                        @click="selectFilterCategoryLevel1(cat.key)"
+                      >{{ cat.label }}</view>
+                    </view>
+                  </scroll-view>
                 </view>
 
                 <view v-if="currentFilterCategoryChildren.length" class="filter-group">
                   <view class="filter-group-title">细分分类</view>
-                  <view class="filter-options">
-                    <view
-                      class="filter-opt"
-                      :class="{ on: !filterForm.categoryLevel2Id }"
-                      @click="filterForm.categoryLevel2Id = ''"
-                    >全部</view>
-                    <view
-                      v-for="cat in currentFilterCategoryChildren"
-                      :key="'filter-sub-cat-' + cat.key"
-                      class="filter-opt"
-                      :class="{ on: filterForm.categoryLevel2Id === cat.key }"
-                      @click="filterForm.categoryLevel2Id = cat.key"
-                    >{{ cat.label }}</view>
-                  </view>
+                  <scroll-view scroll-x class="filter-chip-scroll" :show-scrollbar="false">
+                    <view class="filter-options filter-options--inline">
+                      <view
+                        class="filter-opt filter-opt--chip"
+                        :class="{ on: !filterForm.categoryLevel2Id }"
+                        @click="filterForm.categoryLevel2Id = ''"
+                      >全部</view>
+                      <view
+                        v-for="cat in currentFilterCategoryChildren"
+                        :key="'filter-sub-cat-' + cat.key"
+                        class="filter-opt filter-opt--chip"
+                        :class="{ on: filterForm.categoryLevel2Id === cat.key }"
+                        @click="filterForm.categoryLevel2Id = cat.key"
+                      >{{ cat.label }}</view>
+                    </view>
+                  </scroll-view>
                 </view>
 
                 <view class="filter-group">
@@ -198,20 +164,7 @@
                 </view>
 
                 <view class="filter-group">
-                  <view class="filter-group-title">发布时间</view>
-                  <view class="filter-options">
-                    <view
-                      v-for="o in FILTER_TIME_OPTIONS"
-                      :key="o.value"
-                      class="filter-opt"
-                      :class="{ on: filterForm.publishTime === o.value }"
-                      @click="filterForm.publishTime = o.value"
-                    >{{ o.label }}</view>
-                  </view>
-                </view>
-
-                <view class="filter-group">
-                  <view class="filter-group-title">商品状态</view>
+                  <view class="filter-group-title">商品成色</view>
                   <view class="filter-options">
                     <view
                       v-for="o in FILTER_CONDITION_OPTIONS"
@@ -223,35 +176,60 @@
                   </view>
                 </view>
 
-                <view class="filter-group">
-                  <view class="filter-group-title">交易位置</view>
-                  <view class="filter-options">
-                    <view
-                      v-for="o in FILTER_LOCATION_OPTIONS"
-                      :key="o.value"
-                      class="filter-opt"
-                      :class="{ on: filterForm.location === o.value }"
-                      @click="filterForm.location = o.value"
-                    >{{ o.label }}</view>
+                <view class="filter-more">
+                  <view class="filter-more-head" @click="toggleMoreFilter">
+                    <view>
+                      <view class="filter-more-title">更多筛选</view>
+                      <view class="filter-more-sub">{{ moreFilterSummary }}</view>
+                    </view>
+                    <view class="filter-more-chevron" :class="{ open: moreFilterExpanded }"></view>
                   </view>
-                </view>
 
-                <view v-if="currentAttributeFilters.length" class="filter-group filter-attribute-group">
-                  <view class="filter-group-title">{{ currentAttributeFilterTitle }}</view>
-                  <view
-                    v-for="group in currentAttributeFilters"
-                    :key="group.key"
-                    class="attribute-row"
-                  >
-                    <view class="attribute-title">{{ group.label }}</view>
-                    <view class="filter-options">
+                  <view v-if="moreFilterExpanded" class="filter-more-body">
+                    <view class="filter-group filter-group--compact">
+                      <view class="filter-group-title">发布时间</view>
+                      <view class="filter-options">
+                        <view
+                          v-for="o in FILTER_TIME_OPTIONS"
+                          :key="o.value"
+                          class="filter-opt"
+                          :class="{ on: filterForm.publishTime === o.value }"
+                          @click="filterForm.publishTime = o.value"
+                        >{{ o.label }}</view>
+                      </view>
+                    </view>
+
+                    <view class="filter-group filter-group--compact">
+                      <view class="filter-group-title">取货地点</view>
+                      <view class="filter-options">
+                        <view
+                          v-for="o in FILTER_LOCATION_OPTIONS"
+                          :key="o.value"
+                          class="filter-opt"
+                          :class="{ on: filterForm.location === o.value }"
+                          @click="filterForm.location = o.value"
+                        >{{ o.label }}</view>
+                      </view>
+                    </view>
+
+                    <view v-if="currentAttributeFilters.length" class="filter-group filter-group--compact filter-attribute-group">
+                      <view class="filter-group-title">{{ currentAttributeFilterTitle }}</view>
                       <view
-                        v-for="o in group.options"
-                        :key="group.key + '-' + String(o.value)"
-                        class="filter-opt"
-                        :class="{ on: isAttributeSelected(group.key, o.value) }"
-                        @click="toggleAttributeFilter(group.key, o.value)"
-                      >{{ o.label }}</view>
+                        v-for="group in currentAttributeFilters"
+                        :key="group.key"
+                        class="attribute-row"
+                      >
+                        <view class="attribute-title">{{ group.label }}</view>
+                        <view class="filter-options">
+                          <view
+                            v-for="o in group.options"
+                            :key="group.key + '-' + String(o.value)"
+                            class="filter-opt"
+                            :class="{ on: isAttributeSelected(group.key, o.value) }"
+                            @click="toggleAttributeFilter(group.key, o.value)"
+                          >{{ o.label }}</view>
+                        </view>
+                      </view>
                     </view>
                   </view>
                 </view>
@@ -467,7 +445,7 @@ import AiFloatAssistant from '@/components/ai-float-assistant/ai-float-assistant
 import CommonPageHeader from '@/components/common-page-header/common-page-header.vue'
 import MarketBottomBar from '@/components/market-bottom-bar/market-bottom-bar.vue'
 import { getSecondhandItemList } from '@/api/secondhand'
-import { createDefaultMarketFilter, filterMarketItems } from '@/subpackage_lostfound/utils/marketFilter.js'
+import { createDefaultMarketFilter, filterMarketItems, buildItemListParams } from '@/subpackage_lostfound/utils/marketFilter.js'
 import { formatLocationText } from '@/subpackage_lostfound/utils/campusLocation.js'
 import { createMarketCategoryOptions, getMarketCategoryChildren, getMarketCategoryLabel } from '@/subpackage_lostfound/utils/marketCategories.js'
 
@@ -481,8 +459,12 @@ const TYPE_TABS = [
 const CATEGORIES = createMarketCategoryOptions()
 
 const SORT_OPTIONS = [
-  { value: 'latest', label: '最新发布' },
-  { value: 'hot',    label: '热门' }
+  { value: 'all',       label: '全部',   cat: 'all',  sort: 'hot' },
+  { value: 'latest',    label: '最新发布', cat: 'all',  sort: 'latest' },
+  { value: 'life',      label: '生活',   cat: '4',    sort: 'latest' },
+  { value: 'digital',   label: '数码',   cat: '1',    sort: 'latest' },
+  { value: 'book',      label: '书籍',   cat: '2',    sort: 'latest' },
+  { value: 'clothing',  label: '服饰',   cat: '3',    sort: 'latest' }
 ]
 
 const SCENE_TAGS = [
@@ -508,9 +490,11 @@ const FILTER_TIME_OPTIONS = [
 
 const FILTER_CONDITION_OPTIONS = [
   { value: 'all', label: '不限' },
-  { value: 'new', label: '全新' },
-  { value: 'like-new', label: '九成新' },
-  { value: 'used', label: '二手' }
+  { value: '1', label: '全新' },
+  { value: '2', label: '很新' },
+  { value: '3', label: '正常使用' },
+  { value: '4', label: '明显使用' },
+  { value: '5', label: '配件/零件' }
 ]
 
 const FILTER_LOCATION_OPTIONS = [
@@ -520,33 +504,7 @@ const FILTER_LOCATION_OPTIONS = [
   { value: 'nearby', label: '附近' }
 ]
 
-const ATTRIBUTE_FILTERS = {
-  digital: [
-    { key: 'brand', label: '品牌', options: [{ value: 'Apple', label: 'Apple' }, { value: 'Lenovo', label: 'Lenovo' }, { value: 'Keychron', label: 'Keychron' }, { value: 'Sony', label: 'Sony' }] },
-    { key: 'model', label: '型号', options: [{ value: 'iPad Air 5', label: 'iPad Air 5' }, { value: 'K2', label: 'K2' }, { value: 'ThinkPad', label: 'ThinkPad' }, { value: 'AirPods', label: 'AirPods' }] },
-    { key: 'storage', label: '存储', options: [{ value: '64G', label: '64G' }, { value: '128G', label: '128G' }, { value: '256G', label: '256G' }, { value: '512G', label: '512G' }] },
-    { key: 'color', label: '颜色', options: [{ value: '黑色', label: '黑色' }, { value: '白色', label: '白色' }, { value: '蓝色', label: '蓝色' }, { value: '灰色', label: '灰色' }] }
-  ],
-  textbook: [
-    { key: 'subject', label: '科目', options: [{ value: '数学', label: '数学' }, { value: '英语', label: '英语' }, { value: '计算机', label: '计算机' }, { value: '专业课', label: '专业课' }] },
-    { key: 'grade', label: '年级', options: [{ value: '大一', label: '大一' }, { value: '大二', label: '大二' }, { value: '大三', label: '大三' }, { value: '考研', label: '考研' }] },
-    { key: 'edition', label: '版本', options: [{ value: '第七版', label: '第七版' }, { value: '2025新版', label: '2025新版' }, { value: '最新版', label: '最新版' }] },
-    { key: 'hasNotes', label: '笔记', options: [{ value: true, label: '有笔记' }, { value: false, label: '无笔记' }] }
-  ],
-  dorm: [
-    { key: 'type', label: '类型', options: [{ value: '小电器', label: '小电器' }, { value: '收纳', label: '收纳' }, { value: '床品', label: '床品' }, { value: '桌椅', label: '桌椅' }] },
-    { key: 'condition', label: '状态', options: [{ value: 'new', label: '全新' }, { value: 'like_new', label: '九成新' }, { value: 'used', label: '正常使用' }] }
-  ],
-  clothing: [
-    { key: 'gender', label: '性别', options: [{ value: '女款', label: '女款' }, { value: '男款', label: '男款' }, { value: '通用', label: '通用' }] },
-    { key: 'size', label: '尺码', options: [{ value: 'S', label: 'S' }, { value: 'M', label: 'M' }, { value: 'L', label: 'L' }, { value: 'XL', label: 'XL' }] },
-    { key: 'style', label: '风格', options: [{ value: '学院风', label: '学院风' }, { value: '运动', label: '运动' }, { value: '通勤', label: '通勤' }, { value: '休闲', label: '休闲' }] }
-  ],
-  game: [
-    { key: 'platform', label: '平台', options: [{ value: 'Switch', label: 'Switch' }, { value: 'PS5', label: 'PS5' }, { value: 'Xbox', label: 'Xbox' }, { value: 'PC', label: 'PC' }] },
-    { key: 'type', label: '类型', options: [{ value: '主机', label: '主机' }, { value: '手柄', label: '手柄' }, { value: '卡带', label: '卡带' }, { value: '配件', label: '配件' }] }
-  ]
-}
+const ATTRIBUTE_FILTERS = {}
 
 
 
@@ -562,6 +520,7 @@ function normalizeItem(item) {
   const condition = item.condition || item.itemCondition || ''
   const location = item.location || item.tradeLocationText || ''
   const schoolName = item.schoolName || seller.schoolName || ''
+  const tradeType = item.tradeType || item.trade_type || 'sell'
 
   return {
     id: item.id,
@@ -569,7 +528,8 @@ function normalizeItem(item) {
     desc: item.description || '',
     price: item.price,
     originalPrice: item.originalPrice || item.original_price || null,
-    type: 'sell',
+    type: tradeType,
+    tradeType,
     status: item.status === 4 ? 'offline' : item.status === 3 ? 'sold' : 'online',
     statusText: item.statusText || (item.status === 3 ? '已售出' : item.status === 4 ? '已下架' : '在售'),
     cat: String(categoryId),
@@ -624,10 +584,9 @@ export default {
       currentPage: 'list',
       currentTab: 'market',
       currentCat: 'all',
-      categoryExpanded: false,
       currentType: 'all',
       currentSceneTag: '',
-      sortBy: 'latest',
+      sortBy: 'hot',
       searchKeyword: '',
       searchTransitioning: false,
       searchTransitionNavigating: false,
@@ -638,6 +597,7 @@ export default {
         height: 0
       },
       items: [],
+      refreshing: false,
       curItem: {},
       imgIdx: 0,
       curChat: null,
@@ -647,6 +607,7 @@ export default {
       isNearBottom: false,
       pageLoading: false,
       filterVisible: false,
+      moreFilterExpanded: false,
       filterForm: {
         categoryLevel1Id: 'all',
         categoryLevel2Id: '',
@@ -674,6 +635,13 @@ export default {
     }
   },
   computed: {
+    activeSortTab() {
+      if (this.currentCat === 'all') {
+        return this.sortBy === 'latest' ? 'latest' : 'all'
+      }
+      const map = { '1': 'digital', '2': 'book', '3': 'clothing', '4': 'life' }
+      return map[this.currentCat] || 'all'
+    },
     marketCategoryTabs() {
       const findCategory = (key) => this.categories.find((cat) => String(cat.key) === String(key)) || {}
       return [
@@ -706,6 +674,10 @@ export default {
       const f = this.activeFilterForm
       return this.currentCat !== 'all' || Boolean(f.categoryLevel2Id) || f.priceRange !== 'all' || f.publishTime !== 'all' || f.condition !== 'all' || f.location !== 'all' || Object.keys(f.attributes || {}).length > 0
     },
+    backendQueryKey() {
+      const f = this.activeFilterForm
+      return [this.currentCat, this.sortBy, this.searchKeyword, f.priceRange, f.condition].join('|')
+    },
     searchTransitionStyle() {
       const rect = this.searchTransitionRect
       if (!rect.width || !rect.height) return {}
@@ -718,7 +690,7 @@ export default {
       }
     },
     selectedAttributeFilterKey() {
-      const key = String(this.currentCat || '')
+      const key = String(this.filterVisible ? (this.filterForm.categoryLevel1Id || this.currentCat) : (this.currentCat || ''))
       if (ATTRIBUTE_FILTERS[key]) return key
       const matched = this.categories.find((cat) => String(cat.key) === key)
       const label = matched ? matched.label : ''
@@ -787,11 +759,40 @@ export default {
 
       return items.filter((item) => item.label)
     },
+    moreFilterSummary() {
+      const form = this.filterForm || {}
+      const summary = []
+      const optionLabel = (options, value) => {
+        const matched = options.find((item) => String(item.value) === String(value))
+        return matched ? matched.label : ''
+      }
+
+      if (form.publishTime && form.publishTime !== 'all') {
+        summary.push(optionLabel(FILTER_TIME_OPTIONS, form.publishTime))
+      }
+      if (form.location && form.location !== 'all') {
+        summary.push(optionLabel(FILTER_LOCATION_OPTIONS, form.location))
+      }
+
+      const attrs = form.attributes || {}
+      this.currentAttributeFilters.forEach((group) => {
+        const value = attrs[group.key]
+        if (value === undefined || value === null || value === '') return
+        const label = optionLabel(group.options, value)
+        if (label) summary.push(label)
+      })
+
+      const selected = summary.filter(Boolean)
+      return selected.length ? `已选：${selected.join(' / ')}` : '发布时间 / 取货地点'
+    },
     exchangeStatus() {
       return { status: 'none' }
     }
   },
   watch: {
+    backendQueryKey() {
+      this.loadItems({ clear: true })
+    },
     searchKeyword(newVal) {
       if (this.currentSceneTag) {
         const tag = this.sceneTags.find(t => t.key === this.currentSceneTag)
@@ -835,14 +836,20 @@ export default {
       }
     }
   },
+  created() {
+    this._loadSeq = 0
+  },
   async onLoad() {
+    await this.loadItems()
   },
   async onShow() {
     this.searchTransitioning = false
     this.searchTransitionNavigating = false
-    await this.loadItems()
   },
   methods: {
+    itemEmoji(id) {
+      return EMOJIS[(id || 0) % EMOJIS.length]
+    },
     goToSearch() {
       if (this.searchTransitioning || this.searchTransitionNavigating) return
       uni.createSelectorQuery()
@@ -897,17 +904,38 @@ export default {
         }
       })
     },
-    async loadItems() {
+    async loadItems({ clear = false } = {}) {
+      this.pageLoading = true
+      if (clear) this.items = []
+      const seq = ++this._loadSeq
       try {
-        this.pageLoading = true
-        const res = await getSecondhandItemList({ current: 1, size: 100, sort: 'latest' })
+        const params = buildItemListParams({
+          categoryLevel1Id: this.currentCat,
+          keyword: this.searchKeyword,
+          priceRange: this.activeFilterForm.priceRange,
+          condition: this.activeFilterForm.condition,
+          sort: this.sortBy
+        })
+        const res = await getSecondhandItemList(params)
+        if (seq !== this._loadSeq) return
         const records = Array.isArray(res?.data?.records) ? res.data.records : []
         this.items = records.map(normalizeItem)
       } catch (error) {
         console.error('加载集市列表失败', error)
+        if (seq !== this._loadSeq) return
         this.items = []
       } finally {
-        this.pageLoading = false
+        if (seq === this._loadSeq) this.pageLoading = false
+      }
+    },
+    async refreshPage() {
+      if (this.refreshing) return
+      this.refreshing = true
+      try {
+        await this.loadItems()
+        uni.showToast({ title: '已刷新', icon: 'none', duration: 900 })
+      } finally {
+        this.refreshing = false
       }
     },
     onChatScroll(e) {
@@ -1043,10 +1071,10 @@ export default {
     goToMarket() {
       this.currentTab = 'market'
       this.currentPage = 'list'
-      this.categoryExpanded = false
     },
-    toggleCategoryPanel() {
-      this.categoryExpanded = !this.categoryExpanded
+    onSortTabClick(s) {
+      this.currentCat = s.cat
+      this.sortBy = s.sort
     },
     goToMine() {
       this.currentTab = 'mine'
@@ -1080,6 +1108,7 @@ export default {
     },
     openFilter() {
       this.filterVisible = true
+      this.moreFilterExpanded = false
       this.filterForm = {
         categoryLevel1Id: this.currentCat,
         categoryLevel2Id: this.activeFilterForm.categoryLevel2Id || '',
@@ -1095,14 +1124,15 @@ export default {
     closeFilter() {
       this.filterVisible = false
     },
+    toggleMoreFilter() {
+      this.moreFilterExpanded = !this.moreFilterExpanded
+    },
     selectMarketCategory(cat) {
       if (cat?.action === 'filter' || cat?.key === 'more') {
-        this.categoryExpanded = false
         this.openFilter()
         return
       }
       this.currentCat = cat?.key || 'all'
-      this.categoryExpanded = false
     },
     resetFilter() {
       this.filterForm = {
@@ -1116,6 +1146,7 @@ export default {
         location: 'all',
         attributes: {}
       }
+      this.moreFilterExpanded = false
     },
     confirmFilter() {
       const priceRange = this.normalizeCustomPriceRange(this.filterForm)
@@ -1223,6 +1254,15 @@ export default {
   overflow: hidden;
 }
 
+.market-list-header {
+  flex-shrink: 0;
+}
+
+.market-list-header ::v-deep .nav-placeholder {
+  background: transparent;
+  box-shadow: none;
+}
+
 .screen {
   width: 100%;
   background: #F7F7F9;
@@ -1254,7 +1294,7 @@ export default {
 .market-list-scroll {
   min-height: 0;
   height: 0;
-  overflow: hidden;
+  overflow-y: auto;
 }
 
 .market-hero {
@@ -1315,7 +1355,6 @@ export default {
 .market-list-search-row {
   display: flex;
   align-items: center;
-  gap: 18rpx;
   margin: 0 28rpx;
 }
 
@@ -1784,18 +1823,20 @@ export default {
   z-index: 12;
   display: flex;
   align-items: center;
-  gap: 44rpx;
-  padding: 30rpx 36rpx 18rpx;
+  gap: 16rpx;
+  padding: 24rpx 28rpx 14rpx;
   background: #F7F7F9;
 }
 
 .sort-tab {
-  font-size: 30rpx;
+  font-size: 26rpx;
   font-weight: 600;
   color: #96999E;
   position: relative;
-  padding-bottom: 14rpx;
+  padding-bottom: 12rpx;
   transition: color 0.18s;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .sort-tab.on {
@@ -1819,51 +1860,24 @@ export default {
   flex: 1;
 }
 
-.sort-filter {
-  display: flex;
-  align-items: center;
-  gap: 8rpx;
-  min-height: 56rpx;
-  padding: 0 22rpx;
-  border-radius: 999rpx;
-  background: #FFFFFF;
-  border: 1rpx solid rgba(228, 232, 238, 0.9);
-  color: #6F747B;
-  font-size: 24rpx;
-  font-weight: 700;
-  box-shadow: 0 6rpx 18rpx rgba(92, 122, 153, 0.08);
-}
-
-.sort-filter.on {
-  color: #5C7A99;
-  background: rgba(92, 122, 153, 0.08);
-  border-color: rgba(92, 122, 153, 0.16);
-}
-
-.sort-filter-icon {
-  width: 30rpx;
-  height: 30rpx;
-  opacity: 0.68;
-}
-
 /* ===== Product grid ===== */
 .product-grid {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
+  grid-template-columns: 1fr 1fr;
   align-items: start;
-  gap: 18rpx;
-  padding: 4rpx 18rpx 210rpx;
+  gap: 12rpx;
+  padding: 4rpx 12rpx 210rpx;
 }
 
 .product-card {
   background: #fff;
-  border-radius: 24rpx;
+  border-radius: 16rpx;
   overflow: hidden;
-  border: 1rpx solid rgba(228, 232, 238, 0.95);
+  box-shadow: 0 4rpx 16rpx rgba(30, 41, 59, 0.06);
   transition: transform 0.15s ease;
-  box-shadow: 0 10rpx 28rpx rgba(92, 122, 153, 0.08);
-  padding: 12rpx 12rpx 0;
   box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
 }
 
 .product-card:active {
@@ -1873,19 +1887,34 @@ export default {
 .product-img {
   position: relative;
   width: 100%;
-  aspect-ratio: 1.18 / 1;
-  background: #F1F3F5;
+  padding-top: 100%;
   display: flex;
   align-items: center;
   justify-content: center;
+  background: #EEF2F7;
   overflow: hidden;
-  border-radius: 18rpx;
 }
 
 .product-img-src {
+  position: absolute;
+  left: 0;
+  top: 0;
   width: 100%;
   height: 100%;
-  border-radius: 18rpx;
+}
+
+.product-img-placeholder {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14rpx;
+  color: #8E8E93;
 }
 
 .product-img-emoji {
@@ -1893,158 +1922,107 @@ export default {
   line-height: 1;
 }
 
-.product-img-placeholder {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 14rpx;
-  color: #8E8E93;
-}
-
-.product-img-placeholder-text {
-  font-size: 22rpx;
-  font-weight: 700;
-}
-
-.product-status-badge {
+.product-badge-type {
   position: absolute;
-  top: 12rpx;
-  left: 12rpx;
-  padding: 6rpx 12rpx;
-  border-radius: 999rpx;
-  background: rgba(29, 29, 31, 0.72);
+  left: 14rpx;
+  top: 14rpx;
+  min-width: 40rpx;
+  height: 40rpx;
+  padding: 0 8rpx;
+  border-radius: 10rpx;
   color: #FFFFFF;
-  font-size: 19rpx;
+  font-size: 22rpx;
   font-weight: 800;
-  line-height: 1;
+  line-height: 40rpx;
+  text-align: center;
+  box-shadow: 0 4rpx 10rpx rgba(0, 0, 0, 0.2);
 }
 
-.product-status-badge--reserved {
-  background: rgba(92, 122, 153, 0.88);
+.product-badge-type--sell {
+  background: #FF6B35;
+  box-shadow: 0 4rpx 10rpx rgba(255, 107, 53, 0.35);
 }
 
-.product-status-badge--sold,
-.product-status-badge--offline {
-  background: rgba(142, 142, 147, 0.88);
-}
-
-.product-price-symbol {
-  font-size: 24rpx;
-  font-weight: 800;
-  color: #1D1D1F;
-  line-height: 1;
-}
-
-.product-price-num {
-  font-size: 36rpx;
-  font-weight: 850;
-  color: #1D1D1F;
-  line-height: 1;
-}
-
-.product-price-text {
-  font-size: 30rpx;
-  color: #4A6278;
+.product-badge-type--buy {
+  background: #4A90E2;
+  box-shadow: 0 4rpx 10rpx rgba(74, 144, 226, 0.35);
 }
 
 .product-body {
-  padding: 16rpx 4rpx 18rpx;
-}
-
-.product-main-row {
+  padding: 14rpx 16rpx 18rpx;
   display: flex;
   flex-direction: column;
-  gap: 12rpx;
-  margin-bottom: 12rpx;
+  gap: 6rpx;
 }
 
-.product-name {
-  font-size: 27rpx;
+.product-title {
+  color: #1D2430;
+  font-size: 24rpx;
   font-weight: 800;
-  color: #1D1D1F;
-  line-height: 1.32;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-  min-height: 0;
-}
-
-.product-desc {
-  display: block;
-  margin-top: 10rpx;
-  font-size: 22rpx;
-  color: #8C929A;
-  line-height: 1.25;
+  line-height: 1.3;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.product-price-line {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12rpx;
-  margin-top: 16rpx;
-}
-
-.product-info-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8rpx;
-  margin-bottom: 14rpx;
-}
-
-.product-info-chip {
-  max-width: 116rpx;
-  padding: 6rpx 12rpx;
-  border-radius: 12rpx;
-  background: rgba(79, 143, 232, 0.1);
-  color: #2F7FE5;
-  font-size: 20rpx;
-  font-weight: 700;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.product-info-chip--blue {
-  background: rgba(92, 122, 153, 0.08);
-  color: #4A6278;
-}
-
-.product-price-row {
-  display: flex;
-  align-items: baseline;
-  gap: 2rpx;
+.product-price {
+  color: #FF4D2E;
+  font-size: 28rpx;
+  font-weight: 900;
+  line-height: 1.2;
 }
 
 .product-location-row {
   display: flex;
   align-items: center;
   gap: 6rpx;
-  margin-top: 14rpx;
-  margin-bottom: 14rpx;
+  color: #8A94A6;
+  font-size: 20rpx;
+  line-height: 1.3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.product-location-icon {
-  width: 26rpx;
-  height: 26rpx;
+.product-loc-icon {
+  position: relative;
+  width: 18rpx;
+  height: 18rpx;
   flex-shrink: 0;
-  opacity: 0.5;
 }
 
-.product-location-label {
-  font-size: 19rpx;
-  color: #A2A8AF;
-  font-weight: 600;
+.product-loc-icon::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 12rpx;
+  height: 12rpx;
+  margin-left: -6rpx;
+  margin-top: -12rpx;
+  border: 2rpx solid #8A94A6;
+  border-radius: 50% 50% 50% 0;
+  transform: rotate(-45deg);
+  box-sizing: border-box;
+}
+
+.product-loc-icon::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 4rpx;
+  height: 4rpx;
+  margin-left: -2rpx;
+  margin-top: -2rpx;
+  background: #8A94A6;
+  border-radius: 50%;
 }
 
 .product-location {
-  font-size: 22rpx;
-  color: #8C929A;
-  font-weight: 600;
+  font-size: 20rpx;
+  color: #8A94A6;
+  font-weight: 500;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -2054,8 +2032,8 @@ export default {
   display: flex;
   align-items: center;
   gap: 8rpx;
-  padding-top: 14rpx;
-  border-top: 1rpx solid #EEF1F4;
+  padding-top: 10rpx;
+  border-top: 1rpx solid #F0F2F5;
 }
 
 .product-ava {
@@ -2063,19 +2041,19 @@ export default {
   height: 34rpx;
   border-radius: 50%;
   background: rgba(92, 122, 153, 0.12);
-  color: #fff;
+  color: #5C7A99;
   font-size: 18rpx;
   font-weight: 700;
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  color: #5C7A99;
 }
 
 .product-uname {
   font-size: 21rpx;
   color: #666A70;
+  font-weight: 600;
   flex: 1;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -2083,9 +2061,10 @@ export default {
 }
 
 .product-time {
-  font-size: 19rpx;
-  color: #A2A8AF;
-  flex-shrink: 0;
+  font-size: 18rpx;
+  color: #9AA2AE;
+  font-weight: 500;
+  margin-left: auto;
 }
 
 /* ===== Empty ===== */
@@ -2772,22 +2751,24 @@ export default {
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(17, 24, 39, 0.32);
+  background: rgba(17, 24, 39, 0.18);
   z-index: 100;
   display: flex;
   align-items: flex-end;
-  animation: filterFadeIn 0.18s ease-out;
+  animation: filterFadeIn 0.2s ease-out;
 }
 
 .filter-panel {
   width: 100%;
-  max-height: 88vh;
+  height: 56vh;
+  min-height: 50vh;
+  max-height: 60vh;
   background: #fff;
   border-radius: 42rpx 42rpx 0 0;
   display: flex;
   flex-direction: column;
-  box-shadow: 0 -18rpx 64rpx rgba(31, 41, 55, 0.12);
-  animation: filterSlideUp 0.28s cubic-bezier(0.22, 1, 0.36, 1);
+  box-shadow: 0 -16rpx 48rpx rgba(31, 41, 55, 0.1);
+  animation: filterSlideUp 0.3s cubic-bezier(0.22, 1, 0.36, 1);
   overflow: hidden;
 }
 
@@ -2803,13 +2784,13 @@ export default {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 22rpx 40rpx 26rpx;
+  padding: 18rpx 40rpx 20rpx;
   position: relative;
   flex-shrink: 0;
 }
 
 .filter-title {
-  font-size: 38rpx;
+  font-size: 34rpx;
   font-weight: 850;
   color: #1D1D1F;
   line-height: 1.2;
@@ -2832,7 +2813,7 @@ export default {
 .selected-filter-strip {
   display: flex;
   gap: 12rpx;
-  padding: 0 38rpx 18rpx;
+  padding: 0 32rpx 14rpx;
   overflow-x: auto;
   white-space: nowrap;
   scrollbar-width: none;
@@ -2862,23 +2843,26 @@ export default {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: 0 38rpx 22rpx;
-  max-height: calc(88vh - 210rpx);
+  padding: 0 32rpx 18rpx;
   box-sizing: border-box;
 }
 
 .filter-group {
-  margin-bottom: 42rpx;
+  margin-bottom: 30rpx;
   box-sizing: border-box;
+}
+
+.filter-group--compact {
+  margin-bottom: 28rpx;
 }
 
 .filter-group-title {
   position: relative;
   padding-left: 22rpx;
-  font-size: 30rpx;
+  font-size: 28rpx;
   font-weight: 850;
   color: #2B2F36;
-  margin-bottom: 22rpx;
+  margin-bottom: 18rpx;
   line-height: 1.25;
 }
 
@@ -2896,11 +2880,11 @@ export default {
 .filter-attribute-group {
   width: 100%;
   max-width: 100%;
-  padding: 22rpx 18rpx 20rpx;
-  margin-top: 8rpx;
-  background: #F7FAFD;
-  border: 1rpx solid #E9F1FA;
-  border-radius: 22rpx;
+  padding: 20rpx 16rpx 18rpx;
+  margin-top: 0;
+  background: #F7F9FC;
+  border: 1rpx solid #E8EEF5;
+  border-radius: 20rpx;
   box-sizing: border-box;
   overflow: hidden;
 }
@@ -2924,28 +2908,40 @@ export default {
 .filter-options {
   display: flex;
   flex-wrap: wrap;
-  gap: 18rpx;
+  gap: 16rpx;
   max-width: 100%;
   box-sizing: border-box;
+}
+
+.filter-chip-scroll {
+  width: 100%;
+  white-space: nowrap;
+}
+
+.filter-options--inline {
+  display: inline-flex;
+  flex-wrap: nowrap;
+  min-width: 100%;
+  padding-bottom: 2rpx;
 }
 
 .filter-price-custom {
   display: flex;
   align-items: center;
-  gap: 18rpx;
-  margin-top: 22rpx;
+  gap: 16rpx;
+  margin-top: 18rpx;
 }
 
 .filter-price-input {
   flex: 1;
   min-width: 0;
-  height: 70rpx;
-  padding: 0 24rpx;
-  border-radius: 18rpx;
+  height: 66rpx;
+  padding: 0 22rpx;
+  border-radius: 17rpx;
   background: #FFFFFF;
   border: 1rpx solid #DDE2EA;
   color: #1D1D1F;
-  font-size: 26rpx;
+  font-size: 25rpx;
   box-sizing: border-box;
 }
 
@@ -2961,12 +2957,12 @@ export default {
 
 .filter-opt {
   width: calc((100% - 54rpx) / 4);
-  height: 60rpx;
+  height: 58rpx;
   padding: 0 10rpx;
-  border-radius: 18rpx;
+  border-radius: 17rpx;
   background: #FFFFFF;
   border: 1rpx solid #DDE2EA;
-  font-size: 25rpx;
+  font-size: 24rpx;
   font-weight: 750;
   color: #252A31;
   box-sizing: border-box;
@@ -2979,6 +2975,13 @@ export default {
   white-space: nowrap;
 }
 
+.filter-opt--chip {
+  width: auto;
+  min-width: 122rpx;
+  padding: 0 24rpx;
+  flex-shrink: 0;
+}
+
 .filter-opt:active {
   transform: scale(0.96);
 }
@@ -2989,23 +2992,76 @@ export default {
   color: #2F6FC8;
 }
 
+.filter-more {
+  margin: 4rpx 0 10rpx;
+  border: 1rpx solid #E6EBF2;
+  border-radius: 24rpx;
+  background: #FBFCFE;
+  overflow: hidden;
+}
+
+.filter-more-head {
+  min-height: 92rpx;
+  padding: 18rpx 22rpx;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18rpx;
+  box-sizing: border-box;
+}
+
+.filter-more-title {
+  font-size: 27rpx;
+  font-weight: 850;
+  color: #20252C;
+  line-height: 1.25;
+}
+
+.filter-more-sub {
+  margin-top: 8rpx;
+  font-size: 22rpx;
+  font-weight: 600;
+  color: #8A94A3;
+  line-height: 1.25;
+}
+
+.filter-more-chevron {
+  width: 18rpx;
+  height: 18rpx;
+  border-right: 3rpx solid #8A94A3;
+  border-bottom: 3rpx solid #8A94A3;
+  transform: rotate(45deg);
+  transition: transform 0.2s ease;
+  flex-shrink: 0;
+}
+
+.filter-more-chevron.open {
+  transform: rotate(225deg);
+}
+
+.filter-more-body {
+  padding: 0 18rpx 18rpx;
+  animation: filterMoreReveal 0.22s ease-out;
+}
+
 .filter-footer {
   display: flex;
-  gap: 24rpx;
-  padding: 22rpx 36rpx calc(22rpx + env(safe-area-inset-bottom));
+  gap: 20rpx;
+  padding: 18rpx 32rpx calc(18rpx + env(safe-area-inset-bottom));
   border-top: 1rpx solid #E5E7EB;
   background: rgba(255, 255, 255, 0.98);
+  box-shadow: 0 -8rpx 20rpx rgba(31, 41, 55, 0.04);
   flex-shrink: 0;
 }
 
 .filter-btn {
   flex: 1;
-  height: 78rpx;
-  border-radius: 24rpx;
+  height: 74rpx;
+  border-radius: 22rpx;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 30rpx;
+  font-size: 28rpx;
   font-weight: 850;
 }
 
@@ -3029,5 +3085,16 @@ export default {
 @keyframes filterSlideUp {
   from { transform: translateY(100%); }
   to { transform: translateY(0); }
+}
+
+@keyframes filterMoreReveal {
+  from {
+    opacity: 0;
+    transform: translateY(-8rpx);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 </style>

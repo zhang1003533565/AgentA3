@@ -21,13 +21,13 @@ export const portalGroups = [
       { path: '/forum/post', label: '帖子管理', icon: 'message', pageKey: 'forum-post' },
       { path: '/forum/comment', label: '评论管理', icon: 'comment', pageKey: 'forum-comment' },
       { path: '/forum/topic', label: '话题管理', icon: 'tag', pageKey: 'forum-topic' },
-      { path: '/forum/report', label: '举报处理', icon: 'flag', pageKey: 'forum-report' },
+      { path: '/forum/report', label: '举报管理', icon: 'warning', pageKey: 'forum-report' },
     ],
   },
   {
     label: '校园设施',
     items: [
-      { path: '/facility/canteen', label: '食堂管理', icon: 'shop' },
+      { path: '/facility/canteen', label: '食堂管理', icon: 'shop', pageKey: 'facility-canteen' },
       { path: '/facility/restaurant', label: '档口管理', icon: 'shop', pageKey: 'facility-restaurant', hidden: true },
       { path: '/facility/stall-dish', label: '档口菜品管理', icon: 'shop', pageKey: 'facility-stall-dish', hidden: true },
       { path: '/facility/sports', label: '运动场设置', icon: 'thunder', pageKey: 'facility-sports' },
@@ -42,16 +42,15 @@ export const portalGroups = [
     label: '旧物交易',
     items: [
       { path: '/market/item', label: '物品管理', icon: 'shopping', pageKey: 'market-item' },
-      { path: '/market/category', label: '分类管理', icon: 'appstore', pageKey: 'market-category' },
+      { path: '/market/report', label: '举报管理', icon: 'warning', pageKey: 'market-report' },
     ],
   },
   {
     label: '校园特惠',
     items: [
       { path: '/discount/merchant', label: '商家管理', icon: 'shop', pageKey: 'discount-merchant' },
-      { path: '/discount/activity', label: '优惠活动', icon: 'gift', pageKey: 'discount-activity' },
+      { path: '/discount/activity', label: '活动管理', icon: 'gift', pageKey: 'discount-activity' },
       { path: '/discount/category', label: '分类管理', icon: 'tags', pageKey: 'discount-category' },
-      { path: '/discount/analytics', label: '特惠统计', icon: 'fund', pageKey: 'discount-analytics' },
     ],
   },
   {
@@ -59,6 +58,12 @@ export const portalGroups = [
     items: [
       { path: '/meeting/history', label: '会议历史', icon: 'video-camera', pageKey: 'meeting-history' },
       { path: '/meeting/voice-model', label: '语音模型配置', icon: 'audio', pageKey: 'voice-model-config' },
+    ],
+  },
+  {
+    label: '课程学习',
+    items: [
+      { path: '/learning/courses', label: '校园课程管理', icon: 'book' },
     ],
   },
   {
@@ -77,6 +82,7 @@ export const portalGroups = [
       { path: '/ai/agent-settings', label: '智能体设置', icon: 'setting' },
       { path: '/ai/rag/agents', label: '智能体测试', icon: 'robot' },
       { path: '/ai/agent-cache', label: '缓存监控', icon: 'line-chart' },
+      { path: '/ai/observability', label: '观测配置', icon: 'line-chart' },
       { path: '/ai/knowledge', label: '知识库管理', icon: 'file-search' },
       { path: '/admin/knowledge-chat', label: '知识库聊天', icon: 'message' },
       { path: '/ai/profile-rules', label: '画像规则', icon: 'pie-chart' },
@@ -157,20 +163,21 @@ const columns = {
     { title: '热门', dataIndex: 'isHot', type: 'status' },
     { title: '状态', dataIndex: 'status', type: 'status' },
   ],
-  facility: [
-    { title: '设施名称', dataIndex: 'facilityName', width: 120 },
-    { title: '类型', dataIndex: 'facilityType', type: 'tag', width: 100 },
-    { title: '位置', dataIndex: 'location', width: 100 },
-    { title: '描述', dataIndex: 'description', type: 'text', width: 200 },
-    { title: '状态', dataIndex: 'status', type: 'status', width: 100 },
-    { title: '图片', dataIndex: 'images', type: 'images', width: 180 },
+  forumReport: [
+    { title: 'ID', dataIndex: 'id', width: 70 },
+    { title: '举报人', dataIndex: 'reporterName', width: 120 },
+    { title: '类型', dataIndex: 'targetType', width: 90, type: 'tag' },
+    { title: '被举报内容', dataIndex: 'targetTitle', width: 220, ellipsis: true },
+    { title: '作者', dataIndex: 'targetAuthor', width: 120 },
+    { title: '原因', dataIndex: 'reasonText', width: 160, ellipsis: true },
+    { title: '状态', dataIndex: 'status', width: 100, type: 'status' },
+    { title: '提交时间', dataIndex: 'createTime', width: 170 },
   ],
-  sports: [
-    { title: '设施名称', dataIndex: 'facilityName', width: 120 },
-    { title: '类型', dataIndex: 'facilityType', type: 'tag', width: 100 },
-    { title: '描述', dataIndex: 'description', type: 'text', width: 200 },
-    { title: '状态', dataIndex: 'status', type: 'status', width: 100 },
-    { title: '图片', dataIndex: 'images', type: 'images', width: 180 },
+  facility: [
+    { title: '设施名称', dataIndex: 'facilityName' },
+    { title: '类型', dataIndex: 'facilityType', type: 'tag' },
+    { title: '位置', dataIndex: 'location' },
+    { title: '状态', dataIndex: 'status', type: 'status' },
   ],
   stall: [
     { title: '照片', dataIndex: 'image', type: 'image' },
@@ -203,16 +210,30 @@ const columns = {
     { title: '状态', dataIndex: 'status', type: 'status' },
   ],
   secondhandItem: [
-    { title: '标题', dataIndex: 'title' },
+    { title: '封面', dataIndex: 'coverImage', type: 'image', width: 80 },
+    { title: '标题', dataIndex: 'title', width: 220 },
     { title: '分类', dataIndex: 'categoryName', type: 'tag' },
-    { title: '价格', dataIndex: 'price' },
-    { title: '发布者', dataIndex: 'publisherName' },
-    { title: '状态', dataIndex: 'statusText', type: 'status' },
+    { title: '价格', dataIndex: 'priceText', width: 120 },
+    { title: '地点', dataIndex: 'location', width: 140 },
+    { title: '发布者', dataIndex: 'publisherName', width: 120 },
+    { title: '热度', dataIndex: 'heatMeta', width: 140 },
+    { title: '状态', dataIndex: 'statusText', type: 'status', width: 100 },
   ],
   secondhandCategory: [
-    { title: '分类名称', dataIndex: 'categoryName' },
-    { title: '排序', dataIndex: 'sort' },
-    { title: '状态', dataIndex: 'statusText', type: 'status' },
+    { title: '分类', dataIndex: 'categoryName', type: 'tag', width: 180 },
+    { title: '排序', dataIndex: 'sortText', width: 100 },
+    { title: '关联物品', dataIndex: 'itemCountText', width: 120 },
+  ],
+  secondhandReport: [
+    { title: 'ID', dataIndex: 'id', width: 70 },
+    { title: '举报人', dataIndex: 'reporterName', width: 120 },
+    { title: '联系方式', dataIndex: 'reporterContact', width: 160 },
+    { title: '商品标题', dataIndex: 'itemTitle', width: 200 },
+    { title: '卖家', dataIndex: 'itemSellerName', width: 120 },
+    { title: '原因类型', dataIndex: 'reasonTypeText', width: 100, type: 'tag' },
+    { title: '详细理由', dataIndex: 'reason', width: 200, ellipsis: true },
+    { title: '状态', dataIndex: 'statusText', width: 100, type: 'status' },
+    { title: '提交时间', dataIndex: 'createTime', width: 160 },
   ],
   merchant: [
     { title: '商家名称', dataIndex: 'merchantName' },
@@ -356,11 +377,11 @@ export const workspacePages = {
     emptyText: '暂无话题数据',
   }),
   'forum-report': createPage({
-    title: '',
-    badge: '',
-    description: '',
-    columns: [],
-    filters: ['全部'],
+    title: '举报管理',
+    badge: '校园论坛',
+    description: '查看和处理用户对帖子、评论的举报，支持忽略举报或删除被举报内容。',
+    columns: columns.forumReport,
+    filters: ['全部', '待处理', '已处理', '已忽略'],
     emptyText: '暂无举报数据',
   }),
   'facility-canteen': createPage({
@@ -382,8 +403,7 @@ export const workspacePages = {
     title: '运动场设置',
     badge: '校园设施',
     description: '管理运动场基本信息与地图标点位置。',
-    columns: columns.sports,
-    filters: ['全部', '球类场地', '水上及特殊场地', '田径及综合场地', '其他'],
+    columns: columns.facility,
     emptyText: '暂无运动场数据',
   }),
   'facility-teaching': createPage({
@@ -437,18 +457,27 @@ export const workspacePages = {
     emptyText: '暂无导航统计数据',
   }),
   'market-item': createPage({
-    title: '',
-    badge: '',
-    description: '',
+    title: '物品管理',
+    badge: '旧物交易',
+    description: '管理员可查看详情、下架与删除，不可编辑用户发布内容。',
     columns: columns.secondhandItem,
+    filters: ['全部', '出物', '收物', '已下架'],
     emptyText: '暂无物品数据',
   }),
   'market-category': createPage({
-    title: '',
-    badge: '',
-    description: '',
+    title: '分类管理',
+    badge: '旧物交易',
+    description: '维护校园旧物分类、排序与关联物品规模。',
     columns: columns.secondhandCategory,
     emptyText: '暂无旧物分类数据',
+  }),
+  'market-report': createPage({
+    title: '举报管理',
+    badge: '旧物交易',
+    description: '查看和处理用户对二手物品的举报记录。',
+    columns: columns.secondhandReport,
+    filters: ['全部', '待处理', '已处理', '已驳回'],
+    emptyText: '暂无举报数据',
   }),
   'discount-merchant': createPage({
     title: '',
@@ -470,13 +499,6 @@ export const workspacePages = {
     description: '',
     columns: columns.merchantCategory,
     emptyText: '暂无商家分类数据',
-  }),
-  'discount-analytics': createPage({
-    title: '',
-    badge: '',
-    description: '',
-    columns: columns.summary,
-    emptyText: '暂无特惠统计数据',
   }),
   'system-config': createPage({
     title: '',
@@ -518,30 +540,91 @@ export const getNavMetaByPath = (path) => {
   }
 }
 
-// 下钻页面的面包屑规则：带 path 的父级可点击返回（match 支持正则匹配动态路由）
-const drilldownBreadcrumbs = [
-  {
-    match: /^\/facility\/canteen\/[^/]+\/stalls$/,
-    items: ['校园设施', { label: '食堂管理', path: '/facility/canteen' }, '档口管理'],
-  },
-  {
-    match: /^\/facility\/restaurant$/,
-    items: ['校园设施', { label: '食堂管理', path: '/facility/canteen' }, '档口管理'],
-  },
-  {
-    match: /^\/facility\/stall-dish$/,
-    items: ['校园设施', { label: '食堂管理', path: '/facility/canteen' }, '档口菜品管理'],
-  },
-]
+const normalizePortalPath = (path) => {
+  const normalized = String(path || '').split(/[?#]/, 1)[0].replace(/\/+$/, '')
+  return normalized || '/'
+}
 
-// 按路由取面包屑（分组名 / 菜单名，或下钻多级），供布局顶栏统一渲染页面标题
 export const getBreadcrumbByPath = (path) => {
-  const drilldown = drilldownBreadcrumbs.find((rule) => rule.match.test(path))
-  if (drilldown) return drilldown.items
+  const normalizedPath = normalizePortalPath(path)
 
-  for (const group of portalGroups) {
-    const item = group.items.find((navItem) => navItem.path === path)
-    if (item) return [group.label, item.label]
+  for (const section of navigationSections) {
+    const item = section.items.find((navItem) => normalizePortalPath(navItem.path) === normalizedPath)
+    if (item) {
+      return [
+        section.label,
+        { label: item.label },
+      ]
+    }
   }
+
+  if (/^\/facility\/canteen\/[^/]+\/stalls$/.test(normalizedPath)) {
+    return [
+      '校园设施',
+      { label: '食堂管理', path: '/facility/canteen' },
+      { label: '档口管理' },
+    ]
+  }
+
+  const indoorMatch = normalizedPath.match(/^\/facility\/canteen\/([^/]+)\/stalls\/indoor$/)
+  if (indoorMatch) {
+    return [
+      '校园设施',
+      { label: '食堂管理', path: '/facility/canteen' },
+      { label: '档口管理', path: `/facility/canteen/${indoorMatch[1]}/stalls` },
+      { label: '楼层档口定位' },
+    ]
+  }
+
+  const dishManagementMatch = normalizedPath.match(/^\/facility\/canteen\/([^/]+)\/stalls\/[^/]+\/dishes$/)
+  if (dishManagementMatch) {
+    return [
+      '校园设施',
+      { label: '食堂管理', path: '/facility/canteen' },
+      { label: '档口管理', path: `/facility/canteen/${dishManagementMatch[1]}/stalls` },
+      { label: '菜品管理' },
+    ]
+  }
+
+  if (normalizedPath === '/activity/create') {
+    return [
+      '校园活动',
+      { label: '活动管理', path: '/activity/manage' },
+      { label: '新建活动' },
+    ]
+  }
+
+  if (/^\/activity\/[^/]+\/edit$/.test(normalizedPath)) {
+    return [
+      '校园活动',
+      { label: '活动管理', path: '/activity/manage' },
+      { label: '编辑活动' },
+    ]
+  }
+
+  if (/^\/activity\/[^/]+$/.test(normalizedPath)) {
+    return [
+      '校园活动',
+      { label: '活动管理', path: '/activity/manage' },
+      { label: '活动详情' },
+    ]
+  }
+
+  if (/^\/ai\/knowledge\/paragraph\/[^/]+\/[^/]+$/.test(normalizedPath)) {
+    return [
+      'AI 模块',
+      { label: '知识库管理', path: '/ai/knowledge' },
+      { label: '段落管理' },
+    ]
+  }
+
+  if (/^\/admin\/paragraph\/[^/]+\/[^/]+$/.test(normalizedPath)) {
+    return [
+      'AI 模块',
+      { label: '知识库聊天', path: '/admin/knowledge-chat' },
+      { label: '段落管理' },
+    ]
+  }
+
   return null
 }

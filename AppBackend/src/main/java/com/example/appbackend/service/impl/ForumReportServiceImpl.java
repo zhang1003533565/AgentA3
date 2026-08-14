@@ -161,6 +161,16 @@ public class ForumReportServiceImpl implements ForumReportService {
                 .collect(Collectors.toList());
     }
 
+    @Override
+    public void deleteReports(List<Long> ids) {
+        if (ids == null || ids.isEmpty()) {
+            return;
+        }
+        // 先删审计日志，再删举报记录（外键关联）
+        auditLogRepository.deleteByReportIds(ids);
+        reportRepository.deleteByIds(ids);
+    }
+
     private void validateTargetAvailable(Integer targetType, Long targetId) {
         if (targetId == null) {
             throw new BusinessException(400, "举报目标ID不能为空");

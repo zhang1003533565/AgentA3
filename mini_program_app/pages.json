@@ -129,9 +129,36 @@
 					}
 				},
 				{
+					"path": "reportPost/reportPost",
+					"style": {
+						"navigationBarTitleText": "举报帖子",
+						"navigationStyle": "custom",
+						"navigationBarBackgroundColor": "#FFFFFF",
+						"navigationBarTextStyle": "black"
+					}
+				},
+				{
 					"path": "userProfile/userProfile",
 					"style": {
 						"navigationBarTitleText": "个人主页",
+						"navigationStyle": "custom",
+						"navigationBarBackgroundColor": "#FFFFFF",
+						"navigationBarTextStyle": "black"
+					}
+				},
+				{
+					"path": "followingList/followingList",
+					"style": {
+						"navigationBarTitleText": "关注列表",
+						"navigationStyle": "custom",
+						"navigationBarBackgroundColor": "#FFFFFF",
+						"navigationBarTextStyle": "black"
+					}
+				},
+				{
+					"path": "followersList/followersList",
+					"style": {
+						"navigationBarTitleText": "粉丝列表",
 						"navigationStyle": "custom",
 						"navigationBarBackgroundColor": "#FFFFFF",
 						"navigationBarTextStyle": "black"
@@ -160,6 +187,15 @@
 						"navigationBarBackgroundColor": "#FFFFFF",
 						"navigationBarTextStyle": "black",
 						"enablePullDownRefresh": true
+					}
+				},
+				{
+					"path": "messageCategory/messageCategory",
+					"style": {
+						"navigationBarTitleText": "消息列表",
+						"navigationStyle": "custom",
+						"navigationBarBackgroundColor": "#FFFFFF",
+						"navigationBarTextStyle": "black"
 					}
 				},
 				{
@@ -352,6 +388,15 @@
 					"path": "myFavorites/myFavorites",
 					"style": {
 						"navigationBarTitleText": "我的收藏",
+						"navigationStyle": "custom",
+						"navigationBarBackgroundColor": "#FFFFFF",
+						"navigationBarTextStyle": "black"
+					}
+				},
+				{
+					"path": "userHomepage/userHomepage",
+					"style": {
+						"navigationBarTitleText": "TA 的主页",
 						"navigationStyle": "custom",
 						"navigationBarBackgroundColor": "#FFFFFF",
 						"navigationBarTextStyle": "black"
@@ -581,6 +626,33 @@
 					}
 				},
 				{
+					"path": "smartWritingHistory/smartWritingHistory",
+					"style": {
+						"navigationBarTitleText": "智能写作历史",
+						"navigationStyle": "custom",
+						"navigationBarBackgroundColor": "#FFFFFF",
+						"navigationBarTextStyle": "black"
+					}
+				},
+				{
+					"path": "smartWritingGenerating/smartWritingGenerating",
+					"style": {
+						"navigationBarTitleText": "智能写作生成中",
+						"navigationStyle": "custom",
+						"navigationBarBackgroundColor": "#FFFFFF",
+						"navigationBarTextStyle": "black"
+					}
+				},
+				{
+					"path": "smartWritingDetail/smartWritingDetail",
+					"style": {
+						"navigationBarTitleText": "作品详情页",
+						"navigationStyle": "custom",
+						"navigationBarBackgroundColor": "#FFFFFF",
+						"navigationBarTextStyle": "black"
+					}
+				},
+				{
 					"path": "imageGenerate/imageGenerate",
 					"style": {
 						"navigationBarTitleText": "AI 文生图",
@@ -597,6 +669,15 @@
 						"navigationBarBackgroundColor": "#FFFFFF",
 						"navigationBarTextStyle": "black",
 						"enablePullDownRefresh": true
+					}
+				},
+				{
+					"path": "diagramHistory/diagramHistory",
+					"style": {
+						"navigationBarTitleText": "",
+						"navigationStyle": "custom",
+						"navigationBarBackgroundColor": "#FFFFFF",
+						"navigationBarTextStyle": "black"
 					}
 				},
 				{
@@ -619,6 +700,15 @@
 				},
 				{
 					"path": "examGenerate/examGenerate",
+					"style": {
+						"navigationBarTitleText": "",
+						"navigationStyle": "custom",
+						"navigationBarBackgroundColor": "#FFFFFF",
+						"navigationBarTextStyle": "black"
+					}
+				},
+				{
+					"path": "questionBankGenerate/questionBankGenerate",
 					"style": {
 						"navigationBarTitleText": "",
 						"navigationStyle": "custom",
@@ -654,7 +744,43 @@
 					}
 				},
 				{
+					"path": "importFileBtnTest/importFileBtnTest",
+					"style": {
+						"navigationBarTitleText": "",
+						"navigationStyle": "custom",
+						"navigationBarBackgroundColor": "#FCFAFC",
+						"navigationBarTextStyle": "black"
+					}
+				},
+				{
+					"path": "filePreview/filePreview",
+					"style": {
+						"navigationBarTitleText": "",
+						"navigationStyle": "custom",
+						"navigationBarBackgroundColor": "#FFFFFF",
+						"navigationBarTextStyle": "black"
+					}
+				},
+				{
+					"path": "mindmapGenerating/mindmapGenerating",
+					"style": {
+						"navigationBarTitleText": "",
+						"navigationStyle": "custom",
+						"navigationBarBackgroundColor": "#F8F7FC",
+						"navigationBarTextStyle": "black"
+					}
+				},
+				{
 					"path": "mindmapPreview/mindmapPreview",
+					"style": {
+						"navigationBarTitleText": "",
+						"navigationStyle": "custom",
+						"navigationBarBackgroundColor": "#FFFFFF",
+						"navigationBarTextStyle": "black"
+					}
+				},
+				{
+					"path": "mindmapViewer/mindmapViewer",
 					"style": {
 						"navigationBarTitleText": "",
 						"navigationStyle": "custom",
@@ -690,6 +816,15 @@
 					}
 				},
 				{
+					"path": "architectureGenerating/architectureGenerating",
+					"style": {
+						"navigationBarTitleText": "",
+						"navigationStyle": "custom",
+						"navigationBarBackgroundColor": "#FFFFFF",
+						"navigationBarTextStyle": "black"
+					}
+				},
+				{
 					"path": "architecturePreview/architecturePreview",
 					"style": {
 						"navigationBarTitleText": "",
@@ -708,6 +843,15 @@
 					}
 				},
 				{
+					"path": "flowchartGenerating/flowchartGenerating",
+					"style": {
+						"navigationBarTitleText": "",
+						"navigationStyle": "custom",
+						"navigationBarBackgroundColor": "#FFFFFF",
+						"navigationBarTextStyle": "black"
+					}
+				},
+				{
 					"path": "flowchartPreview/flowchartPreview",
 					"style": {
 						"navigationBarTitleText": "",
@@ -715,7 +859,88 @@
 						"navigationBarBackgroundColor": "#FFFFFF",
 						"navigationBarTextStyle": "black"
 					}
-				}
+				},
+				{
+					"path": "flowchartViewer/flowchartViewer",
+					"style": {
+						"navigationBarTitleText": "",
+						"navigationStyle": "custom",
+						"navigationBarBackgroundColor": "#FFFFFF",
+						"navigationBarTextStyle": "black"
+					}
+				},
+				{
+					"path": "documentConvert/documentConvert",
+					"style": {
+						"navigationBarTitleText": "格式转换",
+						"navigationStyle": "custom",
+						"navigationBarBackgroundColor": "#FFFFFF",
+						"navigationBarTextStyle": "black"
+					}
+				},
+				{
+					"path": "documentConvertDetail/documentConvertDetail",
+					"style": {
+						"navigationBarTitleText": "文档转换",
+						"navigationStyle": "custom",
+						"navigationBarBackgroundColor": "#FFFFFF",
+						"navigationBarTextStyle": "black"
+					}
+				},
+				{
+   				"path": "watermarkHome/watermarkHome",
+  			  	"style": {
+        			"navigationBarTitleText": "水印工具",
+        			"navigationStyle": "custom",
+        			"navigationBarBackgroundColor": "#ffffff",
+        			"navigationBarTextStyle": "black"
+    				}
+				},
+				{
+				"path": "watermarkAddEdit/watermarkAddEdit",
+				"style": {
+					"navigationBarTitleText": "",
+					"navigationStyle": "custom",
+					"navigationBarBackgroundColor": "#FFFFFF",
+					"navigationBarTextStyle": "black"
+					}
+			},
+				{
+    			"path": "watermarkRemoveEdit/watermarkRemoveEdit",
+    			"style": {
+        			"navigationBarTitleText": "",
+        			"navigationStyle": "custom",
+        			"navigationBarBackgroundColor": "#ffffff",
+        			"navigationBarTextStyle": "black"
+    				}
+			},
+			{
+    			"path": "watermarkBatch/watermarkBatch",
+    			"style": {
+        			"navigationBarTitleText": "",
+        			"navigationStyle": "custom",
+        			"navigationBarBackgroundColor": "#ffffff",
+        			"navigationBarTextStyle": "black"
+    				}
+			},
+			{
+    			"path": "watermarkHistory/watermarkHistory",
+    			"style": {
+        			"navigationBarTitleText": "",
+        			"navigationStyle": "custom",
+        			"navigationBarBackgroundColor": "#ffffff",
+        			"navigationBarTextStyle": "black"
+    				}
+			},
+			{
+    			"path": "watermarkHelp/watermarkHelp",
+    			"style": {
+        			"navigationBarTitleText": "",
+        			"navigationStyle": "custom",
+        			"navigationBarBackgroundColor": "#ffffff",
+        			"navigationBarTextStyle": "black"
+    				}
+			}
 			]
 		},
 		{
@@ -855,6 +1080,34 @@
 						"navigationBarTitleText": "答题结果",
 						"navigationStyle": "custom"
 					}
+				},
+				{
+					"path": "myQuestionBank/myQuestionBank",
+					"style": {
+						"navigationBarTitleText": "我的题库",
+						"navigationStyle": "custom"
+					}
+				},
+				{
+					"path": "questionFolderDetail/questionFolderDetail",
+					"style": {
+						"navigationBarTitleText": "收藏夹详情",
+						"navigationStyle": "custom"
+					}
+				},
+				{
+					"path": "questionFolderAdd/questionFolderAdd",
+					"style": {
+						"navigationBarTitleText": "添加题目",
+						"navigationStyle": "custom"
+					}
+				},
+				{
+					"path": "questionFolderPush/questionFolderPush",
+					"style": {
+						"navigationBarTitleText": "推送到收藏夹",
+						"navigationStyle": "custom"
+					}
 				}
 			]
 		},
@@ -890,6 +1143,42 @@
 						"navigationBarTitleText": "Python 精准推荐",
 						"navigationStyle": "custom",
 						"enablePullDownRefresh": true
+					}
+				},
+				{
+					"path": "knowledgeGraph/knowledgeGraph",
+					"style": {
+						"navigationBarTitleText": "Python 知识图谱",
+						"navigationStyle": "custom",
+						"enablePullDownRefresh": true
+					}
+				},
+				{
+					"path": "campusCourseList/campusCourseList",
+					"style": {
+						"navigationBarTitleText": "校园课程",
+						"navigationStyle": "custom"
+					}
+				},
+				{
+					"path": "campusCourseDetail/campusCourseDetail",
+					"style": {
+						"navigationBarTitleText": "课程详情",
+						"navigationStyle": "custom"
+					}
+				},
+				{
+					"path": "chapterLearn/chapterLearn",
+					"style": {
+						"navigationBarTitleText": "章节学习",
+						"navigationStyle": "custom"
+					}
+				},
+				{
+					"path": "myCourses/myCourses",
+					"style": {
+						"navigationBarTitleText": "我的课程",
+						"navigationStyle": "custom"
 					}
 				}
 			]

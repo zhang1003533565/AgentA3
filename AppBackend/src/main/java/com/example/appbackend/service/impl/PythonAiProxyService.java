@@ -6,6 +6,7 @@ import com.example.appbackend.entity.Result;
 import com.example.appbackend.exception.BusinessException;
 import com.example.appbackend.repository.SystemConfigRepository;
 import com.example.appbackend.service.SystemConfigService;
+import com.example.appbackend.service.LangfuseConfigService;
 import com.example.appbackend.util.JwtUtil;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
@@ -15,6 +16,7 @@ import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.core.io.buffer.DataBufferLimitException;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.http.codec.ServerSentEvent;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
@@ -41,9 +43,11 @@ import java.util.regex.Pattern;
 public class PythonAiProxyService {
     private static final Logger log = LoggerFactory.getLogger(PythonAiProxyService.class);
     private static final String DEFAULT_AGENT_NAME = "leader_agent";
+    private static final String ARCHITECTURE_AGENT_NAME = "diagram_architecture_agent";
     private static final String AGENT_MODEL_BINDING_PREFIX = "ai.agent-bindings.";
     private static final String AGENT_ENABLED_PREFIX = "ai.agent-enabled.";
     private static final String TOOL_ENABLED_PREFIX = "ai.tool-enabled.";
+    private static final String LEGACY_TEXT_CONFIG_PREFIX = "ai.service.text";
     private static final Pattern SAFE_SSE_EVENT_NAME = Pattern.compile("[A-Za-z][A-Za-z0-9_-]{0,39}");
 
     private final WebClient.Builder webClientBuilder;
@@ -51,8 +55,10 @@ public class PythonAiProxyService {
     private final JwtUtil jwtUtil;
     private final SystemConfigService systemConfigService;
     private final SystemConfigRepository systemConfigRepository;
+    private final LangfuseConfigService langfuseConfigService;
     private final String pythonBaseUrl;
     private final long timeoutSeconds;
+    private final long pptTimeoutSeconds;
     private final int fileResponseMaxInMemoryBytes;
     private final String internalToken;
 
@@ -82,8 +88,10 @@ public class PythonAiProxyService {
                                 JwtUtil jwtUtil,
                                 SystemConfigService systemConfigService,
                                 SystemConfigRepository systemConfigRepository,
+                                LangfuseConfigService langfuseConfigService,
                                 @Value("${ai.python.base-url:http://localhost:8081}") String pythonBaseUrl,
                                 @Value("${ai.python.timeout-seconds:65}") long timeoutSeconds,
+                                @Value("${ai.python.ppt-timeout-seconds:300}") long pptTimeoutSeconds,
                                 @Value("${ai.python.file-response-max-in-memory-bytes:52428800}") int fileResponseMaxInMemoryBytes,
                                 @Value("${ai.python.internal-token:}") String internalToken) {
         this.webClientBuilder = webClientBuilder;
@@ -91,8 +99,10 @@ public class PythonAiProxyService {
         this.jwtUtil = jwtUtil;
         this.systemConfigService = systemConfigService;
         this.systemConfigRepository = systemConfigRepository;
+        this.langfuseConfigService = langfuseConfigService;
         this.pythonBaseUrl = pythonBaseUrl;
         this.timeoutSeconds = timeoutSeconds;
+        this.pptTimeoutSeconds = pptTimeoutSeconds;
         this.fileResponseMaxInMemoryBytes = fileResponseMaxInMemoryBytes;
         this.internalToken = internalToken == null ? "" : internalToken.trim();
     }
@@ -278,6 +288,184 @@ public class PythonAiProxyService {
         return postRagObject("/internal/rag/query", sanitized, authorization, requestedModel);
     }
 
+    public Object generatePptOutline(Map<String, Object> request, String authorization) {
+        return postPptObject("/internal/rag/ppt-generation/outlines", request, authorization,
+                requirePptGenerationModel());
+    }
+
+    public Object getPptOptions(String authorization) {
+        return getPythonAuthObject("/internal/rag/ppt-generation/options",
+                authorization, "PPT 配置查询失败");
+    }
+
+    public Object uploadPptSourceFile(MultipartFile file, String authorization) {
+        try {
+            String filename = StringUtils.hasText(file.getOriginalFilename())
+                    ? StringUtils.cleanPath(file.getOriginalFilename())
+                    : "material";
+            return postPptObject(
+                    "/internal/rag/ppt-generation/files",
+                    Map.of(
+                            "fileName", filename,
+                            "contentType", StringUtils.hasText(file.getContentType())
+                                    ? file.getContentType() : MediaType.APPLICATION_OCTET_STREAM_VALUE,
+                            "contentBase64", Base64.getEncoder().encodeToString(file.getBytes())
+                    ),
+                    authorization,
+                    null
+            );
+        } catch (java.io.IOException e) {
+            throw new BusinessException(Result.ERROR_CODE, "PPT 资料文件读取失败");
+        }
+    }
+
+    public Object generatePptSlides(Map<String, Object> request, String authorization) {
+        return postPptObject("/internal/rag/ppt-generation/slides", request, authorization,
+                requirePptGenerationModel());
+    }
+
+    public Object createPptTask(Map<String, Object> request, String authorization) {
+        return postPptObject("/internal/rag/ppt-generation/tasks", request, authorization,
+                requirePptGenerationModel());
+    }
+
+    public Object getPptTask(String taskId, String authorization) {
+        return getPythonAuthObject("/internal/rag/ppt-generation/tasks/" + taskId,
+                authorization, "PPT 任务查询失败");
+    }
+
+    public Object cancelPptTask(String taskId, String authorization) {
+        return postPptObject("/internal/rag/ppt-generation/tasks/" + taskId + "/cancel",
+                Map.of(), authorization, null);
+    }
+
+    public Object retryPptTask(String taskId, String authorization) {
+        return postPptObject("/internal/rag/ppt-generation/tasks/" + taskId + "/retry",
+                Map.of(), authorization, requirePptGenerationModel());
+    }
+
+    public Object replacePptSlideImage(String taskId, Integer slideIndex,
+                                       Map<String, Object> request, String authorization) {
+        return postPptObject(
+                "/internal/rag/ppt-generation/tasks/" + taskId + "/slides/" + slideIndex + "/image",
+                request, authorization, null);
+    }
+
+    public GeneratedExportResponse downloadPptTemplateThumbnail(String templateId, String authorization) {
+        validateAuthorization(authorization);
+        if (!StringUtils.hasText(templateId) || !templateId.matches("[A-Za-z0-9._-]{1,120}")) {
+            throw new BusinessException(Result.ERROR_CODE, "PPT 模板编号无效");
+        }
+        String token = normalizeBearerToken(authorization);
+        Long userId = extractUserId(token);
+        String encodedTemplateId = UriUtils.encodePathSegment(templateId, StandardCharsets.UTF_8);
+        try {
+            ResponseEntity<byte[]> response = buildFileResponseWebClient().get()
+                    .uri(buildUri("/internal/rag/ppt-generation/templates/" + encodedTemplateId + "/thumbnail"))
+                    .headers(headers -> applyPythonAuthHeaders(headers, authorization, userId))
+                    .retrieve()
+                    .toEntity(byte[].class)
+                    .timeout(Duration.ofSeconds(timeoutSeconds))
+                    .block();
+            if (response == null || response.getBody() == null) {
+                throw new BusinessException(502, "PPT 模板缩略图响应为空");
+            }
+            if (response.getBody().length > fileResponseMaxInMemoryBytes) {
+                throw new BusinessException(413, "PPT 模板缩略图超过允许大小");
+            }
+            MediaType contentType = response.getHeaders().getContentType();
+            return new GeneratedExportResponse(
+                    response.getBody(),
+                    contentType == null ? MediaType.IMAGE_PNG : contentType,
+                    response.getHeaders().getContentLength()
+            );
+        } catch (WebClientResponseException e) {
+            throw new BusinessException(e.getStatusCode().value(),
+                    "PPT 模板缩略图读取失败: " + extractRemoteMessage(e));
+        } catch (BusinessException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new BusinessException(502, "PPT 模板缩略图读取失败");
+        }
+    }
+
+    public GeneratedExportResponse downloadPptTaskArtifact(String artifactPath, String authorization) {
+        validateAuthorization(authorization);
+        if (!StringUtils.hasText(artifactPath) || artifactPath.contains("..")) {
+            throw new BusinessException(Result.ERROR_CODE, "PPT 文件路径无效");
+        }
+        String token = normalizeBearerToken(authorization);
+        Long userId = extractUserId(token);
+        try {
+            ResponseEntity<byte[]> response = buildFileResponseWebClient().get()
+                    .uri(buildUri("/internal/rag/ppt-generation/tasks/" + artifactPath))
+                    .headers(headers -> applyPythonAuthHeaders(headers, authorization, userId))
+                    .retrieve()
+                    .toEntity(byte[].class)
+                    .timeout(Duration.ofSeconds(timeoutSeconds))
+                    .block();
+            if (response == null || response.getBody() == null) {
+                throw new BusinessException(502, "Python PPT 文件响应为空");
+            }
+            MediaType contentType = response.getHeaders().getContentType();
+            return new GeneratedExportResponse(response.getBody(),
+                    contentType == null ? MediaType.APPLICATION_OCTET_STREAM : contentType,
+                    response.getHeaders().getContentLength());
+        } catch (WebClientResponseException e) {
+            throw new BusinessException(e.getStatusCode().value(), "PPT 文件读取失败: " + extractRemoteMessage(e));
+        } catch (BusinessException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new BusinessException(502, "PPT 文件读取失败: " + e.getMessage());
+        }
+    }
+
+    private String requirePptGenerationModel() {
+        String model = resolveAgentBoundModel("ppt_outline_agent");
+        if (!StringUtils.hasText(model)) {
+            model = resolveAgentBoundModel(DEFAULT_AGENT_NAME);
+        }
+        if (!StringUtils.hasText(model)) {
+            throw new BusinessException(Result.ERROR_CODE, "PPT 生成模型尚未配置");
+        }
+        return model;
+    }
+
+    private Object postPptObject(String path,
+                                 Map<String, Object> request,
+                                 String authorization,
+                                 String requestedModel) {
+        validateAuthorization(authorization);
+        String token = normalizeBearerToken(authorization);
+        Long userId = extractUserId(token);
+        try {
+            return webClientBuilder.build()
+                    .post()
+                    .uri(buildUri(path))
+                    .headers(headers -> {
+                        if (StringUtils.hasText(requestedModel)) {
+                            applyPythonHeaders(headers, authorization, userId, requestedModel);
+                        } else {
+                            applyPythonAuthHeaders(headers, authorization, userId);
+                        }
+                    })
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .bodyValue(request == null ? Map.of() : request)
+                    .retrieve()
+                    .bodyToMono(Object.class)
+                    .timeout(Duration.ofSeconds(pptTimeoutSeconds))
+                    .block();
+        } catch (WebClientResponseException e) {
+            int remoteStatus = e.getStatusCode().value();
+            int status = remoteStatus >= 400 && remoteStatus < 500 ? remoteStatus : 502;
+            throw new BusinessException(status, "PPT AI 服务调用失败: " + extractRemoteMessage(e));
+        } catch (BusinessException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new BusinessException(502, "PPT AI 服务调用失败: " + e.getMessage());
+        }
+    }
+
     public SseEmitter streamRag(Map<String, Object> request, String authorization) {
         return streamRag(request, authorization, null);
     }
@@ -435,6 +623,40 @@ public class PythonAiProxyService {
 
     public Object generateVideosBatch(Map<String, Object> request, String authorization) {
         return postVideoObject("/internal/videos/batch", request, authorization);
+    }
+
+    /**
+     * 调用 Python 架构图生成服务，返回 { title, style, nodes, edges } JSON。
+     * 复用 AI 图表文本模型配置，并向 Python 透传完整 X-AI-* 运行时配置。
+     */
+    public Object generateArchitecture(Map<String, Object> request, String authorization) {
+        validateAuthorization(authorization);
+        String token = normalizeBearerToken(authorization);
+        Long userId = extractUserId(token);
+        String requestedModel = resolveArchitectureModelConfigPrefix();
+        if (!StringUtils.hasText(requestedModel)) {
+            throw new BusinessException(
+                    Result.ERROR_CODE,
+                    "AI 文本模型未配置，请在系统配置中维护 ai.service.text.* 或 ai.agent-bindings."
+                            + ARCHITECTURE_AGENT_NAME + ".model"
+            );
+        }
+        try {
+            return webClientBuilder.build()
+                    .post()
+                    .uri(buildUri("/internal/architecture/generate"))
+                    .headers(headers -> applyPythonHeaders(headers, authorization, userId, requestedModel))
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .bodyValue(request == null ? Map.of() : request)
+                    .retrieve()
+                    .bodyToMono(Object.class)
+                    .timeout(Duration.ofSeconds(timeoutSeconds))
+                    .block();
+        } catch (WebClientResponseException e) {
+            throw new BusinessException(Result.ERROR_CODE, "Python 架构图生成服务调用失败: " + extractRemoteMessage(e));
+        } catch (Exception e) {
+            throw new BusinessException(Result.ERROR_CODE, "Python 架构图生成服务调用失败: " + e.getMessage());
+        }
     }
 
     public Object getVideoTask(String taskId, String authorization) {
@@ -789,6 +1011,7 @@ public class PythonAiProxyService {
         headers.set(HttpHeaders.AUTHORIZATION, authorization);
         headers.set("X-User-Id", userId.toString());
         applyInternalToken(headers);
+        langfuseConfigService.applyPythonHeaders(headers);
     }
 
     private void applyInternalToken(HttpHeaders headers) {
@@ -825,6 +1048,62 @@ public class PythonAiProxyService {
         String key = AGENT_MODEL_BINDING_PREFIX + normalizedAgent + ".model";
         String value = systemConfigService.getValue(key, "");
         return StringUtils.hasText(value) ? value.trim() : null;
+    }
+
+    private String resolveArchitectureModelConfigPrefix() {
+        return firstText(
+                resolveAgentBoundModel(ARCHITECTURE_AGENT_NAME),
+                resolveAgentBoundModel(DEFAULT_AGENT_NAME),
+                firstTestedTextConfigPrefix(),
+                firstCompleteTextConfigPrefix(),
+                hasCompleteTextConfig(LEGACY_TEXT_CONFIG_PREFIX) ? LEGACY_TEXT_CONFIG_PREFIX : ""
+        );
+    }
+
+    private boolean hasCompleteTextConfig(String configPrefix) {
+        return StringUtils.hasText(systemConfigService.getValue(configPrefix + ".provider", ""))
+                && StringUtils.hasText(systemConfigService.getValue(configPrefix + ".api-key", ""))
+                && StringUtils.hasText(systemConfigService.getValue(configPrefix + ".base-url", ""))
+                && StringUtils.hasText(systemConfigService.getValue(configPrefix + ".model", ""));
+    }
+
+    private String firstTestedTextConfigPrefix() {
+        return systemConfigRepository.findByConfigKeyStartingWithAndStatus("ai.service.text.", 1)
+                .stream()
+                .filter(config -> config.getConfigKey() != null && config.getConfigKey().endsWith(".tested-fingerprint"))
+                .filter(config -> StringUtils.hasText(config.getConfigValue()))
+                .map(config -> removeSuffix(config.getConfigKey(), ".tested-fingerprint"))
+                .filter(this::hasCompleteTextConfig)
+                .sorted()
+                .findFirst()
+                .orElse("");
+    }
+
+    private String firstCompleteTextConfigPrefix() {
+        return systemConfigRepository.findByConfigKeyStartingWithAndStatus("ai.service.text.", 1)
+                .stream()
+                .filter(config -> config.getConfigKey() != null && config.getConfigKey().endsWith(".model"))
+                .map(config -> removeSuffix(config.getConfigKey(), ".model"))
+                .filter(this::hasCompleteTextConfig)
+                .sorted()
+                .findFirst()
+                .orElse("");
+    }
+
+    private String firstText(String... values) {
+        for (String value : values) {
+            if (StringUtils.hasText(value)) {
+                return value.trim();
+            }
+        }
+        return "";
+    }
+
+    private String removeSuffix(String value, String suffix) {
+        if (value == null || suffix == null || !value.endsWith(suffix)) {
+            return "";
+        }
+        return value.substring(0, value.length() - suffix.length());
     }
 
     private Map<String, Object> withAgentToggles(Map<String, Object> request) {

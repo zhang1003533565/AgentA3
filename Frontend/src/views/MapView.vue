@@ -2,33 +2,312 @@
 /* ═══════════════════════════════════════════════════
    校园导航页 — 高德地图 JS API 2.0 + 纯前端扩展功能
    功能：高德地图/搜索/快捷按钮/聊天助手/暗色模式/
-         打卡/留言板/随机漫步/校园贴士/失物招领
+         打卡/留言板/随机漫步/失物招领
    ═══════════════════════════════════════════════════ */
 import { ref, reactive, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import AppTabBar from '../components/AppTabBar.vue'
+import {
+  getFloorPlan,
+  getFloorPlanPositions,
+  getMapPlaceDetail,
+  getMapPlaceList,
+} from '../api/map'
+import markerCanteen from '../assets/map/marker-canteen.svg'
+import markerDormitory from '../assets/map/marker-dormitory.svg'
+import markerOther from '../assets/map/marker-other.svg'
+import markerSports from '../assets/map/marker-sports.svg'
+import markerTeaching from '../assets/map/marker-teaching.svg'
+import firstCanteenFloorPlan from '../assets/map/first-canteen-floor.png'
 
 /* ── 高德地图配置 ── */
 const AMAP_KEY = 'e1790a70dfc91f2d3daf1895c0e9f87a'
 const AMAP_SECURITY = 'f3eda2c1d4c4c76bdb907d570b69d8c'
-const MAP_CENTER = [104.146034, 30.675658]  /* 成都理工大学 */
+const MAP_CENTER = [114.897014, 40.755502]
 const MAP_ZOOM = 17
 
-/* ── 预设校园点位（成都理工大学，含真实经纬度） ── */
-const POI_DATA = [
-  { id: 'teaching1', name: '第一教学楼',   icon: '📚', lng: 104.142483, lat: 30.675342, desc: '一教，日常授课与自习',       tag: '教学区域' },
-  { id: 'teaching2', name: '第二教学楼',   icon: '📖', lng: 104.141622, lat: 30.676215, desc: '二教，多间阶梯教室',         tag: '教学区域' },
-  { id: 'e1',        name: '东区E1教学楼', icon: '🏛️', lng: 104.149226, lat: 30.677241, desc: '东区 E1 教学楼',               tag: '教学区域' },
-  { id: 'e2',        name: '东区E2教学楼', icon: '🏫', lng: 104.150114, lat: 30.676833, desc: '东区 E2 教学楼',               tag: '教学区域' },
-  { id: 'library',   name: '逸夫图书馆',   icon: '📖', lng: 104.144156, lat: 30.673821, desc: '藏书 50 万册，自习室/电子阅览室', tag: '学习空间' },
-  { id: 'lake',      name: '砚湖',         icon: '🌊', lng: 104.143120, lat: 30.675103, desc: '校园中心湖，休闲散步好去处', tag: '校园地标' },
-  { id: 'gate',      name: '主校门',       icon: '🚪', lng: 104.147862, lat: 30.678354, desc: '学校正门，进出校园主要通道', tag: '校园地标' },
-  { id: 'stadium',   name: '运动场',       icon: '🏟️', lng: 104.151231, lat: 30.674672, desc: '400m 标准田径场、篮球/排球场', tag: '体育运动' },
-  { id: 'canteen',   name: '香樟餐厅',     icon: '🍽️', lng: 104.145217, lat: 30.672966, desc: '校内主要食堂，提供早中晚三餐', tag: '生活服务' },
-  { id: 'teaching9', name: '第九教学楼',   icon: '🔬', lng: 104.140835, lat: 30.673412, desc: '九教，实验与科研用房',       tag: '教学区域' },
+const mapPlaces = ref([])
+const placeLoading = ref(false)
+
+const demoDormitories = [
+  { id: 'demo-dorm-1', name: '紫藤宿舍楼', longitude: 114.89495, latitude: 40.75662, sceneType: 'DORMITORY', placeType: 'DORMITORY_BUILDING', description: '第一校区学生宿舍楼', locationDesc: '第一校区生活区', status: 'ENABLED', mapVisible: true },
+  { id: 'demo-dorm-2', name: '青松宿舍楼', longitude: 114.89608, latitude: 40.75474, sceneType: 'DORMITORY', placeType: 'DORMITORY_BUILDING', description: '第一校区学生宿舍楼', locationDesc: '第一校区生活区', status: 'ENABLED', mapVisible: true },
+  { id: 'demo-dorm-3', name: '明月宿舍楼', longitude: 114.89842, latitude: 40.75612, sceneType: 'DORMITORY', placeType: 'DORMITORY_BUILDING', description: '第二校区学生宿舍楼', locationDesc: '第二校区生活区', status: 'ENABLED', mapVisible: true },
+  { id: 'demo-dorm-4', name: '海棠宿舍楼', longitude: 114.89904, latitude: 40.75398, sceneType: 'DORMITORY', placeType: 'DORMITORY_BUILDING', description: '第三校区学生宿舍楼', locationDesc: '第三校区生活区', status: 'ENABLED', mapVisible: true },
 ]
 
+const SCENE_META = {
+  CANTEEN: { label: '食堂', color: '#f97316', icon: markerCanteen },
+  SPORTS: { label: '运动场', color: '#10b981', icon: markerSports },
+  TEACHING: { label: '教学楼', color: '#3b82f6', icon: markerTeaching },
+  DORMITORY: { label: '宿舍', color: '#8b5cf6', icon: markerDormitory },
+}
+const DEFAULT_SCENE_META = { label: '其他点位', color: '#64748b', icon: markerOther }
+const sceneMeta = (sceneType) => SCENE_META[sceneType] || DEFAULT_SCENE_META
+
+const toCoordinate = (value) => {
+  if (value === null || value === undefined || value === '') return null
+  const coordinate = Number(value)
+  return Number.isFinite(coordinate) ? coordinate : null
+}
+
+const parseFence = (fence) => {
+  if (!fence?.geometryData) return null
+  try {
+    const geometry = typeof fence.geometryData === 'string'
+      ? JSON.parse(fence.geometryData)
+      : fence.geometryData
+    const geometryType = String(fence.geometryType || geometry?.type || '').toUpperCase()
+    const coordinates = geometryType === 'POLYGON'
+      ? geometry?.coordinates?.[0]
+      : geometry?.coordinates
+    if (!Array.isArray(coordinates)) return null
+    const path = coordinates
+      .map(point => [toCoordinate(point?.[0]), toCoordinate(point?.[1])])
+      .filter(point => point[0] !== null && point[1] !== null)
+    if (geometryType === 'POLYGON' && path.length >= 3) return { geometryType, path }
+    if (geometryType === 'LINESTRING' && path.length >= 2) return { geometryType, path }
+    return null
+  } catch {
+    return null
+  }
+}
+
+const toMapPoi = (place) => ({
+  id: place.id,
+  name: place.name || '未命名点位',
+  lng: toCoordinate(place.longitude),
+  lat: toCoordinate(place.latitude),
+  desc: place.description || place.locationDesc || '暂无详细介绍',
+  tag: place.placeType || sceneMeta(place.sceneType).label,
+  sceneType: place.sceneType,
+  placeType: place.placeType,
+  locationDesc: place.locationDesc || '',
+  status: place.status,
+  images: Array.isArray(place.images) ? place.images : [],
+  fence: parseFence(place.fence),
+})
+
+async function loadMapPlaces() {
+  placeLoading.value = true
+  try {
+    const response = await getMapPlaceList({ status: 'ENABLED' })
+    const places = (Array.isArray(response?.data) ? response.data : [])
+      .filter(place => place.mapVisible !== false)
+    const detailResponses = await Promise.all(places.map(async place => {
+      try {
+        const detail = await getMapPlaceDetail(place.id)
+        return detail?.data || place
+      } catch {
+        return place
+      }
+    }))
+    const resolvedPlaces = detailResponses
+      .map(toMapPoi)
+      .filter(place => Number.isFinite(place.lng) && Number.isFinite(place.lat))
+    const existingDormitoryCount = resolvedPlaces.filter(place => place.sceneType === 'DORMITORY').length
+    const supplementalDormitories = demoDormitories
+      .slice(0, Math.max(0, 4 - existingDormitoryCount))
+      .map(toMapPoi)
+    mapPlaces.value = [...resolvedPlaces, ...supplementalDormitories]
+  } catch (error) {
+    mapError.value = error.message || '校园点位加载失败'
+    mapPlaces.value = []
+  } finally {
+    placeLoading.value = false
+  }
+}
+
 const activePoi = ref(null)          /* 当前选中点位 */
+const activePoiScreen = ref({ x: 0, y: 0, panelX: 18, panelY: 18 })
+const mapViewport = ref({ width: 0, height: 0 })
 const selectedNotice = ref('')       /* 搜索选中提示 */
+const categoryExpanded = ref(false)
+const activeCategory = ref('all')
+const campusMenuOpen = ref(false)
+const activeCampus = ref('')
+const otherMenuOpen = ref(false)
+const activeOtherPlace = ref('')
+const floorPreviewOpen = ref(false)
+const floorPreviewItems = ref([])
+let floorPreviewTimer = null
+const categoryItems = [
+  { key: 'campus', label: '校区', icon: '▦', sceneType: null },
+  { key: 'canteen', label: '食堂', icon: '餐', sceneType: 'CANTEEN' },
+  { key: 'dormitory', label: '宿舍楼', icon: '宿', sceneType: 'DORMITORY' },
+  { key: 'teaching', label: '教学楼', icon: '学', sceneType: 'TEACHING' },
+  { key: 'sports', label: '运动场', icon: '场', sceneType: 'SPORTS' },
+  { key: 'other', label: '其他', icon: '•••', sceneType: 'OTHER' },
+]
+const campusItems = [
+  { key: 'campus-1', label: '第一校区', center: [114.89565, 40.75585] },
+  { key: 'campus-2', label: '第二校区', center: [114.89755, 40.75525] },
+  { key: 'campus-3', label: '第三校区', center: [114.89885, 40.75435] },
+]
+const otherItems = [
+  { key: 'landscape', label: '景观区', placeType: 'LANDSCAPE' },
+  { key: 'admin', label: '行政楼', placeType: 'ADMIN_BUILDING' },
+  { key: 'hospital', label: '校医院', placeType: 'HOSPITAL' },
+]
+
+const displayedFloorPreview = computed(() => {
+  if (activePoi.value?.name === '第一食堂') {
+    return [
+      { id: 'first-1', code: '1F', name: '第一层', description: '综合餐饮区' },
+      { id: 'first-2', code: '2F', name: '第二层', description: '风味餐饮区' },
+      { id: 'first-3', code: '3F', name: '第三层', description: '休闲用餐区' },
+      { id: 'first-4', code: '4F', name: '第四层', description: '特色餐饮区' },
+    ]
+  }
+  return floorPreviewItems.value.length
+  ? floorPreviewItems.value.map((floor, index) => ({
+      id: floor.id,
+      code: `${index + 1}F`,
+      name: floor.name || `第${index + 1}层`,
+      description: ['综合餐饮区', '风味餐饮区', '休闲用餐区'][index] || '餐饮服务区',
+    }))
+  : [
+      { id: 'fallback-1', code: '1F', name: '第一层', description: '综合餐饮区' },
+      { id: 'fallback-2', code: '2F', name: '第二层', description: '风味餐饮区' },
+      { id: 'fallback-3', code: '3F', name: '第三层', description: '休闲用餐区' },
+    ]
+})
+
+function updateActivePoiScreen() {
+  if (!mapInstance || !activePoi.value) return
+  const pixel = mapInstance.lngLatToContainer([activePoi.value.lng, activePoi.value.lat])
+  if (!pixel) return
+  const size = mapInstance.getSize()
+  const width = size?.getWidth?.() || size?.width || document.getElementById('container')?.clientWidth || window.innerWidth
+  const height = size?.getHeight?.() || size?.height || document.getElementById('container')?.clientHeight || window.innerHeight
+  const x = pixel.getX()
+  const y = pixel.getY()
+  const cardWidth = Math.min(360, width - 36)
+  const cardHeight = Math.min(520, height - 36)
+  const gap = 48
+  const margin = 18
+  let panelX
+  let panelY
+
+  if (width - x - gap >= cardWidth + margin) {
+    panelX = x + gap
+    panelY = Math.max(margin, Math.min(y - cardHeight / 2, height - cardHeight - margin))
+  } else if (x - gap >= cardWidth + margin) {
+    panelX = x - gap - cardWidth
+    panelY = Math.max(margin, Math.min(y - cardHeight / 2, height - cardHeight - margin))
+  } else if (height - y - gap >= cardHeight + margin) {
+    panelX = Math.max(margin, Math.min(x - cardWidth / 2, width - cardWidth - margin))
+    panelY = y + gap
+  } else if (y - gap >= cardHeight + margin) {
+    panelX = Math.max(margin, Math.min(x - cardWidth / 2, width - cardWidth - margin))
+    panelY = y - gap - cardHeight
+  } else {
+    panelX = Math.max(margin, Math.min(x - cardWidth / 2, width - cardWidth - margin))
+    panelY = Math.max(margin, Math.min(y - cardHeight / 2, height - cardHeight - margin))
+  }
+
+  mapViewport.value = { width, height }
+  activePoiScreen.value = { x, y, panelX, panelY }
+}
+
+const floorPreviewStyle = computed(() => {
+  const panelWidth = Math.min(360, mapViewport.value.width - 36)
+  const floorWidth = Math.min(316, mapViewport.value.width - 36)
+  const floorHeight = 294
+  const gap = 18
+  const margin = 18
+  const right = activePoiScreen.value.panelX + panelWidth + gap
+  const left = activePoiScreen.value.panelX - floorWidth - gap
+  const x = right + floorWidth <= mapViewport.value.width - margin ? right : Math.max(margin, left)
+  const y = Math.max(margin, Math.min(
+    activePoiScreen.value.panelY + 150,
+    mapViewport.value.height - floorHeight - margin,
+  ))
+  return { left: `${x}px`, top: `${y}px` }
+})
+
+function closeActivePoi() {
+  activePoi.value = null
+  floorPreviewOpen.value = false
+}
+
+async function showFloorPreview(poi) {
+  if (!poi || poi.sceneType !== 'CANTEEN') return
+  if (floorPreviewTimer) clearTimeout(floorPreviewTimer)
+  floorPreviewOpen.value = true
+  floorPreviewItems.value = []
+  try {
+    const response = await getMapPlaceList({ sceneType: 'CANTEEN', parentId: poi.id, status: 'ENABLED' })
+    floorPreviewItems.value = (Array.isArray(response?.data) ? response.data : [])
+      .filter(place => place.placeType === 'FLOOR')
+      .sort((left, right) => (left.sortOrder || 0) - (right.sortOrder || 0))
+  } catch {
+    floorPreviewItems.value = []
+  }
+}
+
+function keepFloorPreview() {
+  if (floorPreviewTimer) clearTimeout(floorPreviewTimer)
+  floorPreviewOpen.value = true
+}
+
+function hideFloorPreview() {
+  if (floorPreviewTimer) clearTimeout(floorPreviewTimer)
+  floorPreviewTimer = setTimeout(() => { floorPreviewOpen.value = false }, 500)
+}
+
+function selectCategory(item) {
+  activeCategory.value = item.key
+  campusMenuOpen.value = item.key === 'campus'
+  otherMenuOpen.value = item.key === 'other'
+  if (item.key !== 'campus') activeCampus.value = ''
+  if (item.key !== 'other') activeOtherPlace.value = ''
+  const visiblePlaces = item.sceneType === null
+    ? mapPlaces.value
+    : mapPlaces.value.filter(place => item.sceneType === 'OTHER'
+      ? !SCENE_META[place.sceneType]
+      : place.sceneType === item.sceneType)
+  const visibleIds = new Set(visiblePlaces.map(place => String(place.id)))
+  mapPlaces.value.forEach(place => {
+    const visible = visibleIds.has(String(place.id))
+    markerMap[place.id]?.[visible ? 'show' : 'hide']()
+    fenceMap[place.id]?.[visible ? 'show' : 'hide']()
+  })
+  if (activePoi.value && !visibleIds.has(String(activePoi.value.id))) closeActivePoi()
+  const overlays = visiblePlaces.flatMap(place => [markerMap[place.id], fenceMap[place.id]]).filter(Boolean)
+  if (mapInstance && overlays.length) mapInstance.setFitView(overlays, false, [90, 90, 90, 190], 18)
+}
+
+function selectCampus(campus) {
+  activeCampus.value = campus.key
+  activeCategory.value = 'campus'
+  if (mapInstance) mapInstance.setZoomAndCenter(17, campus.center)
+}
+
+function selectOtherPlace(place) {
+  activeOtherPlace.value = place.key
+  activeCategory.value = 'other'
+  otherMenuOpen.value = true
+  const visiblePlaces = mapPlaces.value.filter(item => item.placeType === place.placeType)
+  const visibleIds = new Set(visiblePlaces.map(item => String(item.id)))
+  mapPlaces.value.forEach(item => {
+    const visible = visibleIds.has(String(item.id))
+    markerMap[item.id]?.[visible ? 'show' : 'hide']()
+    fenceMap[item.id]?.[visible ? 'show' : 'hide']()
+  })
+  if (activePoi.value && !visibleIds.has(String(activePoi.value.id))) closeActivePoi()
+  const overlays = visiblePlaces.flatMap(item => [markerMap[item.id], fenceMap[item.id]]).filter(Boolean)
+  if (mapInstance && overlays.length) mapInstance.setFitView(overlays, false, [90, 90, 90, 190], 18)
+}
+
+function selectAllCategories() {
+  categoryExpanded.value = !categoryExpanded.value
+  selectCategory(categoryItems[0])
+  activeCategory.value = 'all'
+  campusMenuOpen.value = false
+  activeCampus.value = ''
+  otherMenuOpen.value = false
+  activeOtherPlace.value = ''
+}
 
 /* ═══════════════════════════════════════
    ① 🌓 日间/夜间模式
@@ -51,13 +330,13 @@ const searchFocused = ref(false)
 const filteredPois = computed(() => {
   const q = searchQuery.value.trim().toLowerCase()
   if (!q) return []
-  return POI_DATA.filter(p => p.name.includes(q) || p.desc.toLowerCase().includes(q))
+  return mapPlaces.value.filter(p => p.name.includes(q) || p.desc.toLowerCase().includes(q))
 })
 function selectSearchResult(poi) {
+  if (poi.sceneType !== 'CANTEEN') return
   searchQuery.value = poi.name
   searchFocused.value = false
-  selectedNotice.value = `已定位到「${poi.icon} ${poi.name}」— ${poi.desc}`
-  activePoi.value = poi
+  selectedNotice.value = `已定位到「${poi.name}」— ${poi.desc}`
   flyToPoi(poi) /* 地图自动移动到目标地点 */
   setTimeout(() => { selectedNotice.value = '' }, 4000)
 }
@@ -70,7 +349,289 @@ const mapReady = ref(false)
 const mapError = ref('')
 let mapInstance = null        /* AMap.Map 实例 */
 const markerMap = {}          /* poi.id → AMap.Marker 映射 */
+const fenceMap = {}           /* poi.id → 围栏覆盖物映射 */
+const mapOverlays = []
 let infoWindow = null         /* 全局信息窗 */
+
+const indoorOpen = ref(false)
+const indoorLoading = ref(false)
+const indoorCanteen = ref(null)
+const indoorFloors = ref([])
+const indoorFloorId = ref(null)
+const indoorFloorPlan = ref(null)
+const indoorStalls = ref([])
+const indoorPositions = ref([])
+const indoorZoom = ref(1.12)
+const indoorSearch = ref('')
+const indoorCategory = ref('all')
+const indoorView = ref('map')
+const indoorDragging = ref(false)
+let indoorDragStartX = 0
+let indoorDragStartY = 0
+let indoorDragScrollLeft = 0
+let indoorDragScrollTop = 0
+let indoorDragViewport = null
+
+const indoorCategoryLabels = {
+  noodle: '面食类', soup: '汤羹类', rice: '炒饭盖饭', local: '地方小吃', drink: '饮品甜点',
+}
+
+const demoStalls = [
+  { id: 's1', name: '兰州拉面', category: 'noodle', x: 25, y: 28, color: '#ff7a35' },
+  { id: 's2', name: '一碗面', category: 'noodle', x: 34, y: 33, color: '#f97316' },
+  { id: 's3', name: '瓦罐汤', category: 'soup', x: 43, y: 27, color: '#eab308' },
+  { id: 's4', name: '牛肉炒饭', category: 'rice', x: 55, y: 35, color: '#e11d48' },
+  { id: 's5', name: '重庆小面', category: 'noodle', x: 66, y: 28, color: '#f59e0b' },
+  { id: 's6', name: '奶茶窗口', category: 'drink', x: 73, y: 42, color: '#0ea5e9' },
+  { id: 's7', name: '石锅拌饭', category: 'rice', x: 28, y: 48, color: '#ef4444' },
+  { id: 's8', name: '麻辣烫', category: 'local', x: 39, y: 55, color: '#8b5cf6' },
+  { id: 's9', name: '黄焖鸡米饭', category: 'rice', x: 52, y: 47, color: '#f59e0b' },
+  { id: 's10', name: '水饺馄饨', category: 'noodle', x: 66, y: 56, color: '#06b6d4' },
+  { id: 's11', name: '煎饼果子', category: 'local', x: 24, y: 66, color: '#14b8a6' },
+  { id: 's12', name: '冒菜香锅', category: 'local', x: 34, y: 72, color: '#dc2626' },
+  { id: 's13', name: '小碗菜', category: 'rice', x: 48, y: 64, color: '#22c55e' },
+  { id: 's14', name: '烘焙甜点', category: 'drink', x: 60, y: 73, color: '#ec4899' },
+  { id: 's15', name: '鲜榨果汁', category: 'drink', x: 70, y: 66, color: '#0ea5e9' },
+]
+
+const demoFacilities = [
+  { id: 'f1', name: '楼梯', category: 'stairs', x: 72, y: 32, symbol: '↗', color: '#64748b' },
+  { id: 'f2', name: '消防栓', category: 'hydrant', x: 23, y: 44, symbol: '消', color: '#ef4444' },
+  { id: 'f3', name: '卫生间', category: 'toilet', x: 72, y: 68, symbol: 'WC', color: '#2563eb' },
+  { id: 'f4', name: '主入口', category: 'entrance', x: 48, y: 75, symbol: '入', color: '#10b981' },
+  { id: 'f5', name: '侧入口', category: 'entrance', x: 73, y: 52, symbol: '入', color: '#10b981' },
+]
+
+const demoMenuItems = [
+  { id: 'm1', name: '牛肉小面', stall: '重庆小面', category: 'noodle', price: 14, image: 'https://images.unsplash.com/photo-1569718212165-3a8278d5f624?auto=format&fit=crop&w=600&q=80' },
+  { id: 'm2', name: '豌杂小面', stall: '重庆小面', category: 'noodle', price: 13, image: 'https://images.unsplash.com/photo-1612929633738-8fe44f7ec841?auto=format&fit=crop&w=600&q=80' },
+  { id: 'm3', name: '宜宾燃面', stall: '一碗面', category: 'noodle', price: 12, image: 'https://images.unsplash.com/photo-1552611052-33e04de081de?auto=format&fit=crop&w=600&q=80' },
+  { id: 'm4', name: '兰州牛肉面', stall: '兰州拉面', category: 'noodle', price: 15, image: 'https://images.unsplash.com/photo-1557872943-16a5ac26437e?auto=format&fit=crop&w=600&q=80' },
+  { id: 'm5', name: '鲜肉水饺', stall: '水饺馄饨', category: 'noodle', price: 13, image: 'https://images.unsplash.com/photo-1496116218417-1a781b1c416c?auto=format&fit=crop&w=600&q=80' },
+  { id: 'm6', name: '玉米排骨汤', stall: '瓦罐汤', category: 'soup', price: 10, image: 'https://images.unsplash.com/photo-1547592166-23ac45744acd?auto=format&fit=crop&w=600&q=80' },
+  { id: 'm7', name: '莲藕肉汤', stall: '瓦罐汤', category: 'soup', price: 9, image: 'https://images.unsplash.com/photo-1603105037880-880cd4edfb0d?auto=format&fit=crop&w=600&q=80' },
+  { id: 'm8', name: '牛肉炒饭', stall: '牛肉炒饭', category: 'rice', price: 16, image: 'https://images.unsplash.com/photo-1603133872878-684f208fb84b?auto=format&fit=crop&w=600&q=80' },
+  { id: 'm9', name: '黄焖鸡米饭', stall: '黄焖鸡米饭', category: 'rice', price: 18, image: 'https://images.unsplash.com/photo-1512058564366-18510be2db19?auto=format&fit=crop&w=600&q=80' },
+  { id: 'm10', name: '石锅拌饭', stall: '石锅拌饭', category: 'rice', price: 17, image: 'https://images.unsplash.com/photo-1590301157890-4810ed352733?auto=format&fit=crop&w=600&q=80' },
+  { id: 'm11', name: '麻辣香锅', stall: '冒菜香锅', category: 'local', price: 22, image: 'https://images.unsplash.com/photo-1563245372-f21724e3856d?auto=format&fit=crop&w=600&q=80' },
+  { id: 'm12', name: '经典煎饼果子', stall: '煎饼果子', category: 'local', price: 8, image: 'https://images.unsplash.com/photo-1565299507177-b0ac66763828?auto=format&fit=crop&w=600&q=80' },
+  { id: 'm13', name: '原味奶茶', stall: '奶茶窗口', category: 'drink', price: 8, image: 'https://images.unsplash.com/photo-1558857563-b371033873b8?auto=format&fit=crop&w=600&q=80' },
+  { id: 'm14', name: '鲜榨橙汁', stall: '鲜榨果汁', category: 'drink', price: 10, image: 'https://images.unsplash.com/photo-1621506289937-a8e4df240d0b?auto=format&fit=crop&w=600&q=80' },
+  { id: 'm15', name: '红豆蛋糕', stall: '烘焙甜点', category: 'drink', price: 12, image: 'https://images.unsplash.com/photo-1578985545062-69928b1d9587?auto=format&fit=crop&w=600&q=80' },
+]
+
+const demoClusters = [
+  { id: 'c1', count: 4, x: 36, y: 31, color: '#f97316' },
+  { id: 'c2', count: 2, x: 69, y: 35, color: '#0ea5e9' },
+  { id: 'c3', count: 4, x: 45, y: 52, color: '#8b5cf6' },
+  { id: 'c4', count: 3, x: 29, y: 69, color: '#14b8a6' },
+  { id: 'c5', count: 2, x: 65, y: 70, color: '#ec4899' },
+]
+
+const demoMediumPoints = [
+  { id: 'mc1', type: 'cluster', count: 3, x: 33, y: 30, color: '#f97316' },
+  { id: 'ms4', type: 'stall', stallId: 's4' },
+  { id: 'mc2', type: 'cluster', count: 2, x: 69, y: 35, color: '#0ea5e9' },
+  { id: 'mc3', type: 'cluster', count: 3, x: 40, y: 53, color: '#8b5cf6' },
+  { id: 'ms9', type: 'stall', stallId: 's9' },
+  { id: 'mc4', type: 'cluster', count: 2, x: 29, y: 69, color: '#14b8a6' },
+  { id: 'ms13', type: 'stall', stallId: 's13' },
+  { id: 'mc5', type: 'cluster', count: 2, x: 65, y: 70, color: '#ec4899' },
+]
+
+const resolvedMediumPoints = computed(() => demoMediumPoints.map(point => point.type === 'stall'
+  ? { ...point, stall: demoStalls.find(stall => stall.id === point.stallId) }
+  : point))
+
+const filteredDemoStalls = computed(() => {
+  const keyword = indoorSearch.value.trim().toLowerCase()
+  return demoStalls.filter(stall =>
+    (indoorCategory.value === 'all' || stall.category === indoorCategory.value)
+    && (!keyword || stall.name.toLowerCase().includes(keyword)))
+})
+
+const filteredDemoFacilities = computed(() => demoFacilities.filter(item => indoorCategory.value === item.category))
+const filteredDemoMenu = computed(() => {
+  const keyword = indoorSearch.value.trim().toLowerCase()
+  return demoMenuItems.filter(item =>
+    (indoorCategory.value === 'all' || item.category === indoorCategory.value)
+    && (!keyword || `${item.name}${item.stall}`.toLowerCase().includes(keyword)))
+})
+
+function selectIndoorCategory(category) {
+  indoorCategory.value = category
+  if (['stairs', 'hydrant', 'toilet', 'entrance'].includes(category)) indoorView.value = 'map'
+}
+
+function showStallOnMap(stall) {
+  indoorCategory.value = stall.category
+  indoorSearch.value = stall.name
+  indoorZoom.value = 1.7
+  indoorView.value = 'map'
+}
+
+function showStallMenu(stall) {
+  indoorCategory.value = stall.category
+  indoorSearch.value = stall.name
+  indoorView.value = 'menu'
+}
+
+function openFloorDetail(floor) {
+  indoorOpen.value = true
+  indoorCanteen.value = activePoi.value
+  indoorFloorId.value = floor.id
+  indoorZoom.value = 1.12
+  indoorSearch.value = ''
+  indoorCategory.value = 'all'
+  indoorView.value = 'map'
+}
+
+function adjustIndoorZoom(delta) {
+  indoorZoom.value = Math.max(1.08, Math.min(1.8, Number((indoorZoom.value + delta).toFixed(2))))
+}
+
+function onIndoorWheel(event) {
+  adjustIndoorZoom(event.deltaY < 0 ? 0.1 : -0.1)
+}
+
+function startIndoorDrag(event) {
+  if (event.button !== 0) return
+  const viewport = event.currentTarget
+  indoorDragging.value = true
+  indoorDragViewport = viewport
+  indoorDragStartX = event.clientX
+  indoorDragStartY = event.clientY
+  indoorDragScrollLeft = viewport.scrollLeft
+  indoorDragScrollTop = viewport.scrollTop
+  window.addEventListener('mousemove', moveIndoorDrag)
+  window.addEventListener('mouseup', stopIndoorDrag, { once: true })
+  event.preventDefault()
+}
+
+function moveIndoorDrag(event) {
+  if (!indoorDragging.value || !indoorDragViewport) return
+  const viewport = indoorDragViewport
+  viewport.scrollLeft = indoorDragScrollLeft - (event.clientX - indoorDragStartX)
+  viewport.scrollTop = indoorDragScrollTop - (event.clientY - indoorDragStartY)
+  event.preventDefault()
+}
+
+function stopIndoorDrag() {
+  indoorDragging.value = false
+  indoorDragViewport = null
+  window.removeEventListener('mousemove', moveIndoorDrag)
+}
+
+const indoorPositionMap = computed(
+  () => new Map(indoorPositions.value.map(position => [String(position.placeId), position])),
+)
+
+async function selectIndoorFloor(floorId) {
+  indoorFloorId.value = floorId
+  indoorFloorPlan.value = null
+  indoorStalls.value = []
+  indoorPositions.value = []
+  if (!floorId) return
+
+  indoorLoading.value = true
+  try {
+    const [planResponse, stallResponse] = await Promise.all([
+      getFloorPlan(floorId),
+      getMapPlaceList({ sceneType: 'CANTEEN', parentId: floorId, status: 'ENABLED' }),
+    ])
+    const plan = planResponse?.data || null
+    indoorFloorPlan.value = plan
+    indoorStalls.value = (Array.isArray(stallResponse?.data) ? stallResponse.data : [])
+      .filter(place => place.placeType === 'CANTEEN_STALL')
+      .sort((left, right) => (left.sortOrder || 0) - (right.sortOrder || 0))
+    if (plan) {
+      const positionResponse = await getFloorPlanPositions(plan.id)
+      indoorPositions.value = Array.isArray(positionResponse?.data) ? positionResponse.data : []
+    }
+  } catch (error) {
+    mapError.value = error.message || '楼层档口信息加载失败'
+  } finally {
+    indoorLoading.value = false
+  }
+}
+
+async function openIndoorGuide(poi) {
+  indoorOpen.value = true
+  indoorCanteen.value = poi
+  indoorFloors.value = []
+  indoorFloorId.value = null
+  indoorFloorPlan.value = null
+  indoorStalls.value = []
+  indoorPositions.value = []
+  indoorLoading.value = true
+  try {
+    const response = await getMapPlaceList({
+      sceneType: 'CANTEEN',
+      parentId: poi.id,
+      status: 'ENABLED',
+    })
+    indoorFloors.value = (Array.isArray(response?.data) ? response.data : [])
+      .filter(place => place.placeType === 'FLOOR')
+      .sort((left, right) => (left.sortOrder || 0) - (right.sortOrder || 0))
+    if (indoorFloors.value.length) {
+      await selectIndoorFloor(indoorFloors.value[0].id)
+    }
+  } catch (error) {
+    mapError.value = error.message || '食堂楼层加载失败'
+  } finally {
+    indoorLoading.value = false
+  }
+}
+
+function closeIndoorGuide() {
+  indoorOpen.value = false
+}
+
+function createInfoWindowContent(poi) {
+  const root = document.createElement('div')
+  root.className = 'map-info-window'
+
+  const heading = document.createElement('div')
+  heading.className = 'map-info-window__heading'
+  const pin = document.createElement('img')
+  pin.className = 'map-info-window__pin'
+  pin.src = sceneMeta(poi.sceneType).icon
+  pin.alt = ''
+  const name = document.createElement('strong')
+  name.textContent = poi.name
+  heading.append(pin, name)
+
+  const type = document.createElement('span')
+  type.className = 'map-info-window__type'
+  type.textContent = poi.tag
+  const description = document.createElement('p')
+  description.textContent = poi.desc
+
+  root.append(heading, type, description)
+  if (poi.sceneType === 'CANTEEN') {
+    const indoorButton = document.createElement('button')
+    indoorButton.type = 'button'
+    indoorButton.className = 'map-info-window__indoor-button'
+    indoorButton.textContent = '查看楼层与档口'
+    indoorButton.addEventListener('click', () => openIndoorGuide(poi))
+    root.append(indoorButton)
+  }
+  return root
+}
+
+async function selectPoi(poi, marker) {
+  try {
+    const response = await getMapPlaceDetail(poi.id)
+    const detail = response?.data ? toMapPoi(response.data) : poi
+    activePoi.value = detail
+    /* 使用页面右侧的统一详情卡，避免同时出现高德默认信息窗。 */
+    infoWindow?.close()
+    await nextTick()
+    updateActivePoiScreen()
+  } catch (error) {
+    mapError.value = error.message || '点位详情加载失败'
+  }
+}
 
 /* 动态加载高德 JS API 脚本 */
 function loadAMapScript() {
@@ -93,48 +654,78 @@ async function initMap() {
     const AMap = window.AMap
     if (!AMap) throw new Error('AMap 未定义')
 
+    const firstPlace = mapPlaces.value[0]
     mapInstance = new AMap.Map('container', {
       zoom: MAP_ZOOM,
-      center: MAP_CENTER,
+      center: firstPlace ? [firstPlace.lng, firstPlace.lat] : MAP_CENTER,
       viewMode: '2D',
       resizeEnable: true,
     })
+    mapInstance.on('mapmove', updateActivePoiScreen)
+    mapInstance.on('zoomchange', updateActivePoiScreen)
 
     /* 全局信息窗实例 */
     infoWindow = new AMap.InfoWindow({
-      offset: new AMap.Pixel(0, -30),
+      offset: new AMap.Pixel(0, -43),
       closeWhenClickMap: true,
     })
 
-    /* 为每个 POI 添加标记 */
-    POI_DATA.forEach(poi => {
+    /* 为接口返回的真实点位添加标记 */
+    mapPlaces.value.forEach(poi => {
+      const meta = sceneMeta(poi.sceneType)
+      let fenceOverlay = null
+      if (poi.fence?.geometryType === 'POLYGON') {
+        fenceOverlay = new AMap.Polygon({
+          path: poi.fence.path,
+          strokeColor: meta.color,
+          strokeWeight: 3,
+          strokeOpacity: 0.95,
+          fillColor: meta.color,
+          fillOpacity: 0.2,
+          zIndex: 80,
+          bubble: false,
+        })
+      } else if (poi.fence?.geometryType === 'LINESTRING') {
+        fenceOverlay = new AMap.Polyline({
+          path: poi.fence.path,
+          strokeColor: meta.color,
+          strokeWeight: 4,
+          strokeOpacity: 0.95,
+          zIndex: 80,
+          bubble: false,
+        })
+      }
+      if (fenceOverlay) {
+        mapInstance.add(fenceOverlay)
+        mapOverlays.push(fenceOverlay)
+        fenceMap[poi.id] = fenceOverlay
+      }
+
+      const markerContent = document.createElement('div')
+      markerContent.className = 'real-map-marker'
+      const markerTitle = document.createElement('span')
+      markerTitle.className = 'real-map-marker__title'
+      markerTitle.textContent = poi.name
+      const markerIcon = document.createElement('img')
+      markerIcon.className = 'real-map-marker__icon'
+      markerIcon.src = meta.icon
+      markerIcon.alt = ''
+      markerContent.append(markerTitle, markerIcon)
       const marker = new AMap.Marker({
         position: [poi.lng, poi.lat],
         title: poi.name,
-        content: `<div style="
-          display:flex;align-items:center;gap:4px;
-          padding:4px 10px;border-radius:16px;
-          background:#fff;box-shadow:0 2px 8px rgba(0,0,0,.18);
-          font-size:13px;font-weight:600;color:#1e40af;
-          white-space:nowrap;cursor:pointer;
-        ">${poi.icon} ${poi.name}</div>`,
-        offset: new AMap.Pixel(-40, -16),
+        content: markerContent,
+        offset: new AMap.Pixel(-70, -64),
       })
 
-      /* 信息窗内容 */
-      const iwContent = `
-        <div style="padding:10px 14px;min-width:170px;font-family:system-ui,sans-serif;">
-          <div style="font-size:16px;font-weight:700;color:#111827;margin-bottom:4px;">
-            ${poi.icon} ${poi.name}
-          </div>
-          <div style="font-size:12px;color:#3b82f6;margin-bottom:6px;">${poi.tag}</div>
-          <div style="font-size:13px;color:#64748b;line-height:1.5;">${poi.desc}</div>
-        </div>`
-
       marker.on('click', () => {
-        activePoi.value = poi
-        infoWindow.setContent(iwContent)
-        infoWindow.open(mapInstance, marker.getPosition())
+        if (poi.sceneType !== 'CANTEEN') return
+        selectPoi(poi, marker)
+      })
+      fenceOverlay?.on('click', () => {
+        if (poi.sceneType !== 'CANTEEN') return
+        mapInstance.setZoomAndCenter(Math.max(mapInstance.getZoom() || MAP_ZOOM, MAP_ZOOM), [poi.lng, poi.lat])
+        selectPoi(poi, marker)
       })
 
       markerMap[poi.id] = marker
@@ -142,6 +733,8 @@ async function initMap() {
     })
 
     mapReady.value = true
+    const visibleOverlays = [...mapOverlays, ...Object.values(markerMap)]
+    if (visibleOverlays.length > 1) mapInstance.setFitView(visibleOverlays, false, [80, 80, 100, 80], 18)
   } catch (err) {
     mapError.value = err.message || '地图初始化失败'
     console.error('[MapInit]', err)
@@ -149,30 +742,19 @@ async function initMap() {
 }
 
 /* 地图飞行到指定点位并打开信息窗 */
-function flyToPoi(poi) {
+async function flyToPoi(poi) {
   if (!mapInstance) return
   mapInstance.setZoomAndCenter(17, [poi.lng, poi.lat], false, 500)
   const marker = markerMap[poi.id]
-  if (marker && infoWindow) {
-    const iwContent = `
-      <div style="padding:10px 14px;min-width:170px;font-family:system-ui,sans-serif;">
-        <div style="font-size:16px;font-weight:700;color:#111827;margin-bottom:4px;">
-          ${poi.icon} ${poi.name}
-        </div>
-        <div style="font-size:12px;color:#3b82f6;margin-bottom:6px;">${poi.tag}</div>
-        <div style="font-size:13px;color:#64748b;line-height:1.5;">${poi.desc}</div>
-      </div>`
-    infoWindow.setContent(iwContent)
-    infoWindow.open(mapInstance, marker.getPosition())
-  }
+  await selectPoi(poi, marker)
 }
 
 /* ═══════════════════════════════════════
    ③ 快捷按钮 / 导航
    ═══════════════════════════════════════ */
 function flyTo(poi) {
-  activePoi.value = poi
-  selectedNotice.value = `正在查看「${poi.icon} ${poi.name}」`
+  if (poi.sceneType !== 'CANTEEN') return
+  selectedNotice.value = `正在查看「${poi.name}」`
   flyToPoi(poi)
   setTimeout(() => { selectedNotice.value = '' }, 3000)
 }
@@ -200,7 +782,7 @@ function sendChat() {
 }
 function genReply(s) {
   const l = s.toLowerCase()
-  for (const p of POI_DATA) if (l.includes(p.name)) return `${p.icon} ${p.name}：${p.desc}。点击下方快捷按钮可快速定位。`
+  for (const p of mapPlaces.value) if (l.includes(p.name.toLowerCase())) return `${p.name}：${p.desc}。点击下方快捷按钮可快速定位。`
   if (/路线|怎么走|在哪|位置/.test(l)) return '在搜索框输入地点名，或点击底部快捷按钮即可定位。'
   if (/打卡/.test(l)) return '点击底部快捷按钮选中地点，在弹出的地点面板中点击"打卡"按钮即可。'
   if (/失物|丢|捡/.test(l)) return '请点击右下角助手面板，切换到"失物招领"标签页查看或发布信息。'
@@ -213,24 +795,6 @@ function scrollChat() { if (chatBodyRef.value) chatBodyRef.value.scrollTop = cha
    ⑤ 校园打卡系统
    ═══════════════════════════════════════ */
 const checkins = reactive(JSON.parse(localStorage.getItem('campus-checkins') || '{}'))
-const ACHIEVEMENTS = {
-  canteen:   { label: '美食探险家', icon: '🍴' },
-  stadium:   { label: '运动达人',   icon: '💪' },
-  library:   { label: '学霸先锋',   icon: '🎓' },
-  teaching1: { label: '求知行者',   icon: '📝' },
-  teaching2: { label: '勤学好问',   icon: '📝' },
-  e1:        { label: '东区探索者', icon: '🧭' },
-  e2:        { label: '东区先锋',   icon: '🌟' },
-  lake:      { label: '砚湖漫步',   icon: '🌸' },
-  gate:      { label: '校园门户',   icon: '🚩' },
-  teaching9: { label: '科研达人',   icon: '🔬' },
-}
-const earnedBadges = computed(() => {
-  const b = []
-  for (const [k, v] of Object.entries(ACHIEVEMENTS)) if (checkins[k]) b.push({ ...v, id: k })
-  if (Object.keys(checkins).length === POI_DATA.length) b.push({ label: '校园全能王', icon: '👑', id: 'all' })
-  return b
-})
 function doCheckin(poi) {
   if (checkins[poi.id]) return
   checkins[poi.id] = { time: Date.now() }
@@ -275,22 +839,11 @@ function postLost() {
    ═══════════════════════════════════════ */
 const randomPoi = ref(null)
 function randomWalk() {
-  const pick = POI_DATA[Math.floor(Math.random() * POI_DATA.length)]
+  if (!mapPlaces.value.length) return
+  const pick = mapPlaces.value[Math.floor(Math.random() * mapPlaces.value.length)]
   randomPoi.value = pick
-  activePoi.value = pick
   flyToPoi(pick) /* 随机漫步也移动地图 */
 }
-
-/* ═══════════════════════════════════════
-   ⑨ 校园小贴士
-   ═══════════════════════════════════════ */
-const tipsVisible = ref(false)
-const TIPS = [
-  { icon: '🍽️', title: '香樟餐厅高峰', text: '午餐 11:30-12:30 最拥挤，建议错峰就餐' },
-  { icon: '📖', title: '逸夫图书馆开放', text: '周一至周五 8:00-22:00，周末 9:00-21:00' },
-  { icon: '🌊', title: '砚湖散步',       text: '傍晚时分湖边风景最佳，适合休闲放松' },
-  { icon: '🏟️', title: '运动场开放',     text: '田径场全天开放，夜间有灯光照明' },
-]
 
 /* ═══════════════════════════════════════
    全局事件
@@ -299,13 +852,18 @@ function onDocClick(e) {
   if (!e.target.closest('.search-wrapper')) searchFocused.value = false
   if (!e.target.closest('.random-modal') && !e.target.closest('.random-btn')) randomPoi.value = null
 }
-onMounted(() => {
+onMounted(async () => {
   applyTheme()
   document.addEventListener('click', onDocClick)
-  nextTick(() => initMap()) /* 初始化高德地图 */
+  await loadMapPlaces()
+  await nextTick()
+  initMap()
 })
 onUnmounted(() => {
   document.removeEventListener('click', onDocClick)
+  stopIndoorDrag()
+  if (floorPreviewTimer) clearTimeout(floorPreviewTimer)
+  mapOverlays.splice(0, mapOverlays.length)
   if (mapInstance) { mapInstance.destroy(); mapInstance = null }
 })
 </script>
@@ -337,47 +895,70 @@ onUnmounted(() => {
           <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
           </svg>
-          <input v-model="searchQuery" class="search-input" placeholder="搜索校园地点..."
+          <input v-model="searchQuery" class="search-input" placeholder="搜索校区、食堂、宿舍楼..."
             @input="searchFocused = true" @focus="searchFocused = true"/>
           <button v-if="searchQuery" class="search-clear" @click="clearSearch">✕</button>
+          <button class="search-submit" @click="filteredPois[0] && selectSearchResult(filteredPois[0])">搜索</button>
         </div>
         <div v-if="searchFocused && filteredPois.length" class="search-dropdown">
           <div v-for="p in filteredPois" :key="p.id" class="search-item" @click="selectSearchResult(p)">
-            <span class="si-icon">{{ p.icon }}</span>
+            <img class="si-icon" :src="sceneMeta(p.sceneType).icon" alt="" />
             <div><div class="si-name">{{ p.name }}</div><div class="si-desc">{{ p.desc }}</div></div>
           </div>
         </div>
       </div>
+
+      <!-- 左侧一级分类：默认收起，仅食堂分类响应点击 -->
+      <aside class="category-rail" :class="{ expanded: categoryExpanded }">
+        <button class="category-all" type="button" @click="selectAllCategories">
+          <span class="category-all-icon">⠿</span>
+          <span>全部</span>
+        </button>
+        <div class="category-list">
+          <button
+            v-for="item in categoryItems"
+            :key="item.key"
+            type="button"
+            class="category-item"
+            :class="[{ active: activeCategory === item.key }, `category-item--${item.key}`]"
+            @click="selectCategory(item)"
+          >
+            <span class="category-item-icon">{{ item.icon }}</span>
+            <span>{{ item.label }}</span>
+          </button>
+        </div>
+      </aside>
+      <Transition name="campus-menu">
+        <nav v-if="categoryExpanded && campusMenuOpen" class="campus-submenu" aria-label="校区分类">
+          <button v-for="campus in campusItems" :key="campus.key" type="button" :class="{ active: activeCampus === campus.key }" @click="selectCampus(campus)">
+            <span>▦</span>{{ campus.label }}
+          </button>
+        </nav>
+      </Transition>
+      <Transition name="campus-menu">
+        <nav v-if="categoryExpanded && otherMenuOpen" class="other-submenu" aria-label="其他分类">
+          <button v-for="place in otherItems" :key="place.key" type="button" :class="{ active: activeOtherPlace === place.key }" @click="selectOtherPlace(place)">
+            <span>•</span>{{ place.label }}
+          </button>
+        </nav>
+      </Transition>
 
       <!-- 选中提示条 -->
       <Transition name="fade">
         <div v-if="selectedNotice" class="notice-bar">{{ selectedNotice }}</div>
       </Transition>
 
-      <!-- 顶部工具栏：暗色切换 + 贴士 + 随机漫步 -->
+      <!-- 顶部工具栏 -->
       <div class="top-tools">
         <button class="tool-btn" @click="toggleDark" :title="isDark ? '日间模式' : '夜间模式'">
           {{ isDark ? '☀️' : '🌙' }}
         </button>
-        <button class="tool-btn" @click="tipsVisible = !tipsVisible" title="校园贴士">💡</button>
         <button class="tool-btn random-btn" @click="randomWalk" title="随机漫步">🎲</button>
       </div>
-
-      <!-- 校园贴士卡片 -->
-      <Transition name="fade">
-        <div v-if="tipsVisible" class="tips-card">
-          <div class="tips-title">📋 校园小贴士</div>
-          <div v-for="(t, i) in TIPS" :key="i" class="tips-row">
-            <span>{{ t.icon }} <b>{{ t.title }}</b></span>
-            <span>{{ t.text }}</span>
-          </div>
-        </div>
-      </Transition>
 
       <!-- 随机漫步弹窗 -->
       <Transition name="fade">
         <div v-if="randomPoi" class="random-modal">
-          <div class="random-icon">{{ randomPoi.icon }}</div>
           <div class="random-name">{{ randomPoi.name }}</div>
           <div class="random-desc">{{ randomPoi.desc }}</div>
           <div class="random-hint">去这里走走吧！</div>
@@ -385,59 +966,140 @@ onUnmounted(() => {
         </div>
       </Transition>
 
-      <!-- ③ 底部快捷按钮 -->
-      <div class="quick-bar">
-        <button v-for="p in POI_DATA" :key="p.id" class="quick-btn"
-          :class="{ active: activePoi?.id === p.id }" @click="flyTo(p)">
-          <span class="quick-icon">{{ p.icon }}</span>
-          <span class="quick-label">{{ p.name }}</span>
-        </button>
-      </div>
-
       <!-- 选中点位详情面板 -->
       <Transition name="slide-up">
-        <div v-if="activePoi" class="poi-panel">
-          <div class="poi-header">
-            <span class="poi-name">{{ activePoi.icon }} {{ activePoi.name }}</span>
-            <button class="poi-close" @click="activePoi = null">✕</button>
+        <div
+          v-if="activePoi?.sceneType === 'CANTEEN'"
+          class="poi-panel canteen-panel"
+          :style="{ left: `${activePoiScreen.panelX}px`, top: `${activePoiScreen.panelY}px` }"
+        >
+          <div class="poi-header canteen-header">
+            <span class="canteen-type-icon">餐</span>
+            <span class="canteen-heading">
+              <span class="poi-name">{{ activePoi.name }}</span>
+              <small>校园综合餐饮服务中心</small>
+            </span>
+            <span class="canteen-open">营业中</span>
+            <button class="poi-close" @click="closeActivePoi">✕</button>
           </div>
-          <div class="poi-desc">{{ activePoi.desc }}</div>
+          <div class="canteen-badges"><span>食堂</span><span>共{{ displayedFloorPreview.length }}层</span></div>
+          <div class="canteen-meta"><b>⌖</b><span>{{ activePoi.locationDesc || '校园生活区' }}</span></div>
+          <div class="canteen-meta"><b>◷</b><span>06:30—21:00<small>早餐 06:30–09:00，午餐 10:30–14:00，晚餐 16:30–20:30</small></span></div>
+          <div class="canteen-meta"><b>¥</b><span>约12—20元</span></div>
+          <div class="canteen-intro">
+            <strong>餐厅简介</strong>
+            <p>{{ activePoi.desc || `${activePoi.name}提供日常早餐、午餐和晚餐服务，餐品丰富，价格适中。` }}</p>
+          </div>
+          <div class="canteen-services"><span>早餐供应</span><span>支持打包</span><span>校园卡</span><span>移动支付</span><span>无障碍通道</span></div>
+          <div class="more-info-zone" @mouseenter="showFloorPreview(activePoi)" @mouseleave="hideFloorPreview">
+            <button class="more-info-button" type="button" @click="showFloorPreview(activePoi)">查看更多信息</button>
+          </div>
+        </div>
+      </Transition>
 
-          <!-- 打卡 -->
-          <div class="poi-section">
-            <div class="section-label">📍 打卡</div>
-            <button v-if="!checkins[activePoi.id]" class="checkin-btn" @click="doCheckin(activePoi)">
-              立即打卡
+      <Transition name="fade">
+        <section
+          v-if="activePoi?.sceneType === 'CANTEEN' && floorPreviewOpen"
+          class="floor-preview"
+          :style="floorPreviewStyle"
+          @mouseenter="keepFloorPreview"
+          @mouseleave="hideFloorPreview"
+        >
+          <h3>选择楼层</h3>
+          <p>进入对应室内地图</p>
+          <div class="floor-preview-list">
+            <button v-for="(floor, index) in displayedFloorPreview" :key="floor.id" type="button" :class="{ active: index === 0 }" @click="openFloorDetail(floor)">
+              <b>{{ floor.code }}</b><span><strong>{{ floor.name }}</strong><small>{{ floor.description }}</small></span><i>›</i>
             </button>
-            <span v-else class="checkin-done">✅ 已打卡 {{ fmtTime(checkins[activePoi.id].time) }}</span>
           </div>
+        </section>
+      </Transition>
 
-          <!-- 成就 -->
-          <div v-if="earnedBadges.length" class="poi-section">
-            <div class="section-label">🏆 已解锁成就</div>
-            <div class="badges">
-              <span v-for="b in earnedBadges" :key="b.id" class="badge">{{ b.icon }} {{ b.label }}</span>
-            </div>
-          </div>
+      <Transition name="fade">
+        <div v-if="indoorOpen" class="indoor-guide-mask" @click.self="closeIndoorGuide">
+          <section class="indoor-guide-dialog">
+            <div class="indoor-breadcrumb">智慧校园 <b>›</b> {{ indoorCanteen?.name || '第一食堂' }} <b>›</b> <strong>第一层</strong></div>
+            <button class="indoor-guide-close" type="button" @click="closeIndoorGuide">×</button>
 
-          <!-- 留言板 -->
-          <div class="poi-section">
-            <div class="section-label">📝 留言板</div>
-            <div class="board-list">
-              <div v-for="(m, i) in boardMessages(activePoi.id)" :key="i" class="board-msg">
-                <span class="board-author">{{ m.author }}</span>
-                <span class="board-text">{{ m.text }}</span>
-                <span class="board-time">{{ fmtTime(m.time) }}</span>
+            <header class="indoor-toolbar">
+              <h2>{{ indoorCanteen?.name || '第一食堂' }} · 第一层</h2>
+              <nav class="indoor-view-tabs">
+                <button :class="{ active: indoorView === 'map' }" @click="indoorView = 'map'">▱ 平面地图</button>
+                <button :class="{ active: indoorView === 'list' }" @click="indoorView = 'list'">☷ 档口列表</button>
+                <button :class="{ active: indoorView === 'menu' }" @click="indoorView = 'menu'">▤ 菜品菜单</button>
+              </nav>
+              <label class="indoor-search"><span>⌕</span><input v-model="indoorSearch" :placeholder="indoorView === 'menu' ? '搜索第一层菜品' : '搜索第一层档口'" /></label>
+            </header>
+
+            <nav class="indoor-categories">
+              <button :class="{ active: indoorCategory === 'all' }" @click="selectIndoorCategory('all')">全部</button>
+              <button :class="{ active: indoorCategory === 'noodle' }" @click="selectIndoorCategory('noodle')">面食类</button>
+              <button :class="{ active: indoorCategory === 'soup' }" @click="selectIndoorCategory('soup')">汤羹类</button>
+              <button :class="{ active: indoorCategory === 'rice' }" @click="selectIndoorCategory('rice')">炒饭盖饭</button>
+              <button :class="{ active: indoorCategory === 'local' }" @click="selectIndoorCategory('local')">地方小吃</button>
+              <button :class="{ active: indoorCategory === 'drink' }" @click="selectIndoorCategory('drink')">饮品甜点</button>
+              <button class="indoor-facility indoor-facility--first" :class="{ active: indoorCategory === 'stairs' }" @click="selectIndoorCategory('stairs')">楼梯</button>
+              <button class="indoor-facility" :class="{ active: indoorCategory === 'hydrant' }" @click="selectIndoorCategory('hydrant')">消防栓</button>
+              <button class="indoor-facility" :class="{ active: indoorCategory === 'toilet' }" @click="selectIndoorCategory('toilet')">卫生间</button>
+              <button class="indoor-facility" :class="{ active: indoorCategory === 'entrance' }" @click="selectIndoorCategory('entrance')">出入口</button>
+            </nav>
+
+            <main v-if="indoorView === 'map'" class="indoor-map-stage">
+              <div class="indoor-plan-viewport" :class="{ dragging: indoorDragging }" @wheel.prevent="onIndoorWheel" @mousedown="startIndoorDrag">
+                <div class="indoor-plan-canvas" :style="{ width: `${indoorZoom * 100}%` }">
+                  <img :src="firstCanteenFloorPlan" alt="第一食堂第一层平面图" draggable="false" />
+                  <template v-if="filteredDemoFacilities.length">
+                    <span v-for="facility in filteredDemoFacilities" :key="facility.id" class="facility-map-marker" :style="{ left: `${facility.x}%`, top: `${facility.y}%`, '--facility-color': facility.color }"><i>{{ facility.symbol }}</i><b>{{ facility.name }}</b></span>
+                  </template>
+                  <template v-else-if="indoorZoom < 1.35 && indoorCategory === 'all' && !indoorSearch">
+                    <span v-for="cluster in demoClusters" :key="cluster.id" class="stall-cluster" :style="{ left: `${cluster.x}%`, top: `${cluster.y}%`, background: cluster.color }">{{ cluster.count }}</span>
+                  </template>
+                  <template v-else-if="indoorZoom < 1.65 && indoorCategory === 'all' && !indoorSearch">
+                    <template v-for="point in resolvedMediumPoints" :key="point.id">
+                      <span v-if="point.type === 'cluster'" class="stall-cluster" :style="{ left: `${point.x}%`, top: `${point.y}%`, background: point.color }">{{ point.count }}</span>
+                      <span v-else-if="point.stall" class="demo-stall-marker" :style="{ left: `${point.stall.x}%`, top: `${point.stall.y}%`, '--stall-color': point.stall.color }"><i></i><b>{{ point.stall.name }}</b></span>
+                    </template>
+                  </template>
+                  <template v-else>
+                    <span v-for="stall in filteredDemoStalls" :key="stall.id" class="demo-stall-marker" :style="{ left: `${stall.x}%`, top: `${stall.y}%`, '--stall-color': stall.color }">
+                      <i></i><b>{{ stall.name }}</b>
+                    </span>
+                  </template>
+                </div>
               </div>
-              <div v-if="!boardMessages(activePoi.id).length" class="board-empty">暂无留言，来抢沙发吧！</div>
-            </div>
-            <div class="board-form">
-              <input v-model="boardAuthor" class="board-author-input" placeholder="昵称" />
-              <input v-model="boardInput" class="board-input" placeholder="说点什么..."
-                @keydown.enter="postBoard(activePoi)" />
-              <button class="board-send" @click="postBoard(activePoi)">发送</button>
-            </div>
-          </div>
+              <div class="indoor-zoom-controls">
+                <button @click="adjustIndoorZoom(.2)">＋</button>
+                <button @click="adjustIndoorZoom(-.2)">−</button>
+                <button @click="indoorZoom = 1.12">◎</button>
+              </div>
+              <span class="indoor-zoom-hint">{{ indoorZoom < 1.35 ? '滚轮向上：逐步拆分聚合档口' : indoorZoom < 1.65 ? '继续放大：查看全部档口名称' : `当前显示 ${filteredDemoStalls.length} 个档口` }}</span>
+            </main>
+
+            <main v-else-if="indoorView === 'list'" class="indoor-content-view">
+              <div class="indoor-content-heading"><strong>第一层档口</strong><span>共{{ filteredDemoStalls.length }}个档口</span></div>
+              <div class="indoor-stall-grid">
+                <article v-for="stall in filteredDemoStalls" :key="stall.id" class="indoor-stall-card">
+                  <div class="stall-card-title"><i :style="{ background: stall.color }">餐</i><span><strong>{{ stall.name }}</strong><small>{{ indoorCategoryLabels[stall.category] }}</small></span></div>
+                  <div class="stall-card-actions"><button @click="showStallOnMap(stall)">查看位置</button><button @click="showStallMenu(stall)">查看菜品</button></div>
+                </article>
+                <p v-if="!filteredDemoStalls.length" class="indoor-empty">当前筛选下暂无档口</p>
+              </div>
+            </main>
+
+            <main v-else class="indoor-content-view">
+              <div class="indoor-content-heading"><strong>第一层菜品</strong><span>共{{ filteredDemoMenu.length }}道菜品</span></div>
+              <div class="indoor-menu-grid">
+                <article v-for="dish in filteredDemoMenu" :key="dish.id" class="indoor-menu-card">
+                  <img :src="dish.image" :alt="dish.name" loading="lazy" />
+                  <div><strong>{{ dish.name }}</strong><small>{{ dish.stall }}</small><span>{{ indoorCategoryLabels[dish.category] }}</span></div>
+                  <b>¥{{ dish.price }}</b>
+                </article>
+                <p v-if="!filteredDemoMenu.length" class="indoor-empty">当前筛选下暂无菜品</p>
+              </div>
+            </main>
+
+            <footer class="indoor-footer"><span>◷ 营业时间 <strong>06:30—21:00</strong></span><button>⌁ 到这去</button></footer>
+          </section>
         </div>
       </Transition>
     </div>
@@ -545,6 +1207,45 @@ onUnmounted(() => {
 }
 .map-fallback { color: #ef4444; }
 .map-fallback small { font-size: 13px; font-weight: 400; color: var(--text2); }
+.map-canvas :global(.real-map-marker) {
+  display: flex; width: 140px; height: 64px; align-items: center;
+  flex-direction: column; justify-content: flex-end; cursor: pointer;
+  transform-origin: 50% 100%; transition: transform .16s ease;
+}
+.map-canvas :global(.real-map-marker:hover) { transform: translateY(-2px) scale(1.05); }
+.map-canvas :global(.real-map-marker__title) {
+  overflow: hidden; max-width: 136px; margin-bottom: 3px; padding: 4px 9px;
+  border: 1px solid rgba(15,23,42,.1); border-radius: 5px;
+  color: #172033; background: rgba(255,255,255,.97);
+  box-shadow: 0 2px 8px rgba(15,23,42,.16); font-size: 13px;
+  font-weight: 600; line-height: 18px; text-overflow: ellipsis; white-space: nowrap;
+}
+.map-canvas :global(.real-map-marker__icon) {
+  display: block; width: 28px; height: 36px; filter: drop-shadow(0 3px 4px rgba(15,23,42,.22));
+}
+.map-canvas :global(.map-info-window) {
+  min-width: 190px; max-width: 260px; padding: 10px 14px;
+  color: #334155; font-family: system-ui, sans-serif;
+}
+.map-canvas :global(.map-info-window__heading) {
+  display: flex; align-items: center; gap: 8px; margin-bottom: 5px;
+}
+.map-canvas :global(.map-info-window__heading strong) { color: #111827; font-size: 16px; }
+.map-canvas :global(.map-info-window__pin) {
+  width: 16px; height: 21px; flex: 0 0 auto;
+}
+.map-canvas :global(.map-info-window__type) {
+  display: block; margin-bottom: 5px; color: #3b82f6; font-size: 12px;
+}
+.map-canvas :global(.map-info-window p) {
+  margin: 0; color: #64748b; font-size: 13px; line-height: 1.5;
+}
+.map-canvas :global(.map-info-window__indoor-button) {
+  width: 100%; margin-top: 10px; padding: 8px 12px;
+  border: 0; border-radius: 7px; background: #f97316;
+  color: #fff; font-size: 13px; font-weight: 600; cursor: pointer;
+}
+.map-canvas :global(.map-info-window__indoor-button:hover) { background: #ea580c; }
 .spinner {
   width: 32px; height: 32px;
   border: 3px solid #bfdbfe; border-top-color: var(--primary);
@@ -554,13 +1255,13 @@ onUnmounted(() => {
 
 /* ═══ 搜索栏 ═══ */
 .search-wrapper {
-  position: absolute; top: 16px; left: 50%; transform: translateX(-50%);
-  width: min(460px, calc(100% - 120px)); z-index: 12;
+  position: absolute; top: 24px; left: 28px;
+  width: min(470px, calc(100% - 120px)); z-index: 12;
 }
 .search-box {
-  display: flex; align-items: center; gap: 8px; height: 44px;
-  padding: 0 14px; background: var(--surface); border-radius: 22px;
-  box-shadow: 0 4px 20px var(--shadow);
+  display: flex; align-items: center; gap: 10px; height: 58px;
+  padding: 0 10px 0 18px; background: var(--surface); border-radius: 16px;
+  border: 1px solid var(--border); box-shadow: 0 6px 22px rgba(15,23,42,.12);
 }
 .search-icon { flex: 0 0 18px; width: 18px; height: 18px; color: var(--text2); }
 .search-input {
@@ -573,6 +1274,10 @@ onUnmounted(() => {
   border-radius: 50%; background: var(--primary-light); border: none;
   color: var(--text2); font-size: 12px; cursor: pointer;
 }
+.search-submit {
+  height: 38px; padding: 0 20px; border: 0; border-radius: 10px;
+  color: #fff; background: #0758cf; font-weight: 700; cursor: pointer;
+}
 .search-dropdown {
   margin-top: 8px; background: var(--surface); border-radius: 14px;
   box-shadow: 0 8px 30px var(--shadow); overflow: hidden;
@@ -583,7 +1288,7 @@ onUnmounted(() => {
 }
 .search-item:hover { background: var(--primary-light); }
 .search-item + .search-item { border-top: 1px solid var(--border); }
-.si-icon { font-size: 20px; }
+.si-icon { width: 16px; height: 21px; flex: 0 0 auto; }
 .si-name { font-size: 14px; font-weight: 600; color: var(--text); }
 .si-desc { font-size: 12px; color: var(--text2); margin-top: 2px; }
 .notice-bar {
@@ -603,18 +1308,47 @@ onUnmounted(() => {
 }
 .tool-btn:hover { transform: scale(1.1); }
 
-/* ═══ 校园贴士 ═══ */
-.tips-card {
-  position: absolute; top: 64px; right: 16px; z-index: 12;
-  width: 280px; padding: 16px; background: var(--surface);
-  border-radius: 14px; box-shadow: 0 6px 24px var(--shadow);
+/* ═══ 左侧校园一级分类 ═══ */
+.category-rail {
+  position: absolute; top: 120px; left: 28px; z-index: 12;
+  width: 96px; height: 94px; overflow: hidden;
+  border: 1px solid rgba(148,163,184,.22); border-radius: 24px;
+  background: rgba(255,255,255,.96); box-shadow: 0 12px 32px rgba(15,23,42,.14);
+  transition: height .28s cubic-bezier(.4,0,.2,1); backdrop-filter: blur(14px);
 }
-.tips-title { font-size: 15px; font-weight: 700; color: var(--text); margin-bottom: 10px; }
-.tips-row {
-  display: flex; flex-direction: column; gap: 2px; padding: 8px 0;
-  border-top: 1px solid var(--border); font-size: 13px; color: var(--text2);
+.category-rail.expanded { height: 610px; }
+.category-all, .category-item {
+  width: 100%; border: 0; background: transparent; color: #4c5b70;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 7px; font-size: 13px; font-weight: 650; cursor: default;
 }
-.tips-row b { color: var(--text); }
+.category-all { height: 94px; color: #fff; background: #075fd7; cursor: pointer; }
+.category-all-icon { font-size: 28px; line-height: 22px; }
+.category-list { opacity: 0; transform: translateY(-10px); transition: opacity .18s, transform .24s; }
+.category-rail.expanded .category-list { opacity: 1; transform: translateY(0); }
+.category-item { height: 84px; border-bottom: 1px solid #edf1f5; }
+.category-item-icon {
+  width: 34px; height: 34px; display: grid; place-items: center;
+  border-radius: 11px; color: #2e75d2; background: #eef5ff; font-weight: 850;
+}
+.category-item--canteen { cursor: pointer; }
+.category-item--canteen .category-item-icon { color: #f97316; background: #fff1e8; }
+.category-item.active { color: #0758cf; background: #f4f8ff; }
+.campus-submenu, .other-submenu {
+  position: absolute; top: 214px; left: 136px; z-index: 13; display: flex; width: 156px;
+  flex-direction: column; overflow: hidden; border: 1px solid rgba(148,163,184,.28);
+  border-radius: 15px; background: rgba(255,255,255,.97); box-shadow: 0 12px 30px rgba(15,23,42,.16);
+  backdrop-filter: blur(14px);
+}
+.other-submenu { top: 634px; }
+.campus-submenu button, .other-submenu button { display: flex; height: 50px; align-items: center; gap: 10px; padding: 0 17px; border: 0; border-bottom: 1px solid #edf1f5; color: #405069; background: transparent; font-size: 14px; font-weight: 700; cursor: pointer; }
+.campus-submenu button:last-child, .other-submenu button:last-child { border-bottom: 0; }
+.campus-submenu button:hover, .campus-submenu button.active, .other-submenu button:hover, .other-submenu button.active { color: #0758cf; background: #f1f6ff; }
+.campus-submenu button span { color: #2e75d2; font-size: 18px; }
+.other-submenu { top: 634px; }
+.other-submenu button span { color: #64748b; font-size: 22px; line-height: 1; }
+.campus-menu-enter-active, .campus-menu-leave-active { transition: opacity .18s ease, transform .18s ease; }
+.campus-menu-enter-from, .campus-menu-leave-to { opacity: 0; transform: translateX(-8px); }
 
 /* ═══ 随机漫步 ═══ */
 .random-modal {
@@ -649,9 +1383,10 @@ onUnmounted(() => {
 }
 .quick-btn:hover { background: var(--primary-light); }
 .quick-btn.active { background: var(--primary-light); }
-.quick-icon { font-size: 22px; line-height: 1; }
+.quick-icon { width: 16px; height: 21px; }
 .quick-label { font-size: 11px; font-weight: 600; color: var(--text2); }
 .quick-btn.active .quick-label { color: var(--primary); }
+.quick-empty { padding: 12px 18px; color: var(--text2); font-size: 13px; white-space: nowrap; }
 
 /* ═══ 点位详情面板 ═══ */
 .poi-panel {
@@ -661,14 +1396,80 @@ onUnmounted(() => {
   box-shadow: 0 8px 32px var(--shadow); padding: 16px;
   max-height: 50vh; overflow-y: auto;
 }
+
+.canteen-panel {
+  right: auto; bottom: auto; width: 360px;
+  max-height: calc(100% - 36px); margin: 0; padding: 22px; overflow-y: auto;
+  border: 1px solid rgba(148,163,184,.28); border-radius: 20px;
+  background: rgba(255,255,255,.97); box-shadow: 0 16px 46px rgba(15,23,42,.2);
+}
+.canteen-header { justify-content: flex-start; gap: 12px; }
+.canteen-type-icon {
+  width: 46px; height: 46px; flex: 0 0 46px; display: grid; place-items: center;
+  border-radius: 12px; color: #fff; background: #fb873f; font-size: 15px; font-weight: 800;
+}
+.canteen-heading { min-width: 0; display: flex; flex: 1; flex-direction: column; gap: 3px; }
+.canteen-heading small { color: #7b8ba1; font-size: 12px; font-weight: 500; }
+.canteen-open { padding: 4px 9px; border-radius: 999px; color: #16a34a; background: #eaf9ef; font-size: 11px; font-weight: 700; }
+.canteen-badges, .canteen-services { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 18px; }
+.canteen-badges span { padding: 5px 10px; border-radius: 7px; color: #61738f; background: #edf3ff; font-size: 12px; }
+.canteen-meta { display: flex; align-items: flex-start; gap: 10px; margin-top: 16px; color: #3f4d61; font-size: 14px; line-height: 1.45; }
+.canteen-meta b { width: 20px; color: #3477d4; text-align: center; }
+.canteen-meta span { display: flex; flex-direction: column; }
+.canteen-meta small { margin-top: 2px; color: #78889d; font-size: 11px; }
+.canteen-intro { margin-top: 18px; }
+.canteen-intro strong { font-size: 14px; }
+.canteen-intro p { margin: 7px 0 0; color: #566579; font-size: 13px; line-height: 1.55; }
+.canteen-services span { padding: 4px 9px; border: 1px solid #dce5ef; border-radius: 999px; color: #687b94; font-size: 11px; }
+.more-info-zone { margin-top: 22px; padding-top: 2px; }
+.more-info-button { width: 100%; height: 48px; border: 0; border-radius: 10px; color: #fff; background: #0758cf; font-size: 15px; font-weight: 750; cursor: pointer; }
+
+.floor-preview {
+  position: absolute; z-index: 13; width: 316px;
+  padding: 22px; border: 1px solid rgba(148,163,184,.28); border-radius: 20px;
+  background: rgba(255,255,255,.98); box-shadow: 0 16px 46px rgba(15,23,42,.18);
+}
+.floor-preview h3 { margin: 0; color: #1f2937; font-size: 20px; }
+.floor-preview > p { margin: 4px 0 14px; color: #78889d; font-size: 12px; }
+.floor-preview-list {
+  max-height: 216px; overflow-y: auto; overscroll-behavior: contain;
+  scrollbar-width: thin; scrollbar-color: #a9bdd8 transparent;
+}
+.floor-preview-list::-webkit-scrollbar { width: 6px; }
+.floor-preview-list::-webkit-scrollbar-thumb { border-radius: 999px; background: #a9bdd8; }
+.floor-preview button {
+  width: 100%; height: 72px; padding: 10px 13px; border: 1px solid transparent; border-radius: 12px;
+  display: flex; align-items: center; gap: 14px; color: #334155; background: transparent; text-align: left;
+}
+.floor-preview button.active { border-color: #8ab3f8; background: #edf4ff; color: #0758cf; }
+.floor-preview button > b { width: 34px; font-size: 17px; }
+.floor-preview button > span { display: flex; flex: 1; flex-direction: column; gap: 3px; }
+.floor-preview button strong { font-size: 14px; }
+.floor-preview button small { color: #78889d; font-size: 12px; font-weight: 500; }
+.floor-preview button i { font-size: 22px; font-style: normal; }
+
+@media (max-width: 900px) {
+  .canteen-panel { right: auto; bottom: auto; width: min(360px, calc(100% - 36px)); }
+  .floor-preview { right: auto; bottom: auto; width: min(316px, calc(100% - 36px)); }
+  .category-rail { left: 18px; }
+  .search-wrapper { left: 18px; width: calc(100% - 126px); }
+}
 .poi-header { display: flex; justify-content: space-between; align-items: center; }
 .poi-name { font-size: 18px; font-weight: 700; color: var(--text); }
+.poi-type { margin-top: 5px; color: var(--primary); font-size: 12px; }
+.poi-cover {
+  width: 100%; height: 150px; margin-top: 12px; border-radius: 10px;
+  object-fit: cover;
+}
 .poi-close {
   width: 28px; height: 28px; display: grid; place-items: center;
   border-radius: 50%; border: none; background: var(--primary-light);
   color: var(--text2); cursor: pointer; font-size: 14px;
 }
 .poi-desc { font-size: 13px; color: var(--text2); margin: 8px 0 12px; line-height: 1.5; }
+.poi-location {
+  margin-top: -4px; color: var(--text2); font-size: 12px; line-height: 1.5;
+}
 .poi-section { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); }
 .section-label { font-size: 13px; font-weight: 700; color: var(--text); margin-bottom: 8px; }
 .checkin-btn {
@@ -677,11 +1478,6 @@ onUnmounted(() => {
 }
 .checkin-btn:hover { opacity: .85; }
 .checkin-done { font-size: 13px; color: #16a34a; font-weight: 600; }
-.badges { display: flex; flex-wrap: wrap; gap: 6px; }
-.badge {
-  padding: 4px 10px; border-radius: 12px; font-size: 12px; font-weight: 600;
-  background: var(--primary-light); color: var(--primary);
-}
 .board-list { max-height: 120px; overflow-y: auto; margin-bottom: 8px; }
 .board-msg {
   padding: 6px 0; font-size: 13px; border-bottom: 1px solid var(--border);
@@ -817,6 +1613,215 @@ onUnmounted(() => {
 .fade-enter-active, .fade-leave-active { transition: opacity .2s; }
 .fade-enter-from, .fade-leave-to { opacity: 0; }
 
+.indoor-guide-mask {
+  position: fixed; inset: 0; z-index: 1200;
+  display: grid; place-items: center; padding: 32px;
+  background: rgba(15, 23, 42, .58); backdrop-filter: blur(4px);
+}
+.indoor-guide-dialog {
+  display: flex; width: min(1180px, 94vw); height: min(820px, 88vh);
+  flex-direction: column; overflow: hidden;
+  border: 1px solid var(--border); border-radius: 18px;
+  background: var(--surface); box-shadow: 0 24px 80px rgba(15, 23, 42, .34);
+}
+.indoor-guide-header {
+  display: flex; align-items: flex-start; justify-content: space-between; gap: 24px;
+  padding: 22px 26px 18px; border-bottom: 1px solid var(--border);
+}
+.indoor-guide-eyebrow {
+  color: #f97316; font-size: 12px; font-weight: 700; letter-spacing: .08em;
+}
+.indoor-guide-header h2 { margin: 5px 0 4px; color: var(--text); font-size: 23px; }
+.indoor-guide-header p { margin: 0; color: var(--text2); font-size: 13px; }
+.indoor-guide-close {
+  display: grid; width: 34px; height: 34px; place-items: center;
+  border: 0; border-radius: 50%; background: var(--primary-light);
+  color: var(--text2); font-size: 24px; line-height: 1; cursor: pointer;
+}
+.indoor-guide-tabs {
+  display: flex; gap: 8px; padding: 14px 26px;
+  overflow-x: auto; border-bottom: 1px solid var(--border);
+}
+.indoor-guide-tabs button {
+  min-width: 82px; padding: 8px 16px;
+  border: 1px solid var(--border); border-radius: 8px;
+  background: transparent; color: var(--text2); font-weight: 600; cursor: pointer;
+}
+.indoor-guide-tabs button.active {
+  border-color: #f97316; background: #fff7ed; color: #c2410c;
+}
+.dark .indoor-guide-tabs button.active { background: rgba(249, 115, 22, .14); color: #fb923c; }
+.indoor-guide-state {
+  display: flex; flex: 1; align-items: center; justify-content: center; gap: 12px;
+  color: var(--text2); font-size: 14px;
+}
+.indoor-guide-body {
+  display: grid; min-height: 0; flex: 1;
+  grid-template-columns: minmax(0, 1fr) 280px; gap: 18px; padding: 20px 26px 26px;
+}
+.indoor-guide-plan {
+  position: relative; align-self: start; overflow: hidden;
+  border: 1px solid var(--border); border-radius: 10px; background: var(--bg);
+}
+.indoor-guide-plan > img { display: block; width: 100%; height: auto; }
+.indoor-guide-marker {
+  position: absolute; z-index: 2; transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+.indoor-guide-marker i {
+  display: block; width: 15px; height: 15px; margin: auto;
+  border: 3px solid #fff; border-radius: 50%; background: #f97316;
+  box-shadow: 0 2px 7px rgba(15, 23, 42, .38);
+}
+.indoor-guide-marker b {
+  display: block; max-width: 150px; margin-top: 4px; padding: 4px 7px;
+  overflow: hidden; border-radius: 5px; background: rgba(31, 41, 55, .9);
+  color: #fff; font-size: 12px; font-weight: 600;
+  text-overflow: ellipsis; white-space: nowrap;
+}
+.indoor-guide-stalls {
+  min-height: 0; overflow-y: auto;
+  border: 1px solid var(--border); border-radius: 10px; background: var(--bg);
+}
+.indoor-guide-stalls__title {
+  position: sticky; top: 0; z-index: 1;
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 14px 15px; border-bottom: 1px solid var(--border);
+  background: var(--surface); color: var(--text); font-weight: 700;
+}
+.indoor-guide-stalls__title span {
+  min-width: 24px; padding: 2px 7px; border-radius: 12px;
+  background: var(--primary-light); color: var(--primary); text-align: center; font-size: 12px;
+}
+.indoor-guide-stall {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  padding: 12px 14px; border-bottom: 1px solid var(--border);
+}
+.indoor-guide-stall > span { min-width: 0; }
+.indoor-guide-stall strong,
+.indoor-guide-stall small {
+  display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.indoor-guide-stall strong { color: var(--text); font-size: 13px; }
+.indoor-guide-stall small { margin-top: 3px; color: var(--text2); font-size: 11px; }
+.indoor-guide-stall em {
+  flex: 0 0 auto; padding: 3px 7px; border-radius: 10px;
+  background: var(--border); color: var(--text2); font-size: 11px; font-style: normal;
+}
+.indoor-guide-stall em.ready { background: #dcfce7; color: #15803d; }
+.indoor-guide-stalls__empty { padding: 40px 16px; color: var(--text2); text-align: center; }
+
+/* ═══ 食堂楼层平面导览 ═══ */
+.indoor-guide-dialog {
+  position: relative; width: min(1080px, 72vw); height: min(790px, 78vh);
+  min-width: 780px; background: #fff;
+}
+.indoor-breadcrumb {
+  padding: 18px 28px 10px; color: #627086; font-size: 12px;
+}
+.indoor-breadcrumb b { margin: 0 8px; color: #98a4b4; }
+.indoor-breadcrumb strong { color: #0758cf; }
+.indoor-guide-dialog > .indoor-guide-close { position: absolute; top: 15px; right: 22px; z-index: 4; background: transparent; }
+.indoor-toolbar {
+  display: grid; grid-template-columns: minmax(190px, 1fr) auto minmax(220px, .9fr);
+  align-items: center; gap: 22px; padding: 14px 28px 18px; border-bottom: 1px solid #dce4ef;
+}
+.indoor-toolbar h2 { margin: 0; color: #182335; font-size: 24px; }
+.indoor-view-tabs { display: flex; padding: 5px; border-radius: 10px; background: #eaf1ff; }
+.indoor-view-tabs button {
+  height: 42px; padding: 0 18px; border: 0; border-radius: 8px;
+  color: #4c5a70; background: transparent; font-weight: 700; cursor: pointer;
+}
+.indoor-view-tabs button.active { color: #0758cf; background: #fff; box-shadow: 0 2px 8px rgba(33,72,128,.1); }
+.indoor-search {
+  display: flex; height: 44px; align-items: center; gap: 9px; padding: 0 14px;
+  border: 1px solid #b9c8df; border-radius: 9px; background: #f6f9ff;
+}
+.indoor-search span { color: #53647d; font-size: 20px; }
+.indoor-search input { width: 100%; border: 0; outline: 0; color: #27364a; background: transparent; }
+.indoor-categories {
+  display: flex; align-items: center; gap: 9px; padding: 13px 28px;
+  overflow-x: auto; border-bottom: 1px solid #dce4ef; background: #f3f7ff;
+}
+.indoor-categories button, .indoor-facility {
+  flex: 0 0 auto; min-width: 62px; height: 44px; padding: 0 14px;
+  border: 1px solid #bdc9db; border-radius: 999px; display: grid; place-items: center;
+  color: #435168; background: #fff; font-size: 12px; font-weight: 700;
+}
+.indoor-categories button { cursor: pointer; }
+.indoor-categories button.active { border-color: #0758cf; color: #fff; background: #0758cf; }
+.indoor-facility { min-width: 54px; color: #46536a; cursor: pointer; }
+.indoor-facility--first { margin-left: clamp(28px, 4vw, 72px); }
+.indoor-map-stage {
+  position: relative; min-height: 0; flex: 1; padding: 26px 48px;
+  background-color: #edf4ff;
+  background-image: linear-gradient(#dce8fa 1px, transparent 1px), linear-gradient(90deg, #dce8fa 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+.indoor-plan-viewport {
+  width: 100%; height: 100%; overflow: auto; border: 1px solid #bbc8da;
+  border-radius: 8px; background: #fff; box-shadow: 0 5px 18px rgba(31,55,88,.12);
+  cursor: grab; touch-action: none; user-select: none;
+}
+.indoor-plan-viewport.dragging { cursor: grabbing; }
+.indoor-plan-canvas {
+  position: relative; width: 100%; height: auto; min-height: 0; aspect-ratio: 1680 / 1185;
+  transition: width .2s ease, height .2s ease;
+}
+.indoor-plan-canvas > img { width: 100%; height: 100%; display: block; object-fit: contain; pointer-events: none; }
+.stall-cluster {
+  position: absolute; z-index: 3; width: 38px; height: 38px; display: grid; place-items: center;
+  border: 4px solid #fff; border-radius: 50%; color: #fff; font-size: 15px; font-weight: 850;
+  box-shadow: 0 4px 12px rgba(15,23,42,.3); transform: translate(-50%, -50%);
+}
+.demo-stall-marker { position: absolute; z-index: 3; transform: translate(-50%, -50%); }
+.demo-stall-marker i {
+  display: block; width: 31px; height: 31px; margin: auto; border: 4px solid #fff;
+  border-radius: 50%; background: var(--stall-color); box-shadow: 0 3px 10px rgba(15,23,42,.28);
+}
+.demo-stall-marker b {
+  display: block; margin-top: 2px; padding: 4px 7px; border: 1px solid #d4deea;
+  border-radius: 5px; color: #253349; background: rgba(255,255,255,.96);
+  box-shadow: 0 2px 7px rgba(15,23,42,.14); font-size: 11px; white-space: nowrap;
+}
+.facility-map-marker { position: absolute; z-index: 4; transform: translate(-50%, -50%); text-align: center; }
+.facility-map-marker i { display: grid; width: 34px; height: 34px; margin: auto; place-items: center; border: 4px solid #fff; border-radius: 50%; color: #fff; background: var(--facility-color); box-shadow: 0 3px 10px rgba(15,23,42,.28); font-size: 10px; font-style: normal; font-weight: 800; }
+.facility-map-marker b { display: block; margin-top: 3px; padding: 4px 7px; border: 1px solid #d4deea; border-radius: 5px; color: #253349; background: #fff; box-shadow: 0 2px 7px rgba(15,23,42,.14); font-size: 11px; white-space: nowrap; }
+.indoor-zoom-controls {
+  position: absolute; right: 59px; bottom: 37px; display: flex; flex-direction: column;
+  overflow: hidden; border: 1px solid #c5d0df; border-radius: 9px; box-shadow: 0 4px 12px rgba(15,23,42,.14);
+}
+.indoor-zoom-controls button { width: 40px; height: 40px; border: 0; border-bottom: 1px solid #dce4ef; color: #25354a; background: #fff; font-size: 22px; cursor: pointer; }
+.indoor-zoom-controls button:last-child { border-bottom: 0; color: #0758cf; }
+.indoor-zoom-hint { position: absolute; left: 59px; bottom: 37px; padding: 7px 11px; border-radius: 8px; color: #53647c; background: rgba(255,255,255,.92); font-size: 11px; }
+.indoor-content-view { min-height: 0; flex: 1; margin: 22px 28px; overflow: hidden; border: 1px solid #cbd6e5; border-radius: 12px; background: #fff; }
+.indoor-content-heading { display: flex; height: 58px; align-items: center; justify-content: space-between; padding: 0 24px; border-bottom: 1px solid #dce4ef; color: #263449; }
+.indoor-content-heading span { color: #74849a; font-size: 12px; }
+.indoor-stall-grid, .indoor-menu-grid { height: calc(100% - 58px); padding: 22px; overflow-y: auto; background: #f8faff; }
+.indoor-stall-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); align-content: start; gap: 18px; }
+.indoor-stall-card { min-height: 132px; padding: 18px; border: 1px solid #cbd6e5; border-radius: 11px; background: #fff; box-shadow: 0 2px 6px rgba(31,55,88,.04); }
+.stall-card-title { display: flex; align-items: center; gap: 12px; }
+.stall-card-title > i { display: grid; width: 46px; height: 46px; flex: 0 0 auto; place-items: center; border-radius: 10px; color: #fff; font-style: normal; font-weight: 800; }
+.stall-card-title span { display: flex; min-width: 0; flex-direction: column; gap: 6px; }
+.stall-card-title strong { overflow: hidden; color: #1d2a3d; font-size: 15px; text-overflow: ellipsis; white-space: nowrap; }
+.stall-card-title small { width: fit-content; padding: 2px 7px; border-radius: 5px; color: #f97316; background: #fff0e7; }
+.stall-card-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; margin-top: 16px; }
+.stall-card-actions button { height: 36px; border: 1px solid #0758cf; border-radius: 7px; color: #0758cf; background: #fff; font-weight: 700; cursor: pointer; }
+.stall-card-actions button:last-child { color: #fff; background: #0758cf; }
+.indoor-menu-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); grid-auto-rows: 242px; align-content: start; gap: 18px; }
+.indoor-menu-card { position: relative; min-height: 242px; overflow: hidden; border: 1px solid #cbd6e5; border-radius: 11px; background: #fff; box-shadow: 0 2px 7px rgba(31,55,88,.06); }
+.indoor-menu-card > img { display: block; width: 100%; height: 142px; object-fit: cover; background: #e9f0fb; }
+.indoor-menu-card > div { display: flex; padding: 13px 14px 16px; flex-direction: column; gap: 5px; }
+.indoor-menu-card strong { color: #1d2a3d; font-size: 15px; }
+.indoor-menu-card small { color: #65758c; }
+.indoor-menu-card span { width: fit-content; padding: 2px 7px; border-radius: 5px; color: #f97316; background: #fff0e7; font-size: 10px; }
+.indoor-menu-card > b { position: absolute; right: 13px; bottom: 16px; color: #ef4444; font-size: 15px; }
+.indoor-empty { grid-column: 1 / -1; padding: 70px 0; color: #7a889b; text-align: center; }
+.indoor-footer { display: flex; min-height: 68px; align-items: center; justify-content: space-between; padding: 0 28px; border-top: 1px solid #dce4ef; }
+.indoor-footer span { color: #4e5c70; font-size: 12px; }
+.indoor-footer span strong { display: block; margin-left: 22px; color: #1f2c3e; font-size: 14px; }
+.indoor-footer button { width: 150px; height: 44px; border: 0; border-radius: 9px; color: #fff; background: #0758cf; font-size: 15px; font-weight: 750; }
+
 /* ═══ 响应式 ═══ */
 @media (max-width: 480px) {
   .chat-panel { right: 8px; left: 8px; width: auto; bottom: 80px; }
@@ -826,7 +1831,23 @@ onUnmounted(() => {
   .quick-icon { font-size: 18px; } .quick-label { font-size: 10px; }
   .poi-panel { left: 8px; right: 8px; bottom: 70px; }
   .search-wrapper { width: calc(100% - 80px); }
-  .tips-card { right: 8px; width: calc(100% - 16px); max-width: 320px; }
   .random-modal { width: calc(100% - 48px); padding: 20px; }
+}
+@media (max-width: 760px) {
+  .campus-submenu { left: 124px; }
+  .indoor-guide-mask { padding: 12px; }
+  .indoor-guide-dialog { width: 100%; height: 92vh; min-width: 0; }
+  .indoor-toolbar { grid-template-columns: 1fr; gap: 10px; overflow-y: auto; }
+  .indoor-map-stage { padding: 16px; }
+  .indoor-content-view { margin: 12px; }
+  .indoor-stall-grid, .indoor-menu-grid { grid-template-columns: 1fr; padding: 14px; }
+  .indoor-menu-grid { grid-auto-rows: 270px; }
+  .indoor-menu-card { min-height: 270px; }
+  .indoor-menu-card > img { height: 150px; }
+  .indoor-guide-header { padding: 18px; }
+  .indoor-guide-body {
+    display: flex; flex-direction: column; overflow-y: auto; padding: 14px 18px 18px;
+  }
+  .indoor-guide-stalls { flex: 0 0 auto; max-height: 230px; }
 }
 </style>

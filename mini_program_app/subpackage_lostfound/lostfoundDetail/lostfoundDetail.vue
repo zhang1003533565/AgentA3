@@ -2,7 +2,24 @@
   <view class="page-root">
     <view class="screen">
       <view class="container">
-        <common-page-header title="商品详情" :fixed="true" :placeholder="true" :showBack="true" />
+        <nav-bar
+          title="商品详情"
+          :fixed="true"
+          :placeholder="true"
+          :showBack="true"
+          heightRpx="88"
+        >
+          <template #right>
+            <view
+              class="menu-dots-btn"
+              @click="showMenu = true"
+            >
+              <view class="menu-dot"></view>
+              <view class="menu-dot"></view>
+              <view class="menu-dot"></view>
+            </view>
+          </template>
+        </nav-bar>
 
         <scroll-view scroll-y class="page-body" :show-scrollbar="false" :style="{ height: pageBodyHeight + 'px' }">
           <view class="hero-wrap">
@@ -27,23 +44,9 @@
           <view class="card main-card">
             <view class="price-row">
               <view class="price"><text>¥</text>{{ priceText }}</view>
-              <view class="status" :class="statusClass">{{ statusText }}</view>
             </view>
             <view class="title">{{ item.title || '未命名商品' }}</view>
             <view class="meta-row">
-              <view class="meta-tags">
-                <text>{{ categoryText }}</text>
-                <text>{{ conditionText }}</text>
-              </view>
-              <button
-                class="favorite-button"
-                :class="{ 'favorite-button--active': item.isFavorited }"
-                :disabled="favoriteLoading"
-                @click.stop="toggleFavorite"
-              >
-                <image class="favorite-icon" src="/static/icons/line/star.svg" mode="aspectFit" />
-                <text>{{ item.isFavorited ? '已收藏' : '收藏' }}</text>
-              </button>
             </view>
             <view class="pickup-row" @click="contactSeller">
               <view class="pickup-main">
@@ -76,12 +79,21 @@
           </view>
 
           <view class="card seller-card" @click="contactSeller">
-            <view class="avatar">{{ sellerInitial }}</view>
+            <view class="avatar">
+              <image
+                v-if="item.sellerAvatar"
+                class="avatar-image"
+                :src="item.sellerAvatar"
+                mode="aspectFill"
+                @error="handleSellerAvatarError"
+              />
+              <text v-else class="avatar-initial">{{ sellerInitial }}</text>
+            </view>
             <view class="seller-info">
               <view class="seller-name">{{ item.sellerName || '校园用户' }}</view>
               <view class="seller-time">{{ formatTime(item.createTime) }}发布</view>
             </view>
-            <view class="seller-action">查看主页 ›</view>
+            <view class="seller-action" @click.stop="goUserHomepage">查看主页 ›</view>
           </view>
 
           <view class="safety-card">
@@ -95,39 +107,108 @@
         </scroll-view>
 
         <view class="bottom-bar">
-          <view v-if="isSeller" class="seller-actions">
-            <button class="manage-button" @click="handleSellerPrimaryAction">{{ sellerPrimaryButtonText }}</button>
-            <button class="offline-button" :disabled="sellerSecondaryDisabled" @click="handleSellerSecondaryAction">{{ sellerSecondaryButtonText }}</button>
-          </view>
-          <button v-else-if="isCompletedTradeBuyer" class="contact-button" @click="openTradeRecords">查看交易记录</button>
-          <view v-else-if="isItemCompleted" class="trade-locked-button">已售出</view>
-          <view v-else-if="isCurrentTradeBuyer" class="buyer-trade-actions">
-            <view class="trade-status-button">交易进行中</view>
-            <button class="contact-button contact-button--compact" @click="contactSeller">
-              <view class="chat-outline"></view>
-              <text>联系卖家</text>
-            </button>
-          </view>
-          <button v-else class="contact-button" @click="contactSeller">
-            <view class="chat-outline"></view>
-            <text>{{ contactButtonText }}</text>
+          <button
+            v-if="!isSeller"
+            class="favorite-button-bottom"
+            :class="{ 'favorite-button-bottom--active': item.isFavorited }"
+            :disabled="favoriteLoading"
+            @click="toggleFavorite"
+          >
+            <image class="favorite-icon-bottom" :src="item.isFavorited ? '/static/icons/star-filled.svg' : '/static/icons/line/star.svg'" mode="aspectFit" />
+            <text>{{ item.isFavorited ? '已收藏' : '收藏' }}</text>
           </button>
+          <button v-if="isSeller" class="contact-button contact-button--full" @click="openEditOverlay">
+            <text>编辑商品</text>
+          </button>
+          <button v-if="!isSeller" class="contact-button contact-button--full" @click="contactSeller">
+            <text>联系TA</text>
+          </button>
+        </view>
+
+        <!-- 菜单弹窗 -->
+        <view v-show="showMenu" class="modal-mask" @click="showMenu = false">
+          <view class="menu-modal" @click.stop>
+            <view v-if="isSeller" class="menu-list">
+              <!-- #ifdef MP-WEIXIN -->
+              <button class="menu-item menu-item--button" open-type="share">分享商品</button>
+              <!-- #endif -->
+              <!-- #ifdef H5 -->
+              <button class="menu-item menu-item--button" @click="shareProduct">分享商品</button>
+              <!-- #endif -->
+              <view class="menu-item menu-item--danger" @click="handleOffline">
+                <text class="menu-text">下架物品</text>
+              </view>
+              <view class="menu-item" @click="showMenu = false">
+                <text class="menu-text">取消</text>
+              </view>
+            </view>
+            <view v-else class="menu-list">
+              <!-- #ifdef MP-WEIXIN -->
+              <button class="menu-item menu-item--button" open-type="share">分享商品</button>
+              <!-- #endif -->
+              <!-- #ifdef H5 -->
+              <button class="menu-item menu-item--button" @click="shareProduct">分享商品</button>
+              <!-- #endif -->
+              <view class="menu-item menu-item--danger" @click="showReportForm = true; showMenu = false">
+                <text class="menu-text">举报物品</text>
+              </view>
+              <view class="menu-item" @click="showMenu = false">
+                <text class="menu-text">取消</text>
+              </view>
+            </view>
+          </view>
+        </view>
+
+        <!-- 举报弹窗 -->
+        <view v-if="showReportForm" class="modal-mask" @click="showReportForm = false">
+          <view class="report-modal" @click.stop>
+            <view class="modal-title">举报物品</view>
+            <view class="modal-subtitle">请填写以下信息提交举报</view>
+            <view class="report-form">
+              <view class="form-item">
+                <text class="form-label">姓名</text>
+                <input class="form-input" v-model="reportForm.reporterName" placeholder="请输入您的姓名" />
+              </view>
+              <view class="form-item">
+                <text class="form-label">联系方式</text>
+                <input class="form-input" v-model="reportForm.reporterContact" placeholder="请输入手机号或邮箱" />
+              </view>
+              <view class="form-item">
+                <text class="form-label">详细理由</text>
+                <textarea class="form-textarea" v-model="reportForm.reason" placeholder="请详细描述举报理由（必填）" />
+              </view>
+            </view>
+            <view class="modal-actions">
+              <view class="modal-btn modal-btn--cancel" @click="showReportForm = false">取消</view>
+              <view class="modal-btn modal-btn--confirm" @click="submitReport">提交举报</view>
+            </view>
+          </view>
         </view>
       </view>
     </view>
+    <market-publish-overlay
+      v-if="editOverlayMounted"
+      :visible="editOverlayVisible"
+      :itemId="itemId"
+      @close="closeEditOverlay"
+    />
   </view>
 </template>
 
 <script>
-import CommonPageHeader from '@/components/common-page-header/common-page-header.vue'
+import NavBar from '@/components/nav-bar/nav-bar.vue'
+import MarketPublishOverlay from '@/components/market-publish-overlay/market-publish-overlay.vue'
 import {
   favoriteSecondhandItem,
   getSecondhandItemDetail,
   getTradeRecords,
   offlineSecondhandItem,
+  recordBrowseHistory,
+  reportSecondhandItem,
   unfavoriteSecondhandItem
 } from '@/api/secondhand'
 import { getToken, getUserInfo } from '@/utils/storage'
+import { buildDefaultAvatar, pickOtherAvatar } from '@/subpackage_lostfound/utils/avatar.js'
 import { getMarketCategoryLabel, getMarketSubcategoryLabel } from '../utils/marketCategories'
 
 const EMOJIS = ['📱', '💻', '📷', '🎧', '⌚', '📚', '👟', '🧥', '🪑', '🏠', '🎮', '🎸', '🖥️', '📦']
@@ -204,6 +285,7 @@ function normalizeItem(raw = {}) {
     title: raw.title || raw.name || '',
     description: raw.description || raw.desc || '',
     price: raw.price,
+    tradeType: raw.tradeType || raw.trade_type || 'sell',
     images: Array.isArray(raw.images) ? raw.images : [],
     categoryId: raw.categoryId || raw.category?.id || raw.category,
     subcategoryId: raw.subcategoryId || raw.subCategoryId,
@@ -219,6 +301,19 @@ function normalizeItem(raw = {}) {
     viewCount: Number(raw.viewCount || 0),
     sellerId: normalizeId(raw.sellerId) || normalizeId(seller) || normalizeId(raw.userId) || normalizeId(raw.ownerId) || normalizeId(raw.publisherId),
     sellerName: seller.username || raw.sellerName || raw.userName || '',
+    userName: seller.username || raw.sellerName || raw.userName || '',
+    sellerAvatar: pickOtherAvatar({
+      otherAvatar: seller.avatar,
+      otherAvatarUrl: seller.avatarUrl,
+      otherUserAvatar: seller.userAvatar,
+      sellerAvatar: raw.sellerAvatar,
+      sellerAvatarUrl: raw.sellerAvatarUrl,
+      userAvatar: raw.userAvatar,
+      avatar: raw.avatar,
+      avatarUrl: raw.avatarUrl
+    }) || buildDefaultAvatar({
+      username: seller.username || raw.sellerName || raw.userName || 'seller'
+    }),
     isFavorited: Boolean(raw.isFavorited),
     createTime: raw.createTime || raw.ctime || ''
   }
@@ -226,7 +321,8 @@ function normalizeItem(raw = {}) {
 
 export default {
   components: {
-    CommonPageHeader
+    NavBar,
+    MarketPublishOverlay
   },
   data() {
     return {
@@ -236,7 +332,16 @@ export default {
       completedTrade: null,
       favoriteLoading: false,
       pageBodyHeight: 0,
-      imageIndex: 0
+      imageIndex: 0,
+      showMenu: false,
+      showReportForm: false,
+      editOverlayVisible: false,
+      editOverlayMounted: false,
+      reportForm: {
+        reporterName: '',
+        reporterContact: '',
+        reason: ''
+      }
     }
   },
   computed: {
@@ -309,7 +414,7 @@ export default {
       return !this.isItemCompleted && !this.activeTrade && !this.canOfflineItem
     },
     contactButtonText() {
-      return '联系卖家'
+      return '联系TA'
     }
   },
   async onLoad(options) {
@@ -317,7 +422,45 @@ export default {
     this.calcPageBodyHeight()
     await this.loadItem()
   },
+  // #ifdef MP-WEIXIN
+  onShareAppMessage() {
+    const title = this.item.name || this.item.title || '校园集市商品'
+    const path = `/subpackage_lostfound/lostfoundDetail/lostfoundDetail?id=${this.itemId}`
+    const imageUrl = this.item.images && this.item.images.length ? this.item.images[0] : ''
+    return { title, path, imageUrl }
+  },
+  onShareTimeline() {
+    const title = this.item.name || this.item.title || '校园集市商品'
+    const query = `id=${this.itemId}`
+    const imageUrl = this.item.images && this.item.images.length ? this.item.images[0] : ''
+    return { title, query, imageUrl }
+  },
+  // #endif
   methods: {
+    openEditOverlay() {
+      this.editOverlayMounted = true
+      this.editOverlayVisible = true
+    },
+    closeEditOverlay() {
+      this.editOverlayVisible = false
+      // 等待面板滑出动画结束后移除组件，避免全屏遮罩层挡住点击
+      setTimeout(() => {
+        this.editOverlayMounted = false
+      }, 300)
+      // 刷新商品详情，显示编辑后的最新数据
+      this.loadItem()
+    },
+    goUserHomepage() {
+      if (!this.item.sellerId) {
+        uni.showToast({ title: '用户信息不存在', icon: 'none' })
+        return
+      }
+      const userName = encodeURIComponent(this.item.sellerName || '校园用户')
+      const avatar = encodeURIComponent(this.item.sellerAvatar || '')
+      uni.navigateTo({
+        url: `/subpackage_lostfound/userHomepage/userHomepage?userId=${this.item.sellerId}&userName=${userName}&avatar=${avatar}`
+      })
+    },
     calcPageBodyHeight() {
       this.$nextTick(() => {
         const query = uni.createSelectorQuery().in(this)
@@ -350,7 +493,8 @@ export default {
         await this.loadActiveTrade()
       } catch (e) {
         console.error('加载商品详情失败', e)
-        uni.showToast({ title: '商品不存在', icon: 'none' })
+        const msg = e?.data?.msg || e?.msg || (e?.statusCode === 403 ? '该物品已下架' : '商品不存在')
+        uni.showToast({ title: msg, icon: 'none' })
         setTimeout(() => uni.navigateBack(), 1200)
       }
     },
@@ -374,7 +518,7 @@ export default {
         console.warn('查询交易记录失败', e)
       }
     },
-    saveBrowseHistory() {
+    async saveBrowseHistory() {
       if (!this.item.id) return
       try {
         const current = uni.getStorageSync(BROWSE_HISTORY_KEY)
@@ -383,14 +527,28 @@ export default {
           id: this.item.id,
           title: this.item.title,
           image: this.item.images?.[0] || '',
+          images: this.item.images || [],
+          price: this.item.price,
+          tradeType: this.item.tradeType || 'sell',
           campusName: this.item.campusName,
           tradeLocation: this.item.tradeLocation || this.item.pickupPoint,
+          pickupPoint: this.item.pickupPoint || '',
+          userName: this.item.userName || this.item.sellerName || '',
+          ctime: this.item.createTime || '',
           viewTime: Date.now()
         }
         const next = [nextItem, ...list.filter((item) => item.id !== this.item.id)].slice(0, 50)
         uni.setStorageSync(BROWSE_HISTORY_KEY, next)
       } catch (e) {
-        console.warn('保存浏览记录失败', e)
+        console.warn('保存浏览记录到本地失败', e)
+      }
+      try {
+        const token = getToken()
+        if (token) {
+          await recordBrowseHistory(this.item.id)
+        }
+      } catch (e) {
+        console.warn('保存浏览记录到服务器失败', e)
       }
     },
     emoji(id) {
@@ -492,6 +650,9 @@ export default {
         uni.showToast({ title: e?.data?.msg || e?.msg || '下架失败', icon: 'none' })
       }
     },
+    handleSellerAvatarError() {
+      this.item.sellerAvatar = ''
+    },
     formatTime(value) {
       if (!value) return ''
       const time = typeof value === 'string' ? new Date(value.replace(/-/g, '/')).getTime() : value
@@ -502,6 +663,114 @@ export default {
       if (diff < 86400000) return `${Math.floor(diff / 3600000)}小时前`
       const date = new Date(time)
       return `${date.getMonth() + 1}/${date.getDate()}`
+    },
+    async handleOffline() {
+      this.showMenu = false
+      uni.showModal({
+        title: '确认下架',
+        content: '确定要下架这件商品吗？下架后商品将不再展示。',
+        confirmText: '确认下架',
+        confirmColor: '#ea6948',
+        success: async (res) => {
+          if (res.confirm) {
+            try {
+              await offlineSecondhandItem(this.item.id)
+              uni.showToast({ title: '已下架', icon: 'none' })
+              await this.loadItem()
+            } catch (e) {
+              console.error('下架商品失败', e)
+              uni.showToast({ title: e?.data?.msg || e?.msg || '下架失败', icon: 'none' })
+            }
+          }
+        }
+      })
+    },
+    // #ifdef H5
+    async shareProduct() {
+      this.showMenu = false
+      if (!this.itemId) {
+        uni.showToast({ title: '商品信息缺失', icon: 'none' })
+        return
+      }
+      const title = this.item.title || '校园集市商品'
+      const shareUrl = window.location.href.split('#')[0] +
+        '#/subpackage_lostfound/lostfoundDetail/lostfoundDetail?id=' +
+        encodeURIComponent(this.itemId)
+
+      // 1) 浏览器原生分享（移动端 / 支持的桌面浏览器）
+      if (typeof navigator !== 'undefined' && navigator.share) {
+        try {
+          await navigator.share({ title, url: shareUrl })
+        } catch (e) {
+          if (e && e.name !== 'AbortError') {
+            uni.showToast({ title: '分享失败', icon: 'none' })
+          }
+        }
+        return
+      }
+
+      // 2) 桌面浏览器降级：复制链接到剪贴板
+      let copied = false
+      try {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          await navigator.clipboard.writeText(shareUrl)
+          copied = true
+        }
+      } catch (e) { copied = false }
+
+      // 3) 旧浏览器 / 非安全上下文兜底
+      if (!copied) {
+        try {
+          const ta = document.createElement('textarea')
+          ta.value = shareUrl
+          ta.style.cssText = 'position:fixed;top:-9999px;left:0;opacity:0'
+          document.body.appendChild(ta)
+          ta.focus()
+          ta.select()
+          copied = document.execCommand('copy')
+          document.body.removeChild(ta)
+        } catch (e) { copied = false }
+      }
+
+      uni.showToast({
+        title: copied ? '链接已复制，去粘贴给好友' : '复制失败，请手动复制地址栏',
+        icon: 'none',
+        duration: 2500
+      })
+    },
+    // #endif
+    async submitReport() {
+      if (!this.reportForm.reporterName.trim()) {
+        uni.showToast({ title: '请填写姓名', icon: 'none' })
+        return
+      }
+      if (!this.reportForm.reporterContact.trim()) {
+        uni.showToast({ title: '请填写联系方式', icon: 'none' })
+        return
+      }
+      if (!this.reportForm.reason.trim()) {
+        uni.showToast({ title: '请填写举报理由', icon: 'none' })
+        return
+      }
+
+      try {
+        await reportSecondhandItem({
+          itemId: this.item.id,
+          reporterName: this.reportForm.reporterName.trim(),
+          reporterContact: this.reportForm.reporterContact.trim(),
+          reason: this.reportForm.reason.trim()
+        })
+        uni.showToast({ title: '举报已提交', icon: 'success' })
+        this.showReportForm = false
+        this.reportForm = {
+          reporterName: '',
+          reporterContact: '',
+          reason: ''
+        }
+      } catch (e) {
+        console.error('提交举报失败', e)
+        uni.showToast({ title: e?.data?.msg || e?.msg || '提交失败', icon: 'none' })
+      }
     }
   }
 }
@@ -523,6 +792,27 @@ export default {
   padding: 0;
   box-sizing: border-box;
   position: relative;
+}
+
+.menu-dots-btn {
+  width: 56rpx;
+  height: 56rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6rpx;
+  border-radius: 50%;
+}
+
+.menu-dots-btn:active {
+  opacity: 0.6;
+}
+
+.menu-dot {
+  width: 7rpx;
+  height: 7rpx;
+  border-radius: 50%;
+  background: #1D1D1F;
 }
 
 .page-body {
@@ -833,6 +1123,7 @@ export default {
   width: 88rpx;
   height: 88rpx;
   border-radius: 50%;
+  overflow: hidden;
   background: linear-gradient(135deg, #82aee0, #5f8fc4);
   color: #fff;
   display: flex;
@@ -840,6 +1131,16 @@ export default {
   justify-content: center;
   font-size: 34rpx;
   font-weight: 900;
+}
+
+.avatar-image {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.avatar-initial {
+  line-height: 1;
 }
 
 .seller-info {
@@ -915,11 +1216,46 @@ export default {
   width: 100%;
   max-width: 430px;
   transform: translateX(-50%);
-  padding: 12rpx 32rpx calc(12rpx + env(safe-area-inset-bottom));
+  padding: 16rpx 24rpx calc(16rpx + env(safe-area-inset-bottom));
   box-sizing: border-box;
   background: #fff;
   border-top: 1rpx solid rgba(132, 151, 168, 0.14);
   z-index: 20;
+  display: flex;
+  gap: 20rpx;
+  align-items: center;
+}
+
+.favorite-button-bottom {
+  flex-shrink: 0;
+  min-width: 120rpx;
+  height: 88rpx;
+  padding: 0 24rpx;
+  border-radius: 24rpx;
+  background: #f5f7fa;
+  color: #5a6478;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10rpx;
+  font-size: 26rpx;
+  font-weight: 700;
+  box-sizing: border-box;
+  border: none;
+}
+
+.favorite-button-bottom::after {
+  border: none;
+}
+
+.favorite-button-bottom--active {
+  background: #fff8e1;
+  color: #ff9800;
+}
+
+.favorite-icon-bottom {
+  width: 32rpx;
+  height: 32rpx;
 }
 
 .seller-actions {
@@ -983,6 +1319,11 @@ export default {
   box-shadow: 0 10rpx 22rpx rgba(85, 112, 136, 0.22);
 }
 
+.contact-button--full {
+  flex: 1;
+  width: auto;
+}
+
 .contact-button--compact {
   flex: 1;
   width: auto;
@@ -1038,5 +1379,179 @@ export default {
   border-bottom: 4rpx solid #fff;
   transform: rotate(-18deg);
   background: transparent;
+}
+
+/* 弹窗遮罩 */
+.modal-mask {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+/* 菜单弹窗 */
+.menu-modal {
+  width: 300rpx;
+  background: #fff;
+  border-radius: 20rpx;
+  overflow: hidden;
+  box-shadow: 0 8rpx 32rpx rgba(0, 0, 0, 0.2);
+}
+
+.menu-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.menu-item {
+  padding: 32rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-bottom: 1rpx solid #f0f0f0;
+}
+
+.menu-item:last-child {
+  border-bottom: none;
+}
+
+.menu-item--danger .menu-text {
+  color: #ea6948;
+}
+
+.menu-text {
+  font-size: 30rpx;
+  color: #333;
+  font-weight: 500;
+}
+
+.menu-item--button {
+  width: 100%;
+  margin: 0;
+  padding: 32rpx;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  line-height: normal;
+  font-size: 30rpx;
+  color: #333;
+  font-weight: 500;
+}
+
+.menu-item--button::after {
+  display: none;
+}
+
+/* 举报弹窗 */
+.report-modal {
+  width: 600rpx;
+  background: #fff;
+  border-radius: 24rpx;
+  padding: 40rpx;
+  box-shadow: 0 8rpx 32rpx rgba(0, 0, 0, 0.2);
+}
+
+.modal-title {
+  font-size: 36rpx;
+  font-weight: bold;
+  color: #111c2b;
+  text-align: center;
+  margin-bottom: 12rpx;
+}
+
+.modal-subtitle {
+  font-size: 26rpx;
+  color: #999;
+  text-align: center;
+  margin-bottom: 32rpx;
+}
+
+.report-form {
+  margin-bottom: 32rpx;
+}
+
+.form-item {
+  margin-bottom: 24rpx;
+}
+
+.form-label {
+  font-size: 28rpx;
+  color: #333;
+  font-weight: 500;
+  margin-bottom: 12rpx;
+  display: block;
+}
+
+.form-input {
+  width: 100%;
+  height: 72rpx;
+  padding: 0 24rpx;
+  border: 1rpx solid #e0e0e0;
+  border-radius: 12rpx;
+  font-size: 28rpx;
+  box-sizing: border-box;
+}
+
+.form-picker {
+  width: 100%;
+}
+
+.picker-value {
+  width: 100%;
+  height: 72rpx;
+  padding: 0 24rpx;
+  border: 1rpx solid #e0e0e0;
+  border-radius: 12rpx;
+  font-size: 28rpx;
+  color: #333;
+  display: flex;
+  align-items: center;
+  box-sizing: border-box;
+}
+
+.picker-placeholder {
+  color: #999;
+}
+
+.form-textarea {
+  width: 100%;
+  height: 160rpx;
+  padding: 20rpx 24rpx;
+  border: 1rpx solid #e0e0e0;
+  border-radius: 12rpx;
+  font-size: 28rpx;
+  box-sizing: border-box;
+}
+
+.modal-actions {
+  display: flex;
+  gap: 24rpx;
+}
+
+.modal-btn {
+  flex: 1;
+  height: 80rpx;
+  border-radius: 12rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 30rpx;
+  font-weight: 500;
+}
+
+.modal-btn--cancel {
+  background: #f5f5f5;
+  color: #666;
+}
+
+.modal-btn--confirm {
+  background: #ea6948;
+  color: #fff;
 }
 </style>

@@ -2,7 +2,8 @@ import {
   getChatSessions,
   getChatUnreadCount,
   getTradeNotificationUnreadCount,
-  getTradeNotifications
+  getTradeNotifications,
+  getChatMessageSummary
 } from '@/api/secondhand'
 import { getEnabledAnnouncements } from '@/api/notice'
 import { getAppMessageUnreadCount } from '@/api/message'
@@ -26,6 +27,8 @@ const state = {
 
 let realtimeRefreshTimer = null
 let realtimeRefreshPending = false
+let lastRealtimeRefreshAt = 0
+const REALTIME_MIN_INTERVAL = 2000
 const listeners = new Set()
 let lastSignature = ''
 
@@ -50,6 +53,8 @@ function buildSignature(nextState) {
   const sessionPart = (nextState.sessions || [])
     .map((item) => [
       item.sessionId,
+      item.otherUsername,
+      item.otherAvatar,
       item.lastMessage,
       item.lastTime,
       item.unreadCount,
@@ -149,14 +154,44 @@ export async function refreshMessageState(reason = 'manual') {
   return getMessageState()
 }
 
+export async function refreshChatListState(reason = 'chat-list') {
+  if (!getToken()) return getMessageState()
+  if (state.syncing) return getMessageState()
+  state.syncing = true
+  try {
+    const res = await getChatMessageSummary({ current: 1, size: 30 })
+    const summary = res?.data || {}
+    const sessionsPage = summary.sessions || {}
+    state.sessions = Array.isArray(sessionsPage.records) ? sessionsPage.records : []
+    state.unreadChatCount = numberValue(summary.chatUnreadCount)
+    state.unreadTradeCount = numberValue(summary.tradeUnreadCount)
+    state.totalUnreadCount = state.unreadChatCount + state.unreadTradeCount + state.unreadAppCount
+    state.lastSyncAt = Date.now()
+
+    const signature = buildSignature(state)
+    if (signature !== lastSignature || reason !== 'realtime') {
+      lastSignature = signature
+      notify(reason)
+    }
+  } catch (error) {
+    console.warn('messageStore refreshChatListState failed', error)
+  } finally {
+    state.syncing = false
+    if (realtimeRefreshPending) scheduleRealtimeRefresh()
+  }
+  return getMessageState()
+}
+
 function scheduleRealtimeRefresh() {
   if (realtimeRefreshTimer) return
+  const wait = Math.max(120, REALTIME_MIN_INTERVAL - (Date.now() - lastRealtimeRefreshAt))
   realtimeRefreshTimer = setTimeout(() => {
     realtimeRefreshTimer = null
     if (state.syncing) return
     realtimeRefreshPending = false
-    refreshMessageState('realtime')
-  }, 120)
+    lastRealtimeRefreshAt = Date.now()
+    refreshChatListState('realtime')
+  }, wait)
 }
 
 function handleRealtimeEvent(event) {

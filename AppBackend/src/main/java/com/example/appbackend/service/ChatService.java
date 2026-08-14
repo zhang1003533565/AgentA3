@@ -8,6 +8,7 @@ public interface ChatService {
     ChatDTO.SessionVO createOrGetSession(Long itemId, Long buyerId);
     ChatDTO.SessionVO createOrGetSession(Long itemId, Long userId, Long targetUserId);
     PageResponse<ChatDTO.SessionVO> getSessionList(Long userId, Integer current, Integer size);
+    ChatDTO.SessionVO getSessionById(Long sessionId, Long userId);
     void deleteSession(Long sessionId, Long userId);
 
     // ========== 消息 ==========
@@ -19,4 +20,6 @@ public interface ChatService {
     long countUnreadTradeNotifications(Long userId);
     void markTradeNotificationRead(Long id, Long userId);
     void markAllTradeNotificationsRead(Long userId);
+
+    ChatDTO.MessageSummaryVO getMessageSummary(Long userId, Integer current, Integer size);
 }

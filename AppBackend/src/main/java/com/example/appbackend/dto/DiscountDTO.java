@@ -54,6 +54,9 @@ public static class ActivityRequest {
 
     @Schema(description = "剩余名额")
     private Integer remainCount;
+
+    @Schema(description = "活动状态 0-未开始 1-进行中 2-已领完 3-已结束", example = "1")
+    private Integer status;
 }
 
     @Data
@@ -66,6 +69,7 @@ public static class ActivityRequest {
         private String title;
         private String description;
         private String coverImage;
+        private String startTime;
         private String endTime;
         private Integer remainCount;
         private Double distance;

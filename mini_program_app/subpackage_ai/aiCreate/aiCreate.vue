@@ -75,9 +75,21 @@
 
         <!-- 网格工具列表区 -->
         <view class="tools-section">
-          <view class="tools-grid">
-            <view class="tool-item" v-for="tool in currentTools" :key="tool.name" @tap="handleToolTap(tool)">
-              <view class="icon-wrapper" :style="{ '--light-color': tool.lightColor, '--theme-color': tool.themeColor }">
+          <view v-if="activeTab === 2 && campusLoading" class="course-state">正在加载校园课程...</view>
+          <view v-else-if="activeTab === 2 && campusError" class="course-state course-state--error" @tap="loadCampusCourses">
+            <text>{{ campusError }}</text>
+            <text class="course-state-action">点击重试</text>
+          </view>
+          <view v-else-if="activeTab === 2 && currentTools.length === 0" class="course-state">
+            <text>暂无可学习课程</text>
+            <text class="course-state-subtitle">管理员发布课程后会显示在这里</text>
+          </view>
+          <view v-else class="tools-grid">
+            <view class="tool-item" v-for="tool in currentTools" :key="tool.courseId || tool.name" @tap="handleToolTap(tool)">
+              <view v-if="tool.courseId" class="course-cover-wrapper">
+                <image class="course-cover-image" :src="tool.icon" mode="aspectFill"></image>
+              </view>
+              <view v-else class="icon-wrapper" :style="{ '--light-color': tool.lightColor, '--theme-color': tool.themeColor }">
                 <view class="icon-inner">
                   <image class="tool-icon" :src="tool.icon" mode="aspectFit"></image>
                 </view>
@@ -95,15 +107,19 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import NavBar from '@/components/nav-bar/nav-bar.vue'
 import { resolveAiToolDestination } from '@/subpackage_learning/aiToolRoutes.js'
+import { getCampusCourses } from '@/api/campusCourse.js'
 
 // 响应式数据
 const activeTab = ref(0)
+const campusCourses = ref([])
+const campusLoading = ref(false)
+const campusError = ref('')
 
 // Tab 列表
-const tabs = ref(['热门工具', '格式转换', '校园必备', '职场创意', '社交媒体'])
+const tabs = ref(['热门工具', '格式转换', '校园课程', '职场创意', '社交媒体'])
 
 // 快捷工具 Mock 数据
 const quickActions = ref([
@@ -118,6 +134,7 @@ const quickActions = ref([
 const toolCategories = {
   hot: [
     { name: '试卷生成', desc: '智能生成标准化试卷', icon: '/static/icons/ai create/exam.png', themeColor: '#FF6B6B', lightColor: 'rgba(255, 107, 107, 0.35)' },
+    { name: '题库生成', desc: '资料一键生成练习题', icon: '/static/icons/ai create/exam.png', themeColor: '#5E7387', lightColor: 'rgba(94, 115, 135, 0.35)' },
     { name: 'PPT生成', desc: '一键生成演示文稿', icon: '/static/icons/ai create/ppt-pdf.png', themeColor: '#FF9F43', lightColor: 'rgba(255, 159, 67, 0.35)' },
     { name: '思维导图', desc: '知识梳理思维导图', icon: '/static/icons/ai create/outline.png', themeColor: '#A55EEA', lightColor: 'rgba(165, 94, 234, 0.35)' },
     { name: '活动图', desc: '业务流程活动图', icon: '/static/icons/ai create/summary.png', themeColor: '#48DBFB', lightColor: 'rgba(72, 219, 251, 0.35)' },
@@ -127,27 +144,18 @@ const toolCategories = {
     { name: 'Python个性化学习', desc: '按基础规划学习路径', icon: '/static/icons/ai create/course.png', themeColor: '#2563EB', lightColor: 'rgba(37, 99, 235, 0.35)' }
   ],
   format: [
-    { name: 'PPT转PDF', desc: '一键PPT转PDF', icon: '/static/icons/ai create/ppt-pdf.png', themeColor: '#FF6B6B', lightColor: 'rgba(255, 107, 107, 0.35)' },
+    { name: 'PDF转Word', desc: 'PDF转Word快准稳', icon: '/static/icons/ai create/pdf-word.png', themeColor: '#5C7A99', lightColor: 'rgba(92, 122, 153, 0.35)' },
     { name: 'PDF转PPT', desc: '一键PDF转PPT', icon: '/static/icons/ai create/pdf-ppt.png', themeColor: '#5C7A99', lightColor: 'rgba(92, 122, 153, 0.35)' },
+    { name: 'PPT转PDF', desc: '一键PPT转PDF', icon: '/static/icons/ai create/ppt-pdf.png', themeColor: '#FF6B6B', lightColor: 'rgba(255, 107, 107, 0.35)' },
+    { name: 'PPT转Word', desc: 'PPT转Word快准稳', icon: '/static/icons/ai create/pdf-word.png', themeColor: '#A55EEA', lightColor: 'rgba(165, 94, 234, 0.35)' },
+    { name: 'Word转PDF', desc: 'Word转PDF快准稳', icon: '/static/icons/ai create/word-pdf.png', themeColor: '#3B82F6', lightColor: 'rgba(59, 130, 246, 0.35)' },
+    { name: 'Word转PPT', desc: 'Word转PPT快准稳', icon: '/static/icons/ai create/pdf-ppt.png', themeColor: '#3B82F6', lightColor: 'rgba(59, 130, 246, 0.35)' },
     { name: 'PDF转Excel', desc: 'PDF秒变Excel', icon: '/static/icons/ai create/pdf-excel.png', themeColor: '#1DD1A1', lightColor: 'rgba(29, 209, 161, 0.35)' },
     { name: 'PPT转图片', desc: '一键PPT秒变图片', icon: '/static/icons/ai create/ppt-img.png', themeColor: '#A55EEA', lightColor: 'rgba(165, 94, 234, 0.35)' },
-    { name: 'PDF转Word', desc: 'PDF转Word快准稳', icon: '/static/icons/ai create/pdf-word.png', themeColor: '#5C7A99', lightColor: 'rgba(92, 122, 153, 0.35)' },
     { name: 'PDF转图片', desc: '一键PDF秒变图片', icon: '/static/icons/ai create/pdf-img.png', themeColor: '#FF9F43', lightColor: 'rgba(255, 159, 67, 0.35)' },
-    { name: 'Word转PDF', desc: 'Word转PDF快准稳', icon: '/static/icons/ai create/word-pdf.png', themeColor: '#3B82F6', lightColor: 'rgba(59, 130, 246, 0.35)' },
     { name: '视频格式转换', desc: '一键改变视频格式', icon: '/static/icons/ai create/video-convert.png', themeColor: '#1DD1A1', lightColor: 'rgba(29, 209, 161, 0.35)' }
   ],
-  campus: [
-    { name: '实践报告', desc: '轻松搞定实践报告', icon: '/static/icons/ai create/report.png', themeColor: '#FF6B6B', lightColor: 'rgba(255, 107, 107, 0.35)' },
-    { name: '课程报告', desc: '课程报告助力提升', icon: '/static/icons/ai create/course.png', themeColor: '#FF9F43', lightColor: 'rgba(255, 159, 67, 0.35)' },
-    { name: '英语作文', desc: '轻松写出高分作文', icon: '/static/icons/ai create/english.png', themeColor: '#A55EEA', lightColor: 'rgba(165, 94, 234, 0.35)' },
-    { name: '活动总结', desc: '快速完成活动复盘', icon: '/static/icons/ai create/summary.png', themeColor: '#FF6B6B', lightColor: 'rgba(255, 107, 107, 0.35)' },
-    { name: '学科出题', desc: '一键出题精准教学', icon: '/static/icons/ai create/exam.png', themeColor: '#5C7A99', lightColor: 'rgba(92, 122, 153, 0.35)' },
-    { name: '学习计划', desc: '定制计划高效学习', icon: '/static/icons/ai create/plan.png', themeColor: '#1DD1A1', lightColor: 'rgba(29, 209, 161, 0.35)' },
-    { name: '考研题目', desc: '一键生成考研好题', icon: '/static/icons/ai create/graduate.png', themeColor: '#5C7A99', lightColor: 'rgba(92, 122, 153, 0.35)' },
-    { name: '文章主题大纲', desc: '轻松搞定文章框架', icon: '/static/icons/ai create/outline.png', themeColor: '#1DD1A1', lightColor: 'rgba(29, 209, 161, 0.35)' },
-    { name: '雅思大作文', desc: '一键生成雅思佳作', icon: '/static/icons/ai create/ielts.png', themeColor: '#FF6B6B', lightColor: 'rgba(255, 107, 107, 0.35)' },
-    { name: '思想汇报', desc: '一键搞定思想汇报', icon: '/static/icons/ai create/thought.png', themeColor: '#A55EEA', lightColor: 'rgba(165, 94, 234, 0.35)' }
-  ],
+  campus: [],
   work: [
     { name: 'PPT大纲', desc: '智能规划PPT要点', icon: '/static/icons/ai create/ppt-outline.png', themeColor: '#EF4444', lightColor: 'rgba(239, 68, 68, 0.35)' },
     { name: '简历制作', desc: '轻松打造吸睛简历', icon: '/static/icons/ai create/resume.png', themeColor: '#5C7A99', lightColor: 'rgba(92, 122, 153, 0.35)' },
@@ -177,19 +185,54 @@ const toolCategories = {
 // 计算属性：当前选中的工具列表
 const currentTools = computed(() => {
   const keys = ['hot', 'format', 'campus', 'work', 'social']
+  if (activeTab.value === 2) return campusCourses.value
   return toolCategories[keys[activeTab.value]] || []
 })
 
 // 方法：切换 Tab
 const switchTab = (index) => {
   activeTab.value = index
+  if (index === 2) loadCampusCourses()
 }
+
+const loadCampusCourses = async () => {
+  if (campusLoading.value) return
+  campusLoading.value = true
+  campusError.value = ''
+  try {
+    const response = await getCampusCourses()
+    const records = response?.data || []
+    campusCourses.value = records.map((course, index) => ({
+      courseId: course.id,
+      name: course.name,
+      desc: course.currentChapterTitle
+        ? `当前：${course.currentChapterTitle} · ${course.progressPercent || 0}%`
+        : `${course.bookTitle || '课程书'} · ${course.progressPercent || 0}%`,
+      icon: course.coverUrl || '/static/icons/ai create/course.png',
+      themeColor: index % 2 === 0 ? '#2563EB' : '#64748B',
+      lightColor: index % 2 === 0 ? 'rgba(37, 99, 235, 0.25)' : 'rgba(100, 116, 139, 0.25)'
+    }))
+  } catch (error) {
+    campusCourses.value = []
+    campusError.value = error?.msg || error?.message || '课程加载失败'
+  } finally {
+    campusLoading.value = false
+  }
+}
+
+onMounted(() => {
+  loadCampusCourses()
+})
 
 const goToSmartWriting = () => {
   handleToolTap({ name: '智能写作', desc: 'Deepseek赋能' })
 }
 
 const handleToolTap = (tool) => {
+  if (tool?.courseId) {
+    uni.navigateTo({ url: `/subpackage_learning/campusCourseDetail/campusCourseDetail?courseId=${encodeURIComponent(tool.courseId)}` })
+    return
+  }
   const destination = resolveAiToolDestination(tool)
   uni.navigateTo({ url: destination })
 }
@@ -216,6 +259,46 @@ const handleToolTap = (tool) => {
 
 .section-card:last-child {
   margin-bottom: 0;
+}
+
+.course-state {
+  min-height: 220rpx;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12rpx;
+  color: #475569;
+  font-size: 27rpx;
+}
+
+.course-state--error {
+  color: #b45309;
+}
+
+.course-state-subtitle,
+.course-state-action {
+  color: #94a3b8;
+  font-size: 23rpx;
+}
+
+.course-state-action {
+  color: #2563eb;
+}
+
+.course-cover-wrapper {
+  width: 72rpx;
+  height: 92rpx;
+  flex-shrink: 0;
+  overflow: hidden;
+  border-radius: 6rpx 12rpx 12rpx 6rpx;
+  background: #e8eef3;
+  box-shadow: inset 6rpx 0 rgba(82, 111, 136, 0.2), 0 5rpx 12rpx rgba(30, 41, 59, 0.12);
+}
+
+.course-cover-image {
+  width: 100%;
+  height: 100%;
 }
 
 /* ========== 1. 顶部三大核心卡片区 ========== */
@@ -278,11 +361,12 @@ const handleToolTap = (tool) => {
 
 .hero-main-icon {
   position: absolute;
-  right: 20rpx;
-  bottom: 20rpx;
-  width: 80rpx;
-  height: 80rpx;
-  z-index: 2;
+  right: 12rpx;
+  bottom: 12rpx;
+  width: 68rpx;
+  height: 68rpx;
+  z-index: 0;
+  opacity: 0.95;
 }
 
 /* 右侧小卡片容器 */

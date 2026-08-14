@@ -16,6 +16,7 @@ public interface DiscountService {
     void deleteActivity(Long id, Long currentUserId);
     PageResponse<DiscountDTO.ActivityVO> getMerchantActivities(Long merchantId, Integer current, Integer size, Long currentUserId);
     void offlineActivity(Long id, Long currentUserId);
+    void endActivityEarly(Long id, Long currentUserId);
 
     // ========== 领取 ==========
     void claimActivity(Long activityId, Long userId);

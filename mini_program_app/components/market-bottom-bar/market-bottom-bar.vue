@@ -1,11 +1,11 @@
 <template>
   <view class="bottom-bar" :class="{ 'bottom-bar--publishing': publishOverlayMounted }">
     <view class="bar-item" hover-class="none" :class="{ active: activeTab === 'home' }" @click="goToHome">
-      <image class="bar-icon-img" src="/static/icons/home.svg" mode="aspectFit" />
+      <image class="bar-icon-img" :src="activeTab === 'home' ? '/static/icons/home-active.svg' : '/static/icons/home.svg'" mode="aspectFit" />
       <span>首页</span>
     </view>
     <view class="bar-item" hover-class="none" :class="{ active: activeTab === 'market' }" @click="goToList">
-      <image class="bar-icon-img" src="/static/icons/marketplace.svg" mode="aspectFit" />
+      <image class="bar-icon-img" :src="activeTab === 'market' ? '/static/icons/marketplace-active.svg' : '/static/icons/marketplace.svg'" mode="aspectFit" />
       <span>市集</span>
     </view>
     <view class="bar-post-wrap">
@@ -15,13 +15,13 @@
     </view>
     <view class="bar-item" hover-class="none" :class="{ active: activeTab === 'messages' }" @click="goToMessages">
       <view class="bar-icon-wrap">
-        <image class="bar-icon-img" src="/static/icons/chat.svg" mode="aspectFit" />
+        <image class="bar-icon-img" :src="activeTab === 'messages' ? '/static/icons/chat-active.svg' : '/static/icons/chat.svg'" mode="aspectFit" />
         <view v-if="unreadCount > 0" class="bar-badge">{{ unreadCount > 99 ? '99+' : unreadCount }}</view>
       </view>
       <span>消息</span>
     </view>
     <view class="bar-item" hover-class="none" :class="{ active: activeTab === 'profile' }" @click="goToProfile">
-      <image class="bar-icon-img" src="/static/icons/profile.svg" mode="aspectFit" />
+      <image class="bar-icon-img" :src="activeTab === 'profile' ? '/static/icons/profile-active.svg' : '/static/icons/profile.svg'" mode="aspectFit" />
       <span>我的</span>
     </view>
     <market-publish-overlay
@@ -73,13 +73,27 @@ export default {
     applyMessageState(state = {}) {
       this.unreadCount = Number(state.totalUnreadCount || 0)
     },
+    switchMarketTab(url) {
+      uni.redirectTo({
+        url,
+        animationType: 'none',
+        animationDuration: 0,
+        fail: () => {
+          uni.navigateTo({
+            url,
+            animationType: 'none',
+            animationDuration: 0
+          })
+        }
+      })
+    },
     goToHome() {
       if (this.activeTab === 'home') return
-      uni.redirectTo({ url: '/subpackage_lostfound/marketplaceHome/marketplaceHome' })
+      this.switchMarketTab('/subpackage_lostfound/marketplaceHome/marketplaceHome')
     },
     goToList() {
       if (this.activeTab === 'market') return
-      uni.redirectTo({ url: '/subpackage_lostfound/lostfoundList/lostfoundList' })
+      this.switchMarketTab('/subpackage_lostfound/lostfoundList/lostfoundList')
     },
     goToPublish() {
       if (this.publishOverlayMounted) return
@@ -109,11 +123,11 @@ export default {
     },
     goToMessages() {
       if (this.activeTab === 'messages') return
-      uni.redirectTo({ url: '/pages/market/message/message' })
+      this.switchMarketTab('/pages/market/message/message')
     },
     goToProfile() {
       if (this.activeTab === 'profile') return
-      uni.redirectTo({ url: '/subpackage_lostfound/marketplaceProfile/marketplaceProfile' })
+      this.switchMarketTab('/subpackage_lostfound/marketplaceProfile/marketplaceProfile')
     }
   }
 }
@@ -126,10 +140,10 @@ export default {
   left: 0;
   right: 0;
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-around;
   background: #FFFFFF;
-  padding: 8rpx 0 calc(6rpx + env(safe-area-inset-bottom));
+  padding: 10rpx 0 calc(8rpx + env(safe-area-inset-bottom));
   box-shadow: 0 -2rpx 12rpx rgba(0, 0, 0, 0.06);
   z-index: 60;
 }
@@ -139,15 +153,17 @@ export default {
 }
 
 .bar-item {
+  position: relative;
   flex: 1;
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: flex-start;
-  gap: 0;
-  padding: 5rpx 0;
+  justify-content: center;
+  gap: 3rpx;
+  min-height: 112rpx;
+  padding: 6rpx 0 8rpx;
   border-radius: 12rpx;
-  color: #888888;
+  color: #999999;
   font-size: 20rpx;
   font-weight: 600;
   line-height: 26rpx;
@@ -158,10 +174,26 @@ export default {
 }
 
 .bar-item.active {
-  color: #6F98D0;
+  color: #3D7EFF;
+  font-weight: 700;
+}
+
+.bar-item.active::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  bottom: 7rpx;
+  width: 34rpx;
+  height: 7rpx;
+  border-radius: 999rpx;
+  background: #3D7EFF;
+  transform: translateX(-50%);
+  pointer-events: none;
 }
 
 .bar-item span {
+  position: relative;
+  z-index: 1;
   display: block;
   height: 26rpx;
   margin-top: 0;
@@ -173,13 +205,17 @@ export default {
 
 .bar-item.active .bar-icon-img {
   opacity: 1;
+  transform: translateY(-2rpx);
+  filter: drop-shadow(0 8rpx 10rpx rgba(61, 126, 255, 0.2));
 }
 
 .bar-icon-img {
+  position: relative;
+  z-index: 1;
   width: 48rpx;
   height: 48rpx;
-  margin: 0 0 2rpx;
-  opacity: 0.6;
+  margin: 0;
+  opacity: 1;
   transition: none;
   animation: none;
   transform: none;
@@ -188,11 +224,12 @@ export default {
 
 .bar-icon-wrap {
   position: relative;
+  z-index: 1;
   width: 48rpx;
-  height: 50rpx;
+  height: 48rpx;
   margin-bottom: 0;
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: center;
   transition: none;
   animation: none;

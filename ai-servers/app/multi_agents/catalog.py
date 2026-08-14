@@ -6,6 +6,7 @@ from fastapi import HTTPException
 ALL_RAG_STRATEGIES: list[str] = []
 TEXT_MODEL_MODALITY = ["text"]
 IMAGE_MODEL_MODALITY = ["image"]
+VISION_MODEL_MODALITY = ["vision"]
 VIDEO_MODEL_MODALITY = ["video"]
 EXAMPLE_INPUT_FILENAME = "example_input.md"
 
@@ -30,7 +31,8 @@ MEETING_AGENT_SPECS = {
 
 PPT_AGENT_SPECS = {
     "ppt_outline_agent": ("PPT 大纲智能体", "ppt_outline", "负责生成 PPT 整体大纲、页序、每页标题、讲解目标和内容要点。", "根据数据结构中栈与队列的知识点生成 6 页 PPT 大纲"),
-    "ppt_layout_agent": ("PPT 布局智能体", "ppt_layout", "负责根据大纲规划逐页版式、视觉层级、组件摆放和页面动线。", "根据这份 PPT 大纲设计每页布局、版式和视觉层级"),
+    "ppt_structure_agent": ("PPT 结构智能体", "ppt_structure", "按照 Presenton 的结构选择契约，为每一页选择模板中的布局组件。", "根据确认后的 PPT 大纲和模板布局目录选择逐页 layoutId"),
+    "ppt_content_agent": ("PPT 逐页内容智能体", "ppt_content", "根据确认后的大纲和原始资料撰写逐页标题、要点、解释与视觉建议。", "根据确认后的大纲生成逐页可展示内容"),
     "ppt_review_agent": ("PPT 审查智能体", "ppt_review", "负责审查 PPT 内容、布局和教学适配度，并输出问题清单与置信度评分。", "审查这份 PPT 大纲和布局，给出问题清单、修改建议和置信度"),
     "ppt_image_agent": ("PPT 配图提示词智能体", "ppt_image", "只负责为 PPT 封面、插图、示意图生成图片提示词和视觉素材建议，不直接调用图片模型。", "根据这份 PPT 大纲生成封面图和关键页面插图提示词"),
     "ppt_to_docx_agent": ("PPT 转 DOCX 智能体", "ppt_to_docx", "负责将 PPTX 文件转换为 DOCX，按幻灯片顺序重排内容并保留图片。", "上传 PPTX 文件后转换为 DOCX，保留图片并允许 Word 重新排版"),
@@ -94,6 +96,7 @@ DIAGRAM_AGENT_SPECS = {
 AGENT_ORDER = [
     "leader_agent",
     "profile_summary_agent",
+    "vision_agent",
     "architecture_prompt_agent",
     *DIAGRAM_AGENT_SPECS.keys(),
     "mind_map_agent",
@@ -114,6 +117,7 @@ DIAGRAM_SOURCE_AGENTS = frozenset({
     "diagram_architecture_agent",
 })
 INTERNAL_VISUAL_AGENTS = frozenset({
+    "vision_agent",
     "image_agent",
     "mind_map_agent",
     "architecture_prompt_agent",
@@ -210,7 +214,8 @@ def _learning_workflow_agent_profile(
 def _ppt_profile(agent_name: str, role: str, intent: str, purpose: str, example_input: str) -> Dict[str, Any]:
     output_type = {
         "ppt_outline_agent": "ppt_outline_markdown",
-        "ppt_layout_agent": "ppt_layout_markdown",
+        "ppt_structure_agent": "presenton_structure_json",
+        "ppt_content_agent": "slide_json",
         "ppt_review_agent": "ppt_review_markdown",
         "ppt_image_agent": "ppt_image_prompt_markdown",
         "ppt_to_docx_agent": "docx_file",
@@ -332,6 +337,22 @@ AGENT_PROFILES: Dict[str, Dict[str, Any]] = {
         "aliases": ["file_content_planner_agent", "文件内容编排智能体", "Word知识转换智能体", "文件知识转换智能体"],
         "exampleInput": "把刚才关于 Python 发展历史的内容整理成 Word 文档",
         "requiredModelModalities": TEXT_MODEL_MODALITY,
+    },
+    "vision_agent": {
+        "role": "图片识别智能体",
+        "purpose": "使用视觉理解模型识别聊天中上传的图片，结合用户问题描述画面、读取可见文字、分析图表或界面，并明确不确定内容。",
+        "inputs": ["user_query", "image_urls", "image_attachments", "conversation_context"],
+        "outputs": ["image_analysis_text"],
+        "skills": ["image understanding", "visual question answering", "ocr", "chart analysis", "screenshot analysis"],
+        "intent": "image_understanding",
+        "needRetrieval": False,
+        "executionMode": "tool_internal",
+        "executionModeLabel": "由识图工具调用视觉理解模型",
+        "defaultRagStrategy": "",
+        "supportedRagStrategies": [],
+        "aliases": ["vision", "vision_agent", "图片识别智能体", "识图智能体", "图片理解", "识图"],
+        "exampleInput": "请识别我上传的图片，概括画面内容并回答图片中的问题",
+        "requiredModelModalities": VISION_MODEL_MODALITY,
     },
     **{
         agent_name: _diagram_profile(agent_name, *spec)
@@ -482,6 +503,7 @@ def get_agent_catalog() -> Dict[str, Any]:
         "workflow": {
             "default": ["leader_agent", "textbook_knowledge_agent"],
             "profileSummary": ["profile_summary_agent"],
+            "imageUnderstanding": ["leader_agent", "recognize_image_tool", "vision_agent"],
             "mindMap": ["leader_agent", "textbook_knowledge_agent", "diagram_mind_map_agent"],
             "mindMapImage": ["leader_agent", "textbook_knowledge_agent", "mind_map_agent"],
             "architecturePrompt": ["leader_agent", "textbook_knowledge_agent", "architecture_prompt_agent", "diagram_architecture_agent"],

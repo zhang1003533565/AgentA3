@@ -1,7 +1,6 @@
 .facility-place-page {
   min-height: 100%;
   padding: 24px;
-  background: #f5f7fa;
 }
 
 .facility-place-toolbar {
@@ -22,6 +21,47 @@
 .facility-place-toolbar p {
   margin: 0;
   color: #64748b;
+}
+
+.facility-canteen-overview-page {
+  position: relative;
+}
+
+.facility-canteen-overview-page .facility-place-toolbar {
+  min-height: 0;
+  margin: 0;
+}
+
+.facility-canteen-overview-page .facility-place-toolbar > :first-child {
+  display: none;
+}
+
+.facility-canteen-overview-page .facility-place-toolbar > .ant-space {
+  position: absolute;
+  top: 20px;
+  right: 44px;
+  z-index: 2;
+  gap: 16px !important;
+}
+
+.facility-canteen-overview-page .facility-place-toolbar .ant-input-search {
+  width: 300px;
+}
+
+.facility-canteen-overview-page .facility-place-toolbar .ant-input-affix-wrapper,
+.facility-canteen-overview-page .facility-place-toolbar .ant-input-search-button,
+.facility-canteen-overview-page .facility-place-toolbar .ant-btn-primary {
+  height: 40px;
+}
+
+.facility-canteen-overview-page .facility-place-toolbar > .ant-space > .ant-btn-primary {
+  padding-inline: 20px;
+}
+
+.facility-place-back {
+  height: auto;
+  margin: 0 0 8px;
+  padding: 0;
 }
 
 .facility-place-card {
@@ -88,6 +128,357 @@
   transform: translate(-50%, -50%);
 }
 
+.facility-canteen-stats {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 24px;
+  flex-wrap: wrap;
+}
+
+.facility-canteen-stats button {
+  display: flex;
+  min-width: 128px;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 12px 28px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  color: #64748b;
+  background: #fff;
+  cursor: pointer;
+  font: inherit;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.facility-canteen-stats button:hover,
+.facility-canteen-stats button.active {
+  border-color: #1677ff;
+  box-shadow: 0 0 0 1px rgb(22 119 255 / 8%);
+}
+
+.facility-canteen-stats button.active {
+  color: #1677ff;
+  background: #fff;
+}
+
+.facility-canteen-stats button span {
+  color: inherit;
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.facility-canteen-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 24px;
+}
+
+.facility-canteen-card {
+  overflow: hidden;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: none;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.facility-canteen-card:hover {
+  border-color: #cbd8e2;
+  box-shadow: 0 6px 18px rgb(15 23 42 / 8%);
+}
+
+.facility-canteen-card-image {
+  position: relative;
+  width: 100%;
+  padding-top: 56.25%;
+  overflow: hidden;
+  background: #f1f5f9;
+}
+
+.facility-canteen-card-placeholder,
+.facility-canteen-carousel {
+  position: absolute;
+  inset: 0;
+}
+
+.facility-canteen-card-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #94a3b8;
+}
+
+.facility-canteen-card-placeholder .anticon {
+  font-size: 46px;
+}
+
+.facility-canteen-carousel img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0;
+  transition: opacity 0.45s ease;
+}
+
+.facility-canteen-carousel img.active {
+  opacity: 1;
+}
+
+.facility-canteen-carousel-dots {
+  position: absolute;
+  bottom: 9px;
+  left: 50%;
+  display: flex;
+  gap: 6px;
+  transform: translateX(-50%);
+  z-index: 5;
+}
+
+.facility-canteen-carousel-dots span {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: rgb(255 255 255 / 60%);
+  transition: width 0.2s ease, background 0.2s ease;
+}
+
+.facility-canteen-carousel-dots span.active {
+  width: 20px;
+  background: #fff;
+}
+
+.facility-canteen-image-shade {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  pointer-events: none;
+  background: linear-gradient(90deg, rgb(8 28 54 / 48%) 0%, rgb(8 28 54 / 12%) 55%, transparent 100%);
+}
+
+.facility-canteen-heading {
+  position: absolute;
+  top: 28px;
+  right: 32px;
+  left: 32px;
+  z-index: 4;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.facility-canteen-heading h2 {
+  max-width: 100%;
+  margin: 0;
+  color: #fff;
+  font-size: 32px;
+  font-weight: 700;
+  line-height: 1.2;
+  text-shadow: 0 1px 3px rgb(15 23 42 / 35%);
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.facility-canteen-heading .ant-tag {
+  margin: 0;
+  padding: 2px 11px;
+  background: rgb(255 255 255 / 94%);
+  font-size: 16px;
+  line-height: 24px;
+}
+
+.facility-canteen-card-info {
+  padding: 20px 32px 12px;
+}
+
+.facility-canteen-summary-row {
+  display: flex;
+  min-height: 36px;
+  align-items: center;
+  gap: 12px;
+  color: #334155;
+  font-size: 15px;
+}
+
+.facility-canteen-summary-row .anticon {
+  color: #1677ff;
+  font-size: 18px;
+}
+
+.facility-canteen-summary-row strong {
+  color: #0f172a;
+  font-weight: 700;
+}
+
+.facility-canteen-location {
+  display: flex;
+  min-height: 66px;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 11px 12px;
+  border: 1px solid;
+  border-radius: 9px;
+  font-size: 13px;
+}
+
+.facility-canteen-location.is-set {
+  border-color: #cfe3d2;
+  color: #35613d;
+  background: #f5faf6;
+}
+
+.facility-canteen-location.is-unset {
+  border-color: #f0d5a7;
+  color: #8a5a12;
+  background: #fffaf1;
+}
+
+.facility-canteen-location .anticon {
+  margin-top: 2px;
+  font-size: 16px;
+}
+
+.facility-canteen-location div {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.facility-canteen-location strong {
+  font-weight: 650;
+}
+
+.facility-canteen-location span {
+  overflow: hidden;
+  opacity: 0.85;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.facility-canteen-actions {
+  display: flex;
+  gap: 16px;
+  padding: 4px 32px 20px;
+}
+
+.facility-canteen-actions > .ant-btn {
+  flex: 0 1 200px;
+  height: 36px;
+  min-width: 0;
+}
+
+.facility-canteen-actions .facility-canteen-more {
+  flex: 0 0 40px;
+  width: 40px;
+  min-width: 40px;
+  height: 36px;
+  margin-left: auto;
+  padding: 0;
+  font-size: 20px;
+}
+
+.facility-image-preview-tip {
+  margin-top: 8px;
+  color: #64748b;
+  font-size: 12px;
+}
+
+.facility-image-position-editor {
+  margin: -4px 0 22px;
+  padding: 14px;
+  border: 1px solid #dbe3ec;
+  border-radius: 10px;
+  background: #f8fafc;
+}
+
+.facility-image-position-editor__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 12px;
+}
+
+.facility-image-position-editor__header > div {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.facility-image-position-editor__header strong {
+  color: #1e293b;
+  font-size: 14px;
+}
+
+.facility-image-position-editor__header span,
+.facility-image-position-editor > p {
+  color: #64748b;
+  font-size: 12px;
+}
+
+.facility-image-position-preview {
+  position: relative;
+  width: 100%;
+  overflow: hidden;
+  aspect-ratio: 16 / 9;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #e2e8f0;
+  cursor: crosshair;
+  touch-action: none;
+  user-select: none;
+}
+
+.facility-image-position-preview img {
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  object-fit: cover;
+}
+
+.facility-image-focus-point {
+  position: absolute;
+  width: 22px;
+  height: 22px;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  background: rgb(24 119 242 / 75%);
+  box-shadow: 0 1px 6px rgb(15 23 42 / 35%);
+  pointer-events: none;
+  transform: translate(-50%, -50%);
+}
+
+.facility-image-focus-point::before,
+.facility-image-focus-point::after {
+  position: absolute;
+  content: '';
+  background: #fff;
+}
+
+.facility-image-focus-point::before {
+  top: 9px;
+  left: 3px;
+  width: 12px;
+  height: 1px;
+}
+
+.facility-image-focus-point::after {
+  top: 3px;
+  left: 9px;
+  width: 1px;
+  height: 12px;
+}
+
+.facility-image-position-editor > p {
+  margin: 9px 0 0;
+  line-height: 1.6;
+}
+
 @media (max-width: 760px) {
   .facility-place-page {
     padding: 16px;
@@ -98,7 +489,39 @@
     flex-direction: column;
   }
 
+  .facility-canteen-overview-page .facility-place-toolbar {
+    min-height: auto;
+    margin-bottom: 12px;
+  }
+
+  .facility-canteen-overview-page .facility-place-toolbar > .ant-space {
+    position: static;
+  }
+
   .place-form-grid {
     grid-template-columns: 1fr;
+  }
+
+  .facility-canteen-stats {
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .facility-canteen-stats button {
+    justify-content: space-between;
+  }
+
+  .facility-canteen-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .facility-canteen-actions {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+@media (min-width: 761px) and (max-width: 1200px) {
+  .facility-canteen-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }

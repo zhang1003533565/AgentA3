@@ -5,7 +5,9 @@ from fastapi import HTTPException
 
 from app.model_providers.base import ChatModelProvider
 from app.model_providers.deepseek.provider import to_llm_messages
+from app.model_providers.multimodal import build_multimodal_human_content
 from app.model_providers.runtime_config import LlmRuntimeConfig, resolve_llm_config
+from app.observability.langfuse import langchain_callbacks
 from app.utils.logger import get_logger
 from app.utils.prompts import KEYWORD_EXTRACTION_PROMPT, build_search_facts_prompt
 from app.utils.text_utils import normalize_base_url, sanitize_keyword
@@ -44,6 +46,7 @@ class XiaomiProvider(ChatModelProvider):
             timeout=60,
             max_retries=1,
             default_headers={"api-key": api_key},
+            callbacks=langchain_callbacks(),
         )
 
     def complete(self, system_prompt: str, user_prompt: str) -> str:
@@ -51,7 +54,7 @@ class XiaomiProvider(ChatModelProvider):
 
         response = self.llm.invoke([
             SystemMessage(content=system_prompt),
-            HumanMessage(content=user_prompt),
+            HumanMessage(content=build_multimodal_human_content(user_prompt)),
         ])
         return str(response.content or "").strip()
 
@@ -60,7 +63,7 @@ class XiaomiProvider(ChatModelProvider):
 
         messages = [
             SystemMessage(content=system_prompt),
-            HumanMessage(content=user_prompt),
+            HumanMessage(content=build_multimodal_human_content(user_prompt)),
         ]
         for chunk in self.llm.stream(messages):
             content = getattr(chunk, "content", "")
@@ -97,7 +100,7 @@ class XiaomiProvider(ChatModelProvider):
         if search_keyword or search_results:
             messages.append(SystemMessage(content=build_search_facts_prompt(search_keyword, search_results)))
         messages.extend(to_llm_messages(history))
-        messages.append(HumanMessage(content=input_text))
+        messages.append(HumanMessage(content=build_multimodal_human_content(input_text)))
 
         started = time.perf_counter()
         logger.info(

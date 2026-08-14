@@ -4,7 +4,14 @@
       <view class="container">
         <common-page-header title="市集消息" :fixed="true" :placeholder="true" :showBack="true" />
         
-        <scroll-view scroll-y class="page-body">
+        <scroll-view
+          scroll-y
+          class="page-body"
+          refresher-enabled
+          :refresher-triggered="refreshing"
+          refresher-background="#E8F0F8"
+          @refresherrefresh="refreshPage"
+        >
           <view class="section-title">通知</view>
           <view class="notify-card" @click="openSystemNotifications">
             <view class="notify-icon system">系</view>
@@ -27,8 +34,17 @@
             <image class="empty-icon" src="/static/icons/message-empty.svg" mode="aspectFit" />
             <view class="empty-t">暂无消息</view>
           </view>
-          <view v-for="c in chats" :key="c.id" class="mscard" @click="openChat(c.id)">
-            <view class="msava">{{ c.otherName[0] }}</view>
+          <view v-for="c in chats" :key="c.id" class="mscard" @click="openChat(c)">
+            <view class="msava">
+              <image
+                v-if="c.otherAvatar"
+                class="msava-img"
+                :src="c.otherAvatar"
+                mode="aspectFill"
+                @error="handleChatAvatarError(c)"
+              />
+              <text v-else>{{ c.otherName[0] }}</text>
+            </view>
             <view class="msbody">
               <view class="msname">{{ c.otherName }}</view>
               <view class="msitem">{{ c.itemTitle }}<text v-if="c.statusText"> · {{ c.statusText }}</text></view>
@@ -49,14 +65,16 @@
 <script>
 import CommonPageHeader from '@/components/common-page-header/common-page-header.vue'
 import MarketBottomBar from '@/components/market-bottom-bar/market-bottom-bar.vue'
-import { getChatSessions, getTradeNotificationUnreadCount } from '@/api/secondhand'
-import { getMessageState, refreshMessageState, subscribeMessageStore } from '@/utils/messageStore'
+import { getMessageState, refreshChatListState, subscribeMessageStore } from '@/utils/messageStore'
+import { buildDefaultAvatar, pickOtherAvatar } from '@/subpackage_lostfound/utils/avatar.js'
 
 function normalizeSession(item) {
+  const otherName = item.otherUsername || item.sellerName || '用户'
   return {
     id: item.sessionId,
     itemTitle: item.itemTitle || '商品',
-    otherName: item.otherUsername || item.sellerName || '用户',
+    otherName,
+    otherAvatar: pickOtherAvatar(item) || buildDefaultAvatar({ username: otherName || 'chat-other' }),
     lastMsg: item.lastMessage || '暂无消息',
     lastTime: item.lastTime || '',
     unread: item.unreadCount || 0,
@@ -73,6 +91,7 @@ export default {
     return {
       chats: [],
       tradeUnread: 0,
+      refreshing: false,
       unsubscribeMessageStore: null
     }
   },
@@ -84,10 +103,9 @@ export default {
         this.loadSessionsFromStore(state)
       }
     })
-    await this.loadData()
   },
   async onShow() {
-    await refreshMessageState('my-messages-show')
+    await refreshChatListState('my-messages-show')
   },
   onUnload() {
     if (this.unsubscribeMessageStore) {
@@ -96,12 +114,15 @@ export default {
     }
   },
   methods: {
-    async loadData() {
-      await Promise.all([
-        this.loadSessions(),
-        this.loadTradeUnread()
-      ])
-      await refreshMessageState('my-messages-load')
+    async refreshPage() {
+      if (this.refreshing) return
+      this.refreshing = true
+      try {
+        await refreshChatListState('manual-refresh')
+        uni.showToast({ title: '已刷新', icon: 'none', duration: 900 })
+      } finally {
+        this.refreshing = false
+      }
     },
     applyMessageState(state = {}) {
       this.tradeUnread = Number(state.unreadTradeCount || 0)
@@ -112,23 +133,8 @@ export default {
         this.chats = state.sessions.map(normalizeSession)
       }
     },
-    async loadSessions() {
-      try {
-        const res = await getChatSessions({ current: 1, size: 100 })
-        const records = Array.isArray(res?.data?.records) ? res.data.records : []
-        this.chats = records.map(normalizeSession)
-      } catch (e) {
-        console.error('加载数据失败', e)
-      }
-    },
-    async loadTradeUnread() {
-      try {
-        const res = await getTradeNotificationUnreadCount()
-        this.tradeUnread = Number(res?.data || 0)
-      } catch (e) {
-        console.error('加载交易通知未读失败', e)
-        this.tradeUnread = 0
-      }
+    handleChatAvatarError(chat) {
+      if (chat) chat.otherAvatar = ''
     },
     fmt(ts) {
       const d = new Date(String(ts).replace(/-/g, '/'))
@@ -139,9 +145,12 @@ export default {
       if (diff < 86400000) return Math.floor(diff / 3600000) + '小时前'
       return `${d.getMonth() + 1}/${d.getDate()}`
     },
-    openChat(id) {
+    openChat(session) {
+      const params = [`sessionId=${session.id}`]
+      if (session.otherName) params.push(`otherName=${encodeURIComponent(session.otherName)}`)
+      if (session.otherAvatar) params.push(`otherAvatar=${encodeURIComponent(session.otherAvatar)}`)
       uni.navigateTo({
-        url: `/subpackage_lostfound/lostfoundChat/lostfoundChat?sessionId=${id}`
+        url: `/subpackage_lostfound/lostfoundChat/lostfoundChat?${params.join('&')}`
       })
     },
     openSystemNotifications() {
@@ -161,25 +170,33 @@ export default {
 <style lang="scss">
 .page-root {
   width: 100%;
+  height: 100vh;
   min-height: 100vh;
   background: #F0F5FA;
+  overflow: hidden;
 }
 
 .screen {
   width: 100%;
   background: #F0F5FA;
+  height: 100vh;
   min-height: 100vh;
+  overflow: hidden;
 }
 
 .container {
   width: 100%;
   max-width: 430px;
+  height: 100vh;
   margin: 0 auto;
   box-sizing: border-box;
   padding: 0 16rpx;
   background: #E8F0F8;
   min-height: 100vh;
   position: relative;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 .page {
@@ -190,6 +207,8 @@ export default {
 
 .page-body {
   flex: 1;
+  min-height: 0;
+  height: 0;
   overflow-y: auto;
   padding: 20rpx 0 150rpx;
 }
@@ -290,6 +309,13 @@ export default {
   font-size: 32rpx;
   font-weight: 700;
   flex-shrink: 0;
+  overflow: hidden;
+}
+
+.msava-img {
+  width: 100%;
+  height: 100%;
+  display: block;
 }
 
 .msbody {

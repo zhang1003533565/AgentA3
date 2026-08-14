@@ -1,599 +1,1464 @@
 <template>
   <view class="page">
-    <!-- 导航栏 -->
-    <view class="nav-bar">
-      <view class="nav-back" @tap="goBack">
-        <text class="nav-back-icon">‹</text>
-      </view>
-      <text class="nav-title">架构图预览</text>
-      <view class="nav-actions">
-        <view class="nav-action-btn" @tap="download">
-          <text class="nav-action-icon"></text>
+    <nav-bar
+      :title="architectureData.title || 'AI 架构图'"
+      :showBack="true"
+      :border="false"
+      :fixed="true"
+      :placeholder="true"
+      titleAlign="center"
+    >
+      <template #right>
+        <view class="nav-delete-action" @tap="deleteCurrentArchitecture">
+          <image class="nav-delete-icon" src="/static/icons/diagram/trash-2-lucide.svg" mode="aspectFit" />
         </view>
-        <view class="nav-action-btn nav-action-btn--share" @tap="share">
-          <text class="nav-action-icon">↗</text>
-          <text class="nav-action-text">分享</text>
-        </view>
-      </view>
-    </view>
+      </template>
+    </nav-bar>
 
-    <!-- Tab 切换 -->
-    <view class="tab-bar">
-      <view
-        class="tab-item"
-        :class="{ 'tab-item--active': activeTab === 'chart' }"
-        @tap="activeTab = 'chart'"
+    <view class="canvas-wrapper" :class="{ 'canvas-wrapper--dragging': isDragging }">
+      <scroll-view
+        ref="canvasRef"
+        class="canvas"
+        scroll-x
+        scroll-y
+        :scroll-top="scrollTop"
+        :scroll-left="scrollLeft"
+        :show-scrollbar="false"
+        :throttle="false"
+        :upper-threshold="0"
+        :lower-threshold="0"
+        @scroll="onScroll"
       >
-        <text class="tab-text">图表预览</text>
-        <view class="tab-indicator" v-if="activeTab === 'chart'"></view>
-      </view>
-      <view
-        class="tab-item"
-        :class="{ 'tab-item--active': activeTab === 'code' }"
-        @tap="activeTab = 'code'"
-      >
-        <text class="tab-text">代码视图</text>
-      </view>
-      <view
-        class="tab-item"
-        :class="{ 'tab-item--active': activeTab === 'detail' }"
-        @tap="activeTab = 'detail'"
-      >
-        <text class="tab-text">详情信息</text>
-      </view>
+        <view
+          class="canvas-content"
+          :style="contentStyle"
+        >
+          <view
+            class="diagram-stage"
+            :class="relationStageClass"
+            :style="stageStyle"
+          >
+            <view class="diagram-wrap">
+              <!-- 主架构区 -->
+              <view class="layers">
+                <template v-for="(layer, layerIdx) in architectureData.layers" :key="layer.key">
+                  <view class="layer">
+                    <!-- 层标签 -->
+                    <view class="layer-label" :style="layerLabelStyle(layer)">
+                      <view class="layer-label-icon" :style="layerLabelIconStyle(layer)">
+                        <arch-icon :iconKey="layer.iconKey" color="#FFFFFF" :size="56" />
+                      </view>
+                      <text class="layer-label-text" :style="{ color: layer.color }">{{ layer.name }}</text>
+                    </view>
+
+                    <!-- 层内结构 -->
+                    <view class="layer-body">
+                      <view v-if="layerHasGroups(layer)" class="layer-groups">
+                        <view
+                          v-for="group in visibleLayerGroups(layer)"
+                          :key="group.id || group.name"
+                          class="layer-group"
+                          :style="layerGroupStyle(layer)"
+                        >
+                          <view class="layer-group-head">
+                            <text class="layer-group-title" :style="{ color: layer.color }">{{ group.name }}</text>
+                            <text v-if="group.description" class="layer-group-desc">{{ group.description }}</text>
+                          </view>
+                          <view class="layer-group-cards">
+                            <view
+                              v-for="node in group.nodes"
+                              :key="node.id || node.name"
+                              class="arch-card arch-card--nested"
+                              :class="{ 'arch-card--has-children': nodeChildren(node).length }"
+                              @tap="onCardTap(layer, node)"
+                              @mousedown.stop
+                            >
+                              <view class="arch-card-icon" :style="{ color: layer.color }">
+                                <arch-icon :iconKey="node.iconKey || defaultIconKey(layer)" :color="layer.color" :size="50" />
+                              </view>
+                              <text class="arch-card-name">{{ node.name }}</text>
+                              <text v-if="node.description" class="arch-card-desc">{{ node.description }}</text>
+                              <view v-if="node.tech && node.tech.length" class="arch-card-tech">
+                                <text
+                                  v-for="t in node.tech"
+                                  :key="t"
+                                  class="arch-card-tech-item"
+                                  :style="{ color: layer.color, borderColor: layer.color + '55' }"
+                                >{{ t }}</text>
+                              </view>
+                              <view v-if="nodeChildren(node).length" class="node-children">
+                                <view
+                                  v-for="child in nodeChildren(node)"
+                                  :key="child.id || child.name"
+                                  class="node-child"
+                                  :style="{ borderColor: layer.color + '33', background: layer.bg }"
+                                >
+                                  <text class="node-child-dot" :style="{ background: layer.color }"></text>
+                                  <view class="node-child-copy">
+                                    <text class="node-child-name">{{ child.name }}</text>
+                                    <text v-if="child.description" class="node-child-desc">{{ child.description }}</text>
+                                  </view>
+                                </view>
+                              </view>
+                            </view>
+                          </view>
+                        </view>
+                      </view>
+
+                      <view v-else class="layer-cards">
+                        <view
+                          v-for="node in layer.nodes"
+                          :key="node.id || node.name"
+                          class="arch-card"
+                          :class="{ 'arch-card--has-children': nodeChildren(node).length }"
+                          @tap="onCardTap(layer, node)"
+                          @mousedown.stop
+                        >
+                          <view class="arch-card-icon" :style="{ color: layer.color }">
+                            <arch-icon :iconKey="node.iconKey || defaultIconKey(layer)" :color="layer.color" :size="56" />
+                          </view>
+                          <text class="arch-card-name">{{ node.name }}</text>
+                          <text v-if="node.description" class="arch-card-desc">{{ node.description }}</text>
+                          <view v-if="node.tech && node.tech.length" class="arch-card-tech">
+                            <text
+                              v-for="t in node.tech"
+                              :key="t"
+                              class="arch-card-tech-item"
+                              :style="{ color: layer.color, borderColor: layer.color + '55' }"
+                            >{{ t }}</text>
+                          </view>
+                          <view v-if="nodeChildren(node).length" class="node-children">
+                            <view
+                              v-for="child in nodeChildren(node)"
+                              :key="child.id || child.name"
+                              class="node-child"
+                              :style="{ borderColor: layer.color + '33', background: layer.bg }"
+                            >
+                              <text class="node-child-dot" :style="{ background: layer.color }"></text>
+                              <view class="node-child-copy">
+                                <text class="node-child-name">{{ child.name }}</text>
+                                <text v-if="child.description" class="node-child-desc">{{ child.description }}</text>
+                              </view>
+                            </view>
+                          </view>
+                        </view>
+                      </view>
+                    </view>
+                  </view>
+                </template>
+              </view>
+
+              <!-- 右侧第三方服务 -->
+              <view class="third-party" @mousedown.stop>
+                <text class="third-party-title">第三方服务</text>
+                <view
+                  v-for="tp in architectureData.thirdParty"
+                  :key="tp.name"
+                  class="third-party-item"
+                >
+                  <view class="third-party-icon" :style="thirdPartyIconStyle(tp)">
+                    <arch-icon :iconKey="tp.iconKey" color="#FFFFFF" :size="40" />
+                  </view>
+                  <text class="third-party-name">{{ tp.name }}</text>
+                  <text v-if="tp.description" class="third-party-desc">{{ tp.description }}</text>
+                </view>
+              </view>
+            </view>
+
+            <!-- 底部特性展示 -->
+            <view class="relation-panel" :class="relationPanelClass">
+              <view class="relation-panel-head">
+                <text class="relation-panel-title">{{ relationModeLabel }}</text>
+                <text class="relation-panel-desc">{{ relationModeDescription }}</text>
+              </view>
+              <view v-if="relationEdges.length" class="relation-edge-list">
+                <view
+                  v-for="edge in relationEdges"
+                  :key="`${edge.source}-${edge.target}-${edge.label}`"
+                  class="relation-edge"
+                >
+                  <text class="relation-node">{{ edge.sourceName }}</text>
+                  <text class="relation-arrow">{{ relationArrow }}</text>
+                  <text class="relation-node">{{ edge.targetName }}</text>
+                  <text v-if="edge.label" class="relation-label">{{ edge.label }}</text>
+                </view>
+              </view>
+            </view>
+
+            <view v-if="architectureData.features && architectureData.features.length" class="features-row">
+              <view
+                v-for="(feat, fIdx) in architectureData.features"
+                :key="feat"
+                class="feature-item"
+              >
+                <view class="feature-check">
+                  <text class="feature-check-icon">✓</text>
+                </view>
+                <text class="feature-text">{{ feat }}</text>
+                <view v-if="fIdx < architectureData.features.length - 1" class="feature-dot"></view>
+              </view>
+            </view>
+          </view>
+        </view>
+      </scroll-view>
     </view>
 
-    <view class="content" v-if="activeTab === 'chart'">
-      <!-- 架构图 -->
-      <view class="diagram-section">
-        <view class="diagram-container">
-          <!-- 访问层 -->
-          <view class="layer-row">
-            <view class="layer-label" style="background: #EEF0FF; color: #4D6BFE;">
-              <text class="layer-label-text">访问层</text>
-            </view>
-            <view class="layer-nodes">
-              <view class="node-item" style="background: #F0F4FF;">
-                <text class="node-icon">🌐</text>
-                <text class="node-label">移动端</text>
-              </view>
-              <view class="node-item" style="background: #F0F4FF;">
-                <text class="node-icon">📱</text>
-                <text class="node-label">移动端</text>
-              </view>
-              <view class="node-item" style="background: #F0FFF4;">
-                <text class="node-icon">✓</text>
-                <text class="node-label">小程序</text>
-              </view>
-            </view>
-          </view>
+    <!-- 底部操作栏 -->
+    <AiResultBar
+      @export="exportImage"
+      @optimize="openOptimizeSheet"
+      @share="share"
+    />
 
-          <view class="flow-arrow">↓</view>
+    <OptimizeMindMapSheet
+      title="优化架构图"
+      :visible="showOptimizeSheet"
+      :currentMindMap="currentArchitectureData"
+      @close="showOptimizeSheet = false"
+      @optimize="onOptimize"
+    />
 
-          <!-- 网关层 -->
-          <view class="layer-row">
-            <view class="layer-label" style="background: #FFF3E0; color: #FF9F43;">
-              <text class="layer-label-text">网关层</text>
-            </view>
-            <view class="layer-nodes layer-nodes--single">
-              <view class="node-item node-item--wide" style="background: #F0F4FF;">
-                <text class="node-icon">🔒</text>
-                <text class="node-label">API Gateway</text>
-              </view>
-            </view>
-          </view>
-
-          <view class="flow-arrow">↓</view>
-
-          <!-- 服务层 -->
-          <view class="layer-row">
-            <view class="layer-label" style="background: #E8FFF0; color: #1DD1A1;">
-              <text class="layer-label-text">服务层</text>
-            </view>
-            <view class="layer-nodes">
-              <view class="node-item" style="background: #F0F4FF;">
-                <text class="node-icon">👤</text>
-                <text class="node-label">用户服务</text>
-              </view>
-              <view class="node-item" style="background: #F0F4FF;">
-                <text class="node-icon">🛒</text>
-                <text class="node-label">商品服务</text>
-              </view>
-              <view class="node-item" style="background: #F0F4FF;">
-                <text class="node-icon"></text>
-                <text class="node-label">订单服务</text>
-              </view>
-              <view class="node-item" style="background: #F0F4FF;">
-                <text class="node-icon">💳</text>
-                <text class="node-label">支付服务</text>
-              </view>
-              <view class="node-item" style="background: #F0F4FF;">
-                <text class="node-icon">🔔</text>
-                <text class="node-label">通知服务</text>
-              </view>
-            </view>
-          </view>
-
-          <view class="flow-arrow">↓</view>
-
-          <!-- 数据层 -->
-          <view class="layer-row">
-            <view class="layer-label" style="background: #E8FFF0; color: #1DD1A1;">
-              <text class="layer-label-text">数据层</text>
-            </view>
-            <view class="layer-nodes">
-              <view class="node-item" style="background: #F0FFF4;">
-                <text class="node-icon">🗄</text>
-                <text class="node-label">MySQL</text>
-              </view>
-              <view class="node-item" style="background: #F0FFF4;">
-                <text class="node-icon">🗄</text>
-                <text class="node-label">Redis</text>
-              </view>
-              <view class="node-item" style="background: #F0FFF4;">
-                <text class="node-icon">🗄</text>
-                <text class="node-label">MongoDB</text>
-              </view>
-              <view class="node-item" style="background: #F0FFF4;">
-                <text class="node-icon">✓</text>
-                <text class="node-label">对象存储</text>
-              </view>
-            </view>
-          </view>
-
-          <view class="flow-arrow">↓</view>
-
-          <!-- 基础设施 -->
-          <view class="layer-row">
-            <view class="layer-label" style="background: #FFF3E0; color: #FF9F43;">
-              <text class="layer-label-text">基础设施</text>
-            </view>
-            <view class="layer-nodes">
-              <view class="node-item" style="background: #F0F4FF;">
-                <text class="node-icon">🐳</text>
-                <text class="node-label">Docker</text>
-              </view>
-              <view class="node-item" style="background: #F0F4FF;">
-                <text class="node-icon"></text>
-                <text class="node-label">Kubernetes</text>
-              </view>
-              <view class="node-item" style="background: #F0F4FF;">
-                <text class="node-icon">📊</text>
-                <text class="node-label">日志服务</text>
-              </view>
-              <view class="node-item" style="background: #F0F4FF;">
-                <text class="node-icon">🔔</text>
-                <text class="node-label">监控告警</text>
-              </view>
-            </view>
-          </view>
-        </view>
-      </view>
-
-      <!-- 操作按钮 -->
-      <view class="action-bar">
-        <view class="action-btn" @tap="edit">
-          <text class="action-btn-icon">✏️</text>
-          <text class="action-btn-text">编辑</text>
-        </view>
-        <view class="action-btn" @tap="beautify">
-          <text class="action-btn-icon"></text>
-          <text class="action-btn-text">美化</text>
-        </view>
-        <view class="action-btn" @tap="copy">
-          <text class="action-btn-icon">📋</text>
-          <text class="action-btn-text">复制</text>
-        </view>
-        <view class="action-btn" @tap="fullscreen">
-          <text class="action-btn-icon">⛶</text>
-          <text class="action-btn-text">全屏</text>
-        </view>
-      </view>
-
-      <!-- 架构说明 -->
-      <view class="desc-section">
-        <view class="desc-title">架构说明</view>
-        <text class="desc-text">该架构采用微服务设计模式，通过 API Gateway 统一入口，服务层拆分为多个独立服务支持水平扩展，数据层采用多种存储方案满足不同业务需求，基础设施使用容器化部署确保高可用性和可维护性。</text>
-      </view>
-
-      <!-- 推荐模板 -->
-      <view class="template-section">
-        <view class="template-header">
-          <text class="template-title">推荐模板</text>
-          <text class="template-more" @tap="viewMore">查看更多 ›</text>
-        </view>
-        <view class="template-list">
-          <view class="template-item" v-for="item in templates" :key="item.key" @tap="useTemplate(item.key)">
-            <view class="template-preview" :style="{ background: item.previewBg }">
-              <text class="template-preview-icon">📊</text>
-            </view>
-            <text class="template-label">{{ item.label }}</text>
-          </view>
-        </view>
-      </view>
-    </view>
-
-    <!-- 底部按钮 -->
-    <view class="bottom-bar">
-      <view class="bottom-btn bottom-btn--outline" @tap="regenerate">
-        <text class="bottom-btn-icon">🔄</text>
-        <text class="bottom-btn-text">重新生成</text>
-      </view>
-      <view class="bottom-btn bottom-btn--primary" @tap="exportImage">
-        <text class="bottom-btn-icon">⬇</text>
-        <text class="bottom-btn-text">导出图片</text>
-      </view>
-    </view>
+    <AiThinkWindow
+      :visible="showThinkWindow"
+      type="architecture"
+      :doneSub="optimizeDoneSub"
+      :done="thinkDone"
+      @view="onThinkView"
+    />
   </view>
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
+import NavBar from '@/components/nav-bar/nav-bar.vue'
+import ArchIcon from './ArchIcon.vue'
+import AiResultBar from '../components/AiResultBar.vue'
+import AiThinkWindow from '../components/AiThinkWindow.vue'
+import OptimizeMindMapSheet from '../mindmapViewer/OptimizeMindMapSheet.vue'
+import { DEFAULT_ARCHITECTURE_DATA } from './architectureData.js'
+import { buildArchitecturePayload, deleteArchitectureHistory, generateArchitecture, getArchitectureDetail, normalizeArchitectureResult } from '@/api/architecture.js'
+import { getErrorMessage } from '@/api/aiDiagram.js'
+// #ifdef H5
+import { domToPng } from '../components/domToPng.js'
+// #endif
 
-const activeTab = ref('chart')
+// 缩放参数（参考 mindmapViewer）
+const MIN_SCALE = 0.4
+const MAX_SCALE = 2.5
+const CANVAS_TOP_BUFFER_RPX = 96
+const CANVAS_BOTTOM_BUFFER_RPX = 360
 
-const templates = [
-  { key: 'microservice', label: '微服务架构', previewBg: '#EEF0FF' },
-  { key: 'layered', label: '分层架构', previewBg: '#E8FFF0' },
-  { key: 'event', label: '事件驱动架构', previewBg: '#FFF3E0' },
-  { key: 'cloudnative', label: '云原生架构', previewBg: '#F3E8FF' },
+// 架构数据（默认匹配截图）
+const architectureData = ref(JSON.parse(JSON.stringify(DEFAULT_ARCHITECTURE_DATA)))
+const showOptimizeSheet = ref(false)
+const showThinkWindow = ref(false)
+const thinkDone = ref(false)
+const optimizeDoneSub = ref('结构已更新')
+const optimizePending = ref(null)
+const currentArchitectureData = ref({})
+
+// 缩放/滚动状态
+const scale = ref(1)
+const scrollTop = ref(0)
+const scrollLeft = ref(0)
+const canvasSize = ref({ width: 0, height: 0 })
+const canvasRef = ref(null)
+const stageSize = ref({ width: 0, height: 0 })
+const resultId = ref('')
+const isDeleting = ref(false)
+const autoExportImage = ref(false)
+let autoExportDone = false
+
+// 鼠标拖动状态
+const isDragging = ref(false)
+const dragState = {
+  startX: 0,
+  startY: 0,
+  startScrollLeft: 0,
+  startScrollTop: 0,
+  moved: false
+}
+
+// 各层的标签/卡片颜色
+function layerLabelStyle(layer) {
+  return {
+    background: layer.bg,
+    borderColor: layer.border,
+  }
+}
+
+function layerLabelIconStyle(layer) {
+  return {
+    background: layer.color,
+  }
+}
+
+// 各层卡片默认图标（如果节点没指定）
+function defaultIconKey(layer) {
+  return layer.iconKey
+}
+
+function nodeChildren(node) {
+  return Array.isArray(node?.children) ? node.children : []
+}
+
+function layerHasGroups(layer) {
+  return visibleLayerGroups(layer).length > 0
+}
+
+function visibleLayerGroups(layer) {
+  return Array.isArray(layer?.groups)
+    ? layer.groups.filter(group => Array.isArray(group?.nodes) && group.nodes.length)
+    : []
+}
+
+function layerGroupStyle(layer) {
+  return {
+    borderColor: layer.border,
+    background: layer.bg,
+  }
+}
+
+// 第三方服务图标颜色
+const THIRD_PARTY_PALETTE = [
+  { main: '#3B82F6', light: '#EFF6FF', border: '#BFDBFE' },
+  { main: '#10B981', light: '#ECFDF5', border: '#A7F3D0' },
+  { main: '#F59E0B', light: '#FFFBEB', border: '#FDE68A' },
+  { main: '#8B5CF6', light: '#F5F3FF', border: '#DDD6FE' },
 ]
 
-const goBack = () => { uni.navigateBack() }
-const download = () => { uni.showToast({ title: '下载', icon: 'none' }) }
-const share = () => { uni.showToast({ title: '分享', icon: 'none' }) }
-const edit = () => { uni.showToast({ title: '编辑', icon: 'none' }) }
-const beautify = () => { uni.showToast({ title: '美化', icon: 'none' }) }
-const copy = () => { uni.showToast({ title: '复制', icon: 'none' }) }
-const fullscreen = () => { uni.showToast({ title: '全屏', icon: 'none' }) }
-const viewMore = () => { uni.showToast({ title: '查看更多', icon: 'none' }) }
-const useTemplate = (key) => { uni.showToast({ title: '使用模板', icon: 'none' }) }
-const regenerate = () => { uni.showToast({ title: '重新生成', icon: 'none' }) }
-const exportImage = () => { uni.showToast({ title: '导出图片', icon: 'none' }) }
+function thirdPartyIconStyle(tp) {
+  const idx = (architectureData.value.thirdParty || []).findIndex(item => item.name === tp.name)
+  const palette = THIRD_PARTY_PALETTE[idx % THIRD_PARTY_PALETTE.length]
+  return { background: palette.main }
+}
+
+function clamp(value, min, max) {
+  return Math.max(min, Math.min(max, value))
+}
+
+function rpxToPx(value) {
+  const sys = uni.getSystemInfoSync()
+  return value * ((sys.windowWidth || 750) / 750)
+}
+
+const canvasTopBuffer = computed(() => rpxToPx(CANVAS_TOP_BUFFER_RPX))
+const canvasBottomBuffer = computed(() => rpxToPx(CANVAS_BOTTOM_BUFFER_RPX))
+
+// stage 缩放样式
+const stageStyle = computed(() => ({
+  width: `${stageSize.value.width}px`,
+  height: `${stageSize.value.height}px`,
+  top: `${canvasTopBuffer.value}px`,
+  transform: `scale(${scale.value})`,
+  transformOrigin: '0 0',
+}))
+
+// canvas-content 尺寸 = stage × scale（决定 scroll-view 可滚动范围）
+const contentStyle = computed(() => ({
+  width: `${Math.max(1, stageSize.value.width * scale.value)}px`,
+  height: `${Math.max(1, stageSize.value.height * scale.value + canvasTopBuffer.value + canvasBottomBuffer.value)}px`,
+}))
+
+// scroll-view 滚动同步
+const resolvedRelationMode = computed(() => {
+  const mode = architectureData.value.resolvedRelationMode || architectureData.value.relationMode || 'MODULE'
+  const normalized = String(mode || 'MODULE').toUpperCase()
+  if (normalized === 'DATA_FLOW' || normalized === 'CALL' || normalized === 'MODULE') return normalized
+  return 'MODULE'
+})
+
+const relationStageClass = computed(() => ({
+  'diagram-stage--module': resolvedRelationMode.value === 'MODULE',
+  'diagram-stage--data-flow': resolvedRelationMode.value === 'DATA_FLOW',
+  'diagram-stage--call': resolvedRelationMode.value === 'CALL',
+}))
+
+const relationPanelClass = computed(() => ({
+  'relation-panel--module': resolvedRelationMode.value === 'MODULE',
+  'relation-panel--data-flow': resolvedRelationMode.value === 'DATA_FLOW',
+  'relation-panel--call': resolvedRelationMode.value === 'CALL',
+}))
+
+const relationModeLabel = computed(() => ({
+  MODULE: '模块关系',
+  DATA_FLOW: '数据流向',
+  CALL: '调用关系',
+}[resolvedRelationMode.value] || '模块关系'))
+
+const relationModeDescription = computed(() => ({
+  MODULE: '突出系统层级、模块归属与结构连接',
+  DATA_FLOW: '突出数据从入口到服务再到存储的流动路径',
+  CALL: '突出服务或模块之间的调用依赖',
+}[resolvedRelationMode.value] || '突出系统层级、模块归属与结构连接'))
+
+const relationArrow = computed(() => (resolvedRelationMode.value === 'MODULE' ? '—' : '→'))
+
+const nodeNameMap = computed(() => {
+  const map = new Map()
+  const collectNode = (node) => {
+    const id = node?.id || node?.name
+    if (id) map.set(String(id), node.name || id)
+    ;(node?.children || []).forEach(collectNode)
+  }
+  ;(architectureData.value.nodes || []).forEach(node => {
+    if (node?.id) map.set(String(node.id), node.name || node.id)
+  })
+  ;(architectureData.value.layers || []).forEach(layer => {
+    ;(layer.groups || []).forEach(group => {
+      const groupId = group?.id || group?.name
+      if (groupId) map.set(String(groupId), group.name || groupId)
+      ;(group?.nodes || []).forEach(collectNode)
+    })
+    ;(layer.nodes || []).forEach(collectNode)
+  })
+  return map
+})
+
+const relationEdges = computed(() => {
+  const edges = Array.isArray(architectureData.value.edges) ? architectureData.value.edges : []
+  return edges.slice(0, 12).map(edge => ({
+    ...edge,
+    sourceName: nodeNameMap.value.get(String(edge.source || '')) || edge.source || '',
+    targetName: nodeNameMap.value.get(String(edge.target || '')) || edge.target || '',
+  }))
+})
+
+function onScroll(event) {
+  const detail = event?.detail || {}
+  if (typeof detail.scrollLeft === 'number') scrollLeft.value = detail.scrollLeft
+  if (typeof detail.scrollTop === 'number') scrollTop.value = detail.scrollTop
+}
+
+// 滚轮事件：Ctrl/Cmd 缩放、Shift 横移
+function handleNativeWheel(event) {
+  const deltaY = event.deltaY
+  const deltaX = event.deltaX
+  if (!deltaY && !deltaX) return
+
+  // Ctrl/Cmd + 滚轮 = 缩放
+  if (event.ctrlKey || event.metaKey) {
+    event.preventDefault()
+    const nextScale = clamp(
+      Number((scale.value + (deltaY > 0 ? -0.1 : 0.1)).toFixed(2)),
+      MIN_SCALE, MAX_SCALE
+    )
+    if (nextScale === scale.value) return
+    const rect = canvasRef.value?.$el?.getBoundingClientRect?.() || canvasRef.value?.getBoundingClientRect?.()
+    const point = rect
+      ? { x: event.clientX - rect.left, y: event.clientY - rect.top }
+      : null
+    if (!point) { scale.value = nextScale; return }
+    // 以鼠标位置为中心缩放
+    const beforeX = (point.x + scrollLeft.value) / scale.value
+    const beforeY = (point.y + scrollTop.value) / scale.value
+    scale.value = nextScale
+    scrollLeft.value = Math.max(0, Math.round(beforeX * nextScale - point.x))
+    scrollTop.value = Math.max(0, Math.round(beforeY * nextScale - point.y))
+    return
+  }
+
+  // Shift + 滚轮 = 左右横移
+  if (event.shiftKey && deltaY) {
+    event.preventDefault()
+    scrollLeft.value = Math.max(0, scrollLeft.value + deltaY)
+    return
+  }
+}
+
+// 左键按下：记录起点（不在卡片/第三方服务上才响应）
+function handleMouseDown(event) {
+  if (event.button !== 0) return
+  isDragging.value = true
+  dragState.startX = event.clientX
+  dragState.startY = event.clientY
+  dragState.startScrollLeft = scrollLeft.value
+  dragState.startScrollTop = scrollTop.value
+  dragState.moved = false
+  document.addEventListener('mousemove', handleMouseMove)
+  document.addEventListener('mouseup', handleMouseUp)
+}
+
+function handleMouseMove(event) {
+  if (!isDragging.value) return
+  event.preventDefault()
+  const dx = event.clientX - dragState.startX
+  const dy = event.clientY - dragState.startY
+  if (Math.abs(dx) > 2 || Math.abs(dy) > 2) dragState.moved = true
+  scrollLeft.value = Math.max(0, dragState.startScrollLeft - dx)
+  scrollTop.value = Math.max(0, dragState.startScrollTop - dy)
+}
+
+function handleMouseUp(event) {
+  isDragging.value = false
+  document.removeEventListener('mousemove', handleMouseMove)
+  document.removeEventListener('mouseup', handleMouseUp)
+}
+
+// 适配屏幕的初始缩放
+function getFitScale() {
+  const width = canvasSize.value.width || uni.getSystemInfoSync().windowWidth
+  const height = canvasSize.value.height || 600
+  const mapWidth = Math.max(stageSize.value.width, 1)
+  const mapHeight = Math.max(stageSize.value.height, 1)
+  const fit = Math.min(width / mapWidth, height / mapHeight, 1)
+  return Math.max(0.5, Number(fit.toFixed(2)))
+}
+
+function centerStage() {
+  const width = canvasSize.value.width || uni.getSystemInfoSync().windowWidth
+  const height = canvasSize.value.height || 600
+  const stageW = stageSize.value.width * scale.value
+  const stageH = stageSize.value.height * scale.value
+  scrollLeft.value = Math.max(0, Math.round((stageW - width) / 2))
+  scrollTop.value = Math.max(0, Math.round(canvasTopBuffer.value + (stageH - height) / 2))
+}
+
+// 测量画布与 stage 尺寸
+function measureAll(callback) {
+  const query = uni.createSelectorQuery()
+  query.select('.canvas').boundingClientRect(rect => {
+    if (rect) canvasSize.value = { width: rect.width, height: rect.height }
+  })
+  query.select('.diagram-stage').boundingClientRect(rect => {
+    if (rect && rect.width && rect.height) {
+      const w = Math.round(rect.width / Math.max(scale.value, 0.01))
+      const h = Math.round(rect.height / Math.max(scale.value, 0.01))
+      stageSize.value = { width: w, height: h }
+    } else {
+      const layers = architectureData.value.layers || []
+      stageSize.value = {
+        width: 760 + 200 + 40,
+        height: Math.max(layers.length * 240, 600) + 120
+      }
+    }
+    callback?.()
+  }).exec()
+}
+
+// 卡片点击
+function onCardTap(layer, node) {
+  uni.showToast({
+    title: `${layer.name} · ${node.name}`,
+    icon: 'none',
+    duration: 1500
+  })
+}
+
+function share() { uni.showToast({ title: '分享能力预留', icon: 'none' }) }
+
+function leaveAfterDelete() {
+  const pages = getCurrentPages()
+  if (pages.length > 1) {
+    uni.navigateBack({ delta: 1 })
+    return
+  }
+  uni.redirectTo({ url: '/subpackage_ai/architectureGenerate/architectureGenerate' })
+}
+
+function deleteCurrentArchitecture() {
+  if (!resultId.value || isDeleting.value) {
+    uni.showToast({ title: '暂无可删除记录', icon: 'none' })
+    return
+  }
+  uni.showModal({
+    title: '删除记录',
+    content: `确定删除“${architectureData.value.title || 'AI 架构图'}”吗？删除后不可恢复。`,
+    confirmText: '删除',
+    confirmColor: '#EF4444',
+    success: async (res) => {
+      if (!res.confirm) return
+      isDeleting.value = true
+      try {
+        await deleteArchitectureHistory(resultId.value)
+        uni.removeStorageSync(`aiArchitectureResult:${resultId.value}`)
+        uni.showToast({ title: '已删除', icon: 'none' })
+        setTimeout(leaveAfterDelete, 220)
+      } catch (error) {
+        uni.showToast({ title: getErrorMessage(error, '删除失败'), icon: 'none' })
+      } finally {
+        isDeleting.value = false
+      }
+    }
+  })
+}
+
+function collectNodeNames(nodes = [], target = []) {
+  nodes.forEach(node => {
+    const name = node?.name || node?.label
+    if (name) target.push(name)
+    collectNodeNames(node?.children || [], target)
+  })
+  return target
+}
+
+function describeCurrentArchitecture() {
+  const layerText = (architectureData.value.layers || [])
+    .map(layer => {
+      const names = collectNodeNames([...(layer.nodes || []), ...(layer.groups || []).flatMap(group => group.nodes || [])])
+        .slice(0, 8)
+        .join('、')
+      return names ? `${layer.name}：${names}` : ''
+    })
+    .filter(Boolean)
+    .join('\n')
+  const edgeText = (architectureData.value.edges || [])
+    .map(edge => {
+      const label = edge.label ? `（${edge.label}）` : ''
+      return `${edge.source} -> ${edge.target}${label}`
+    })
+    .filter(Boolean)
+    .slice(0, 24)
+    .join('；')
+
+  return [
+    `当前系统类型：${architectureData.value.systemType || 'WEB'}`,
+    `当前关系表达：${architectureData.value.resolvedRelationMode || architectureData.value.relationMode || 'MODULE'}`,
+    layerText ? `当前分层与模块：\n${layerText}` : '',
+    edgeText ? `当前连接关系：${edgeText}` : ''
+  ].filter(Boolean).join('\n')
+}
+
+function buildOptimizeDescription(base, userInstruction) {
+  const original = base.content || architectureData.value.title || ''
+  return [
+    '请基于当前架构图进行优化，不要重新生成无关架构。',
+    original ? `原始需求：${original}` : '',
+    describeCurrentArchitecture(),
+    userInstruction ? `优化要求：${userInstruction}` : ''
+  ].filter(Boolean).join('\n\n')
+}
+
+function firstText(...values) {
+  return values.find(value => String(value || '').trim()) || ''
+}
+
+function firstFile(files) {
+  return Array.isArray(files) && files.length ? files[0] : null
+}
+
+function extractOriginalRequirement(value = '') {
+  const text = String(value || '')
+  const match = text.match(/原始需求[:：]\s*([\s\S]*?)(?:\n\s*当前系统类型|\n\s*当前关系表达|\n\s*当前分层与模块|\n\s*当前连接关系|\n\s*优化要求|【文档内容】|文件解析内容[:：]|$)/)
+  return match ? match[1].trim() : ''
+}
+
+function buildSourceContext(base = {}) {
+  const current = architectureData.value || {}
+  const files = Array.isArray(current.files) && current.files.length
+    ? current.files
+    : (Array.isArray(base.files) ? base.files : [])
+  const file = firstFile(files)
+  return {
+    content: firstText(current.content, base.content, extractOriginalRequirement(current.description), extractOriginalRequirement(base.description), current.title),
+    files,
+    sourceText: firstText(current.sourceText, base.sourceText, file?.text),
+    fileId: firstText(current.fileId, base.fileId, file?.fileId, file?.id),
+    sourceFile: firstText(current.sourceFile, base.sourceFile, file?.sourceFile, file?.url),
+    fileSummary: firstText(current.fileSummary, current.summary, base.fileSummary, base.summary, file?.summary)
+  }
+}
+
+function buildOptimizePayload(userInstruction) {
+  const base = uni.getStorageSync('aiArchitecturePendingPayload') || {}
+  const source = buildSourceContext(base)
+  const optimizedDescription = buildOptimizeDescription(source, userInstruction)
+  const relationMode = architectureData.value.requestedRelationMode || base.relationMode || base.relationType || 'AUTO'
+  const architectureLayers = architectureData.value.architectureLayers?.length
+    ? architectureData.value.architectureLayers
+    : (base.architectureLayers || base.layers || [])
+  const focusContents = architectureData.value.focusContents?.length
+    ? architectureData.value.focusContents
+    : (base.focusContents || base.displayContent || [])
+
+  return buildArchitecturePayload({
+    ...base,
+    ...source,
+    content: source.content,
+    description: optimizedDescription,
+    systemType: architectureData.value.systemType || base.systemType || 'WEB',
+    autoArchitectureLayers: architectureData.value.autoArchitectureLayers !== false,
+    architectureLayers,
+    layers: architectureLayers,
+    focusContents,
+    displayContent: focusContents,
+    relationMode,
+    relationType: relationMode,
+    hierarchyMode: architectureData.value.requestedHierarchyMode || base.hierarchyMode || 'STRUCTURED',
+    sourceText: source.sourceText || '',
+    fileId: source.fileId || '',
+    sourceFile: source.sourceFile || '',
+    files: source.files
+  })
+}
+
+function openOptimizeSheet() {
+  currentArchitectureData.value = {
+    title: architectureData.value.title,
+    nodes: architectureData.value.nodes,
+    edges: architectureData.value.edges,
+    layers: architectureData.value.layers,
+    thirdParty: architectureData.value.thirdParty,
+    features: architectureData.value.features
+  }
+  showOptimizeSheet.value = true
+}
+
+async function onOptimize(payload) {
+  showOptimizeSheet.value = false
+  optimizePending.value = null
+  thinkDone.value = false
+  showThinkWindow.value = true
+  try {
+    const userInstruction = String(payload.userInstruction || '').trim()
+    const nextPayload = buildOptimizePayload(userInstruction)
+    const result = await generateArchitecture(nextPayload)
+    uni.setStorageSync('aiArchitecturePendingPayload', nextPayload)
+    uni.setStorageSync(`aiArchitectureResult:${result.id}`, result)
+    optimizePending.value = result
+    optimizeDoneSub.value = `已更新「${result.title || '架构图'}」`
+    thinkDone.value = true
+  } catch (error) {
+    showThinkWindow.value = false
+    thinkDone.value = false
+    uni.showToast({ title: getErrorMessage(error, '优化失败'), icon: 'none' })
+  }
+}
+
+function onThinkView() {
+  showThinkWindow.value = false
+  thinkDone.value = false
+  const result = optimizePending.value
+  if (!result?.id) return
+  uni.redirectTo({
+    url: `/subpackage_ai/architecturePreview/architecturePreview?recordId=${encodeURIComponent(result.id)}&title=${encodeURIComponent(result.title || '')}`
+  })
+}
+
+function exportImage() {
+  // #ifdef H5
+  if (!architectureData.value.layers?.length) {
+    uni.showToast({ title: '暂无数据', icon: 'none' })
+    return
+  }
+  uni.showLoading({ title: '导出中...' })
+  domToPng('.diagram-stage', {
+    width: stageSize.value.width,
+    height: stageSize.value.height,
+    title: architectureData.value.title,
+    filename: architectureData.value.title
+  })
+    .then(() => {
+      uni.hideLoading()
+      uni.showToast({ title: '已导出 PNG', icon: 'success' })
+    })
+    .catch(err => {
+      uni.hideLoading()
+      console.error('[导出失败]', err)
+      uni.showToast({ title: '导出失败，请重试', icon: 'none' })
+    })
+  // #endif
+  // #ifndef H5
+  uni.showToast({ title: '请在 H5 端导出', icon: 'none' })
+  // #endif
+}
+
+function isAutoExport(value) {
+  return ['1', 'true', 'image', 'png'].includes(String(value || '').trim().toLowerCase())
+}
+
+function queueAutoExport() {
+  if (!autoExportImage.value || autoExportDone) return
+  if (!architectureData.value.layers?.length) return
+  autoExportDone = true
+  setTimeout(exportImage, 160)
+}
+
+// 加载后端数据
+async function loadArchitecture() {
+  try {
+    const pages = getCurrentPages()
+    const current = pages[pages.length - 1] || {}
+    const options = current.options || current.$page?.options || {}
+    autoExportImage.value = isAutoExport(options.autoExport || options.exportImage)
+    const id = options.recordId
+      ? decodeURIComponent(options.recordId)
+      : (options.id ? decodeURIComponent(options.id) : '')
+    resultId.value = id
+
+    let normalized = null
+    if (id) {
+      let raw = uni.getStorageSync(`aiArchitectureResult:${id}`)
+      if (!raw) raw = await getArchitectureDetail(id)
+      normalized = normalizeArchitectureResult(raw || {})
+    }
+
+    // 用后端数据合并默认数据，缺失的层用默认数据补全
+    architectureData.value = mergeWithDefaults(normalized)
+  } catch (error) {
+    console.warn('[architecturePreview] 加载后端数据失败:', error)
+    architectureData.value = JSON.parse(JSON.stringify(DEFAULT_ARCHITECTURE_DATA))
+  } finally {
+    nextTick(() => {
+      measureAll(() => {
+        scale.value = getFitScale()
+        nextTick(() => {
+          centerStage()
+          queueAutoExport()
+        })
+      })
+    })
+  }
+}
+
+// 合并：默认结构 + 后端数据
+// 1. 后端数据优先级更高
+// 2. 后端缺失的层，使用默认数据补全
+// 3. 第三方服务和特性用后端数据；都没有则用默认
+function mergeWithDefaults(normalized) {
+  const base = JSON.parse(JSON.stringify(DEFAULT_ARCHITECTURE_DATA))
+  if (!normalized || typeof normalized !== 'object') return base
+
+  const result = {
+    id: normalized.id || base.id,
+    title: normalized.title || base.title,
+    subtitle: normalized.subtitle || base.subtitle,
+    style: normalized.style || base.style,
+    createTime: normalized.createTime || base.createTime,
+    systemType: normalized.systemType || base.systemType || 'WEB',
+    autoArchitectureLayers: normalized.autoArchitectureLayers !== false,
+    architectureLayers: Array.isArray(normalized.architectureLayers) ? normalized.architectureLayers : [],
+    focusContents: Array.isArray(normalized.focusContents) ? normalized.focusContents : [],
+    requestedRelationMode: normalized.requestedRelationMode || normalized.relationMode || 'AUTO',
+    resolvedRelationMode: normalized.resolvedRelationMode || normalized.relationMode || 'MODULE',
+    relationMode: normalized.resolvedRelationMode || normalized.relationMode || 'MODULE',
+    requestedHierarchyMode: normalized.requestedHierarchyMode || normalized.hierarchyMode || 'STRUCTURED',
+    resolvedHierarchyMode: normalized.resolvedHierarchyMode || normalized.hierarchyMode || 'STRUCTURED',
+    description: normalized.description || '',
+    content: normalized.content || '',
+    files: Array.isArray(normalized.files) ? normalized.files : [],
+    sourceText: normalized.sourceText || '',
+    fileId: normalized.fileId || '',
+    sourceFile: normalized.sourceFile || '',
+    summary: normalized.summary || normalized.fileSummary || '',
+    fileSummary: normalized.fileSummary || normalized.summary || '',
+    nodes: Array.isArray(normalized.nodes) ? normalized.nodes : [],
+    edges: Array.isArray(normalized.edges) ? normalized.edges : [],
+    layers: [],
+    thirdParty: [],
+    features: [],
+  }
+
+  // layers 合并
+  const defaultLayersMap = new Map()
+  base.layers.forEach(l => defaultLayersMap.set(l.key, l))
+  const normalizedLayersMap = new Map()
+  if (Array.isArray(normalized.layers)) {
+    normalized.layers.forEach(l => {
+      if (l && l.key) normalizedLayersMap.set(l.key, l)
+    })
+  }
+  // 按默认顺序输出
+  base.layers.forEach(defaultLayer => {
+    const nl = normalizedLayersMap.get(defaultLayer.key)
+    const hasLayerContent = Boolean(
+      nl &&
+        (
+          (Array.isArray(nl.nodes) && nl.nodes.length) ||
+          (Array.isArray(nl.groups) && nl.groups.some(group => Array.isArray(group?.nodes) && group.nodes.length))
+        )
+    )
+    if (hasLayerContent) {
+      // 后端该层有有效结构，用后端数据；不再按默认节点数强行替换。
+      result.layers.push({
+        ...defaultLayer,
+        ...nl,
+        groups: Array.isArray(nl.groups) ? nl.groups : [],
+        nodes: Array.isArray(nl.nodes) ? nl.nodes : []
+      })
+    } else {
+      // 后端该层完全缺失时，用默认数据兜底
+      result.layers.push(JSON.parse(JSON.stringify(defaultLayer)))
+    }
+  })
+  // 后端独有的额外层（不在默认6层中）
+  normalizedLayersMap.forEach((nl, key) => {
+    if (!defaultLayersMap.has(key) && Array.isArray(nl.nodes) && nl.nodes.length) {
+      result.layers.push(nl)
+    }
+  })
+
+  // 第三方服务：后端有则用后端，否则用默认
+  if (Array.isArray(normalized.thirdParty) && normalized.thirdParty.length) {
+    result.thirdParty = normalized.thirdParty
+  } else {
+    result.thirdParty = base.thirdParty
+  }
+
+  // 特性：后端有则用后端，否则用默认
+  if (Array.isArray(normalized.features) && normalized.features.length) {
+    result.features = normalized.features
+  } else {
+    result.features = base.features
+  }
+
+  return result
+}
+
+onMounted(() => {
+  nextTick(() => {
+    measureAll(() => {
+      scale.value = getFitScale()
+      nextTick(centerStage)
+    })
+    // 绑定原生 wheel 事件到 canvas（H5 才能用 preventDefault）
+    const query = uni.createSelectorQuery()
+    query.select('.canvas').fields({ node: true, size: true }, (res) => {
+      if (res?.node) {
+        res.node.addEventListener('wheel', handleNativeWheel, { passive: false })
+      }
+    }).exec()
+    const el = document?.querySelector?.('.canvas')
+    if (el) {
+      el.addEventListener('wheel', handleNativeWheel, { passive: false })
+      // 左键按下：开始拖动
+      el.addEventListener('mousedown', handleMouseDown)
+    }
+  })
+})
+
+onUnmounted(() => {
+  const el = document?.querySelector?.('.canvas')
+  if (el) {
+    el.removeEventListener('wheel', handleNativeWheel)
+    el.removeEventListener('mousedown', handleMouseDown)
+  }
+  document.removeEventListener('mousemove', handleMouseMove)
+  document.removeEventListener('mouseup', handleMouseUp)
+})
+
+loadArchitecture()
 </script>
 
 <style lang="scss" scoped>
 .page {
+  display: flex;
   min-height: 100vh;
-  background-color: #FAFBFC;
-  display: flex;
   flex-direction: column;
+  background: #FAFBFC;
+  color: #1C2E48;
 }
 
-/* 导航栏 */
-.nav-bar {
-  display: flex;
-  align-items: center;
-  padding: 20rpx 24rpx;
-  background: #FFF;
-  position: sticky;
-  top: 0;
-  z-index: 100;
-  gap: 16rpx;
-}
-
-.nav-back {
-  width: 60rpx;
-  height: 60rpx;
+.nav-delete-action {
   display: flex;
   align-items: center;
   justify-content: center;
-  flex-shrink: 0;
+  width: 64rpx;
+  height: 64rpx;
+  border-radius: 999rpx;
 }
 
-.nav-back-icon {
-  font-size: 48rpx;
-  color: #333;
-  font-weight: 300;
+.nav-delete-action:active {
+  background: rgba(15, 23, 42, 0.06);
 }
 
-.nav-title {
-  font-size: 34rpx;
-  font-weight: 700;
-  color: #222;
-  flex: 1;
-  text-align: center;
+.nav-delete-icon {
+  width: 34rpx;
+  height: 34rpx;
 }
 
-.nav-actions {
-  display: flex;
-  align-items: center;
-  gap: 12rpx;
-}
-
-.nav-action-btn {
-  display: flex;
-  align-items: center;
-  gap: 6rpx;
-  padding: 10rpx 16rpx;
-  border-radius: 8rpx;
-  border: 1rpx solid #E8E8E8;
-}
-
-.nav-action-btn--share {
-  background: #FFF;
-}
-
-.nav-action-icon {
-  font-size: 24rpx;
-  color: #555;
-}
-
-.nav-action-text {
-  font-size: 24rpx;
-  color: #555;
-}
-
-/* Tab 栏 */
-.tab-bar {
-  display: flex;
-  background: #FFF;
-  border-bottom: 1rpx solid #F0F0F0;
-}
-
-.tab-item {
-  flex: 1;
-  text-align: center;
-  padding: 20rpx 0;
+/* ===== 画布区域（可缩放/可滚动/可拖动） ===== */
+.canvas-wrapper {
   position: relative;
-}
-
-.tab-item--active .tab-text {
-  color: #4D6BFE;
-  font-weight: 600;
-}
-
-.tab-indicator {
-  position: absolute;
-  bottom: 0;
-  left: 50%;
-  transform: translateX(-50%);
-  width: 48rpx;
-  height: 4rpx;
-  background: #4D6BFE;
-  border-radius: 2rpx;
-}
-
-.tab-text {
-  font-size: 28rpx;
-  color: #888;
-}
-
-.content {
   flex: 1;
-  padding: 20rpx 24rpx;
-  overflow-y: auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: #FAFBFC;
+  overflow: hidden;
+  cursor: grab;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
-/* 架构图 */
-.diagram-section {
-  background: #FFF;
-  border-radius: 16rpx;
-  padding: 28rpx 24rpx;
-  margin-bottom: 20rpx;
+.canvas-wrapper--dragging {
+  cursor: grabbing;
 }
 
-.diagram-container {
+.canvas {
+  flex: 1;
+  min-height: 0;
+  background: #FAFBFC;
+}
+
+/* canvas-content 尺寸 = stage × scale，padding-bottom 200rpx 避让底部 AiResultBar */
+.canvas-content {
+  position: relative;
+  flex-shrink: 0;
+  padding-bottom: 200rpx;
+}
+
+.diagram-stage {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform-origin: 0 0;
+  transition: transform 0.08s linear;
+}
+
+.diagram-wrap {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 16rpx;
+  padding: 16rpx 24rpx;
+  box-sizing: border-box;
+  min-width: max-content;
+}
+
+/* ===== 主架构区（左侧） ===== */
+.layers {
   display: flex;
   flex-direction: column;
   gap: 16rpx;
+  min-width: 760rpx;
+  flex: 1;
 }
 
-.layer-row {
+.layer {
   display: flex;
-  align-items: flex-start;
+  flex-direction: row;
+  align-items: stretch;
   gap: 16rpx;
 }
 
 .layer-label {
   width: 100rpx;
-  padding: 12rpx 8rpx;
-  border-radius: 8rpx;
-  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  border-radius: 20rpx;
+  border: 2rpx solid;
+  padding: 28rpx 12rpx;
+  flex-shrink: 0;
+  gap: 24rpx;
+}
+
+.layer-label-icon {
+  width: 80rpx;
+  height: 80rpx;
+  border-radius: 18rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   flex-shrink: 0;
 }
 
 .layer-label-text {
-  font-size: 22rpx;
-  font-weight: 600;
+  font-size: 30rpx;
+  font-weight: 700;
+  text-align: center;
+  line-height: 1.2;
+  letter-spacing: 4rpx;
+  writing-mode: vertical-rl;
+  text-orientation: upright;
 }
 
-.layer-nodes {
+.layer-cards {
   flex: 1;
   display: flex;
-  gap: 12rpx;
+  flex-direction: row;
   flex-wrap: wrap;
+  gap: 16rpx;
+  min-width: 0;
+  align-content: flex-start;
 }
 
-.layer-nodes--single {
-  justify-content: center;
+.layer-body {
+  flex: 1;
+  min-width: 0;
 }
 
-.node-item {
+.layer-groups {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 16rpx;
+  min-width: 0;
+}
+
+.layer-group {
+  min-width: 280rpx;
+  max-width: 520rpx;
+  flex: 1 1 320rpx;
+  border: 1rpx solid;
+  border-radius: 18rpx;
+  padding: 14rpx;
+  box-sizing: border-box;
+}
+
+.layer-group-head {
+  display: flex;
+  align-items: baseline;
+  gap: 12rpx;
+  min-width: 0;
+  margin-bottom: 12rpx;
+}
+
+.layer-group-title {
+  font-size: 23rpx;
+  font-weight: 800;
+  line-height: 1.25;
+  white-space: nowrap;
+}
+
+.layer-group-desc {
+  min-width: 0;
+  color: #64748B;
+  font-size: 19rpx;
+  line-height: 1.3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.layer-group-cards {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 12rpx;
+  align-content: flex-start;
+}
+
+.arch-card {
+  flex: 1 1 0;
+  min-width: 140rpx;
+  max-width: 200rpx;
+  background: #FFFFFF;
+  border-radius: 16rpx;
+  border: 2rpx solid #E5E7EB;
+  padding: 20rpx 14rpx 16rpx;
+  box-sizing: border-box;
   display: flex;
   flex-direction: column;
   align-items: center;
+  box-shadow: 0 4rpx 12rpx rgba(15, 23, 42, 0.05);
+  cursor: pointer;
+}
+
+.arch-card--nested {
+  min-width: 160rpx;
+  max-width: 230rpx;
+  padding-top: 16rpx;
+}
+
+.arch-card--has-children {
+  max-width: 280rpx;
+}
+
+.arch-card:active {
+  transform: scale(0.98);
+}
+
+.arch-card-icon {
+  width: 56rpx;
+  height: 56rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 10rpx;
+}
+
+.arch-card-name {
+  font-size: 26rpx;
+  font-weight: 700;
+  color: #111827;
+  text-align: center;
+  line-height: 1.3;
+  margin-bottom: 6rpx;
+}
+
+.arch-card-desc {
+  font-size: 20rpx;
+  color: #6B7280;
+  text-align: center;
+  line-height: 1.5;
+  white-space: pre-line;
+  margin-bottom: 8rpx;
+  word-break: break-all;
+}
+
+.arch-card-tech {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 4rpx;
+  margin-top: 2rpx;
+}
+
+.arch-card-tech-item {
+  font-size: 18rpx;
+  font-weight: 500;
+  padding: 2rpx 10rpx;
+  border-radius: 999rpx;
+  border: 1rpx solid;
+  line-height: 1.3;
+}
+
+.node-children {
+  width: 100%;
+  margin-top: 12rpx;
+  padding-top: 10rpx;
+  border-top: 1rpx solid #EEF1F4;
+  display: flex;
+  flex-direction: column;
   gap: 8rpx;
-  padding: 16rpx 12rpx;
+}
+
+.node-child {
+  display: flex;
+  align-items: flex-start;
+  gap: 8rpx;
+  width: 100%;
+  padding: 8rpx 10rpx;
+  border: 1rpx solid;
   border-radius: 10rpx;
-  min-width: 100rpx;
-  flex: 1;
+  box-sizing: border-box;
 }
 
-.node-item--wide {
-  min-width: 200rpx;
+.node-child-dot {
+  width: 8rpx;
+  height: 8rpx;
+  border-radius: 50%;
+  margin-top: 9rpx;
+  flex-shrink: 0;
+}
+
+.node-child-copy {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+.node-child-name {
+  max-width: 190rpx;
+  color: #1F2937;
+  font-size: 19rpx;
+  line-height: 1.25;
+  font-weight: 800;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.node-child-desc {
+  max-width: 190rpx;
+  margin-top: 2rpx;
+  color: #6B7280;
+  font-size: 17rpx;
+  line-height: 1.25;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.third-party {
+  width: 100%;
+  flex-shrink: 0;
+  background: #FFFFFF;
+  border-radius: 16rpx;
+  border: 2rpx solid #E5E7EB;
+  padding: 20rpx;
+  box-sizing: border-box;
+  display: flex;
   flex-direction: row;
-  gap: 12rpx;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 16rpx;
+  box-shadow: 0 2rpx 8rpx rgba(15, 23, 42, 0.04);
 }
 
-.node-icon {
-  font-size: 32rpx;
-}
-
-.node-label {
-  font-size: 22rpx;
-  color: #333;
-  text-align: center;
-}
-
-.flow-arrow {
-  text-align: center;
+.third-party-title {
+  width: 100%;
   font-size: 24rpx;
-  color: #999;
+  font-weight: 700;
+  color: #1F2937;
+  margin-bottom: 4rpx;
+}
+
+.third-party-item {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 12rpx;
+  background: #F9FAFB;
+  border: 1rpx solid #EEF1F4;
+  border-radius: 12rpx;
+  padding: 10rpx 16rpx;
+}
+
+.third-party-icon {
+  width: 44rpx;
+  height: 44rpx;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.third-party-name {
+  font-size: 22rpx;
+  font-weight: 700;
+  color: #1F2937;
+  text-align: left;
+  line-height: 1.3;
+}
+
+.third-party-desc {
+  display: none;
+}
+
+/* ===== 底部特性标签（居中胶囊） ===== */
+.relation-panel {
+  margin: 0 24rpx 12rpx;
+  padding: 18rpx 22rpx;
+  border: 2rpx solid #e5e7eb;
+  border-radius: 16rpx;
+  background: #ffffff;
+  box-shadow: 0 2rpx 8rpx rgba(15, 23, 42, 0.04);
+}
+
+.relation-panel--module {
+  border-color: #ddd6fe;
+  background: #faf9ff;
+}
+
+.relation-panel--data-flow {
+  border-color: #bfdbfe;
+  background: #f8fbff;
+}
+
+.relation-panel--call {
+  border-color: #c7d2fe;
+  background: #f8f7ff;
+}
+
+.relation-panel-head {
+  display: flex;
+  align-items: baseline;
+  gap: 16rpx;
+}
+
+.relation-panel-title {
+  color: #1f2937;
+  font-size: 25rpx;
+  font-weight: 800;
+  line-height: 1.25;
+}
+
+.relation-panel-desc {
+  color: #6b7280;
+  font-size: 21rpx;
+  line-height: 1.35;
+}
+
+.relation-edge-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10rpx;
+  margin-top: 14rpx;
+}
+
+.relation-edge {
+  display: flex;
+  align-items: center;
+  max-width: 100%;
+  gap: 8rpx;
+  padding: 8rpx 12rpx;
+  border: 1rpx solid #e5e7eb;
+  border-radius: 999rpx;
+  background: #ffffff;
+}
+
+.relation-node,
+.relation-label {
+  max-width: 160rpx;
+  overflow: hidden;
+  color: #374151;
+  font-size: 20rpx;
+  font-weight: 700;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.relation-arrow {
+  color: #8b5cf6;
+  font-size: 22rpx;
+  font-weight: 800;
   line-height: 1;
 }
 
-/* 操作按钮 */
-.action-bar {
-  display: flex;
-  justify-content: space-around;
-  padding: 20rpx 0;
-  background: #FFF;
-  border-radius: 16rpx;
-  margin-bottom: 20rpx;
-}
-
-.action-btn {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 8rpx;
-}
-
-.action-btn-icon {
-  font-size: 32rpx;
-}
-
-.action-btn-text {
-  font-size: 24rpx;
-  color: #555;
-}
-
-/* 架构说明 */
-.desc-section {
-  background: #FFF;
-  border-radius: 16rpx;
-  padding: 28rpx 24rpx;
-  margin-bottom: 20rpx;
-}
-
-.desc-title {
-  font-size: 30rpx;
-  font-weight: 700;
-  color: #222;
-  margin-bottom: 16rpx;
-}
-
-.desc-text {
-  font-size: 26rpx;
-  color: #555;
-  line-height: 1.8;
-}
-
-/* 推荐模板 */
-.template-section {
-  background: #FFF;
-  border-radius: 16rpx;
-  padding: 28rpx 24rpx;
-  margin-bottom: 20rpx;
-}
-
-.template-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 20rpx;
-}
-
-.template-title {
-  font-size: 30rpx;
-  font-weight: 700;
-  color: #222;
-}
-
-.template-more {
-  font-size: 24rpx;
-  color: #4D6BFE;
-}
-
-.template-list {
-  display: flex;
-  gap: 16rpx;
-  overflow-x: auto;
-  padding-bottom: 8rpx;
-}
-
-.template-item {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 12rpx;
-  min-width: 160rpx;
-}
-
-.template-preview {
-  width: 160rpx;
-  height: 120rpx;
-  border-radius: 12rpx;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border: 2rpx solid #F0F0F0;
-}
-
-.template-preview-icon {
-  font-size: 48rpx;
-}
-
-.template-label {
-  font-size: 24rpx;
-  color: #555;
-  text-align: center;
-}
-
-/* 底部按钮 */
-.bottom-bar {
-  display: flex;
-  gap: 16rpx;
-  padding: 20rpx 24rpx;
-  background: #FFF;
-  border-top: 1rpx solid #F0F0F0;
-}
-
-.bottom-btn {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8rpx;
-  padding: 24rpx 0;
-  border-radius: 12rpx;
-}
-
-.bottom-btn--outline {
-  border: 2rpx solid #E8E8E8;
-  background: #FFF;
-}
-
-.bottom-btn--primary {
-  background: linear-gradient(135deg, #6A8CFE 0%, #4D6BFE 100%);
-}
-
-.bottom-btn-icon {
-  font-size: 28rpx;
-}
-
-.bottom-btn-text {
-  font-size: 28rpx;
+.relation-label {
+  padding-left: 8rpx;
+  color: #6b7280;
   font-weight: 600;
 }
 
-.bottom-btn--outline .bottom-btn-text {
-  color: #555;
+.relation-panel--data-flow .relation-arrow,
+.diagram-stage--data-flow .arch-card-name {
+  color: #2563eb;
 }
 
-.bottom-btn--primary .bottom-btn-icon,
-.bottom-btn--primary .bottom-btn-text {
-  color: #FFF;
+.relation-panel--call .relation-arrow,
+.diagram-stage--call .arch-card-name {
+  color: #6d5df4;
 }
+
+.diagram-stage--data-flow .arch-card {
+  box-shadow: 0 6rpx 16rpx rgba(37, 99, 235, 0.08);
+}
+
+.diagram-stage--call .arch-card {
+  border-style: dashed;
+  box-shadow: 0 6rpx 16rpx rgba(109, 93, 244, 0.08);
+}
+
+.features-row {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 16rpx;
+  padding: 8rpx 24rpx 24rpx;
+}
+.feature-item {
+  display: flex;
+  align-items: center;
+  gap: 8rpx;
+  background: #FFFFFF;
+  border: 1rpx solid #E5E7EB;
+  border-radius: 999rpx;
+  padding: 8rpx 20rpx;
+}
+.feature-check {
+  width: 30rpx;
+  height: 30rpx;
+  border-radius: 50%;
+  background: #E8F8F0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.feature-check-icon { color: #10B981; font-size: 20rpx; line-height: 1; }
+.feature-text { font-size: 22rpx; color: #374151; font-weight: 600; }
+.feature-dot { display: none; }
+
+/* 底部操作栏样式已抽到 subpackage_ai/components/AiResultBar.vue
+   这里不再写底部栏 CSS，由组件提供 */
 </style>

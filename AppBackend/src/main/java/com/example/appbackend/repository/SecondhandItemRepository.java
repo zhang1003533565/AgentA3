@@ -19,6 +19,12 @@ public interface SecondhandItemRepository extends JpaRepository<SecondhandItem, 
 
     Page<SecondhandItem> findByUserIdAndStatus(Long userId, Integer status, Pageable pageable);
 
+    Page<SecondhandItem> findByUserIdAndStatusIn(Long userId, List<Integer> statuses, Pageable pageable);
+
+    Page<SecondhandItem> findByUserIdAndTradeType(Long userId, String tradeType, Pageable pageable);
+
+    Page<SecondhandItem> findByUserIdAndStatusAndTradeType(Long userId, Integer status, String tradeType, Pageable pageable);
+
     @Query("SELECT s FROM SecondhandItem s WHERE s.status = 2 " +
            "AND (:categoryId IS NULL OR s.categoryId = :categoryId) " +
            "AND (:keyword IS NULL OR s.title LIKE CONCAT('%', :keyword, '%')) " +
@@ -31,6 +37,19 @@ public interface SecondhandItemRepository extends JpaRepository<SecondhandItem, 
                                         @Param("minPrice") java.math.BigDecimal minPrice,
                                         @Param("maxPrice") java.math.BigDecimal maxPrice,
                                         Pageable pageable);
+
+    @Query("SELECT s FROM SecondhandItem s WHERE " +
+           "(:status IS NULL OR s.status = :status) " +
+           "AND (:categoryId IS NULL OR s.categoryId = :categoryId) " +
+           "AND (:userId IS NULL OR s.userId = :userId) " +
+           "AND (:tradeType IS NULL OR s.tradeType = :tradeType) " +
+           "AND (:keyword IS NULL OR s.title LIKE CONCAT('%', :keyword, '%') OR s.description LIKE CONCAT('%', :keyword, '%'))")
+    Page<SecondhandItem> findAdminList(@Param("status") Integer status,
+                                       @Param("categoryId") Long categoryId,
+                                       @Param("userId") Long userId,
+                                       @Param("tradeType") String tradeType,
+                                       @Param("keyword") String keyword,
+                                       Pageable pageable);
 
     @Modifying
     @Query("UPDATE SecondhandItem s SET s.viewCount = s.viewCount + 1 WHERE s.id = :id")

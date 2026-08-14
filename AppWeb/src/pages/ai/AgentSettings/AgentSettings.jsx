@@ -35,6 +35,8 @@ const getToolCategoryLabel = (category) => {
     structured_query: '结构化查询',
     content_export: '内容整理',
     diagram_export: '图表导出',
+    presentation_generation: 'PPT 生成',
+    vision_understanding: '图片理解',
   }
   return labels[category] || category || '-'
 }
@@ -361,6 +363,12 @@ function AgentSettings() {
       render: renderOutputs,
     },
     {
+      title: '绑定智能体',
+      dataIndex: 'boundAgent',
+      width: 170,
+      render: (value) => value ? <Tag color="geekblue">{value}</Tag> : '-',
+    },
+    {
       title: '触发条件',
       dataIndex: 'trigger',
       width: 320,
@@ -456,6 +464,12 @@ function AgentSettings() {
       dataIndex: 'outputs',
       width: 190,
       render: renderOutputs,
+    },
+    {
+      title: '绑定智能体',
+      dataIndex: 'boundAgent',
+      width: 170,
+      render: (value) => value ? <Tag color="geekblue">{value}</Tag> : '-',
     },
     {
       title: '触发条件',

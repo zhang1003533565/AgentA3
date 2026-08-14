@@ -33,6 +33,11 @@ public class MapPlaceController {
         return Result.success(mapPlaceService.tree(sceneType));
     }
 
+    @GetMapping("/canteens/{canteenId}/structure")
+    public Result<List<MapPlaceResponse>> canteenStructure(@PathVariable Long canteenId) {
+        return Result.success(mapPlaceService.canteenStructure(canteenId));
+    }
+
     @GetMapping("/{id}")
     public Result<MapPlaceResponse> detail(@PathVariable Long id) {
         return Result.success(mapPlaceService.detail(id));
@@ -65,6 +70,14 @@ public class MapPlaceController {
             @RequestBody MapPlaceImageRequest request
     ) {
         return Result.success("图片添加成功", mapPlaceService.addImage(placeId, request));
+    }
+
+    @PutMapping("/images/{imageId}")
+    public Result<MapPlaceImage> updateImage(
+            @PathVariable Long imageId,
+            @RequestBody MapPlaceImageRequest request
+    ) {
+        return Result.success("图片展示位置更新成功", mapPlaceService.updateImage(imageId, request));
     }
 
     @DeleteMapping("/images/{imageId}")

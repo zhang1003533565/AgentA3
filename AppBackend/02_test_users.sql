@@ -7,7 +7,9 @@ INSERT INTO sys_user (
 (101, 'test_admin',    'admin123', '测试管理员', '13800000101', 'test_admin@campus.edu.cn',    1, 1, NOW(), NOW(), '313', 'TADMIN101',  '2026-02-24', 'SCHTEST101'),
 (102, 'test_teacher',  'admin123', '测试教师',   '13800000102', 'test_teacher@campus.edu.cn',  2, 1, NOW(), NOW(), '313', 'TTEACH102',  '2026-02-24', 'SCHTEST102'),
 (103, 'test_student',  'admin123', '测试学生',   '13800000103', 'test_student@campus.edu.cn',  3, 1, NOW(), NOW(), '313', 'TSTU103',    '2026-02-24', 'SCHTEST103'),
-(104, 'test_merchant', 'admin123', '测试商家',   '13800000104', 'test_merchant@campus.edu.cn', 4, 1, NOW(), NOW(), '313', 'TMER104',    '2026-02-24', 'SCHTEST104')
+(104, 'test_merchant', 'admin123', '测试商家',   '13800000104', 'test_merchant@campus.edu.cn', 4, 1, NOW(), NOW(), '313', 'TMER104',    '2026-02-24', 'SCHTEST104'),
+-- 题库公私对照账号：与 zzs 配对，验证私有收藏夹互不可见、公共收藏夹互可见
+(105, 'qb_peer',       'admin123', '题库对照学生', '13900000099', 'qb_peer@stu.campus.edu.cn',  3, 1, NOW(), NOW(), '',    'QBPEER001',  '2026-02-24', 'SCHQBPEER1')
 ON DUPLICATE KEY UPDATE
 username       = VALUES(username),
 password       = VALUES(password),

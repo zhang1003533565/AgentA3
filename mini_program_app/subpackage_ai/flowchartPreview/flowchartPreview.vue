@@ -179,7 +179,7 @@ import { ref } from 'vue'
 const activeCodeTab = ref('mermaid')
 
 const goGuide = () => { uni.showToast({ title: '使用指南', icon: 'none' }) }
-const goHistory = () => { uni.showToast({ title: '历史记录', icon: 'none' }) }
+const goHistory = () => { uni.navigateTo({ url: '/subpackage_ai/diagramHistory/diagramHistory?type=flowchart' }) }
 const handleExport = () => { uni.showToast({ title: '导出', icon: 'none' }) }
 const copyResult = () => { uni.showToast({ title: '已复制', icon: 'success' }) }
 const downloadResult = () => { uni.showToast({ title: '下载', icon: 'none' }) }

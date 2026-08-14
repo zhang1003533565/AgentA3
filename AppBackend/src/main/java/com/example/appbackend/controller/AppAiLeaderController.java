@@ -392,6 +392,9 @@ public class AppAiLeaderController {
         Map<String, Object> payload = new HashMap<>();
         payload.put("input", request.getInput());
         payload.put("agentName", LEADER_AGENT);
+        if (request.getAttachments() != null && !request.getAttachments().isEmpty()) {
+            payload.put("attachments", request.getAttachments());
+        }
         if (StringUtils.hasText(request.getLlmModel())) {
             payload.put("llmModel", request.getLlmModel().trim());
         }

@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { Button, Card, Drawer, Empty, Form, Image, Input, InputNumber, Modal, Popconfirm, Select, Space, Table, Tabs, Tag, Upload, message } from 'antd'
 import { SearchOutlined, UploadOutlined } from '@ant-design/icons'
-import SidePanel from '../../components/SidePanel/SidePanel'
 import * as echarts from 'echarts'
 import { createActivity, deleteActivity, getActivityList, publishActivity, updateActivity } from '../../api/activity'
 import { createCategory, getCategoryList, updateCategory } from '../../api/category'
@@ -30,10 +29,9 @@ import {
   deleteSecondhandItem,
   getSecondhandAdminList,
   getSecondhandCategoryList,
+  getSecondhandItemDetail,
   getSecondhandStatistics,
-  markSecondhandItemSold,
   offlineSecondhandItem,
-  onlineSecondhandItem,
   updateSecondhandCategory,
 } from '../../api/secondhand'
 import { closeSignIn, getSignInList, openSignIn } from '../../api/signin'
@@ -49,11 +47,10 @@ import {
 import { getWorkspacePage } from '../../data/portalData'
 import './WorkspacePage.css'
 
-const AMAP_WEB_KEY = import.meta.env.VITE_AMAP_WEB_KEY || '64bc139adb6a611277fb8f6821b371ac'
-const AMAP_SECURITY_JS_CODE = import.meta.env.VITE_AMAP_SECURITY_JS_CODE || ''
+const AMAP_WEB_KEY = '64bc139adb6a611277fb8f6821b371ac'
 const DEFAULT_MAP_CENTER = {
-  longitude: 104.0736,
-  latitude: 30.6667,
+  longitude: 114.897014,
+  latitude: 40.755502,
 }
 const DEFAULT_MAP_ZOOM = 16
 const AI_MODALITIES = [
@@ -101,12 +98,6 @@ let amapLoaderPromise = null
 
 const loadAmapScript = () => {
   if (typeof window === 'undefined') return Promise.reject(new Error('浏览器环境不可用'))
-  if (AMAP_SECURITY_JS_CODE) {
-    window._AMapSecurityConfig = {
-      ...window._AMapSecurityConfig,
-      securityJsCode: AMAP_SECURITY_JS_CODE,
-    }
-  }
   if (window.AMap) return Promise.resolve(window.AMap)
   if (amapLoaderPromise) return amapLoaderPromise
 
@@ -291,6 +282,54 @@ const colorMap = {
   ADMIN: 'red',
   TEACHER: 'blue',
   STUDENT: 'default',
+  在售: 'green',
+  已售出: 'blue',
+  已下架: 'default',
+  出物: 'green',
+  收物: 'blue',
+}
+
+const SECONDHAND_STATUS_FILTER_MAP = {
+  全部: undefined,
+  出物: { tradeType: 'sell' },
+  收物: { tradeType: 'buy' },
+  已下架: { status: 4 },
+}
+
+const formatSecondhandPrice = (price, originalPrice) => {
+  const current = Number(price)
+  const original = Number(originalPrice)
+  if (!Number.isFinite(current)) return '-'
+  const currentText = `¥${current.toFixed(current % 1 === 0 ? 0 : 2)}`
+  if (Number.isFinite(original) && original > current) {
+    return `${currentText} / 原价¥${original.toFixed(original % 1 === 0 ? 0 : 2)}`
+  }
+  return currentText
+}
+
+const getTradeTypeStatusText = (item = {}) => {
+  const status = Number(item.status)
+  if (status === 4) return '已下架'
+  const tradeType = String(item.tradeType || 'sell')
+  return tradeType === 'buy' ? '收物' : '出物'
+}
+
+const normalizeSecondhandItemRow = (item = {}) => {
+  const images = Array.isArray(item.images) ? item.images : []
+  const coverImage = images.find((url) => typeof url === 'string' && url.trim()) || ''
+  const publisherName = item.publisherName || item.seller?.username || item.seller?.realName || '-'
+  const viewCount = Number(item.viewCount || 0)
+  const favoriteCount = Number(item.favoriteCount || 0)
+  const inquiryCount = Number(item.inquiryCount || 0)
+  return {
+    ...item,
+    coverImage,
+    publisherName,
+    priceText: formatSecondhandPrice(item.price, item.originalPrice),
+    statusText: getTradeTypeStatusText(item),
+    location: item.location || item.tradeLocation || item.pickupPoint || '-',
+    heatMeta: `浏览 ${viewCount} · 收藏 ${favoriteCount} · 咨询 ${inquiryCount}`,
+  }
 }
 
 const toSummaryRows = (obj, prefix = '') =>
@@ -340,7 +379,7 @@ function EChart({ option, height = 320 }) {
   return <div ref={chartRef} style={{ width: '100%', height }} />
 }
 
-const loadWorkspaceData = async (pageKey, { current, pageSize, keyword, status, contextId, urlStallId, currentPostTitle }) => {
+const loadWorkspaceData = async (pageKey, { current, pageSize, keyword, status, contextId, marketCategoryId, urlStallId, currentPostTitle }) => {
   switch (pageKey) {
     case 'user-manage': {
       const res = await getUserList({ page: current, size: pageSize, username: keyword })
@@ -401,7 +440,7 @@ const loadWorkspaceData = async (pageKey, { current, pageSize, keyword, status, 
       return { rows: res.data?.records || [], total: res.data?.total || 0 }
     }
     case 'facility-canteen': {
-      const res = await getFacilityList({ type: 1, page: current, size: pageSize, name: keyword, status: status === '全部' ? undefined : parseInt(status) })
+      const res = await getFacilityList({ type: 1, page: current, size: pageSize, name: keyword })
       return { rows: res.data?.records || [], total: res.data?.total || 0 }
     }
     case 'facility-restaurant': {
@@ -410,27 +449,15 @@ const loadWorkspaceData = async (pageKey, { current, pageSize, keyword, status, 
       return { rows, total: rows.length }
     }
     case 'facility-sports': {
-      const typeMap = {
-        '全部': [2, 3, 4, 5],
-        '球类场地': [2],
-        '水上及特殊场地': [3],
-        '田径及综合场地': [4],
-        '其他': [5],
-      }
-      const selectedTypes = typeMap[status] || [2, 3, 4, 5]
-      const results = await Promise.all(selectedTypes.map(type => 
-        getFacilityList({ type, page: 1, size: 100, name: keyword })
-      ))
-      const allRecords = results.flatMap(res => res.data?.records || [])
-      const rows = allRecords.slice((current - 1) * pageSize, current * pageSize)
-      return { rows, total: allRecords.length }
+      const res = await getFacilityList({ type: 2, page: current, size: pageSize, name: keyword })
+      return { rows: res.data?.records || [], total: res.data?.total || 0 }
     }
     case 'facility-teaching': {
-      const res = await getFacilityList({ type: 6, page: current, size: pageSize, name: keyword, status: status === '全部' ? undefined : parseInt(status) })
+      const res = await getFacilityList({ type: 3, page: current, size: pageSize, name: keyword })
       return { rows: res.data?.records || [], total: res.data?.total || 0 }
     }
     case 'facility-dormitory': {
-      const res = await getFacilityList({ type: 7, page: current, size: pageSize, name: keyword, status: status === '全部' ? undefined : parseInt(status) })
+      const res = await getFacilityList({ type: 4, page: current, size: pageSize, name: keyword })
       return { rows: res.data?.records || [], total: res.data?.total || 0 }
     }
     case 'facility-stall-dish': {
@@ -516,12 +543,43 @@ const loadWorkspaceData = async (pageKey, { current, pageSize, keyword, status, 
     }
     case 'market-item':
     case 'market-audit': {
-      const res = await getSecondhandAdminList({ page: current, size: pageSize, keyword })
-      return { rows: res.data?.records || [], total: res.data?.total || 0 }
+      const filter = SECONDHAND_STATUS_FILTER_MAP[status] || {}
+      const res = await getSecondhandAdminList({
+        page: current,
+        size: pageSize,
+        keyword,
+        status: filter.status,
+        tradeType: filter.tradeType,
+        categoryId: marketCategoryId || undefined,
+      })
+      const rows = (res.data?.records || []).map(normalizeSecondhandItemRow)
+      return { rows, total: res.data?.total || 0 }
     }
     case 'market-category': {
-      const res = await getSecondhandCategoryList()
-      const rows = Array.isArray(res.data) ? res.data : []
+      const [res, statRes] = await Promise.all([
+        getSecondhandCategoryList(),
+        getSecondhandStatistics().catch(() => ({ data: null })),
+      ])
+      const distribution = Array.isArray(statRes?.data?.categoryDistribution)
+        ? statRes.data.categoryDistribution
+        : []
+      const countMap = Object.fromEntries(
+        distribution.map((item) => [String(item.name || ''), Number(item.value || 0)]),
+      )
+      const keywordText = String(keyword || '').trim()
+      const rows = (Array.isArray(res.data) ? res.data : [])
+        .map((item, index) => {
+          const itemCount = countMap[item.categoryName] ?? 0
+          return {
+            ...item,
+            accentIndex: index % 5,
+            itemCount,
+            itemCountText: `${itemCount} 件`,
+            sortText: item.sort == null ? '-' : `第 ${item.sort} 位`,
+          }
+        })
+        .filter((item) => !keywordText || String(item.categoryName || '').includes(keywordText))
+        .sort((a, b) => Number(a.sort ?? 0) - Number(b.sort ?? 0))
       return { rows, total: rows.length }
     }
     case 'discount-merchant': {
@@ -584,22 +642,6 @@ const loadWorkspaceData = async (pageKey, { current, pageSize, keyword, status, 
   }
 }
 
-const statusMap = {
-  1: '正常开放',
-  2: '维护中',
-  3: '关闭',
-}
-
-const facilityTypeMap = {
-  1: '食堂',
-  2: '球类场地',
-  3: '水上及特殊场地',
-  4: '田径及综合场地',
-  5: '其他',
-  6: '教学楼',
-  7: '宿舍',
-}
-
 function renderCell(value, type, row) {
   if (type === 'image') {
     if (!value) {
@@ -617,65 +659,9 @@ function renderCell(value, type, row) {
     )
   }
 
-  if (type === 'text') {
-    if (!value) {
-      return <span style={{ color: '#94a3b8' }}>-</span>
-    }
-    const text = String(value).length > 15 ? String(value).slice(0, 15) + '...' : value
-    return (
-      <span style={{ 
-        fontSize: '13px',
-        lineHeight: '1.5',
-      }}>
-        {text}
-      </span>
-    )
-  }
-
-  if (type === 'images') {
-    let imageList = []
-    try {
-      if (typeof value === 'string') {
-        imageList = JSON.parse(value)
-      } else if (Array.isArray(value)) {
-        imageList = value
-      }
-    } catch (e) {
-      imageList = []
-    }
-    if (!imageList || imageList.length === 0) {
-      return <span style={{ color: '#94a3b8' }}>暂无图片</span>
-    }
-    const displayImages = imageList.slice(0, 3)
-    return (
-      <Space size={4}>
-        {displayImages.map((url, index) => (
-          <Image
-            key={index}
-            src={url}
-            alt={`图片${index + 1}`}
-            width={56}
-            height={56}
-            style={{ objectFit: 'cover', borderRadius: 8 }}
-            fallback="data:image/svg+xml;base64,PHN2ZyB4bWxucz0naHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmcnIHdpZHRoPSc1NicgaGVpZ2h0PSc1Nic+PHJlY3Qgd2lkdGg9JzU2JyBoZWlnaHQ9JzU2JyByeD0nMTInIGZpbGw9JyNlNWU3ZWInLz48dGV4dCB4PSc1MCUnIHk9JzUwJScgZm9udC1zaXplPScxMicgZmlsbD0nIzY0NzQ4YicgdGV4dC1hbmNob3I9J21pZGRsZScgZHk9Jy4zNWVtJz7ml6Dlm748L3RleHQ+PC9zdmc+"
-          />
-        ))}
-        {imageList.length > 3 && (
-          <span style={{ color: '#94a3b8', fontSize: 12, alignSelf: 'center' }}>+{imageList.length - 3}</span>
-        )}
-      </Space>
-    )
-  }
-
-  if (type === 'tag') {
-    const text = facilityTypeMap[value] || (value === undefined || value === null || value === '' ? '-' : String(value))
-    return <Tag color={colorMap[text] || 'blue'}>{text}</Tag>
-  }
-
-  if (type === 'status') {
-    const text = statusMap[value] || (value === undefined || value === null || value === '' ? '-' : String(value))
-    const color = value === 1 ? 'green' : value === 2 ? 'orange' : value === 3 ? 'red' : colorMap[text] || 'default'
-    return <Tag color={color}>{text}</Tag>
+  if (type === 'tag' || type === 'status') {
+    const text = value === undefined || value === null || value === '' ? '-' : String(value)
+    return <Tag color={colorMap[text] || 'default'}>{text}</Tag>
   }
 
   if (row && value === undefined) {
@@ -1035,6 +1021,13 @@ function WorkspacePage({ pageKey }) {
   const [keyword, setKeyword] = useState('')
   const [status, setStatus] = useState('全部')
   const [rows, setRows] = useState([])
+  const [marketRankTab, setMarketRankTab] = useState('latest')
+  const [marketRankItems, setMarketRankItems] = useState([])
+  const [marketCategoryOptions, setMarketCategoryOptions] = useState([])
+  const [marketCategoryId, setMarketCategoryId] = useState()
+  const [marketDetailOpen, setMarketDetailOpen] = useState(false)
+  const [marketDetailLoading, setMarketDetailLoading] = useState(false)
+  const [marketDetail, setMarketDetail] = useState(null)
   const [loading, setLoading] = useState(false)
   const [actionLoading, setActionLoading] = useState(false)
   const [modalOpen, setModalOpen] = useState(false)
@@ -1071,7 +1064,7 @@ function WorkspacePage({ pageKey }) {
   const [amapLoadError, setAmapLoadError] = useState('')
   const [selectedMarkerId, setSelectedMarkerId] = useState(null)
   const [markerEditorOpen, setMarkerEditorOpen] = useState(false)
-  const [markerEditorMode, setMarkerEditorMode] = useState('reposition')
+  const [markerEditorMode, setMarkerEditorMode] = useState('create')
   const [markerEditorSaving, setMarkerEditorSaving] = useState(false)
   const [markerSearchKeyword, setMarkerSearchKeyword] = useState('')
   const [markerSearchLoading, setMarkerSearchLoading] = useState(false)
@@ -1115,8 +1108,6 @@ function WorkspacePage({ pageKey }) {
   const workspacePageSize = pagination.pageSize
   const stallImagePreview = Form.useWatch('image', form)
   const dishImagePreview = Form.useWatch('imageUrl', form)
-  const [facilityImageList, setFacilityImageList] = useState([])
-  const [facilityImageUploading, setFacilityImageUploading] = useState(false)
   const [facilityTypeOptions, setFacilityTypeOptions] = useState(DEFAULT_FACILITY_TYPE_OPTIONS)
   const getFacilityTypeLabel = useMemo(
     () => createFacilityTypeLabelGetter(facilityTypeOptions),
@@ -1153,7 +1144,13 @@ function WorkspacePage({ pageKey }) {
 
   useEffect(() => {
     setKeyword('')
+    setStatus('全部')
     setRows([])
+    setMarketRankTab('latest')
+    setMarketRankItems([])
+    setMarketCategoryId(undefined)
+    setMarketDetailOpen(false)
+    setMarketDetail(null)
     setContextInput('')
     setContextId('')
     setUrlStallId('')
@@ -1182,6 +1179,7 @@ function WorkspacePage({ pageKey }) {
           keyword,
           status,
           contextId,
+          marketCategoryId,
           urlStallId,
           currentPostTitle: searchParams.get('postTitle') || forumPostOptions.find((item) => item.value === String(contextId))?.label || '',
         })
@@ -1212,7 +1210,7 @@ function WorkspacePage({ pageKey }) {
     return () => {
       cancelled = true
     }
-  }, [contextId, forumPostOptions, page, pageKey, workspacePage, workspacePageSize, keyword, searchParams, status, urlStallId])
+  }, [contextId, forumPostOptions, marketCategoryId, page, pageKey, workspacePage, workspacePageSize, keyword, searchParams, status, urlStallId])
 
   // 解析 URL 参数（仅 facility-stall-dish 页面）
   useEffect(() => {
@@ -1322,6 +1320,59 @@ function WorkspacePage({ pageKey }) {
     }
   }, [pageKey, rows, selectedMarkerId])
 
+  useEffect(() => {
+    if (pageKey !== 'market-item' && pageKey !== 'market-audit') return undefined
+    let cancelled = false
+    const loadRankAndCategories = async () => {
+      try {
+        const [listRes, categoryRes] = await Promise.all([
+          getSecondhandAdminList({ page: 1, size: 100 }),
+          getSecondhandCategoryList().catch(() => ({ data: [] })),
+        ])
+        if (cancelled) return
+        setMarketRankItems((listRes.data?.records || []).map(normalizeSecondhandItemRow))
+        const categories = Array.isArray(categoryRes.data) ? categoryRes.data : []
+        setMarketCategoryOptions(categories.map((item) => ({ value: item.id, label: item.categoryName })))
+      } catch {
+        if (!cancelled) {
+          setMarketRankItems([])
+          setMarketCategoryOptions([])
+        }
+      }
+    }
+    loadRankAndCategories()
+    return () => {
+      cancelled = true
+    }
+  }, [pageKey, rows])
+
+  const marketRankTop4 = useMemo(() => {
+    const list = [...marketRankItems]
+    const byNumber = (key) => (a, b) => Number(b[key] || 0) - Number(a[key] || 0)
+    const byTime = (a, b) => String(b.createTime || '').localeCompare(String(a.createTime || ''))
+    if (marketRankTab === 'views') list.sort(byNumber('viewCount'))
+    else if (marketRankTab === 'favorites') list.sort(byNumber('favoriteCount'))
+    else if (marketRankTab === 'inquiries') list.sort(byNumber('inquiryCount'))
+    else list.sort(byTime)
+    return list.slice(0, 4)
+  }, [marketRankItems, marketRankTab])
+
+  const openMarketItemDetail = async (record) => {
+    if (!record?.id) return
+    setMarketDetailOpen(true)
+    setMarketDetailLoading(true)
+    setMarketDetail(null)
+    try {
+      const res = await getSecondhandItemDetail(record.id)
+      setMarketDetail(normalizeSecondhandItemRow(res.data || record))
+    } catch (error) {
+      setMarketDetail(normalizeSecondhandItemRow(record))
+      message.error(error?.message || '详情加载失败')
+    } finally {
+      setMarketDetailLoading(false)
+    }
+  }
+
   const refreshPageData = async () => {
     const result = await loadWorkspaceData(pageKey, {
       current: pagination.current,
@@ -1329,6 +1380,7 @@ function WorkspacePage({ pageKey }) {
       keyword,
       status,
       contextId,
+      marketCategoryId,
       urlStallId,
       currentPostTitle: searchParams.get('postTitle') || forumPostOptions.find((item) => item.value === String(contextId))?.label || '',
     })
@@ -1342,51 +1394,13 @@ function WorkspacePage({ pageKey }) {
       await fn()
       message.success(successText)
       await refreshPageData()
+      return true
     } catch (error) {
       message.error(error?.message || '操作失败')
+      return false
     } finally {
       setActionLoading(false)
     }
-  }
-
-  const handleFacilityImageUpload = async (file) => {
-    setFacilityImageUploading(true)
-    try {
-      const compressedFile = await compressMapBuildingImage(file)
-      const formData = new FormData()
-      formData.append('file', compressedFile)
-      const response = await fetch(getUploadUrl(MAP_BUILDING_UPLOAD_FOLDER), {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${localStorage.getItem('token') || ''}`,
-        },
-        body: formData,
-      })
-      const result = await response.json()
-      if (!response.ok || result?.code !== 200) {
-        throw new Error(result?.msg || '上传失败')
-      }
-      const imageUrl = result?.data?.url || ''
-      if (imageUrl) {
-        setFacilityImageList((prev) => {
-          const newList = [...prev, imageUrl]
-          form.setFieldsValue({ images: JSON.stringify(newList) })
-          return newList
-        })
-      }
-      return false
-    } catch (error) {
-      message.error(error?.message || '图片上传失败')
-      return false
-    } finally {
-      setFacilityImageUploading(false)
-    }
-  }
-
-  const handleFacilityImageRemove = (index) => {
-    const newList = facilityImageList.filter((_, i) => i !== index)
-    setFacilityImageList(newList)
-    form.setFieldsValue({ images: JSON.stringify(newList) })
   }
 
   const openMeetingDetail = async (record) => {
@@ -1515,7 +1529,6 @@ function WorkspacePage({ pageKey }) {
     setModalMode('create')
     setEditingRecord(null)
     form.resetFields()
-    setFacilityImageList([])
     if (pageKey === 'activity-center') {
       const res = await getCategoryList()
       const data = Array.isArray(res.data) ? res.data : []
@@ -1540,11 +1553,6 @@ function WorkspacePage({ pageKey }) {
   const openEditModal = async (record) => {
     setModalMode('edit')
     setEditingRecord(record)
-    if (['facility-sports', 'facility-teaching', 'facility-dormitory', 'facility-canteen'].includes(pageKey)) {
-      setFacilityImageList(parseFacilityImages(record.images))
-    } else {
-      setFacilityImageList([])
-    }
     if (pageKey === 'activity-center') {
       const res = await getCategoryList()
       const data = Array.isArray(res.data) ? res.data : []
@@ -1610,6 +1618,9 @@ function WorkspacePage({ pageKey }) {
             facilityName: record.facilityName,
             facilityType: record.facilityType,
             description: record.description,
+            location: record.location,
+            longitude: record.longitude,
+            latitude: record.latitude,
             images: typeof record.images === 'string' ? record.images : JSON.stringify(record.images || []),
           }
         : {}),
@@ -1720,16 +1731,16 @@ function WorkspacePage({ pageKey }) {
           edit: () => updateFacility(editingRecord.id, values),
         },
         'facility-teaching': {
-          create: () => createFacility({ ...values, facilityType: 6 }),
-          edit: () => updateFacility(editingRecord.id, { ...values, facilityType: 6 }),
+          create: () => createFacility(values),
+          edit: () => updateFacility(editingRecord.id, values),
         },
         'facility-dormitory': {
-          create: () => createFacility({ ...values, facilityType: 7 }),
-          edit: () => updateFacility(editingRecord.id, { ...values, facilityType: 7 }),
+          create: () => createFacility(values),
+          edit: () => updateFacility(editingRecord.id, values),
         },
         'facility-canteen': {
           create: () => createFacility({ ...values, facilityType: 1 }),
-          edit: () => updateFacility(editingRecord.id, { ...values, facilityType: 1 }),
+          edit: () => updateFacility(editingRecord.id, values),
         },
         'facility-restaurant': {
           create: () => createStall(values),
@@ -2019,126 +2030,21 @@ function WorkspacePage({ pageKey }) {
           </>
         )
       case 'facility-sports':
-        return (
-          <>
-            <Form.Item name="facilityName" label="设施名称" rules={[{ required: true }]}>
-              <Input />
-            </Form.Item>
-            <Form.Item name="facilityType" label="设施类型" rules={[{ required: true }]}>
-              <Select options={facilityTypeOptions.filter(opt => opt.value >= 2 && opt.value <= 5)} />
-            </Form.Item>
-            <Form.Item name="description" label="描述">
-              <Input.TextArea rows={3} />
-            </Form.Item>
-            <Form.Item name="status" label="状态">
-              <Select options={[
-                { value: 1, label: '正常开放' },
-                { value: 2, label: '维护中' },
-                { value: 3, label: '关闭' },
-              ]} />
-            </Form.Item>
-            <Form.Item name="images" label="设施图片" hidden>
-              <Input />
-            </Form.Item>
-            <div className="workspace-image-editor">
-              <span className="workspace-image-editor__label">设施图片</span>
-              <Upload
-                listType="picture-card"
-                fileList={facilityImageList.map((url, index) => ({
-                  uid: String(index),
-                  name: `图片${index + 1}`,
-                  status: 'done',
-                  url,
-                }))}
-                beforeUpload={handleFacilityImageUpload}
-                onRemove={(file) => {
-                  const index = facilityImageList.indexOf(file.url)
-                  if (index !== -1) {
-                    handleFacilityImageRemove(index)
-                  }
-                }}
-                showUploadList={{
-                  showPreviewIcon: true,
-                  showRemoveIcon: true,
-                  removeIcon: (
-                    <span style={{ fontSize: 16, color: '#ff4d4f' }}>✕</span>
-                  ),
-                }}
-                disabled={facilityImageUploading || facilityImageList.length >= 3}
-              >
-                {facilityImageList.length < 3 && (
-                  <div style={{ padding: 16, textAlign: 'center' }}>
-                    <UploadOutlined style={{ fontSize: 24, color: '#94a3b8' }} />
-                    <p style={{ marginTop: 8, color: '#94a3b8', fontSize: 12 }}>点击上传图片（最多3张）</p>
-                  </div>
-                )}
-              </Upload>
-            </div>
-          </>
-        )
       case 'facility-teaching':
-        return (
-          <>
-            <Form.Item name="facilityName" label="设施名称" rules={[{ required: true }]}>
-              <Input />
-            </Form.Item>
-            <Form.Item name="description" label="描述">
-              <Input.TextArea rows={3} />
-            </Form.Item>
-            <Form.Item name="status" label="状态">
-              <Select options={[
-                { value: 1, label: '正常开放' },
-                { value: 2, label: '维护中' },
-                { value: 3, label: '关闭' },
-              ]} />
-            </Form.Item>
-            <Form.Item name="images" label="设施图片" hidden>
-              <Input />
-            </Form.Item>
-            <div className="workspace-image-editor">
-              <span className="workspace-image-editor__label">设施图片</span>
-              <Upload
-                listType="picture-card"
-                fileList={facilityImageList.map((url, index) => ({
-                  uid: String(index),
-                  name: `图片${index + 1}`,
-                  status: 'done',
-                  url,
-                }))}
-                beforeUpload={handleFacilityImageUpload}
-                onRemove={(file) => {
-                  const index = facilityImageList.indexOf(file.url)
-                  if (index !== -1) {
-                    handleFacilityImageRemove(index)
-                  }
-                }}
-                showUploadList={{
-                  showPreviewIcon: true,
-                  showRemoveIcon: true,
-                  removeIcon: (
-                    <span style={{ fontSize: 16, color: '#ff4d4f' }}>✕</span>
-                  ),
-                }}
-                disabled={facilityImageUploading || facilityImageList.length >= 3}
-              >
-                {facilityImageList.length < 3 && (
-                  <div style={{ padding: 16, textAlign: 'center' }}>
-                    <UploadOutlined style={{ fontSize: 24, color: '#94a3b8' }} />
-                    <p style={{ marginTop: 8, color: '#94a3b8', fontSize: 12 }}>点击上传图片（最多3张）</p>
-                  </div>
-                )}
-              </Upload>
-            </div>
-          </>
-        )
       case 'facility-dormitory':
         return (
           <>
             <Form.Item name="facilityName" label="设施名称" rules={[{ required: true }]}>
               <Input />
             </Form.Item>
+            <Form.Item name="facilityType" label="设施类型" rules={[{ required: true }]}>
+              <Select options={facilityTypeOptions} />
+            </Form.Item>
             <Form.Item name="description" label="描述">
               <Input.TextArea rows={3} />
+            </Form.Item>
+            <Form.Item name="location" label="位置">
+              <Input />
             </Form.Item>
             <Form.Item name="status" label="状态">
               <Select options={[
@@ -2147,43 +2053,9 @@ function WorkspacePage({ pageKey }) {
                 { value: 3, label: '关闭' },
               ]} />
             </Form.Item>
-            <Form.Item name="images" label="设施图片" hidden>
-              <Input />
+            <Form.Item name="images" label="图片(JSON数组字符串)">
+              <Input.TextArea rows={2} />
             </Form.Item>
-            <div className="workspace-image-editor">
-              <span className="workspace-image-editor__label">设施图片</span>
-              <Upload
-                listType="picture-card"
-                fileList={facilityImageList.map((url, index) => ({
-                  uid: String(index),
-                  name: `图片${index + 1}`,
-                  status: 'done',
-                  url,
-                }))}
-                beforeUpload={handleFacilityImageUpload}
-                onRemove={(file) => {
-                  const index = facilityImageList.indexOf(file.url)
-                  if (index !== -1) {
-                    handleFacilityImageRemove(index)
-                  }
-                }}
-                showUploadList={{
-                  showPreviewIcon: true,
-                  showRemoveIcon: true,
-                  removeIcon: (
-                    <span style={{ fontSize: 16, color: '#ff4d4f' }}>✕</span>
-                  ),
-                }}
-                disabled={facilityImageUploading || facilityImageList.length >= 3}
-              >
-                {facilityImageList.length < 3 && (
-                  <div style={{ padding: 16, textAlign: 'center' }}>
-                    <UploadOutlined style={{ fontSize: 24, color: '#94a3b8' }} />
-                    <p style={{ marginTop: 8, color: '#94a3b8', fontSize: 12 }}>点击上传图片（最多3张）</p>
-                  </div>
-                )}
-              </Upload>
-            </div>
           </>
         )
       case 'market-category':
@@ -2451,7 +2323,7 @@ function WorkspacePage({ pageKey }) {
             </Button>
             <Button
               size="small"
-              onClick={() => navigate(`/facility/marker?facilityId=${record.id}`)}
+              onClick={() => openMapPicker(record)}
             >
               地图标点
             </Button>
@@ -2480,7 +2352,7 @@ function WorkspacePage({ pageKey }) {
             </Button>
             <Button
               size="small"
-              onClick={() => navigate(`/facility/marker?facilityId=${record.id}`)}
+              onClick={() => openMapPicker(record)}
             >
               地图标点
             </Button>
@@ -2525,16 +2397,17 @@ function WorkspacePage({ pageKey }) {
       case 'market-audit':
         return (
           <Space size="small">
-            <Button size="small" loading={actionLoading} onClick={() => runAction(() => onlineSecondhandItem(record.id), '物品已上架')}>
-              上架
+            <Button size="small" onClick={() => openMarketItemDetail(record)}>
+              查看详情
             </Button>
-            <Button size="small" loading={actionLoading} onClick={() => runAction(() => offlineSecondhandItem(record.id), '物品已下架')}>
-              下架
-            </Button>
-            <Button size="small" loading={actionLoading} onClick={() => runAction(() => markSecondhandItemSold(record.id), '物品已标记售出')}>
-              售出
-            </Button>
-            <Popconfirm title="确定删除该物品吗？" onConfirm={() => runAction(() => deleteSecondhandItem(record.id), '物品已删除')}>
+            {Number(record.status) === 2 ? (
+              <Popconfirm title="确定下架该物品吗？下架后用户端将不可见。" onConfirm={() => runAction(() => offlineSecondhandItem(record.id), '物品已下架')}>
+                <Button size="small" loading={actionLoading}>
+                  下架
+                </Button>
+              </Popconfirm>
+            ) : null}
+            <Popconfirm title="确定删除该物品吗？删除后不可恢复。" onConfirm={() => runAction(() => deleteSecondhandItem(record.id), '物品已删除')}>
               <Button size="small" danger loading={actionLoading}>
                 删除
               </Button>
@@ -3143,21 +3016,10 @@ function WorkspacePage({ pageKey }) {
 
     if (!hasActions) return baseColumns
 
-    const showAddInHeader = ['facility-sports', 'facility-teaching', 'facility-dormitory'].includes(pageKey)
-
     return [
       ...baseColumns,
       {
-        title: (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span>操作</span>
-            {showAddInHeader && (
-              <Button size="small" type="primary" onClick={openCreateModal} style={{ marginLeft: 'auto' }}>
-                新增
-              </Button>
-            )}
-          </div>
-        ),
+        title: '操作',
         key: 'actions',
         render: (_, record) => renderRowActions(record),
       },
@@ -3246,10 +3108,6 @@ function WorkspacePage({ pageKey }) {
     }
     if (!amapReady || !window.AMap) {
       message.warning('高德地图尚未加载完成')
-      return
-    }
-    if (!AMAP_SECURITY_JS_CODE) {
-      message.error('未配置高德 JS API 安全密钥，请设置 VITE_AMAP_SECURITY_JS_CODE 后重启前端')
       return
     }
 
@@ -3496,21 +3354,10 @@ function WorkspacePage({ pageKey }) {
       mapPickerAmapRef.current = null
     }
 
-    let [lng, lat] = mapPickerInitialPositionRef.current || [
+    const [lng, lat] = mapPickerInitialPositionRef.current || [
       DEFAULT_MAP_CENTER.longitude,
       DEFAULT_MAP_CENTER.latitude,
     ]
-
-    if (!isLikelyChinaCoordinate(lng, lat)) {
-      if (isLikelyChinaCoordinate(lat, lng)) {
-        const temp = lng
-        lng = lat
-        lat = temp
-      } else {
-        lng = DEFAULT_MAP_CENTER.longitude
-        lat = DEFAULT_MAP_CENTER.latitude
-      }
-    }
 
     const map = new window.AMap.Map(mapPickerContainerRef.current, {
       zoom: 17,
@@ -3522,25 +3369,12 @@ function WorkspacePage({ pageKey }) {
 
     // 点击地图取点
     const clickHandler = (event) => {
-      let rawLng = Number(event.lnglat?.getLng?.() ?? event.lnglat?.lng)
-      let rawLat = Number(event.lnglat?.getLat?.() ?? event.lnglat?.lat)
-      
-      if (!Number.isFinite(rawLng) || !Number.isFinite(rawLat)) {
-        message.warning('无法获取坐标，请等底图加载完成后重试')
+      const rawLng = Number(event.lnglat?.getLng?.() ?? event.lnglat?.lng)
+      const rawLat = Number(event.lnglat?.getLat?.() ?? event.lnglat?.lat)
+      if (!isLikelyChinaCoordinate(rawLng, rawLat)) {
+        message.warning('坐标异常，请等底图加载完成后重试')
         return
       }
-      
-      if (!isLikelyChinaCoordinate(rawLng, rawLat)) {
-        if (isLikelyChinaCoordinate(rawLat, rawLng)) {
-          const temp = rawLng
-          rawLng = rawLat
-          rawLat = temp
-        } else {
-          message.warning('坐标异常，请选择中国境内的位置')
-          return
-        }
-      }
-      
       setMapPickerLng(roundCoordinate(rawLng))
       setMapPickerLat(roundCoordinate(rawLat))
     }
@@ -3606,7 +3440,6 @@ function WorkspacePage({ pageKey }) {
               value={mapPickerLng}
               onChange={(e) => setMapPickerLng(e.target.value)}
               placeholder="点击地图自动填入"
-              disabled={true}
             />
           </div>
           <div>
@@ -3615,7 +3448,6 @@ function WorkspacePage({ pageKey }) {
               value={mapPickerLat}
               onChange={(e) => setMapPickerLat(e.target.value)}
               placeholder="点击地图自动填入"
-              disabled={true}
             />
           </div>
         </div>
@@ -3963,6 +3795,25 @@ function WorkspacePage({ pageKey }) {
     )
   }
 
+  const openMarkerCreate = () => {
+    setMarkerEditorMode('create')
+    setMarkerSearchResults([])
+    setActiveSearchPoi(null)
+    setMarkerDraft({
+      facilityName: '',
+      facilityType: 1,
+      location: '',
+      description: '',
+      status: 1,
+      longitude: '',
+      latitude: '',
+      imageX: '',
+      imageY: '',
+      thumbnailUrl: '',
+    })
+    setMarkerEditorOpen(true)
+  }
+
   const openMarkerImageEditor = () => {
     if (!selectedMarker) {
       message.warning('请先在右侧表格中选中一个标记')
@@ -4036,13 +3887,23 @@ function WorkspacePage({ pageKey }) {
         imageY: null,
         images: buildFacilityImagesJson(markerDraft.thumbnailUrl),
       }
-      await updateFacility(selectedMarker.facilityId, payload)
+      if (markerEditorMode === 'create') {
+        await createFacility(payload)
+      } else {
+        await updateFacility(selectedMarker.facilityId, payload)
+      }
       await refreshPageData()
       setPagination((prev) => ({ ...prev, current: 1 }))
       setMarkerEditorOpen(false)
-      message.success(markerEditorMode === 'image' ? '建筑缩略图已更新' : '标点位置已更新')
+      message.success(
+        markerEditorMode === 'create'
+          ? '标点新增成功'
+          : markerEditorMode === 'image'
+            ? '建筑缩略图已更新'
+            : '标点位置已更新',
+      )
     } catch (error) {
-      message.error(error?.message || '位置更新失败')
+      message.error(error?.message || (markerEditorMode === 'create' ? '标点新增失败' : '位置更新失败'))
     } finally {
       setMarkerEditorSaving(false)
     }
@@ -4068,6 +3929,7 @@ function WorkspacePage({ pageKey }) {
         </div>
         <div className="workspace-marker-toolbar__actions">
           <span className="workspace-marker-toolbar__meta">已加载 {markerRows.length} 个标点</span>
+          <Button type="primary" onClick={openMarkerCreate}>新增标点</Button>
           <Button onClick={openMarkerReposition} disabled={!selectedMarker}>设置位置</Button>
           <Button onClick={openMarkerImageEditor} disabled={!selectedMarker}>上传缩略图</Button>
         </div>
@@ -4117,12 +3979,9 @@ function WorkspacePage({ pageKey }) {
               }}
             />
             <Select
-              value={status}
+              value="全部"
+              disabled
               options={page.filters.status.map((item) => ({ value: item, label: item }))}
-              onChange={(value) => {
-                setPagination((prev) => ({ ...prev, current: 1 }))
-                setStatus(value)
-              }}
             />
           </div>
         }
@@ -4156,9 +4015,11 @@ function WorkspacePage({ pageKey }) {
       {/* 编辑 Drawer — mask 关闭，挂载在当前容器内，不遮挡地图点击 */}
       <Drawer
         title={
-          markerEditorMode === 'image'
-            ? '上传建筑缩略图'
-            : '设置标点位置'
+          markerEditorMode === 'create'
+            ? '新增标点'
+            : markerEditorMode === 'image'
+              ? '上传建筑缩略图'
+              : '设置标点位置'
         }
         placement="right"
         width={420}
@@ -4293,10 +4154,9 @@ function WorkspacePage({ pageKey }) {
 
   return (
     <div className="workspace-page">
-      {/* 页头仅保留带动态上下文的档口页（档口名、返回入口），普通页题由布局顶栏面包屑统一渲染 */}
-      {page.title && (pageKey === 'facility-stall-dish' || pageKey === 'facility-restaurant') && (
-        <section className={`workspace-hero ${pageKey === 'facility-sports' ? 'workspace-hero-sports' : ''}`}>
-          <div className="workspace-hero-content">
+      {page.title && pageKey !== 'market-item' && pageKey !== 'market-audit' ? (
+        <section className="workspace-hero">
+          <div>
             <span className="workspace-badge">{page.badge}</span>
             <h1>
               {pageKey === 'facility-stall-dish' && urlStallName
@@ -4314,10 +4174,202 @@ function WorkspacePage({ pageKey }) {
             ) : null}
           </div>
         </section>
-      )}
+      ) : null}
 
       <section className="workspace-main workspace-main-single">
         {pageKey === 'map-marker' || pageKey === 'facility-marker' ? renderMarkerManagePanel() : pageKey === 'facility-analytics' ? renderFacilityAnalyticsPanel() : pageKey === 'map-analytics' ? renderMapAnalyticsPanel() : pageKey === 'discount-analytics' ? renderDiscountAnalyticsPanel() : (
+        <>
+        {pageKey === 'market-item' || pageKey === 'market-audit' ? (
+          <div className="market-admin">
+            <aside className="market-admin__side">
+              <div className="market-admin__side-title">
+                <h2>物品管理</h2>
+                <p>仅可查看详情、下架与删除，不可编辑用户内容。</p>
+              </div>
+              <div className="market-admin__field">
+                <label>关键词</label>
+                <Input
+                  allowClear
+                  placeholder="搜索标题"
+                  prefix={<SearchOutlined />}
+                  value={keyword}
+                  onChange={(event) => {
+                    setPagination((prev) => ({ ...prev, current: 1 }))
+                    setKeyword(event.target.value)
+                  }}
+                />
+              </div>
+              <div className="market-admin__field">
+                <label>状态</label>
+                <Select
+                  value={status}
+                  options={page.filters.status.map((item) => ({ value: item, label: item }))}
+                  onChange={(value) => {
+                    setPagination((prev) => ({ ...prev, current: 1 }))
+                    setStatus(value)
+                  }}
+                />
+              </div>
+              <div className="market-admin__field">
+                <label>分类</label>
+                <Select
+                  allowClear
+                  placeholder="全部分类"
+                  value={marketCategoryId}
+                  options={marketCategoryOptions}
+                  onChange={(value) => {
+                    setPagination((prev) => ({ ...prev, current: 1 }))
+                    setMarketCategoryId(value)
+                  }}
+                />
+              </div>
+              <div className="market-admin__tip">
+                管理端不提供上架、售出或内容编辑，避免改写用户发布信息。
+              </div>
+            </aside>
+
+            <main className="market-admin__main">
+              <section className="market-admin__rank">
+                <div className="market-admin__rank-head">
+                  <div>
+                    <h3>当前在管旧物</h3>
+                    <p>按维度展示前四，便于管理员快速巡检。</p>
+                  </div>
+                  <Tabs
+                    size="small"
+                    activeKey={marketRankTab}
+                    onChange={setMarketRankTab}
+                    items={[
+                      { key: 'latest', label: '最新发布' },
+                      { key: 'views', label: '最多浏览' },
+                      { key: 'favorites', label: '最多收藏' },
+                      { key: 'inquiries', label: '最多咨询' },
+                    ]}
+                  />
+                </div>
+                {marketRankTop4.length ? (
+                  <div className="market-admin__rank-grid">
+                    {marketRankTop4.map((item) => (
+                      <article key={`rank-${item.id}`} className="market-admin__card">
+                        <div className="market-admin__cover">
+                          {item.coverImage ? <img src={item.coverImage} alt={item.title || '旧物封面'} /> : <div className="market-admin__cover-empty">暂无图片</div>}
+                          <span className={`market-admin__status market-admin__status--${item.status === 4 ? 'offline' : (item.tradeType === 'buy' ? 'buy' : 'sell')}`}>{item.statusText || '-'}</span>
+                        </div>
+                        <div className="market-admin__card-body">
+                          <h4>{item.title || '-'}</h4>
+                          <p>{item.categoryName || '未分类'}</p>
+                          <div className="market-admin__price">{item.priceText || '-'}</div>
+                          <div className="market-admin__heat">{item.heatMeta}</div>
+                          <div className="market-admin__meta">
+                            <span>{item.publisherName || '-'}</span>
+                            <span>{item.location || '-'}</span>
+                          </div>
+                          <div className="market-admin__card-actions">
+                            <Button size="small" onClick={() => openMarketItemDetail(item)}>查看详情</Button>
+                            {Number(item.status) === 2 ? (
+                              <Popconfirm title="确定下架该物品吗？" onConfirm={() => runAction(() => offlineSecondhandItem(item.id), '物品已下架')}>
+                                <Button size="small" loading={actionLoading}>下架</Button>
+                              </Popconfirm>
+                            ) : null}
+                            <Popconfirm title="确定删除该物品吗？" onConfirm={() => runAction(() => deleteSecondhandItem(item.id), '物品已删除')}>
+                              <Button size="small" danger loading={actionLoading}>删除</Button>
+                            </Popconfirm>
+                          </div>
+                        </div>
+                      </article>
+                    ))}
+                  </div>
+                ) : (
+                  <Empty description="暂无排行数据" />
+                )}
+              </section>
+
+              <section className="market-admin__table-wrap">
+                <div className="market-admin__table-head">
+                  <h3>全部物品</h3>
+                  <span>共 {pagination.total} 条</span>
+                </div>
+                <Table
+                  columns={columns}
+                  dataSource={rows}
+                  loading={loading}
+                  rowKey={(record) => record.id || record.key || JSON.stringify(record)}
+                  locale={{ emptyText: page.emptyText }}
+                  scroll={{ x: 'max-content' }}
+                  pagination={{
+                    current: pagination.current,
+                    pageSize: pagination.pageSize,
+                    total: pagination.total,
+                    showSizeChanger: true,
+                  }}
+                  onChange={(nextPagination) => {
+                    setPagination((prev) => ({
+                      ...prev,
+                      current: nextPagination.current,
+                      pageSize: nextPagination.pageSize,
+                    }))
+                  }}
+                />
+              </section>
+            </main>
+          </div>
+        ) : null}
+        {pageKey === 'market-category' ? (
+          <div className="market-category-panel">
+            <div className="market-category-panel__toolbar">
+              <div>
+                <h2>旧物分类</h2>
+                <p>按排序展示分类，并显示当前关联物品数量。</p>
+              </div>
+              <div className="market-category-panel__actions">
+                <Input
+                  allowClear
+                  placeholder="搜索分类"
+                  prefix={<SearchOutlined />}
+                  value={keyword}
+                  onChange={(event) => {
+                    setPagination((prev) => ({ ...prev, current: 1 }))
+                    setKeyword(event.target.value)
+                  }}
+                  style={{ width: 220 }}
+                />
+                <Button type="primary" onClick={openCreateModal}>
+                  新增分类
+                </Button>
+              </div>
+            </div>
+            {rows.length ? (
+              <div className="market-category-grid">
+                {rows.map((item) => (
+                  <article
+                    key={item.id || item.categoryName}
+                    className={`market-category-card market-category-card--accent-${item.accentIndex ?? 0}`}
+                  >
+                    <div className="market-category-card__top">
+                      <span className="market-category-card__sort">排序 {item.sort ?? '-'}</span>
+                      <span className="market-category-card__count">{item.itemCountText || '0 件'}</span>
+                    </div>
+                    <h3>{item.categoryName || '-'}</h3>
+                    <p>用于校园旧物发布与筛选。</p>
+                    <div className="market-category-card__actions">
+                      <Button size="small" onClick={() => openEditModal(item)}>
+                        编辑
+                      </Button>
+                      <Popconfirm title="确定删除该分类吗？" onConfirm={() => runAction(() => deleteSecondhandCategory(item.id), '分类已删除')}>
+                        <Button size="small" danger loading={actionLoading}>
+                          删除
+                        </Button>
+                      </Popconfirm>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            ) : (
+              <Empty description={page.emptyText} />
+            )}
+          </div>
+        ) : null}
+        {pageKey === 'market-category' || pageKey === 'market-item' || pageKey === 'market-audit' ? null : (
         <Card
           className="workspace-table-card"
           extra={
@@ -4348,22 +4400,6 @@ function WorkspacePage({ pageKey }) {
                     }}
                   />
                 ) : null}
-                {pageKey === 'facility-sports' ? (
-                  <Select
-                    value={status}
-                    options={page.filters.status.map((item) => ({ value: item, label: item }))}
-                    onChange={(value) => {
-                      setPagination((prev) => ({ ...prev, current: 1 }))
-                      setStatus(value)
-                    }}
-                  />
-                ) : (
-                  <Select
-                    value="全部"
-                    disabled
-                    options={page.filters.status.map((item) => ({ value: item, label: item }))}
-                  />
-                )}
                 {pageKey === 'activity-signin' && contextId ? (
                   <>
                     <Button size="small" loading={actionLoading} onClick={() => runAction(() => openSignIn(contextId), '签到已开启')}>
@@ -4374,7 +4410,7 @@ function WorkspacePage({ pageKey }) {
                     </Button>
                   </>
                 ) : null}
-                {formEnabledPages.includes(pageKey) && !['system-config', 'voice-model-config', 'facility-sports', 'facility-teaching', 'facility-dormitory'].includes(pageKey) ? (
+                {formEnabledPages.includes(pageKey) && !['system-config', 'voice-model-config'].includes(pageKey) ? (
                   <Button type="primary" onClick={openCreateModal}>
                     新增
                   </Button>
@@ -4414,27 +4450,89 @@ function WorkspacePage({ pageKey }) {
           )}
         </Card>
         )}
+        </>
+        )}
       </section>
 
-      {/* 新增/编辑：统一侧面板组件 */}
-      <SidePanel
+      <Modal
         open={modalOpen}
         title={modalMode === 'create'
           ? `新增${pageKey === 'system-config' ? '模型配置' : page.title}`
           : `编辑${pageKey === 'system-config' ? (editingRecord?.configKind === 'asr' ? '讯飞实时转写配置' : '模型配置') : pageKey === 'voice-model-config' ? '语音模型配置' : page.title}`}
-        onClose={() => setModalOpen(false)}
+        onCancel={() => setModalOpen(false)}
+        onOk={submitModal}
+        confirmLoading={actionLoading}
         destroyOnHidden
-        footer={(
-          <>
-            <Button onClick={() => setModalOpen(false)}>取消</Button>
-            <Button type="primary" loading={actionLoading} onClick={submitModal}>保存</Button>
-          </>
-        )}
       >
         <Form form={form} layout="vertical">
           {renderModalFields()}
         </Form>
-      </SidePanel>
+      </Modal>
+
+      <Drawer
+        open={marketDetailOpen}
+        title="物品详情"
+        width={560}
+        onClose={() => setMarketDetailOpen(false)}
+        destroyOnHidden
+        className="market-detail-drawer"
+      >
+        {marketDetailLoading ? (
+          <Empty description="详情加载中..." />
+        ) : marketDetail ? (
+          <div className="market-detail">
+            <div className="market-detail__gallery">
+              {(Array.isArray(marketDetail.images) && marketDetail.images.length
+                ? marketDetail.images
+                : marketDetail.coverImage
+                  ? [marketDetail.coverImage]
+                  : []
+              ).map((url) => (
+                <Image key={url} src={url} alt={marketDetail.title || '物品图片'} />
+              ))}
+              {!(Array.isArray(marketDetail.images) && marketDetail.images.length) && !marketDetail.coverImage ? (
+                <div className="market-detail__empty-img">暂无图片</div>
+              ) : null}
+            </div>
+            <h3>{marketDetail.title || '-'}</h3>
+            <div className="market-detail__row"><span>状态</span><strong>{marketDetail.statusText || '-'}</strong></div>
+            <div className="market-detail__row"><span>分类</span><strong>{marketDetail.categoryName || '-'}</strong></div>
+            <div className="market-detail__row"><span>价格</span><strong>{marketDetail.priceText || '-'}</strong></div>
+            <div className="market-detail__row"><span>地点</span><strong>{marketDetail.location || '-'}</strong></div>
+            <div className="market-detail__row"><span>发布者</span><strong>{marketDetail.publisherName || '-'}</strong></div>
+            <div className="market-detail__row"><span>热度</span><strong>{marketDetail.heatMeta || '-'}</strong></div>
+            <div className="market-detail__row"><span>发布时间</span><strong>{marketDetail.createTime || '-'}</strong></div>
+            <div className="market-detail__desc">
+              <span>描述</span>
+              <p>{marketDetail.description || '暂无描述'}</p>
+            </div>
+            <div className="market-detail__actions">
+              {Number(marketDetail.status) === 2 ? (
+                <Popconfirm
+                  title="确定下架该物品吗？"
+                  onConfirm={async () => {
+                    const ok = await runAction(() => offlineSecondhandItem(marketDetail.id), '物品已下架')
+                    if (ok) setMarketDetailOpen(false)
+                  }}
+                >
+                  <Button loading={actionLoading}>下架</Button>
+                </Popconfirm>
+              ) : null}
+              <Popconfirm
+                title="确定删除该物品吗？"
+                onConfirm={async () => {
+                  const ok = await runAction(() => deleteSecondhandItem(marketDetail.id), '物品已删除')
+                  if (ok) setMarketDetailOpen(false)
+                }}
+              >
+                <Button danger loading={actionLoading}>删除</Button>
+              </Popconfirm>
+            </div>
+          </div>
+        ) : (
+          <Empty description="暂无物品详情" />
+        )}
+      </Drawer>
 
       <Drawer
         open={meetingDetailOpen}

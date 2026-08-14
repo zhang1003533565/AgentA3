@@ -200,6 +200,13 @@ export const getReportLogs = (id) =>
     method: 'get',
   })
 
+export const batchDeleteReports = (ids) =>
+  request({
+    url: '/api/forum/reports/batch',
+    method: 'delete',
+    data: ids,
+  })
+
 // ========== 话题 ==========
 
 export const getTopicList = (params = {}) =>
@@ -241,11 +248,24 @@ export const deleteTopic = (id) =>
     method: 'delete',
   })
 
+export const batchDeleteTopics = (ids) =>
+  request({
+    url: '/api/forum/topics/batch',
+    method: 'delete',
+    data: ids,
+  })
+
 // ========== 审核 / 管理 ==========
 
 // ========== 论坛统计 ==========
 export const getForumStatistics = () =>
   request({
     url: '/api/forum/statistics/overview',
+    method: 'get',
+  })
+
+export const getForumRules = () =>
+  request({
+    url: '/api/forum/statistics/rules',
     method: 'get',
   })

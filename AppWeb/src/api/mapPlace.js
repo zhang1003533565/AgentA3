@@ -7,8 +7,18 @@ export const getMapPlaceTree = (sceneType) =>
     params: { sceneType },
   })
 
+export const getMapPlaceList = (params = {}) =>
+  request({
+    url: '/api/v1/map-places',
+    method: 'get',
+    params,
+  })
+
 export const getMapPlaceDetail = (id) =>
   request({ url: `/api/v1/map-places/${id}`, method: 'get' })
+
+export const getCanteenStructure = (canteenId) =>
+  request({ url: `/api/v1/map-places/canteens/${canteenId}/structure`, method: 'get' })
 
 export const createMapPlace = (data) =>
   request({ url: '/api/v1/map-places', method: 'post', data })
@@ -21,6 +31,9 @@ export const deleteMapPlace = (id) =>
 
 export const addMapPlaceImage = (placeId, data) =>
   request({ url: `/api/v1/map-places/${placeId}/images`, method: 'post', data })
+
+export const updateMapPlaceImage = (imageId, data) =>
+  request({ url: `/api/v1/map-places/images/${imageId}`, method: 'put', data })
 
 export const deleteMapPlaceImage = (imageId) =>
   request({ url: `/api/v1/map-places/images/${imageId}`, method: 'delete' })
@@ -39,6 +52,9 @@ export const saveFloorPlan = (floorPlaceId, data) =>
 
 export const deleteFloorPlan = (floorPlaceId) =>
   request({ url: `/api/v1/map-places/floors/${floorPlaceId}/plan`, method: 'delete' })
+
+export const getFloorPlanPositions = (floorPlanId) =>
+  request({ url: `/api/v1/map-places/floor-plans/${floorPlanId}/positions`, method: 'get' })
 
 export const saveIndoorPosition = (placeId, data) =>
   request({ url: `/api/v1/map-places/${placeId}/indoor-position`, method: 'put', data })

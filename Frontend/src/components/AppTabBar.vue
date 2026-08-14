@@ -43,6 +43,7 @@ const shortcutItems = [
   { label: '我的活动', to: '/mine/activities' },
   { label: 'AI 会话历史', to: '/mine/ai-history' },
   { label: '我的试卷', to: '/mine/papers' },
+  { label: '账户设置', to: '/mine/account-settings' },
 ]
 </script>
 
@@ -58,6 +59,11 @@ const shortcutItems = [
         <RouterLink to="/map">校园地图</RouterLink>
         <RouterLink to="/activities">校园活动</RouterLink>
         <RouterLink to="/meetings">会议</RouterLink>
+        <RouterLink to="/learning">Python 学习</RouterLink>
+        <RouterLink to="/marketplace">校园市集</RouterLink>
+        <RouterLink to="/discount">校园优惠</RouterLink>
+        <RouterLink to="/forum">校园论坛</RouterLink>
+        <RouterLink to="/campus-services">校园服务</RouterLink>
         <RouterLink to="/ai">AI 助手</RouterLink>
         <RouterLink to="/ai-tools">AI 工具</RouterLink>
         <RouterLink to="/resume">我的简历</RouterLink>
@@ -109,6 +115,7 @@ const shortcutItems = [
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
   background: #1e2b4c;
   color: #ffffff;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
 }
 
 .app-site-header--embedded {
@@ -143,7 +150,7 @@ const shortcutItems = [
   align-items: center;
   min-width: 0;
   flex: 1;
-  gap: 4px;
+  gap: 6px;
   overflow-x: auto;
   scrollbar-width: none;
 }
@@ -156,23 +163,25 @@ const shortcutItems = [
   display: grid;
   place-items: center;
   min-height: 36px;
-  padding: 0 10px;
+  padding: 0 12px;
   border-radius: 8px;
   color: #ccd5e4;
   font-size: 14px;
-  font-weight: 700;
+  font-weight: 600;
   text-decoration: none;
   white-space: nowrap;
+  transition: all 0.2s ease;
 }
 
 .app-site-header__nav a:hover {
   color: #ffffff;
-  background: rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.1);
 }
 
 .app-site-header__nav a.router-link-active {
   color: #ffffff;
-  background: rgba(0, 180, 255, 0.2);
+  background: rgba(59, 130, 246, 0.28);
+  box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.15);
 }
 
 @media (max-width: 680px) {
