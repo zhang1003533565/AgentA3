@@ -3,6 +3,8 @@ package com.example.appbackend.service;
 import com.example.appbackend.dto.MeetingDTO;
 import com.example.appbackend.dto.PageResponse;
 
+import java.util.List;
+
 public interface MeetingService {
 
     MeetingDTO.SessionDetail createMeeting(Long userId, MeetingDTO.SessionRequest request);
@@ -32,4 +34,8 @@ public interface MeetingService {
     MeetingDTO.RunAgentResponse runAgent(Long userId, String sessionId, MeetingDTO.RunAgentRequest request, String authorization);
 
     MeetingDTO.RunAgentResponse previewAgent(Long userId, String sessionId, MeetingDTO.RunAgentRequest request, String authorization);
+
+    List<MeetingDTO.CommentItem> listComments(Long userId, String sessionId);
+
+    MeetingDTO.CommentItem addComment(Long userId, String sessionId, MeetingDTO.CommentRequest request);
 }

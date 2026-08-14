@@ -22,8 +22,9 @@ public interface MeetingSessionRepository extends JpaRepository<MeetingSession, 
     boolean existsByUserIdAndStatus(Long userId, String status);
 
     @Query("""
-            SELECT session FROM MeetingSession session
-            WHERE session.userId = :userId
+            SELECT DISTINCT session FROM MeetingSession session
+            LEFT JOIN MeetingParticipant p ON p.meetingSessionId = session.id
+            WHERE (session.userId = :userId OR p.userId = :userId)
               AND (
                 :keyword IS NULL
                 OR :keyword = ''
@@ -32,7 +33,7 @@ public interface MeetingSessionRepository extends JpaRepository<MeetingSession, 
               )
             ORDER BY session.updateTime DESC
             """)
-    Page<MeetingSession> searchByUserId(@Param("userId") Long userId,
-                                        @Param("keyword") String keyword,
-                                        Pageable pageable);
+    Page<MeetingSession> searchByUserIdOrParticipant(@Param("userId") Long userId,
+                                                     @Param("keyword") String keyword,
+                                                     Pageable pageable);
 }

@@ -6,6 +6,7 @@ import com.example.appbackend.dto.MeetingDTO;
 import com.example.appbackend.dto.PageResponse;
 import com.example.appbackend.dto.UserProfileDTO;
 import com.example.appbackend.entity.MeetingAgentResult;
+import com.example.appbackend.entity.MeetingComment;
 import com.example.appbackend.entity.MeetingParticipant;
 import com.example.appbackend.entity.MeetingRecord;
 import com.example.appbackend.entity.MeetingSession;
@@ -15,6 +16,7 @@ import com.example.appbackend.entity.SystemConfigTestLog;
 import com.example.appbackend.entity.User;
 import com.example.appbackend.exception.BusinessException;
 import com.example.appbackend.repository.MeetingAgentResultRepository;
+import com.example.appbackend.repository.MeetingCommentRepository;
 import com.example.appbackend.repository.MeetingParticipantRepository;
 import com.example.appbackend.repository.MeetingRecordRepository;
 import com.example.appbackend.repository.MeetingSessionRepository;
@@ -31,6 +33,8 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.util.StringUtils;
 
 import java.security.SecureRandom;
@@ -74,6 +78,7 @@ public class MeetingServiceImpl implements MeetingService {
 
     private final MeetingSessionRepository sessionRepository;
     private final MeetingParticipantRepository participantRepository;
+    private final MeetingCommentRepository commentRepository;
     private final MeetingRecordRepository recordRepository;
     private final MeetingAgentResultRepository resultRepository;
     private final UserRepository userRepository;
@@ -84,6 +89,7 @@ public class MeetingServiceImpl implements MeetingService {
 
     public MeetingServiceImpl(MeetingSessionRepository sessionRepository,
                               MeetingParticipantRepository participantRepository,
+                              MeetingCommentRepository commentRepository,
                               MeetingRecordRepository recordRepository,
                               MeetingAgentResultRepository resultRepository,
                               UserRepository userRepository,
@@ -93,6 +99,7 @@ public class MeetingServiceImpl implements MeetingService {
                               UserProfileService userProfileService) {
         this.sessionRepository = sessionRepository;
         this.participantRepository = participantRepository;
+        this.commentRepository = commentRepository;
         this.recordRepository = recordRepository;
         this.resultRepository = resultRepository;
         this.userRepository = userRepository;
@@ -121,7 +128,7 @@ public class MeetingServiceImpl implements MeetingService {
             session.setStartTime(LocalDateTime.now());
         }
         session = sessionRepository.save(session);
-        syncParticipants(session.getId(), withCurrentUser(userId, request == null ? List.of() : request.getParticipants()));
+        syncParticipants(session.getId(), withCurrentUser(userId, request == null ? List.of() : request.getParticipants()), userId);
         if (request != null && StringUtils.hasText(request.getNotes())) {
             saveRecord(session, request.getNotes(), MeetingRecord.SOURCE_MANUAL);
         }
@@ -143,7 +150,7 @@ public class MeetingServiceImpl implements MeetingService {
         session.setStatus(MeetingSession.STATUS_ACTIVE);
         session.setStartTime(LocalDateTime.now());
         session = sessionRepository.save(session);
-        syncParticipants(session.getId(), withCurrentUser(userId, request == null ? List.of() : request.getParticipants()));
+        syncParticipants(session.getId(), withCurrentUser(userId, request == null ? List.of() : request.getParticipants()), userId);
         refreshCounters(session);
         return buildDetail(session);
     }
@@ -161,7 +168,7 @@ public class MeetingServiceImpl implements MeetingService {
         session.setStatus(MeetingSession.STATUS_IDLE);
         session.setScheduledStartTime(resolveScheduledStartTime(request == null ? null : request.getScheduledStartTime()));
         session = sessionRepository.save(session);
-        syncParticipants(session.getId(), withCurrentUser(userId, request == null ? List.of() : request.getParticipants()));
+        syncParticipants(session.getId(), withCurrentUser(userId, request == null ? List.of() : request.getParticipants()), userId);
         refreshCounters(session);
         return buildDetail(session);
     }
@@ -176,6 +183,8 @@ public class MeetingServiceImpl implements MeetingService {
             }
             if (StringUtils.hasText(request.getStatus())) {
                 String newStatus = normalizeStatus(request.getStatus());
+                log.info("updateMeeting status change sessionId={} userId={} oldStatus={} newStatus={} thread={}",
+                        session.getSessionId(), userId, session.getStatus(), newStatus, Thread.currentThread().getName());
                 if (MeetingSession.STATUS_ENDED.equals(session.getStatus())
                         && !MeetingSession.STATUS_ENDED.equals(newStatus)) {
                     throw new BusinessException(Result.BAD_REQUEST_CODE, "已结束的会议状态不允许变更");
@@ -193,7 +202,7 @@ public class MeetingServiceImpl implements MeetingService {
                 session.setScheduledStartTime(request.getScheduledStartTime());
             }
             if (request.getParticipants() != null) {
-                syncParticipants(session.getId(), request.getParticipants());
+                syncParticipants(session.getId(), withCurrentUser(userId, request.getParticipants()), userId);
             }
             if (StringUtils.hasText(request.getNotes())) {
                 String latestContent = latestRecordContent(session.getId());
@@ -213,7 +222,11 @@ public class MeetingServiceImpl implements MeetingService {
         int safePage = pageNum == null || pageNum < 1 ? 1 : pageNum;
         int safeSize = pageSize == null || pageSize < 1 ? 20 : Math.min(pageSize, 50);
         String normalizedKeyword = StringUtils.hasText(keyword) ? keyword.trim() : "";
-        Page<MeetingSession> page = sessionRepository.searchByUserId(userId, normalizedKeyword, PageRequest.of(safePage - 1, safeSize));
+        Page<MeetingSession> page = sessionRepository.searchByUserIdOrParticipant(userId, normalizedKeyword, PageRequest.of(safePage - 1, safeSize));
+        Map<String, Long> statusCount = page.getContent().stream()
+                .collect(Collectors.groupingBy(MeetingSession::getStatus, Collectors.counting()));
+        log.info("listMeetings userId={} total={} statusCount={} thread={}",
+                userId, page.getTotalElements(), statusCount, Thread.currentThread().getName());
         List<MeetingDTO.SessionItem> records = page.getContent().stream()
                 .map(this::toSessionItem)
                 .collect(Collectors.toList());
@@ -234,7 +247,7 @@ public class MeetingServiceImpl implements MeetingService {
             displayName = request.getDisplayName();
         }
         if (StringUtils.hasText(displayName)) {
-            addParticipantIfMissing(session.getId(), displayName);
+            addParticipantIfMissing(session.getId(), displayName, userId);
         }
         refreshCounters(session);
         return buildDetail(session);
@@ -247,9 +260,36 @@ public class MeetingServiceImpl implements MeetingService {
     }
 
     @Override
+    @Transactional(readOnly = true)
+    public List<MeetingDTO.CommentItem> listComments(Long userId, String sessionId) {
+        MeetingSession session = findAccessibleSession(userId, sessionId);
+        return commentRepository.findByMeetingSessionIdOrderByCreateTimeAscIdAsc(session.getId()).stream()
+                .map(this::toCommentItem)
+                .collect(Collectors.toList());
+    }
+
+    @Override
+    @Transactional
+    public MeetingDTO.CommentItem addComment(Long userId, String sessionId, MeetingDTO.CommentRequest request) {
+        MeetingSession session = findAccessibleSession(userId, sessionId);
+        if (request == null || !StringUtils.hasText(request.getContent())) {
+            throw new BusinessException(Result.BAD_REQUEST_CODE, "评论内容不能为空");
+        }
+        MeetingComment comment = new MeetingComment();
+        comment.setMeetingSessionId(session.getId());
+        comment.setSenderId(userId);
+        comment.setSenderName(resolveUserDisplayName(userId));
+        comment.setContent(request.getContent().trim());
+        commentRepository.save(comment);
+        return toCommentItem(comment);
+    }
+
+    @Override
     @Transactional
     public MeetingDTO.SessionDetail startMeeting(Long userId, String sessionId) {
         MeetingSession session = findAccessibleSession(userId, sessionId);
+        log.info("startMeeting sessionId={} userId={} currentStatus={} thread={}",
+                session.getSessionId(), userId, session.getStatus(), Thread.currentThread().getName());
         if (MeetingSession.STATUS_ENDED.equals(session.getStatus())) {
             throw new BusinessException(Result.BAD_REQUEST_CODE, "已结束的会议不能重新开始");
         }
@@ -268,14 +308,26 @@ public class MeetingServiceImpl implements MeetingService {
     @Transactional
     public MeetingDTO.SessionDetail endMeeting(Long userId, String sessionId, String authorization) {
         MeetingSession session = findAccessibleSession(userId, sessionId);
+        log.info("endMeeting start sessionId={} userId={} currentStatus={} thread={}",
+                session.getSessionId(), userId, session.getStatus(), Thread.currentThread().getName());
         if (userId == null || !userId.equals(creatorOf(session))) {
             throw new BusinessException(Result.FORBIDDEN_CODE, "只有会议发起人才可以结束会议");
         }
         session.setStatus(MeetingSession.STATUS_ENDED);
         session.setEndTime(LocalDateTime.now());
+        log.info("endMeeting status set sessionId={} status={} endTime={}",
+                session.getSessionId(), session.getStatus(), session.getEndTime());
         refreshCounters(session);
+        log.info("endMeeting saved sessionId={} status={} recordCount={} resultCount={}",
+                session.getSessionId(), session.getStatus(), session.getRecordCount(), session.getResultCount());
         MeetingDTO.SessionDetail detail = buildDetail(session);
-        triggerPostMeetingOrganization(session.getSessionId(), authorization);
+        final String endedSessionId = session.getSessionId();
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                triggerPostMeetingOrganization(endedSessionId, authorization);
+            }
+        });
         return detail;
     }
 
@@ -374,10 +426,19 @@ public class MeetingServiceImpl implements MeetingService {
 
     private void triggerPostMeetingOrganization(String sessionId, String authorization) {
         CompletableFuture.runAsync(() -> {
+            log.info("postMeeting start sessionId={} thread={}", sessionId, Thread.currentThread().getName());
             try {
                 MeetingSession latestSession = findSession(sessionId);
+                log.info("postMeeting loaded sessionId={} status={} recordCount={} resultCount={} thread={}",
+                        latestSession.getSessionId(), latestSession.getStatus(),
+                        latestSession.getRecordCount(), latestSession.getResultCount(),
+                        Thread.currentThread().getName());
                 organizeMeetingResults(latestSession, authorization, false);
                 refreshCounters(latestSession);
+                log.info("postMeeting done sessionId={} status={} recordCount={} resultCount={} thread={}",
+                        latestSession.getSessionId(), latestSession.getStatus(),
+                        latestSession.getRecordCount(), latestSession.getResultCount(),
+                        Thread.currentThread().getName());
             } catch (Exception error) {
                 log.warn("post meeting organization skipped sessionId={}: {}", sessionId, error.getMessage());
             }
@@ -587,7 +648,7 @@ public class MeetingServiceImpl implements MeetingService {
         throw new BusinessException(Result.FORBIDDEN_CODE, "请先通过会议号加入会议");
     }
 
-    private void syncParticipants(Long meetingSessionId, List<String> participants) {
+    private void syncParticipants(Long meetingSessionId, List<String> participants, Long currentUserId) {
         participantRepository.deleteByMeetingSessionId(meetingSessionId);
         List<String> names = participants == null ? List.of() : participants.stream()
                 .filter(StringUtils::hasText)
@@ -595,11 +656,16 @@ public class MeetingServiceImpl implements MeetingService {
                 .distinct()
                 .limit(20)
                 .toList();
+        String currentUserName = resolveUserDisplayName(currentUserId);
         List<MeetingParticipant> entities = new ArrayList<>();
         for (int i = 0; i < names.size(); i++) {
             MeetingParticipant participant = new MeetingParticipant();
             participant.setMeetingSessionId(meetingSessionId);
-            participant.setName(names.get(i));
+            String name = names.get(i);
+            participant.setName(name);
+            if (currentUserId != null && name.equals(currentUserName)) {
+                participant.setUserId(currentUserId);
+            }
             participant.setSortOrder(i);
             entities.add(participant);
         }
@@ -640,19 +706,30 @@ public class MeetingServiceImpl implements MeetingService {
         return "";
     }
 
-    private void addParticipantIfMissing(Long meetingSessionId, String displayName) {
+    private void addParticipantIfMissing(Long meetingSessionId, String displayName, Long userId) {
         String name = truncate(displayName.trim(), 80);
         if (!StringUtils.hasText(name)) {
             return;
         }
         List<MeetingParticipant> participants = participantRepository.findByMeetingSessionIdOrderBySortOrderAscIdAsc(meetingSessionId);
-        boolean exists = participants.stream().anyMatch(participant -> name.equals(participant.getName()));
-        if (exists || participants.size() >= 20) {
+        MeetingParticipant matched = participants.stream()
+                .filter(participant -> name.equals(participant.getName()))
+                .findFirst()
+                .orElse(null);
+        if (matched != null) {
+            if (userId != null && matched.getUserId() == null) {
+                matched.setUserId(userId);
+                participantRepository.save(matched);
+            }
+            return;
+        }
+        if (participants.size() >= 20) {
             return;
         }
         MeetingParticipant participant = new MeetingParticipant();
         participant.setMeetingSessionId(meetingSessionId);
         participant.setName(name);
+        participant.setUserId(userId);
         participant.setSortOrder(participants.size());
         participantRepository.save(participant);
     }
@@ -670,6 +747,8 @@ public class MeetingServiceImpl implements MeetingService {
     }
 
     private void refreshCounters(MeetingSession session) {
+        log.info("refreshCounters sessionId={} id={} status={} thread={}",
+                session.getSessionId(), session.getId(), session.getStatus(), Thread.currentThread().getName());
         if (!StringUtils.hasText(session.getRoomCode())) {
             session.setRoomCode(generateRoomCode());
         }
@@ -730,6 +809,16 @@ public class MeetingServiceImpl implements MeetingService {
             return session.getUserId();
         }
         return session.getCreateUserId();
+    }
+
+    private MeetingDTO.CommentItem toCommentItem(MeetingComment comment) {
+        MeetingDTO.CommentItem item = new MeetingDTO.CommentItem();
+        item.setId(comment.getId());
+        item.setSenderId(comment.getSenderId());
+        item.setSenderName(comment.getSenderName());
+        item.setContent(comment.getContent());
+        item.setCreateTime(comment.getCreateTime());
+        return item;
     }
 
     private MeetingDTO.SessionItem toSessionItem(MeetingSession session) {

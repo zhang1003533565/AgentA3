@@ -20,6 +20,9 @@ public class MeetingParticipant {
     @Column(nullable = false, length = 80, columnDefinition = "VARCHAR(80) NOT NULL COMMENT '成员名称'")
     private String name;
 
+    @Column(name = "user_id", columnDefinition = "BIGINT COMMENT '关联用户ID，未注册/未登录时为空'")
+    private Long userId;
+
     @Column(name = "sort_order", columnDefinition = "INT DEFAULT 0 COMMENT '排序'")
     private Integer sortOrder = 0;
 

@@ -9,6 +9,8 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
+
+import java.util.List;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -80,6 +82,21 @@ public class MeetingController {
     public Result<MeetingDTO.SessionDetail> detail(@PathVariable String sessionId,
                                                    HttpServletRequest httpRequest) {
         return Result.success(meetingService.getMeeting(currentUserId(httpRequest), sessionId));
+    }
+
+    @GetMapping("/{sessionId}/comments")
+    @Operation(summary = "会议评论列表")
+    public Result<List<MeetingDTO.CommentItem>> listComments(@PathVariable String sessionId,
+                                                             HttpServletRequest httpRequest) {
+        return Result.success(meetingService.listComments(currentUserId(httpRequest), sessionId));
+    }
+
+    @PostMapping("/{sessionId}/comments")
+    @Operation(summary = "发表会议评论")
+    public Result<MeetingDTO.CommentItem> addComment(@PathVariable String sessionId,
+                                                     @Valid @RequestBody MeetingDTO.CommentRequest request,
+                                                     HttpServletRequest httpRequest) {
+        return Result.success(meetingService.addComment(currentUserId(httpRequest), sessionId, request));
     }
 
     @PostMapping("/{sessionId}/start")
