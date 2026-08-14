@@ -100,6 +100,27 @@ public class MeetingAsrWebSocketHandler extends TextWebSocketHandler {
         if (!StringUtils.hasText(payload)) {
             return;
         }
+        // 弹幕消息：转发广播给该会议所有在线成员，实现跨账号实时同步
+        if (payload.contains("\"type\":\"danmaku\"")) {
+            System.out.println("[ASR-Danmaku] 收到弹幕 payload=" + payload);
+            try {
+                JsonNode node = objectMapper.readTree(payload);
+                if ("danmaku".equals(node.path("type").asText())) {
+                    String mid = meetingSessionId(session);
+                    java.util.Set<WebSocketSession> sessions = meetingSessions.get(mid);
+                    System.out.println("[ASR-Danmaku] 广播 meeting=" + mid + " 在线数=" + (sessions == null ? 0 : sessions.size()));
+                    broadcastToMeeting(session, Map.of(
+                            "type", "danmaku",
+                            "speakerUserId", speakerUserId(session),
+                            "speaker", node.path("speaker").asText(speakerName(session)),
+                            "text", node.path("text").asText("")
+                    ));
+                }
+            } catch (Exception e) {
+                System.out.println("[ASR-Danmaku] 异常=" + e.getMessage());
+            }
+            return;
+        }
         if (payload.contains("\"stop\"") || payload.contains("\"is_speaking\":false")) {
             bridge.finish();
         }
@@ -294,8 +315,8 @@ public class MeetingAsrWebSocketHandler extends TextWebSocketHandler {
                         .orTimeout(8, TimeUnit.SECONDS)
                         .whenComplete((socket, error) -> {
                             if (error != null) {
+                                // 讯飞连接失败仅通知字幕不可用，不关闭 WebSocket，保留弹幕等轻量消息通道
                                 sendClient(Map.of("type", "asr_error", "message", "讯飞实时转写连接失败: " + error.getMessage()));
-                                closeClient(CloseStatus.SERVER_ERROR);
                                 return;
                             }
                             xfyunSocket = socket;
@@ -304,8 +325,8 @@ public class MeetingAsrWebSocketHandler extends TextWebSocketHandler {
                             sendClient(Map.of("type", "asr_ready"));
                         });
             } catch (Exception e) {
+                // 讯飞启动失败仅通知字幕不可用，不关闭 WebSocket，保留弹幕等轻量消息通道
                 sendClient(Map.of("type", "asr_error", "message", "讯飞实时转写启动失败: " + e.getMessage()));
-                closeClient(CloseStatus.SERVER_ERROR);
             }
         }
 

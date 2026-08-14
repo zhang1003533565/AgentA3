@@ -916,6 +916,41 @@ export default {
 					this.appendTranscriptLine(item)
 				}
 			}
+			// 弹幕广播：来自其他参会成员，上屏滚动并写入记录
+			if (payload.type === 'danmaku') {
+				console.log('[弹幕] 收到广播:', payload)
+				const user = getUserInfo()
+				const currentId = user?.id || user?.userId || ''
+				const isSelfDanmaku = !!(currentId && payload.speakerUserId && String(currentId) === String(payload.speakerUserId))
+				console.log('[弹幕] 去重判断 currentId=', currentId, 'speakerUserId=', payload.speakerUserId, 'isSelf=', isSelfDanmaku)
+				// 去重：自己发送的弹幕本地已上屏，跳过回环
+				if (isSelfDanmaku) {
+					console.log('[弹幕] 命中去重，跳过上屏（判定为自己发的）')
+					return
+				}
+				console.log('[弹幕] 他人弹幕，准备上屏')
+				const speaker = payload.speaker || '参会成员'
+				const text = (payload.text || '').trim()
+				if (!text) return
+				const danmaku = { id: `dm-${Date.now()}-${this.danmakuSeq++}`, text: `${speaker}：${text}` }
+				this.danmakuItems.push(danmaku)
+				setTimeout(() => {
+					this.danmakuItems = this.danmakuItems.filter(d => d.id !== danmaku.id)
+				}, 6000)
+				const now = new Date()
+				const time = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`
+				this.subtitleRecords.push({
+					speaker,
+					text,
+					time,
+					isSelf: false,
+					isDanmaku: true
+				})
+				if (this.subtitleRecords.length > 200) {
+					this.subtitleRecords = this.subtitleRecords.slice(-200)
+				}
+				this.persistDanmakuRecords()
+			}
 		},
 		isSelfSpeaker(payload) {
 			const user = getUserInfo()
@@ -1154,6 +1189,22 @@ export default {
 			}
 			this.persistDanmakuRecords()
 			this.chatDraft = ''
+			// 跨账号广播：通过 ASR WebSocket 将弹幕转发给会议其他在线成员
+			this.sendDanmakuViaSocket(speaker, text)
+		},
+		// 通过 ASR WebSocket 发送弹幕消息，由后端广播给同会议其他在线成员
+		sendDanmakuViaSocket(speaker, text) {
+			console.log('[弹幕] sendDanmakuViaSocket asrSocket=', !!this.asrSocket, 'asrSocketReady=', this.asrSocketReady)
+			if (!this.asrSocket || !this.asrSocketReady) {
+				console.log('[弹幕] asrSocket 未就绪，弹幕未发出（可能 ASR 连接异常）')
+				return
+			}
+			try {
+				this.asrSocket.send({ data: JSON.stringify({ type: 'danmaku', speaker, text }) })
+				console.log('[弹幕] 已发送:', { type: 'danmaku', speaker, text })
+			} catch (error) {
+				console.log('[弹幕] 发送异常:', error)
+			}
 		},
 		// 弹幕记录本地持久化：按会议 sessionId 存储，托管/离开页面后再次进入可恢复
 		persistDanmakuRecords() {
