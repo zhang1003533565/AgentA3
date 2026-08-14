@@ -1196,10 +1196,13 @@ export default {
 			})
 		},
 		shareMeeting() {
-			const text = `会议：${this.title}\n会议号：${this.roomCode || '未生成'}${this.compactRoomCode ? `\nhttps://meeting.app/join/${this.compactRoomCode}` : ''}`
+			if (!this.roomCode) {
+				uni.showToast({ title: '会议号暂未生成', icon: 'none' })
+				return
+			}
 			uni.setClipboardData({
-				data: text,
-				success: () => uni.showToast({ title: '邀请信息已复制', icon: 'none' })
+				data: this.roomCode,
+				success: () => uni.showToast({ title: '会议号已复制', icon: 'none' })
 			})
 		},
 		openMeetingDetail() {
