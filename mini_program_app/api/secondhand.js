@@ -46,6 +46,14 @@ export function getMySecondhandItems(params = {}) {
   })
 }
 
+export function getUserPublicItems(userId, params = {}) {
+  return request({
+    url: `/api/secondhand/user/${userId}/items`,
+    method: 'GET',
+    params
+  })
+}
+
 export function offlineSecondhandItem(id) {
   return request({
     url: `/api/secondhand/item/${id}/offline`,
@@ -128,6 +136,14 @@ export function getTradeNotificationUnreadCount() {
   })
 }
 
+export function getChatMessageSummary(params = {}) {
+  return request({
+    url: '/api/chat/messages/summary',
+    method: 'GET',
+    params
+  })
+}
+
 export function markTradeNotificationRead(id) {
   return request({
     url: `/api/chat/trade-notifications/${id}/read`,
@@ -197,6 +213,13 @@ export function getTradeRecord(id) {
   })
 }
 
+export function getTradeRecordByItem(itemId) {
+  return request({
+    url: `/api/trade/record/by-item/${itemId}`,
+    method: 'GET'
+  })
+}
+
 export function favoriteSecondhandItem(itemId) {
   return request({
     url: `/api/secondhand/favorite/${itemId}`,
@@ -224,5 +247,27 @@ export function reportSecondhandItem(data) {
     url: '/api/secondhand/reports',
     method: 'POST',
     data
+  })
+}
+
+export function recordBrowseHistory(itemId) {
+  return request({
+    url: `/api/secondhand/browse-history/${itemId}`,
+    method: 'POST'
+  })
+}
+
+export function getMyBrowseHistory(params = {}) {
+  return request({
+    url: '/api/secondhand/browse-history/my',
+    method: 'GET',
+    params
+  })
+}
+
+export function clearMyBrowseHistory() {
+  return request({
+    url: '/api/secondhand/browse-history/my',
+    method: 'DELETE'
   })
 }

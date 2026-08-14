@@ -142,8 +142,22 @@ public class SecondhandController {
             @RequestParam(defaultValue = "10") Integer size,
             @Parameter(description = "物品状态")
             @RequestParam(required = false) Integer status,
+            @Parameter(description = "交易类型：sell-出物，buy-收物")
+            @RequestParam(required = false) String tradeType,
             HttpServletRequest httpRequest) {
-        return Result.success(secondhandService.getMyItems(getUserId(httpRequest), current, size, status));
+        return Result.success(secondhandService.getMyItems(getUserId(httpRequest), current, size, status, tradeType));
+    }
+
+    @GetMapping("/user/{userId}/items")
+    @Operation(summary = "用户公开商品列表", description = "公开接口，查询指定用户发布的在线商品")
+    public Result<PageResponse<SecondhandDTO.ItemVO>> getUserPublicItems(
+            @Parameter(description = "用户ID", required = true)
+            @PathVariable Long userId,
+            @Parameter(description = "当前页码")
+            @RequestParam(defaultValue = "1") Integer current,
+            @Parameter(description = "每页条数")
+            @RequestParam(defaultValue = "10") Integer size) {
+        return Result.success(secondhandService.getUserPublicItems(userId, current, size));
     }
 
     @PutMapping("/item/{id}/offline")
@@ -234,6 +248,35 @@ public class SecondhandController {
             @RequestParam(defaultValue = "10") Integer size,
             HttpServletRequest httpRequest) {
         return Result.success(secondhandService.getMyFavorites(getUserId(httpRequest), current, size));
+    }
+
+    // ========== 浏览历史 ==========
+
+    @PostMapping("/browse-history/{itemId}")
+    @Operation(summary = "记录浏览历史", description = "需登录，已存在则更新浏览时间")
+    public Result<Void> recordBrowseHistory(
+            @PathVariable Long itemId,
+            HttpServletRequest httpRequest) {
+        secondhandService.recordBrowseHistory(getUserId(httpRequest), itemId);
+        return Result.success("记录成功", (Void) null);
+    }
+
+    @GetMapping("/browse-history/my")
+    @Operation(summary = "我的浏览历史", description = "需登录")
+    public Result<PageResponse<SecondhandDTO.BrowseHistoryVO>> getMyBrowseHistory(
+            @Parameter(description = "当前页码")
+            @RequestParam(defaultValue = "1") Integer current,
+            @Parameter(description = "每页条数")
+            @RequestParam(defaultValue = "20") Integer size,
+            HttpServletRequest httpRequest) {
+        return Result.success(secondhandService.getBrowseHistory(getUserId(httpRequest), current, size));
+    }
+
+    @DeleteMapping("/browse-history/my")
+    @Operation(summary = "清空浏览历史", description = "需登录")
+    public Result<Void> clearMyBrowseHistory(HttpServletRequest httpRequest) {
+        secondhandService.clearBrowseHistory(getUserId(httpRequest));
+        return Result.success("清空成功", (Void) null);
     }
 
     // ========== 统计 ==========

@@ -134,6 +134,7 @@ const quickActions = ref([
 const toolCategories = {
   hot: [
     { name: '试卷生成', desc: '智能生成标准化试卷', icon: '/static/icons/ai create/exam.png', themeColor: '#FF6B6B', lightColor: 'rgba(255, 107, 107, 0.35)' },
+    { name: '题库生成', desc: '资料一键生成练习题', icon: '/static/icons/ai create/exam.png', themeColor: '#5E7387', lightColor: 'rgba(94, 115, 135, 0.35)' },
     { name: 'PPT生成', desc: '一键生成演示文稿', icon: '/static/icons/ai create/ppt-pdf.png', themeColor: '#FF9F43', lightColor: 'rgba(255, 159, 67, 0.35)' },
     { name: '思维导图', desc: '知识梳理思维导图', icon: '/static/icons/ai create/outline.png', themeColor: '#A55EEA', lightColor: 'rgba(165, 94, 234, 0.35)' },
     { name: '活动图', desc: '业务流程活动图', icon: '/static/icons/ai create/summary.png', themeColor: '#48DBFB', lightColor: 'rgba(72, 219, 251, 0.35)' },
@@ -360,11 +361,12 @@ const handleToolTap = (tool) => {
 
 .hero-main-icon {
   position: absolute;
-  right: 20rpx;
-  bottom: 20rpx;
-  width: 80rpx;
-  height: 80rpx;
-  z-index: 2;
+  right: 12rpx;
+  bottom: 12rpx;
+  width: 68rpx;
+  height: 68rpx;
+  z-index: 0;
+  opacity: 0.95;
 }
 
 /* 右侧小卡片容器 */

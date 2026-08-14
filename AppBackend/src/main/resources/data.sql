@@ -73,10 +73,45 @@ CREATE TABLE IF NOT EXISTS campus_facility (
     latitude DECIMAL(18,14) COMMENT '纬度',
     image_x DECIMAL(8,6) COMMENT '地图图片横向坐标(0-1)',
     image_y DECIMAL(8,6) COMMENT '地图图片纵向坐标(0-1)',
+    geometry_type VARCHAR(16) NOT NULL DEFAULT 'POINT' COMMENT '空间形态: POINT-点位 AREA-区域围栏',
+    boundary_points TEXT COMMENT '区域围栏坐标(JSON二维数组)',
     images TEXT COMMENT '图片列表(JSON数组)',
     create_time DATETIME COMMENT '创建时间',
     update_time DATETIME COMMENT '更新时间'
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='校园设施表';
+
+-- 兼容旧库：补充设施空间形态与区域围栏字段
+SET @geometry_type_exists = (
+    SELECT COUNT(*)
+    FROM INFORMATION_SCHEMA.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'campus_facility'
+      AND COLUMN_NAME = 'geometry_type'
+);
+SET @add_geometry_type_sql = IF(
+    @geometry_type_exists > 0,
+    'SELECT 1',
+    'ALTER TABLE campus_facility ADD COLUMN geometry_type VARCHAR(16) NOT NULL DEFAULT ''POINT'' COMMENT ''空间形态: POINT-点位 AREA-区域围栏'' AFTER image_y'
+);
+PREPARE add_geometry_type_stmt FROM @add_geometry_type_sql;
+EXECUTE add_geometry_type_stmt;
+DEALLOCATE PREPARE add_geometry_type_stmt;
+
+SET @boundary_points_exists = (
+    SELECT COUNT(*)
+    FROM INFORMATION_SCHEMA.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'campus_facility'
+      AND COLUMN_NAME = 'boundary_points'
+);
+SET @add_boundary_points_sql = IF(
+    @boundary_points_exists > 0,
+    'SELECT 1',
+    'ALTER TABLE campus_facility ADD COLUMN boundary_points TEXT COMMENT ''区域围栏坐标(JSON二维数组)'' AFTER geometry_type'
+);
+PREPARE add_boundary_points_stmt FROM @add_boundary_points_sql;
+EXECUTE add_boundary_points_stmt;
+DEALLOCATE PREPARE add_boundary_points_stmt;
 
 -- 教室是教学楼内部子资源，不参与地图一级点位与分类
 CREATE TABLE IF NOT EXISTS classroom (
@@ -243,17 +278,19 @@ INSERT INTO sys_role (id, name) VALUES
 (4, 'MERCHANT');
 
 -- =============================================
--- 2. 用户数据 (管理员本地开发密码: 123456；其余账号默认 admin123)
+-- 2. 用户数据 (密码都是 admin123)
 -- =============================================
 INSERT INTO sys_user (id, username, password, real_name, phone, email, role_id, status, create_time, update_time,jwx_password,jwx_student_id,semester_start,share_code) VALUES
--- 管理员 (用户名: admin, 密码: 123456)
-(1, 'admin', '123456', '系统管理员', '13800000001', 'admin@campus.edu.cn', 1, 1, NOW(), NOW(),'313','32132313','2026-02-24','SCH000001'),
+-- 管理员 (用户名: admin, 密码: admin123)
+(1, 'admin', 'admin123', '系统管理员', '13800000001', 'admin@campus.edu.cn', 1, 1, NOW(), NOW(),'313','32132313','2026-02-24','SCH000001'),
 -- 教师 (用户名: fjj, 密码: admin123)
 (2, 'fjj', 'admin123', '张老师', '13800000002', 'zhanglaoshi@campus.edu.cn', 2, 1, NOW(), NOW(),'313','32132313','2026-02-24','SCH000002'),
 -- 教师 (用户名: fjj2, 密码: admin123)
 (3, 'fjj2', 'admin123', '李老师', '13800000003', 'lilaoshi@campus.edu.cn', 2, 1, NOW(), NOW(),'313','32132313','2026-02-24','SCH000003'),
 -- 学生 (用户名: zzs, 密码: admin123)
 (4, 'zzs', 'admin123', 'A3演示学生', '13800000000', 'a3-demo@example.invalid', 3, 1, NOW(), NOW(),'','A3DEMO001','2026-02-24','SCH000004'),
+-- 学生 (用户名: qb_peer, 密码: admin123) — 题库公私可见性对照账号
+(13, 'qb_peer', 'admin123', '题库对照学生', '13900000099', 'qb_peer@stu.campus.edu.cn', 3, 1, NOW(), NOW(),'','QBPEER001','2026-02-24','SCHQBPEER1'),
 -- 学生 (用户名: lisi, 密码: admin123)
 (5, 'lisi', 'admin123', '李四', '13800000005', 'lisi@stu.campus.edu.cn', 3, 1, NOW(), NOW(),'313','32132313','2026-02-24','SCH000005'),
 -- 学生 (用户名: wangwu, 密码: admin123)
@@ -1204,14 +1241,17 @@ INSERT INTO activity_notice (id, activity_id, title, content, publisher_id, publ
 -- 论坛话题（forum_post.topic_id 外键依赖；与小程序分类/发帖选项 id 对齐）
 -- =============================================
 INSERT IGNORE INTO forum_topic (id, topic_name, post_count, is_hot, status, create_time) VALUES
-(1, '校园生活', 0, 1, 'ACTIVE', NOW()),
-(2, '学习交流', 0, 1, 'ACTIVE', NOW()),
-(3, '求职招聘', 0, 1, 'ACTIVE', NOW()),
-(4, '二手交易', 0, 1, 'ACTIVE', NOW()),
-(5, '情感树洞', 0, 1, 'ACTIVE', NOW()),
-(6, '美食探店', 0, 1, 'ACTIVE', NOW()),
-(7, '求助问答', 0, 0, 'ACTIVE', NOW()),
-(8, '失物招领', 0, 0, 'ACTIVE', NOW())
+(1, '热门', 0, 1, 'ACTIVE', NOW()),
+(2, '最新', 0, 0, 'ACTIVE', NOW()),
+(3, '📢公告', 0, 0, 'ACTIVE', NOW()),
+(4, '💰集市', 0, 1, 'ACTIVE', NOW()),
+(5, '😊求助', 0, 0, 'ACTIVE', NOW()),
+(6, '🔑失物', 0, 0, 'ACTIVE', NOW()),
+(7, '💕表白', 0, 0, 'ACTIVE', NOW()),
+(8, '🍟美食', 0, 1, 'ACTIVE', NOW()),
+(9, '🤝搭子', 0, 0, 'ACTIVE', NOW()),
+(10, '📚学习资料', 0, 0, 'ACTIVE', NOW()),
+(11, '🌸影忆青春', 0, 0, 'ACTIVE', NOW())
 ON DUPLICATE KEY UPDATE topic_name = VALUES(topic_name), status = 'ACTIVE';
 
 CREATE TABLE IF NOT EXISTS forum_follow (
@@ -1517,6 +1557,16 @@ CREATE TABLE IF NOT EXISTS system_config (
     create_time DATETIME COMMENT '创建时间',
     update_time DATETIME COMMENT '更新时间'
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='系统配置表';
+
+CREATE TABLE IF NOT EXISTS langfuse_config (
+    id BIGINT PRIMARY KEY COMMENT '固定为 1 的 Langfuse 配置记录',
+    enabled TINYINT NOT NULL DEFAULT 0 COMMENT '是否启用 Langfuse 观测',
+    base_url VARCHAR(500) NULL COMMENT 'Langfuse 服务地址',
+    public_key TEXT NULL COMMENT '加密保存的 Langfuse Public Key',
+    secret_key TEXT NULL COMMENT '加密保存的 Langfuse Secret Key',
+    create_time DATETIME NULL COMMENT '创建时间',
+    update_time DATETIME NULL COMMENT '更新时间'
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Langfuse AI 观测配置';
 
 DELETE FROM system_config WHERE config_key IN (
   'ai.provider', 'ai.base-url', 'ai.api-key', 'ai.model',

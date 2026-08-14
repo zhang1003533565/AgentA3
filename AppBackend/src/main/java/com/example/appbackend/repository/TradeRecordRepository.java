@@ -20,6 +20,15 @@ public interface TradeRecordRepository extends JpaRepository<TradeRecord, Long> 
     @Query("SELECT tr FROM TradeRecord tr WHERE tr.buyerId = :userId OR tr.sellerId = :userId ORDER BY tr.updateTime DESC")
     Page<TradeRecord> findByUserId(@Param("userId") Long userId, Pageable pageable);
 
+    @Query("SELECT tr FROM TradeRecord tr WHERE (tr.buyerId = :userId OR tr.sellerId = :userId) AND tr.itemId = :itemId ORDER BY tr.updateTime DESC")
+    List<TradeRecord> findByUserIdAndItemId(@Param("userId") Long userId, @Param("itemId") Long itemId);
+
+    @Query("SELECT tr FROM TradeRecord tr WHERE tr.buyerId = :userId ORDER BY tr.updateTime DESC")
+    Page<TradeRecord> findByBuyerId(@Param("userId") Long userId, Pageable pageable);
+
+    @Query("SELECT tr FROM TradeRecord tr WHERE tr.sellerId = :userId ORDER BY tr.updateTime DESC")
+    Page<TradeRecord> findBySellerId(@Param("userId") Long userId, Pageable pageable);
+
     Optional<TradeRecord> findByItemIdAndBuyerId(Long itemId, Long buyerId);
 
     List<TradeRecord> findByItemIdAndStatusIn(Long itemId, Collection<TradeStatus> statuses);

@@ -11,6 +11,7 @@ import {
   Popconfirm,
   Select,
   Space,
+  Spin,
   Table,
   Tag,
   Tabs,
@@ -20,6 +21,7 @@ import {
 import {
   ArrowLeftOutlined,
   AimOutlined,
+  CameraOutlined,
   DeleteOutlined,
   EditOutlined,
   PlusOutlined,
@@ -42,9 +44,9 @@ import {
   createMapPlace,
   deleteFloorPlan,
   deleteMapPlace,
+  getCanteenStructure,
   getFloorPlan,
   getMapPlaceDetail,
-  getMapPlaceList,
   saveFloorPlan,
   updateMapPlace,
 } from '../../api/mapPlace'
@@ -163,39 +165,34 @@ export default function StallManage() {
   )
 
   const loadCategories = useCallback(async () => {
-    const [floorResponse, cuisineResponse] = await Promise.all([
-      getMapPlaceList({ sceneType: 'CANTEEN', parentId: canteenId }),
+    const [structureResponse, cuisineResponse] = await Promise.all([
+      getCanteenStructure(canteenId),
       getDishCuisines(canteenId),
     ])
-    setFloors(getRows(floorResponse).filter((item) => item.placeType === 'FLOOR'))
+    setFloors(getRows(structureResponse).filter((item) => item.placeType === 'FLOOR'))
     setCuisines(getRows(cuisineResponse))
   }, [canteenId])
 
   const loadStalls = useCallback(async (preferredStallId = null) => {
     setLoading(true)
     try {
-      const mapResponse = await getMapPlaceDetail(canteenId)
+      const requests = [getMapPlaceDetail(canteenId), getCanteenStructure(canteenId)]
+      if (dishMode) requests.push(getDishCuisines(canteenId))
+      const [mapResponse, structureResponse, cuisineResponse] = await Promise.all(requests)
       const mapPlace = mapResponse.data || null
+
       setCanteen(mapPlace)
-      const floorResponse = await getMapPlaceList({ sceneType: 'CANTEEN', parentId: canteenId })
-      const floorRows = getRows(floorResponse).filter((item) => item.placeType === 'FLOOR')
+      const structureRows = getRows(structureResponse)
+      const floorRows = structureRows.filter((item) => item.placeType === 'FLOOR')
       setFloors(floorRows)
-      const childResponses = await Promise.all(
-        floorRows.map((floor) => getMapPlaceList({ sceneType: 'CANTEEN', parentId: floor.id })),
-      )
-      const directResponse = await getMapPlaceList({ sceneType: 'CANTEEN', parentId: canteenId })
-      const rows = [
-        ...getRows(directResponse),
-        ...childResponses.flatMap(getRows),
-      ].filter((item) => item.placeType === 'CANTEEN_STALL')
+      const rows = structureRows.filter((item) => item.placeType === 'CANTEEN_STALL')
         .map((item) => ({
           ...item,
           floorName: floorRows.find((floor) => String(floor.id) === String(item.parentId))?.name || '-',
           stallStatus: item.stallStatus ?? (item.status === 'ENABLED' ? 1 : 3),
         }))
         .sort((left, right) => (left.sortOrder || 0) - (right.sortOrder || 0))
-      const cuisineResponse = await getDishCuisines(canteenId)
-      setCuisines(getRows(cuisineResponse))
+      setCuisines(cuisineResponse ? getRows(cuisineResponse) : [])
       setStalls(rows)
       setSelectedStallId((current) => {
         if (!dishMode) return null
@@ -729,6 +726,24 @@ export default function StallManage() {
             </Space>
           </div>
         </div>
+
+        {canteen && (() => {
+          const coverUrl = canteen.imageUrl || canteen.images?.[0]?.imageUrl
+          return (
+            <div className="canteen-info-bar">
+              {coverUrl ? (
+                <Image src={coverUrl} preview={false} className="canteen-info-avatar" />
+              ) : (
+                <div className="canteen-info-avatar placeholder"><ShopOutlined /></div>
+              )}
+              <div className="canteen-info-text">
+                <h2>{canteen.name}</h2>
+                {canteen.description && <p>{canteen.description}</p>}
+              </div>
+            </div>
+          )
+        })()}
+
         <div className="stall-card-grid">
           {filteredStalls.map((record) => (
             <Card
@@ -840,16 +855,90 @@ export default function StallManage() {
             </Space>
           </div>
         </div>
+        <div className="dish-context-bar">
+          {canteen && (() => {
+            const coverUrl = canteen.imageUrl || canteen.images?.[0]?.imageUrl
+            return (
+              <div className="canteen-info-bar">
+                {coverUrl ? (
+                  <Image src={coverUrl} preview={false} className="canteen-info-avatar" />
+                ) : (
+                  <div className="canteen-info-avatar placeholder"><ShopOutlined /></div>
+                )}
+                <div className="canteen-info-text"><h2>{canteen.name}</h2></div>
+              </div>
+            )
+          })()}
+          {canteen && selectedStall ? <span className="dish-context-separator">/</span> : null}
+          {selectedStall && (() => {
+            const coverUrl = selectedStall.imageUrl || selectedStall.images?.[0]?.imageUrl
+            return (
+              <div className="canteen-info-bar">
+                {coverUrl ? (
+                  <Image src={coverUrl} preview={false} className="canteen-info-avatar" />
+                ) : (
+                  <div className="canteen-info-avatar placeholder"><ShopOutlined /></div>
+                )}
+                <div className="canteen-info-text"><h2>{selectedStall.name}</h2></div>
+              </div>
+            )
+          })()}
+        </div>
         {selectedStall ? (
-          <Table
-            rowKey="id"
-            columns={dishColumns}
-            dataSource={filteredDishes}
-            loading={dishLoading}
-            pagination={false}
-            locale={{ emptyText: '该档口暂无菜品' }}
-            scroll={{ x: 860 }}
-          />
+          dishLoading ? (
+            <Spin tip="加载中..." className="stall-empty"><div style={{ minHeight: 200 }} /></Spin>
+          ) : filteredDishes.length === 0 ? (
+            <Empty description="该档口暂无菜品" className="stall-empty" />
+          ) : (
+            <div className="dish-card-grid">
+              {filteredDishes.map((dish) => (
+                <Card
+                  key={dish.id}
+                  className="dish-list-card"
+                  bodyStyle={{ padding: 0 }}
+                >
+                  <div className="dish-card-cover">
+                    {dish.imageUrl ? (
+                      <Image
+                        src={dish.imageUrl}
+                        className="dish-card-img"
+                        preview={false}
+                      />
+                    ) : (
+                      <div className="dish-card-img-placeholder">
+                        <CameraOutlined />
+                      </div>
+                    )}
+                    <div className="dish-card-cover-tags">
+                      {dish.isAvailable !== false ? (
+                        <Tag color="success" className="dish-status-tag">上架</Tag>
+                      ) : (
+                        <Tag color="default" className="dish-status-tag">下架</Tag>
+                      )}
+                    </div>
+                  </div>
+                  <div className="dish-card-body">
+                    <div className="dish-card-title-row">
+                      <h3 className="dish-card-name" title={dish.name}>{dish.name}</h3>
+                      <span className="dish-card-price">¥{Number(dish.price || 0).toFixed(2)}</span>
+                    </div>
+                    <div className="dish-card-meta-row">
+                      {dish.category && <Tag className="dish-card-tag">{dish.category}</Tag>}
+                      {dish.taste && <span className="dish-card-taste">{dish.taste}</span>}
+                    </div>
+                    <div className="dish-card-actions">
+                      <Button size="small" icon={<EditOutlined />} onClick={() => openEditDish(dish)}>
+                        编辑
+                      </Button>
+                      <Popconfirm title="确定删除该菜品吗？" onConfirm={() => removeDish(dish)}>
+                        <Button size="small" danger icon={<DeleteOutlined />}>删除</Button>
+                      </Popconfirm>
+                    </div>
+                  </div>
+                </Card>
+              ))}
+            </div>
+          )
         ) : (
           <Empty description="选择档口后在这里管理菜品" className="stall-empty" />
         )}

@@ -20,10 +20,13 @@ public final class CampusCourseDTO {
         private String name;
         @NotBlank
         private String bookTitle;
+        private String teacherName;
+        private String level;
         private String coverUrl;
         private String displayImageUrl;
         private String description;
         private String courseType;
+        private List<String> customCourseTypes;
         private Integer sortOrder = 0;
     }
 
@@ -33,6 +36,7 @@ public final class CampusCourseDTO {
         private String title;
         private String summary;
         private String content;
+        private String qaJson;
         @Min(1)
         @Max(100000)
         private Integer estimatedMinutes;
@@ -56,10 +60,29 @@ public final class CampusCourseDTO {
     }
 
     @Data
+    public static class CourseTypeSaveRequest {
+        /** 仅需类型名称，typeCode 由后端自动生成，id 由数据库自增分配 */
+        @NotBlank
+        private String typeName;
+        private Integer sortOrder = 0;
+    }
+
+    @Data
+    public static class CourseTypeView {
+        private Long id;
+        private String typeCode;
+        private String typeName;
+        private String category;
+        private Integer sortOrder;
+    }
+
+    @Data
     public static class CourseSummary {
         private Long id;
         private String name;
         private String bookTitle;
+        private String teacherName;
+        private String level;
         private String coverUrl;
         private String displayImageUrl;
         private String description;
@@ -69,6 +92,9 @@ public final class CampusCourseDTO {
         private String ownerName;
         private String ownerType;
         private String courseType;
+        private List<String> customCourseTypes = new ArrayList<>();
+        /** 与 customCourseTypes 一一对应的类型名称，供前端直接渲染，不依赖类型字典接口 */
+        private List<String> customCourseTypeNames = new ArrayList<>();
         private String audienceType;
         private String audienceValues;
         private String publishStatus;
@@ -88,6 +114,7 @@ public final class CampusCourseDTO {
         private String title;
         private String summary;
         private String content;
+        private String qaJson;
         private Integer estimatedMinutes;
         private Boolean required;
         private Integer sortOrder;

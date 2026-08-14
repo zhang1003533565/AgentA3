@@ -28,6 +28,8 @@ import java.util.Set;
 public class QuestionGenerationController {
 
     private static final String ROLE_ADMIN = "ADMIN";
+    private static final String ROLE_TEACHER = "TEACHER";
+    private static final String ROLE_STUDENT = "STUDENT";
     private static final Set<String> SOURCE_TYPES = Set.of("text", "txt", "docx", "file");
     private static final Set<String> DIFFICULTIES = Set.of("easy", "medium", "hard");
     private static final Set<String> QUESTION_TYPES = Set.of(
@@ -42,7 +44,7 @@ public class QuestionGenerationController {
 
     @GetMapping("/options")
     public Result<OptionsResponse> options(HttpServletRequest request) {
-        requireAdmin(request);
+        requireQuestionGenerationAccess(request);
         return Result.success(questionGenerationService.getOptions(request.getHeader("Authorization")));
     }
 
@@ -56,7 +58,7 @@ public class QuestionGenerationController {
             @RequestParam(required = false) String difficulty,
             @RequestParam(required = false) String sourceTitle,
             HttpServletRequest request) {
-        requireAdmin(request);
+        requireQuestionGenerationAccess(request);
         String normalizedSourceType = normalizeSourceType(sourceType, file, text);
         String normalizedDifficulty = normalizeDifficulty(difficulty);
         String normalizedSourceTitle = normalizeSourceTitle(sourceTitle);
@@ -72,14 +74,21 @@ public class QuestionGenerationController {
     public Result<ExamQuestionDTO.ImportResponse> importGenerated(
             @Valid @RequestBody GeneratedImportRequest importRequest,
             HttpServletRequest request) {
-        requireAdmin(request);
+        requireQuestionGenerationAccess(request);
         Object userId = request.getAttribute("userId");
         if (!(userId instanceof Long id)) throw new BusinessException(Result.UNAUTHORIZED_CODE, "请先登录");
-        return Result.success("导入成功", questionGenerationService.importGenerated(importRequest, id));
+        // 管理员导入公共题库；学生/教师导入个人私有题库
+        boolean isAdmin = ROLE_ADMIN.equals(request.getAttribute("role"));
+        return Result.success(
+                "导入成功",
+                isAdmin
+                        ? questionGenerationService.importGenerated(importRequest, id)
+                        : questionGenerationService.importGeneratedPrivate(importRequest, id));
     }
 
-    private void requireAdmin(HttpServletRequest request) {
-        if (!ROLE_ADMIN.equals(request.getAttribute("role"))) {
+    private void requireQuestionGenerationAccess(HttpServletRequest request) {
+        Object role = request.getAttribute("role");
+        if (!ROLE_ADMIN.equals(role) && !ROLE_TEACHER.equals(role) && !ROLE_STUDENT.equals(role)) {
             throw new BusinessException(Result.FORBIDDEN_CODE, "无权限");
         }
     }

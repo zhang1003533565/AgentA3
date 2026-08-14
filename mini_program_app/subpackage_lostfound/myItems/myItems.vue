@@ -1,7 +1,7 @@
 <template>
   <view class="page-root">
     <view class="screen">
-      <common-page-header title="我的发布" :subtitle="publishSummary" :fixed="true" :placeholder="true" :showBack="true" :autoBack="false" @back="goBack" />
+      <common-page-header title="我的发布" :fixed="true" :placeholder="true" :showBack="true" :autoBack="false" @back="goBack" />
 
       <view class="filter-tabs">
         <view
@@ -82,7 +82,7 @@
 <script>
 import CommonPageHeader from '@/components/common-page-header/common-page-header.vue'
 import MarketPublishOverlay from '@/components/market-publish-overlay/market-publish-overlay.vue'
-import { deleteSecondhandItem, getChatSessions, getMySecondhandItems, getTradeRecords, offlineSecondhandItem, onlineSecondhandItem } from '@/api/secondhand'
+import { deleteSecondhandItem, getMySecondhandItems, offlineSecondhandItem, onlineSecondhandItem } from '@/api/secondhand'
 import { getToken, getUserInfo } from '@/utils/storage.js'
 
 const FILTERS = [
@@ -259,25 +259,7 @@ export default {
   },
   computed: {
     myItems() {
-      if (this.activeFilter === 'all') return this.items
-      return this.items.filter((item) => {
-        if (this.activeFilter === 'sell') return item.tradeType === 'sell' && item.status !== 'offline'
-        if (this.activeFilter === 'buy') return item.tradeType === 'buy' && item.status !== 'offline'
-        if (this.activeFilter === 'offline') return item.status === 'offline'
-        return true
-      })
-    },
-    tradingCount() {
-      return this.items.filter((item) => this.isTradingItem(item)).length
-    },
-    sellCount() {
-      return this.items.filter((item) => item.tradeType === 'sell' && item.status !== 'offline').length
-    },
-    buyCount() {
-      return this.items.filter((item) => item.tradeType === 'buy' && item.status !== 'offline').length
-    },
-    publishSummary() {
-      return `出${this.sellCount} · 收${this.buyCount} · 交易中${this.tradingCount}`
+      return this.items
     },
     emptyText() {
       const current = this.filters.find((item) => item.key === this.activeFilter)
@@ -287,13 +269,16 @@ export default {
       return this.items.length === 0 ? '还没有发布过' : this.emptyText
     },
     emptySubtitle() {
-      return this.items.length === 0 ? '发布闲置好物，快速找到需要它的人' : '切换状态或稍后再看看'
+      return this.items.length === 0 ? '发布闲置好物，快速找到需要它的人' : '切换分类或稍后再看看'
+    }
+  },
+  watch: {
+    activeFilter() {
+      this.loadItems()
     }
   },
   async onLoad() {
     uni.$on('secondhand:item:published', this.handleItemPublished)
-    this.loadCurrentUser()
-    await this.loadItems()
   },
   async onShow() {
     this.loadCurrentUser()
@@ -338,21 +323,18 @@ export default {
     async loadItems() {
       try {
         this.loading = true
-        const [itemsRes, tradeRes, sessionRes] = await Promise.all([
-          getMySecondhandItems({ current: 1, size: 100 }),
-          getTradeRecords({ current: 1, size: 100 }),
-          getChatSessions({ current: 1, size: 100 })
-        ])
-        const itemRecords = Array.isArray(itemsRes?.data?.records) ? itemsRes.data.records : []
-        const tradeRecords = Array.isArray(tradeRes?.data?.records) ? tradeRes.data.records : []
-        const sessionRecords = Array.isArray(sessionRes?.data?.records) ? sessionRes.data.records : []
-        const cancelledSessionIds = new Set(
-          tradeRecords
-            .filter((record) => isCancelledTrade(record.status) && record.sessionId)
-            .map((record) => String(record.sessionId))
-        )
-        const tradeMap = createTradeMap(tradeRecords)
-        const intentSessionMap = createIntentSessionMap(sessionRecords, cancelledSessionIds)
+        const params = { current: 1, size: 100 }
+        if (this.activeFilter === 'sell') {
+          params.tradeType = 'sell'
+          params.status = 2
+        } else if (this.activeFilter === 'buy') {
+          params.tradeType = 'buy'
+          params.status = 2
+        } else if (this.activeFilter === 'offline') {
+          params.status = 4
+        }
+        const res = await getMySecondhandItems(params)
+        const itemRecords = Array.isArray(res?.data?.records) ? res.data.records : []
 
         const userInfo = getUserInfo() || {}
         const nestedUser = userInfo.user || userInfo.profile || userInfo.data || {}
@@ -361,25 +343,9 @@ export default {
 
         this.items = itemRecords.map((record) => {
           const item = normalizeItem(record)
-          const trade = tradeMap.get(String(item.id))
-          const intentSession = intentSessionMap.get(String(item.id))
           if (!item.sellerName) item.sellerName = currentUserName
           if (!item.sellerAvatar) item.sellerAvatar = currentUserAvatar
-          if (!trade) {
-            return {
-              ...item,
-              intentSessionId: intentSession?.sessionId || ''
-            }
-          }
-          return {
-            ...item,
-            buyerId: item.buyerId || trade.buyerId,
-            sellerId: item.sellerId || trade.sellerId,
-            sessionId: item.sessionId || trade.sessionId,
-            tradeStatus: trade.status,
-            tradeId: trade.id,
-            intentSessionId: intentSession?.sessionId || ''
-          }
+          return item
         })
       } catch (e) {
         console.error('加载数据失败', e)

@@ -50,8 +50,7 @@ public class ForumReportController {
         return Result.success("举报已提交", forumReportService.createReport(createRequest, reporterId));
     }
 
-    @Operation(summary = "获取举报列表", description = "管理员分页查看举报列表，支持按状态和目标类型筛选")
-    @ApiResponses(value = {
+    @Operation(summary = "获取举报列表", description = "管理员分页查看举报列表，支持按状态和目标类型筛选")    @ApiResponses(value = {
             @ApiResponse(responseCode = "200", description = "获取成功"),
             @ApiResponse(responseCode = "401", description = "未登录"),
             @ApiResponse(responseCode = "403", description = "无权限")
@@ -69,6 +68,20 @@ public class ForumReportController {
             @RequestParam(required = false) Integer targetType) {
         checkAdminRole(request);
         return Result.success(forumReportService.getReports(page, size, status, targetType));
+    }
+
+    @Operation(summary = "批量删除举报", description = "管理员批量删除举报记录及其审计日志")
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "删除成功"),
+            @ApiResponse(responseCode = "403", description = "无权限")
+    })
+    @DeleteMapping("/batch")
+    public Result<Void> deleteReports(
+            HttpServletRequest request,
+            @RequestBody List<Long> ids) {
+        checkAdminRole(request);
+        forumReportService.deleteReports(ids);
+        return Result.success("删除成功", null);
     }
 
     @Operation(summary = "获取举报详情", description = "管理员查看指定举报详情")
