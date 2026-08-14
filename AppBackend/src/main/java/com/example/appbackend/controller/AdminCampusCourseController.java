@@ -42,6 +42,13 @@ public class AdminCampusCourseController {
         return Result.success("课程类型已创建", courseService.createCourseType(body));
     }
 
+    @DeleteMapping("/types/{typeCode}")
+    public Result<Void> deleteType(@PathVariable String typeCode, HttpServletRequest request) {
+        adminId(request);
+        courseService.deleteCourseType(typeCode);
+        return Result.success("课程分类已删除", null);
+    }
+
     @PostMapping
     public Result<?> create(@Valid @RequestBody CampusCourseDTO.SaveRequest body,
                             HttpServletRequest request) {

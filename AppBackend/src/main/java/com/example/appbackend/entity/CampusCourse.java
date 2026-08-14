@@ -33,6 +33,12 @@ public class CampusCourse {
     @Column(name = "book_title", nullable = false, length = 160)
     private String bookTitle;
 
+    @Column(name = "teacher_name", length = 80)
+    private String teacherName;
+
+    @Column(length = 10)
+    private String level;
+
     @Column(name = "cover_url", length = 500)
     private String coverUrl;
 
