@@ -41,6 +41,8 @@ public interface PostService {
 
     PageResponse<PostListItem> getAdminPostList(Integer pageNum, Integer pageSize, String keyword, String status, String sortBy, Long topicId);
 
+    PageResponse<PostListItem> getRecommendedPosts(String type, Integer pageNum, Integer pageSize);
+
     long countAllPosts();
     long countByStatus(String status);
 }

@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react'
 import dayjs from 'dayjs'
-import { message, Modal, Form, Input, Button, Table, Space, Popconfirm, Tag, Select, Card, Popover, Tooltip } from 'antd'
+import { message, Modal, Form, Input, Button, Table, Space, Popconfirm, Tag, Select, Card, Popover, Tooltip, Checkbox } from 'antd'
 import { PlusOutlined, EditOutlined, DeleteOutlined, SearchOutlined, FireFilled } from '@ant-design/icons'
-import { getTopicList, createTopic, updateTopic, deleteTopic, getForumStatistics } from '../../../api/forum'
+import { getTopicList, createTopic, updateTopic, deleteTopic, batchDeleteTopics, getForumStatistics, getForumRules } from '../../../api/forum'
 import './TopicManage.css'
 
 const { Option } = Select
@@ -18,17 +18,24 @@ function TopicManage() {
   const [form] = Form.useForm()
   const [searchForm] = Form.useForm()
   const [pagination, setPagination] = useState({ current: 1, pageSize: 10, total: 0 })
+  const [selectedRowKeys, setSelectedRowKeys] = useState([])
   const [stats, setStats] = useState({ totalTopics: 0, activeTopics: 0, hotTopics: 0 })
+  const [rules, setRules] = useState(null)
 
   const fetchTopics = async (params = {}) => {
     setLoading(true)
     try {
       const values = searchForm.getFieldsValue()
-      const res = await getTopicList({ page: pagination.current, size: pagination.pageSize, ...values, ...params })
+      const pageNum = params.pageNum ?? pagination.current
+      const pageSize = params.pageSize ?? pagination.pageSize
+      const res = await getTopicList({ pageNum, pageSize, ...values, ...params })
       if (res.code === 200) {
         const records = res.data?.records || res.data?.list || res.data || []
-        setTopics(Array.isArray(records) ? records : [])
-        setPagination({ ...pagination, total: res.data?.total || records.length })
+        const all = Array.isArray(records) ? records : []
+        // 过滤掉系统内置的「热门」(id=1)、「最新」(id=2)话题——由系统自动收录管理，无需管理员操作
+        const filtered = all.filter((t) => t.id !== 1 && t.id !== 2)
+        setTopics(filtered)
+        setPagination((prev) => ({ ...prev, current: pageNum, pageSize, total: Math.max((res.data?.total || all.length) - 2, 0) }))
       }
     } catch (error) { console.error('获取话题列表失败:', error) }
     finally { setLoading(false) }
@@ -47,16 +54,23 @@ function TopicManage() {
     } catch (e) { /* ignore */ }
   }
 
-  useEffect(() => { fetchTopics(); fetchStats() }, [])
+  const fetchRules = async () => {
+    try {
+      const res = await getForumRules()
+      if (res.code === 200) setRules(res.data)
+    } catch (e) { /* ignore */ }
+  }
 
-  const handleSearch = (values) => { setPagination({ ...pagination, current: 1 }); fetchTopics(values) }
-  const handleReset = () => { searchForm.resetFields(); setPagination({ ...pagination, current: 1 }); fetchTopics() }
+  useEffect(() => { fetchTopics(); fetchStats(); fetchRules() }, [])
+
+  const handleSearch = (values) => { fetchTopics({ pageNum: 1, ...values }) }
+  const handleReset = () => { searchForm.resetFields(); fetchTopics({ pageNum: 1 }) }
 
   const handleCreate = () => {
     setModalTitle('创建话题')
     setEditingId(null)
     form.resetFields()
-    form.setFieldsValue({ isHot: 0, status: 'ACTIVE' })
+    form.setFieldsValue({ isHot: false, status: 'ACTIVE' })
     setModalVisible(true)
   }
 
@@ -65,9 +79,7 @@ function TopicManage() {
     setEditingId(record.id)
     form.setFieldsValue({
       topicName: record.topicName,
-      topicIcon: record.topicIcon,
-      description: record.description,
-      isHot: record.isHot === 1 ? 1 : 0,
+      isHot: record.isHot === 1,
       status: record.status === 'ACTIVE' ? 'ACTIVE' : 'INACTIVE',
     })
     setModalVisible(true)
@@ -76,7 +88,7 @@ function TopicManage() {
   const handleSubmit = async () => {
     try {
       const values = await form.validateFields()
-      const data = { ...values, isHot: values.isHot === 1 ? 1 : 0, status: values.status === 'ACTIVE' ? 'ACTIVE' : 'INACTIVE' }
+      const data = { ...values, isHot: values.isHot ? 1 : 0, status: values.status === 'ACTIVE' ? 'ACTIVE' : 'INACTIVE' }
       let res
       if (editingId) { res = await updateTopic(editingId, data) } else { res = await createTopic(data) }
       if (res.code === 200) {
@@ -95,10 +107,17 @@ function TopicManage() {
     } catch (error) { console.error('删除失败:', error) }
   }
 
+  const handleBatchDelete = async () => {
+    if (selectedRowKeys.length === 0) return
+    try {
+      const res = await batchDeleteTopics(selectedRowKeys)
+      if (res.code === 200) { message.success(`已批量删除 ${selectedRowKeys.length} 个话题`); setSelectedRowKeys([]); fetchTopics(); fetchStats() }
+    } catch (error) { console.error('批量删除失败:', error) }
+  }
+
   const renderRowPopover = (record) => (
     <div className="tm-row-pop">
-      <div className="tm-row-pop-title">{record.topicIcon || '📌'} {record.topicName}</div>
-      <div className="tm-row-pop-desc">{record.description || '-'}</div>
+      <div className="tm-row-pop-title">{record.topicName}</div>
       <div className="tm-row-pop-meta">
         <div><span className="tm-row-pop-label">帖子数</span>{record.postCount || 0}</div>
         <div><span className="tm-row-pop-label">状态</span><Tag color={record.status === 'ACTIVE' ? 'green' : 'default'}>{record.status === 'ACTIVE' ? '启用' : '禁用'}</Tag></div>
@@ -108,21 +127,14 @@ function TopicManage() {
   )
 
   const columns = [
-    { title: '图标', dataIndex: 'topicIcon', width: 60, render: (icon) => <span style={{ fontSize: 22 }}>{icon || '📌'}</span> },
     {
-      title: '话题名称', dataIndex: 'topicName', width: 150,
-      render: (text, record) => (
-        <Space>
-          {text}
-          {record.isHot === 1 && <Tag color="red" icon={<FireFilled />}>热门</Tag>}
-        </Space>
-      ),
-    },
-    {
-      title: '描述', dataIndex: 'description', ellipsis: true, width: 180,
+      title: '话题名称', dataIndex: 'topicName', width: 180,
       render: (text, record) => (
         <Popover content={renderRowPopover(record)} title="话题完整信息" trigger="hover" placement="bottomLeft" mouseEnterDelay={0.3}>
-          <span>{text || '-'}</span>
+          <Space>
+            {text}
+            {record.isHot === 1 && <Tag color="red" icon={<FireFilled />}>热门</Tag>}
+          </Space>
         </Popover>
       ),
     },
@@ -149,6 +161,8 @@ function TopicManage() {
     },
   ]
 
+  const rowSelection = { selectedRowKeys, onChange: (keys) => setSelectedRowKeys(keys) }
+
   const statItems = [
     { label: '话题总数', value: stats.totalTopics, className: 'tm-header-stat-blue' },
     { label: '启用中', value: stats.activeTopics, className: 'tm-header-stat-green' },
@@ -158,7 +172,17 @@ function TopicManage() {
   return (
     <div className="tm-container">
 
-      {/* 顶部统计区（白色矩形，仅保留统计） */}
+      {/* 热门/最新话题收录标准说明 */}
+      {rules && (
+        <div className="tm-rules-bar">
+          <span className="tm-rules-label">收录标准</span>
+          <span className="tm-rules-item">{rules.hot}</span>
+          <span className="tm-rules-item">{rules.latest}</span>
+          <span className="tm-rules-tip">「热门」「最新」为系统内置话题，由系统自动收录管理，无需人工维护。</span>
+        </div>
+      )}
+
+      {/* 顶部统计区（白色矩形） */}
       <div className="tm-header">
         <div className="tm-header-stats">
           {statItems.map((s) => (
@@ -197,14 +221,24 @@ function TopicManage() {
         </Button>
       </div>
 
+      {selectedRowKeys.length > 0 && (
+        <div className="tm-batch-bar">
+          <span className="tm-batch-count">已选择 <strong>{selectedRowKeys.length}</strong> 个</span>
+          <Popconfirm title={`确定删除选中的 ${selectedRowKeys.length} 个话题吗？`} onConfirm={handleBatchDelete} okText="确定" cancelText="取消">
+            <Button type="primary" danger size="small" icon={<DeleteOutlined />}>批量删除</Button>
+          </Popconfirm>
+        </div>
+      )}
+
       <Card className="tm-table-card" bodyStyle={{ padding: 0 }}>
         <Table
+          rowSelection={rowSelection}
           columns={columns}
           dataSource={topics}
           rowKey="id"
           loading={loading}
           pagination={{ ...pagination, showSizeChanger: true, showTotal: (t) => `共 ${t} 条`, pageSizeOptions: ['10', '20', '50'] }}
-          onChange={(pag) => { setPagination({ ...pagination, current: pag.current, pageSize: pag.pageSize }); fetchTopics({ page: pag.current, size: pag.pageSize }) }}
+          onChange={(pag) => fetchTopics({ pageNum: pag.current, pageSize: pag.pageSize })}
           size="middle"
         />
       </Card>
@@ -214,17 +248,11 @@ function TopicManage() {
           <Form.Item name="topicName" label="话题名称" rules={[{ required: true, message: '请输入话题名称' }]}>
             <Input placeholder="请输入话题名称" maxLength={20} showCount />
           </Form.Item>
-          <Form.Item name="topicIcon" label="话题图标（Emoji）" rules={[{ required: true, message: '请输入话题图标' }]}>
-            <Input placeholder="如：📚" maxLength={4} />
-          </Form.Item>
-          <Form.Item name="description" label="话题描述" rules={[{ required: true, message: '请输入话题描述' }]}>
-            <Input.TextArea rows={3} placeholder="请输入话题描述" maxLength={100} showCount />
-          </Form.Item>
-          <Form.Item name="isHot" label="热门话题" initialValue={0} rules={[{ required: true, message: '请选择' }]}>
-            <Select placeholder="请选择">
-              <Option value={1}>是</Option>
-              <Option value={0}>否</Option>
-            </Select>
+          <Form.Item name="isHot" valuePropName="checked" style={{ marginBottom: 24 }}>
+            <div className="tm-hot-row">
+              <span className="tm-hot-label">热门话题</span>
+              <Checkbox>设为热门话题</Checkbox>
+            </div>
           </Form.Item>
           <Form.Item name="status" label="状态" initialValue="ACTIVE" rules={[{ required: true, message: '请选择' }]}>
             <Select placeholder="请选择">

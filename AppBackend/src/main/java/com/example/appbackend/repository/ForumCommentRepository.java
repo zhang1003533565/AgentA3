@@ -56,6 +56,12 @@ public interface ForumCommentRepository extends JpaRepository<ForumComment, Long
     void deleteByPostId(@Param("postId") Long postId);
 
     @Modifying
+    @Query("DELETE FROM ForumComment c WHERE c.postId = :postId AND c.parentId IS NOT NULL")
+    void deleteByPostIdChildren(@Param("postId") Long postId);
+
+    List<ForumComment> findByPostId(Long postId);
+
+    @Modifying
     @Query("DELETE FROM ForumComment c WHERE c.id IN :ids")
     void deleteByIds(@Param("ids") List<Long> ids);
 
