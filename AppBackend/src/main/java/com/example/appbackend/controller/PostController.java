@@ -124,6 +124,19 @@ public class PostController {
         return Result.success("操作成功", postService.getHotPosts(pageNum, pageSize));
     }
 
+    /**
+     * 热门/最新话题自动收录列表
+     * type=hot: 最新7天内按综合热度(点赞×3+评论×5+浏览×0.1)取前20
+     * type=latest: 最新7天内按发布时间倒序
+     */
+    @GetMapping("/recommended")
+    public Result<PageResponse<PostListItem>> getRecommendedPosts(
+            @RequestParam String type,
+            @RequestParam(defaultValue = "1") Integer pageNum,
+            @RequestParam(defaultValue = "10") Integer pageSize) {
+        return Result.success("操作成功", postService.getRecommendedPosts(type, pageNum, pageSize));
+    }
+
     @PutMapping("/{id}/pin")
     public Result<Void> togglePin(@PathVariable Long id, HttpServletRequest request) {
         checkAdmin(request);

@@ -46,6 +46,23 @@ export function getPostList(params = {}) {
   })
 }
 
+/** 热门/最新话题自动收录列表：type=hot|latest */
+export function getRecommendedPosts(type, params = {}) {
+  return request({
+    url: '/api/forum/posts/recommended',
+    method: 'GET',
+    params: { type, ...params }
+  })
+}
+
+/** 热门/最新话题收录标准说明 */
+export function getForumRules() {
+  return request({
+    url: '/api/forum/statistics/rules',
+    method: 'GET'
+  })
+}
+
 export function getHotPosts(params = {}) {
   return request({
     url: '/api/forum/posts/hot',

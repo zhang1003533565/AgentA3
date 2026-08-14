@@ -58,4 +58,15 @@ public class ForumStatisticsController {
 
         return Result.success(data);
     }
+
+    /**
+     * 论坛热门/最新话题收录标准说明（供管理后台与 APP 端展示）
+     */
+    @GetMapping("/rules")
+    public Result<Map<String, String>> getForumRules() {
+        Map<String, String> rules = new LinkedHashMap<>();
+        rules.put("latest", "最新：最近 7 天内发布的帖子，按发布时间倒序展示。");
+        rules.put("hot", "热门：最近 7 天内发布的帖子中，按「点赞 ×3 + 评论 ×5 + 浏览 ×0.1」的综合热度排序，取前 20 条。");
+        return Result.success(rules);
+    }
 }

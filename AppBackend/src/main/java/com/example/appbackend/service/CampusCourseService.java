@@ -15,6 +15,11 @@ import java.util.*;
 
 @Service
 public class CampusCourseService {
+
+    private static final Set<String> FIXED_MAJOR_CATEGORIES = Set.of(
+            "哲学类", "经济学类", "法学类", "教育学类", "文学类", "历史学类",
+            "理学类", "工学类", "农学类", "医学类", "管理学类", "艺术学类", "军事学类", "交叉学科类"
+    );
     private final CampusCourseRepository courseRepository;
     private final CampusCourseChapterRepository chapterRepository;
     private final CampusCourseExamRepository courseExamRepository;
@@ -80,6 +85,17 @@ public class CampusCourseService {
         type.setCategory(CampusCourseType.CATEGORY_CUSTOM);
         type.setSortOrder(value(request.getSortOrder(), 0));
         return courseTypeView(typeRepository.save(type));
+    }
+
+    @Transactional
+    public void deleteCourseType(String typeCode) {
+        CampusCourseType type = typeRepository.findByTypeCode(typeCode)
+                .orElseThrow(() -> new BusinessException(404, "课程分类不存在"));
+        if (!CampusCourseType.CATEGORY_CUSTOM.equals(type.getCategory())
+                || FIXED_MAJOR_CATEGORIES.contains(type.getTypeName())) {
+            throw new BusinessException(400, "固定专业大类不可删除");
+        }
+        typeRepository.delete(type);
     }
 
     /**
@@ -241,12 +257,14 @@ public class CampusCourseService {
      * page 从 1 开始。返回 { "list": [...], "hasMore": true/false }
      */
     @Transactional(readOnly = true)
-    public Map<String, Object> studentPage(Long userId, int page, int pageSize) {
+    public Map<String, Object> studentPage(Long userId, int page, int pageSize, String customType) {
         User user = requireUser(userId);
         List<CampusCourse> all = courseRepository
                 .findByPublishStatusOrderBySortOrderAscPublishTimeDesc(CampusCourse.STATUS_PUBLISHED);
         List<CampusCourseDTO.CourseSummary> accessible = all.stream()
                 .filter(course -> accessible(course, user))
+                .filter(course -> customType == null || customType.isBlank()
+                        || parseCustomTypes(course.getCustomCourseTypes()).contains(customType.trim()))
                 .map(course -> summary(course, userId))
                 .toList();
         int total = accessible.size();
@@ -445,6 +463,8 @@ public class CampusCourseService {
         view.setId(course.getId());
         view.setName(course.getName());
         view.setBookTitle(course.getBookTitle());
+        view.setTeacherName(course.getTeacherName());
+        view.setLevel(course.getLevel());
         view.setCoverUrl(course.getCoverUrl());
         view.setDisplayImageUrl(course.getDisplayImageUrl());
         view.setDescription(course.getDescription());
@@ -485,6 +505,7 @@ public class CampusCourseService {
         view.setTitle(chapter.getTitle());
         view.setSummary(chapter.getSummary());
         view.setContent(chapter.getContent());
+        view.setQaJson(chapter.getQaJson());
         view.setEstimatedMinutes(chapter.getEstimatedMinutes());
         view.setRequired(chapter.getRequired());
         view.setSortOrder(chapter.getSortOrder());
@@ -513,10 +534,13 @@ public class CampusCourseService {
         System.out.println("[DEBUG] apply: customCourseTypes=" + request.getCustomCourseTypes());
         course.setName(required(request.getName(), "课程名称", 120));
         course.setBookTitle(required(request.getBookTitle(), "课程书名称", 160));
+        course.setTeacherName(required(request.getTeacherName(), "课程老师", 80));
+        course.setLevel(null);
         course.setCoverUrl(trim(request.getCoverUrl(), 500));
         course.setDisplayImageUrl(trim(request.getDisplayImageUrl(), 500));
         course.setDescription(trim(request.getDescription(), 2000));
-        String courseType = required(request.getCourseType(), "必选课程类型", 10);
+        String courseType = trim(request.getCourseType(), 10);
+        if (courseType == null) courseType = CampusCourse.COURSE_TYPE_PUBLIC;
         boolean builtin = typeRepository.findByTypeCode(courseType)
                 .map(type -> CampusCourseType.CATEGORY_BUILTIN.equals(type.getCategory()))
                 .orElse(false);
@@ -548,7 +572,7 @@ public class CampusCourseService {
                 throw new BusinessException(400, "自定义课程类型最多选择 20 个");
             }
             if (!seen.add(value)) continue;
-            boolean custom = typeRepository.findByTypeCode(value)
+            boolean custom = FIXED_MAJOR_CATEGORIES.contains(value) || typeRepository.findByTypeCode(value)
                     .map(type -> CampusCourseType.CATEGORY_CUSTOM.equals(type.getCategory()))
                     .orElse(false);
             if (!custom) {
@@ -586,6 +610,7 @@ public class CampusCourseService {
         chapter.setTitle(required(request.getTitle(), "章节标题", 160));
         chapter.setSummary(trim(request.getSummary(), 1000));
         chapter.setContent(request.getContent() == null ? null : request.getContent().trim());
+        chapter.setQaJson(request.getQaJson() == null ? null : request.getQaJson().trim());
         chapter.setEstimatedMinutes(request.getEstimatedMinutes());
         chapter.setRequired(request.getRequired() == null || request.getRequired());
         chapter.setSortOrder(value(request.getSortOrder(), 0));
@@ -625,6 +650,8 @@ public class CampusCourseService {
         target.setId(source.getId());
         target.setName(source.getName());
         target.setBookTitle(source.getBookTitle());
+        target.setTeacherName(source.getTeacherName());
+        target.setLevel(source.getLevel());
         target.setCoverUrl(source.getCoverUrl());
         target.setDisplayImageUrl(source.getDisplayImageUrl());
         target.setDescription(source.getDescription());

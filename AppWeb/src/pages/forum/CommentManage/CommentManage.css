@@ -67,6 +67,26 @@
   background: #fff;
 }
 
+/* 按帖子过滤提示条 */
+.cm-filter-bar {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+  padding: 8px 16px;
+  background: #e6f4ff;
+  border: 1px solid #91caff;
+  border-radius: 10px;
+  font-size: 13px;
+  color: #0958d9;
+}
+
+.cm-filter-text {
+  font-weight: 500;
+}
+
 .cm-search-card :global(.ant-form-inline) {
   display: flex;
   flex-wrap: wrap;
@@ -199,62 +219,64 @@
 
 .cm-drawer { padding: 4px; }
 
-.cm-drawer-section { margin-bottom: 20px; }
+.cm-drawer-section { margin-bottom: 14px; }
 
 .cm-drawer-title {
-  font-size: 15px;
-  color: #6b7280;
-  margin: 0 0 6px;
+  font-size: 16px;
   font-weight: 600;
+  color: #1e293b;
+  margin: 0 0 8px;
+  line-height: 1.4;
+  word-break: break-word;
 }
 
-.cm-post-link {
-  font-size: 15px;
-  color: #065f46;
-  font-weight: 600;
-  margin: 0;
-  padding: 8px 12px;
-  background: #ecfdf5;
-  border-radius: 8px;
-  word-break: break-all;
+.cm-drawer-tags {
+  margin-top: 6px;
 }
 
 .cm-drawer-info {
   display: grid;
+  grid-template-columns: repeat(2, 1fr);
   gap: 10px;
-  margin-bottom: 20px;
-  padding: 14px 16px;
-  background: #f0fdf4;
-  border-radius: 10px;
+  margin-bottom: 14px;
 }
 
 .cm-info-row {
   display: flex;
-  justify-content: space-between;
-  align-items: center;
-  font-size: 14px;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 12px;
+  background: #f8fafc;
+  border: 1px solid #eef2f7;
+  border-radius: 8px;
 }
 
 .cm-info-row .cm-info-label {
-  color: #6b7280;
+  color: #94a3b8;
+  font-size: 12px;
   font-weight: 500;
-  min-width: 70px;
+}
+
+.cm-info-row span:last-child {
+  color: #1e293b;
+  font-weight: 600;
+  font-size: 13px;
 }
 
 .cm-drawer-content h4 {
-  font-size: 15px;
+  font-size: 14px;
   color: #334155;
-  margin: 0 0 10px;
+  margin: 0 0 8px;
 }
 
 .cm-content-box {
-  padding: 14px 16px;
-  background: #f0fdf4;
-  border-radius: 10px;
+  padding: 12px 14px;
+  background: #f8fafc;
+  border-radius: 8px;
   line-height: 1.8;
   white-space: pre-wrap;
   word-break: break-word;
-  max-height: 400px;
+  max-height: 300px;
   overflow-y: auto;
   font-size: 14px;
   color: #334155;

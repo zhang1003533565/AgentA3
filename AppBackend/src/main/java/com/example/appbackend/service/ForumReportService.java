@@ -17,4 +17,6 @@ public interface ForumReportService {
     ForumReportStatisticsResponse getStatistics();
 
     List<ForumReportAuditLogResponse> getAuditLogs(Long reportId);
+
+    void deleteReports(List<Long> ids);
 }

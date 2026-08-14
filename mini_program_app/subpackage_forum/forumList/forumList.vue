@@ -205,6 +205,7 @@ import NavBar from '@/components/nav-bar/nav-bar.vue'
 import PostEditor from '@/subpackage_forum/components/post-editor/post-editor.vue'
 import {
   getPostList,
+  getRecommendedPosts,
   getHotTopics,
   getTopicList,
   publishPost,
@@ -298,18 +299,36 @@ export default {
       this.currentUserAvatar = userInfo?.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(seed)}`
     },
     async loadTopics() {
-      // 使用本地定义的静态分类，不从API获取
-      this.publishTopics = [
-        { id: 3, name: '📢公告' },
-        { id: 4, name: '💰集市' },
-        { id: 5, name: '😊求助' },
-        { id: 6, name: '🔑失物' },
-        { id: 7, name: '💕表白' },
-        { id: 8, name: '🍟美食' },
-        { id: 9, name: '🤝搭子' },
-        { id: 10, name: '📚学习资料' },
-        { id: 11, name: '🌸影忆青春' }
-      ]
+      // 从后端动态加载「启用中」的话题,后台禁用的板块不会出现在标题栏与发帖列表
+      try {
+        const res = await getTopicList({ pageNum: 1, pageSize: 100, status: 'ACTIVE' })
+        const items = (res?.data?.records || []).map((item) => ({
+          id: item.id,
+          name: item.topicName || '未命名话题'
+        }))
+        this.topics = [{ id: 0, name: '全部' }, ...items]
+        // 发帖可选话题:排除「热门/最新」两个虚拟板块(id=1/2)
+        this.publishTopics = items.filter((t) => t.id !== 1 && t.id !== 2)
+      } catch (error) {
+        // 接口失败时回退到静态分类,保证页面可用
+        this.publishTopics = [
+          { id: 3, name: '📢公告' },
+          { id: 4, name: '💰集市' },
+          { id: 5, name: '😊求助' },
+          { id: 6, name: '🔑失物' },
+          { id: 7, name: '💕表白' },
+          { id: 8, name: '🍟美食' },
+          { id: 9, name: '🤝搭子' },
+          { id: 10, name: '📚学习资料' },
+          { id: 11, name: '🌸影忆青春' }
+        ]
+        this.topics = [
+          { id: 0, name: '全部' },
+          { id: 1, name: '热门' },
+          { id: 2, name: '最新' },
+          ...this.publishTopics
+        ]
+      }
     },
     async loadHotTopicList() {
       try {
@@ -355,14 +374,17 @@ export default {
           pageNum: state.page,
           pageSize: this.pageSize
         }
-        // id=1 热门 → 按点赞量排序；id=2 最新 → 按时间倒序（后端默认）
+        // id=1 热门 / id=2 最新 → 走系统自动收录标准接口
+        let res
         if (topicId === 1) {
-          params.sortBy = 'likeCount'
-        } else if (topicId !== 0 && topicId !== 2) {
-          params.topicId = topicId
+          res = await getRecommendedPosts('hot', params)
+        } else if (topicId === 2) {
+          res = await getRecommendedPosts('latest', params)
+        } else {
+          if (topicId !== 0) params.topicId = topicId
+          if (this.searchKeyword && this.searchKeyword.trim()) params.keyword = this.searchKeyword.trim()
+          res = await getPostList(params)
         }
-        if (this.searchKeyword && this.searchKeyword.trim()) params.keyword = this.searchKeyword.trim()
-        const res = await getPostList(params)
         // 保证加载提示至少可见一小段时间，避免一闪而过
         const elapsed = Date.now() - startTime
         if (elapsed < 600) {
