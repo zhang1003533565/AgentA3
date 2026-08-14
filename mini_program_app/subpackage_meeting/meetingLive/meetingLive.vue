@@ -207,7 +207,6 @@
 		<view v-if="subtitlePanelVisible" class="sheet-panel subtitle-panel">
 			<view class="sheet-handle"></view>
 			<view class="sheet-title-row">
-				<text class="sheet-title">实时字幕</text>
 				<text class="sheet-close" @click="closeSubtitlePanel">×</text>
 			</view>
 			<scroll-view class="subtitle-record-scroll" scroll-y>
@@ -218,9 +217,10 @@
 						<view class="subtitle-record-main">
 							<view class="subtitle-record-meta">
 								<text class="subtitle-record-name">{{ item.speaker }}</text>
+								<text v-if="item.isDanmaku" class="subtitle-record-tag">（弹幕）</text>
 								<text class="subtitle-record-time">{{ item.time }}</text>
 							</view>
-							<text class="subtitle-record-text">{{ item.text }}{{ item.isDanmaku ? '（弹幕）' : '' }}</text>
+							<text class="subtitle-record-text">{{ item.text }}</text>
 						</view>
 					</view>
 				</view>
@@ -918,17 +918,10 @@ export default {
 			}
 			// 弹幕广播：来自其他参会成员，上屏滚动并写入记录
 			if (payload.type === 'danmaku') {
-				console.log('[弹幕] 收到广播:', payload)
 				const user = getUserInfo()
 				const currentId = user?.id || user?.userId || ''
-				const isSelfDanmaku = !!(currentId && payload.speakerUserId && String(currentId) === String(payload.speakerUserId))
-				console.log('[弹幕] 去重判断 currentId=', currentId, 'speakerUserId=', payload.speakerUserId, 'isSelf=', isSelfDanmaku)
 				// 去重：自己发送的弹幕本地已上屏，跳过回环
-				if (isSelfDanmaku) {
-					console.log('[弹幕] 命中去重，跳过上屏（判定为自己发的）')
-					return
-				}
-				console.log('[弹幕] 他人弹幕，准备上屏')
+				if (currentId && payload.speakerUserId && String(currentId) === String(payload.speakerUserId)) return
 				const speaker = payload.speaker || '参会成员'
 				const text = (payload.text || '').trim()
 				if (!text) return
@@ -1194,17 +1187,10 @@ export default {
 		},
 		// 通过 ASR WebSocket 发送弹幕消息，由后端广播给同会议其他在线成员
 		sendDanmakuViaSocket(speaker, text) {
-			console.log('[弹幕] sendDanmakuViaSocket asrSocket=', !!this.asrSocket, 'asrSocketReady=', this.asrSocketReady)
-			if (!this.asrSocket || !this.asrSocketReady) {
-				console.log('[弹幕] asrSocket 未就绪，弹幕未发出（可能 ASR 连接异常）')
-				return
-			}
+			if (!this.asrSocket || !this.asrSocketReady) return
 			try {
 				this.asrSocket.send({ data: JSON.stringify({ type: 'danmaku', speaker, text }) })
-				console.log('[弹幕] 已发送:', { type: 'danmaku', speaker, text })
-			} catch (error) {
-				console.log('[弹幕] 发送异常:', error)
-			}
+			} catch (error) {}
 		},
 		// 弹幕记录本地持久化：按会议 sessionId 存储，托管/离开页面后再次进入可恢复
 		persistDanmakuRecords() {
@@ -1671,7 +1657,11 @@ export default {
 }
 /* 实时字幕半屏弹窗 */
 .subtitle-panel {
-	min-height: 60vh;
+	height: 55%;
+}
+/* 无标题行时关闭按钮靠右 */
+.subtitle-panel .sheet-title-row {
+	justify-content: flex-end;
 }
 .subtitle-record-scroll {
 	flex: 1;
@@ -1720,6 +1710,10 @@ export default {
 	color: #151f25;
 	font-size: 25rpx;
 	font-weight: 800;
+}
+.subtitle-record-tag {
+	color: #86C9A8;
+	font-size: 20rpx;
 }
 .subtitle-record-time {
 	color: #999;

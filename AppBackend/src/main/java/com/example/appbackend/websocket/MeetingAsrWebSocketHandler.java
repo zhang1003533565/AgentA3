@@ -102,13 +102,9 @@ public class MeetingAsrWebSocketHandler extends TextWebSocketHandler {
         }
         // 弹幕消息：转发广播给该会议所有在线成员，实现跨账号实时同步
         if (payload.contains("\"type\":\"danmaku\"")) {
-            System.out.println("[ASR-Danmaku] 收到弹幕 payload=" + payload);
             try {
                 JsonNode node = objectMapper.readTree(payload);
                 if ("danmaku".equals(node.path("type").asText())) {
-                    String mid = meetingSessionId(session);
-                    java.util.Set<WebSocketSession> sessions = meetingSessions.get(mid);
-                    System.out.println("[ASR-Danmaku] 广播 meeting=" + mid + " 在线数=" + (sessions == null ? 0 : sessions.size()));
                     broadcastToMeeting(session, Map.of(
                             "type", "danmaku",
                             "speakerUserId", speakerUserId(session),
@@ -116,8 +112,7 @@ public class MeetingAsrWebSocketHandler extends TextWebSocketHandler {
                             "text", node.path("text").asText("")
                     ));
                 }
-            } catch (Exception e) {
-                System.out.println("[ASR-Danmaku] 异常=" + e.getMessage());
+            } catch (Exception ignored) {
             }
             return;
         }
