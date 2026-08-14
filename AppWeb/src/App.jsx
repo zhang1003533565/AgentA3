@@ -26,6 +26,7 @@ import WorkspacePage from './pages/workspace/WorkspacePage'
 import CanteenManage from './pages/CanteenManage/CanteenManage'
 import StallManage from './pages/StallManage/StallManage'
 import MarkerManage from './pages/facility/MarkerManage/MarkerManage'
+import FacilityAnalyticsDetail from './pages/facility/AnalyticsDetail/FacilityAnalyticsDetail'
 import './App.css'
 
 // 论坛独立页面路径集合（不走 WorkspacePage）
@@ -52,6 +53,7 @@ function App() {
           <Route path="/home" element={<Home />} />
           <Route path="/facility/canteen" element={<CanteenManage />} />
           <Route path="/facility/canteen/:canteenId/stalls" element={<StallManage />} />
+          <Route path="/facility/analytics/:id" element={<FacilityAnalyticsDetail />} />
           <Route path="/activity/manage" element={<ActivityManage />} />
           <Route path="/activity/create" element={<ActivityEditor />} />
           <Route path="/activity/:id/edit" element={<ActivityEditor />} />

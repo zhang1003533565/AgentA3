@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
-import { Outlet, useLocation } from 'react-router-dom'
+import { Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { Button } from 'antd'
-import { MenuFoldOutlined, MenuUnfoldOutlined } from '@ant-design/icons'
+import { ArrowLeftOutlined, EditOutlined, MenuFoldOutlined, MenuUnfoldOutlined } from '@ant-design/icons'
 import NavBar from '../NavBar/NavBar'
 import PageHeader from '../PageHeader/PageHeader'
 import { getNavMetaByPath, getBreadcrumbByPath } from '../../data/portalData'
@@ -10,10 +10,12 @@ import './Layout.css'
 
 function Layout() {
   const location = useLocation()
+  const navigate = useNavigate()
   const [mobileOpen, setMobileOpen] = useState(false)
   const pageMeta = useMemo(() => getNavMetaByPath(location.pathname), [location.pathname])
   const breadcrumb = useMemo(() => getBreadcrumbByPath(location.pathname), [location.pathname])
   const hidePageHeading = location.pathname !== '/home'
+  const facilityDetailMatch = /^\/facility\/analytics\/[^/]+$/.test(location.pathname)
 
   return (
     <div className={`layout ${mobileOpen ? 'sidebar-open' : ''}`}>
@@ -38,6 +40,16 @@ function Layout() {
               <PageHeader items={breadcrumb} />
             ) : null}
           </div>
+          {facilityDetailMatch ? (
+            <div className="layout-topbar-right">
+              <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/facility/analytics')}>
+                返回列表
+              </Button>
+              <Button type="primary" icon={<EditOutlined />} onClick={() => window.dispatchEvent(new Event('facility-detail-edit'))}>
+                编辑信息
+              </Button>
+            </div>
+          ) : null}
 
         </header>
 

@@ -532,6 +532,10 @@ const drilldownBreadcrumbs = [
     match: /^\/facility\/stall-dish$/,
     items: ['校园设施', { label: '食堂管理', path: '/facility/canteen' }, '档口菜品管理'],
   },
+  {
+    match: /^\/facility\/analytics\/[^/]+$/,
+    items: ['校园设施', { label: '设施统计', path: '/facility/analytics' }, '图文详情'],
+  },
 ]
 
 // 按路由取面包屑（分组名 / 菜单名，或下钻多级），供布局顶栏统一渲染页面标题

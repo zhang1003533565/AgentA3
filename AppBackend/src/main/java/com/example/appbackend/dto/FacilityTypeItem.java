@@ -16,4 +16,7 @@ public class FacilityTypeItem {
 
     @Schema(description = "类型名称", example = "食堂")
     private String label;
+
+    @Schema(description = "类型颜色", example = "#3b82f6")
+    private String color;
 }

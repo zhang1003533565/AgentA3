@@ -16,6 +16,10 @@ import org.springframework.web.bind.annotation.RequestParam;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.nio.file.StandardCopyOption;
 import java.time.LocalDate;
 import java.util.Map;
 import java.util.Set;
@@ -76,6 +80,9 @@ public class UploadController {
         } catch (IllegalArgumentException error) {
             return Result.badRequest(error.getMessage());
         }
+        if (!StringUtils.hasText(bucket) || !StringUtils.hasText(domain)) {
+            return saveLocalImage(file, objectKey, request);
+        }
         ObjectMetadata metadata = new ObjectMetadata();
         metadata.setContentLength(file.getSize());
         metadata.setContentType(file.getContentType());
@@ -83,12 +90,29 @@ public class UploadController {
             PutObjectRequest putObjectRequest = new PutObjectRequest(bucket, objectKey, inputStream, metadata);
             cosClient.putObject(putObjectRequest);
         } catch (Exception error) {
-            return Result.error("腾讯云 COS 上传失败: " + error.getMessage());
+            return saveLocalImage(file, objectKey, request);
         }
 
         String normalizedDomain = domain.endsWith("/") ? domain.substring(0, domain.length() - 1) : domain;
         String fileUrl = normalizedDomain + "/" + objectKey;
 
+        return Result.success(Map.of("url", fileUrl));
+    }
+
+    private Result<Map<String, String>> saveLocalImage(MultipartFile file, String objectKey, HttpServletRequest request) throws IOException {
+        Path uploadRoot = Paths.get(System.getProperty("user.dir"), "uploads");
+        Path targetPath = uploadRoot.resolve(objectKey).normalize();
+        if (!targetPath.startsWith(uploadRoot)) {
+            return Result.badRequest("Invalid upload path");
+        }
+        Files.createDirectories(targetPath.getParent());
+        try (InputStream inputStream = file.getInputStream()) {
+            Files.copy(inputStream, targetPath, StandardCopyOption.REPLACE_EXISTING);
+        }
+
+        String contextPath = request.getContextPath() == null ? "" : request.getContextPath();
+        String baseUrl = request.getScheme() + "://" + request.getServerName() + ":" + request.getServerPort() + contextPath;
+        String fileUrl = baseUrl + "/uploads/" + objectKey.replace("\\", "/");
         return Result.success(Map.of("url", fileUrl));
     }
 
