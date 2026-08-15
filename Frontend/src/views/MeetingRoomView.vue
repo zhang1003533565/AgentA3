@@ -2,7 +2,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
-import { endMeeting, getMeetingDetail } from '../api/meetings'
+import { endMeeting, getMeetingDetail, getMeetingComments, sendMeetingComment } from '../api/meetings'
 import { getUserInfo } from '../utils/auth'
 
 const route = useRoute()
@@ -100,22 +100,32 @@ function leaveRoom() {
 }
 
 /* ---------- 评论区 ---------- */
-const commentStorageKey = computed(() => `meeting-comments:${route.params.sessionId}`)
+const currentUserId = computed(() => {
+  const user = getUserInfo() || {}
+  return user.userId ?? user.id
+})
 
-function loadComments() {
-  try {
-    const raw = localStorage.getItem(commentStorageKey.value)
-    comments.value = raw ? JSON.parse(raw) : []
-  } catch {
-    comments.value = []
-  }
+function parseDate(value) {
+  if (!value) return new Date()
+  if (value instanceof Date) return value
+  return new Date(value)
 }
 
-function saveComments() {
+async function loadComments() {
   try {
-    localStorage.setItem(commentStorageKey.value, JSON.stringify(comments.value.slice(-200)))
+    const result = await getMeetingComments(route.params.sessionId)
+    const list = result?.data || []
+    comments.value = (list || []).map((item) => ({
+      id: item.id,
+      name: item.senderName || '匿名',
+      text: item.content,
+      time: formatClock(parseDate(item.createTime)),
+      isSelf:
+        (item.senderId != null && String(item.senderId) === String(currentUserId.value)) ||
+        item.senderName === myName.value,
+    }))
   } catch {
-    /* 忽略存储异常 */
+    comments.value = []
   }
 }
 
@@ -124,20 +134,19 @@ function formatClock(date) {
   return `${pad(date.getHours())}:${pad(date.getMinutes())}`
 }
 
-function sendComment() {
+async function sendComment() {
   const text = commentDraft.value.trim()
   if (!text) return
-  comments.value.push({
-    name: myName.value || '我',
-    text,
-    time: formatClock(new Date()),
-    isSelf: true,
-  })
-  commentDraft.value = ''
-  saveComments()
-  nextTick(() => {
-    if (commentListRef.value) commentListRef.value.scrollTop = commentListRef.value.scrollHeight
-  })
+  try {
+    await sendMeetingComment(route.params.sessionId, { content: text })
+    commentDraft.value = ''
+    await loadComments()
+    nextTick(() => {
+      if (commentListRef.value) commentListRef.value.scrollTop = commentListRef.value.scrollHeight
+    })
+  } catch (cause) {
+    error.value = cause.message || '评论发送失败'
+  }
 }
 
 async function endRoom() {
@@ -172,6 +181,11 @@ async function refreshDetail() {
   try {
     const result = await getMeetingDetail(route.params.sessionId)
     if (result?.data) detail.value = result.data
+  } catch {
+    /* 忽略轮询异常 */
+  }
+  try {
+    await loadComments()
   } catch {
     /* 忽略轮询异常 */
   }
@@ -656,6 +670,7 @@ onBeforeUnmount(() => {
 .room-comments {
   display: flex;
   flex-direction: column;
+  max-height: 520px;
   min-height: 0;
   border: 1px solid #e5eaf0;
   border-radius: 14px;
@@ -763,13 +778,13 @@ onBeforeUnmount(() => {
   background: #f4f7fb;
   font-size: 13px;
   line-height: 1.6;
-  word-break: break-word;
 }
 
 .room-comment--self .room-comment__text {
   border-radius: 12px 4px 12px 12px;
   color: #ffffff;
-  background: #2563eb;
+  background: #3b82f6;
+  word-break: break-word;
 }
 
 .room-comments__input {

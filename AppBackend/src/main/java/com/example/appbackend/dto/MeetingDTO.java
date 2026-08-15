@@ -174,4 +174,22 @@ public class MeetingDTO {
         private String errorMessage;
         private SessionDetail detail;
     }
+
+    @Data
+    @Schema(description = "发表评论请求")
+    public static class CommentRequest {
+        @NotBlank(message = "评论内容不能为空")
+        @Size(max = 1000, message = "评论内容最多1000字符")
+        private String content;
+    }
+
+    @Data
+    @Schema(description = "评论项")
+    public static class CommentItem {
+        private Long id;
+        private Long senderId;
+        private String senderName;
+        private String content;
+        private LocalDateTime createTime;
+    }
 }

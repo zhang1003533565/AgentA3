@@ -37,8 +37,9 @@ public interface MeetingSessionRepository extends JpaRepository<MeetingSession, 
                                                @Param("proposedEndTime") LocalDateTime proposedEndTime);
 
     @Query("""
-            SELECT session FROM MeetingSession session
-            WHERE session.userId = :userId
+            SELECT DISTINCT session FROM MeetingSession session
+            LEFT JOIN MeetingParticipant p ON p.meetingSessionId = session.id
+            WHERE (session.userId = :userId OR p.userId = :userId)
               AND (
                 :keyword IS NULL
                 OR :keyword = ''
@@ -53,8 +54,8 @@ public interface MeetingSessionRepository extends JpaRepository<MeetingSession, 
 
     /**
      * 主持人或参会人可见的会议查询：
-     * session.userId = :userId（主持人本人）
-     * OR meeting_participant 中存在 meeting_session_id = session.id 且 name = :displayName（已加入的参会人）
+     * session.userId = :userId(主持人本人)
+     * OR meeting_participant 中存在 meeting_session_id = session.id 且 name = :displayName(已加入的参会人)
      */
     @Query("""
             SELECT session FROM MeetingSession session
