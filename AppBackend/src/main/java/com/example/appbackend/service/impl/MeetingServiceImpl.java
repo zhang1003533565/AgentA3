@@ -6,6 +6,7 @@ import com.example.appbackend.dto.MeetingDTO;
 import com.example.appbackend.dto.PageResponse;
 import com.example.appbackend.dto.UserProfileDTO;
 import com.example.appbackend.entity.MeetingAgentResult;
+import com.example.appbackend.entity.MeetingComment;
 import com.example.appbackend.entity.MeetingParticipant;
 import com.example.appbackend.entity.MeetingRecord;
 import com.example.appbackend.entity.MeetingSession;
@@ -15,6 +16,7 @@ import com.example.appbackend.entity.SystemConfigTestLog;
 import com.example.appbackend.entity.User;
 import com.example.appbackend.exception.BusinessException;
 import com.example.appbackend.repository.MeetingAgentResultRepository;
+import com.example.appbackend.repository.MeetingCommentRepository;
 import com.example.appbackend.repository.MeetingParticipantRepository;
 import com.example.appbackend.repository.MeetingRecordRepository;
 import com.example.appbackend.repository.MeetingSessionRepository;
@@ -82,6 +84,7 @@ public class MeetingServiceImpl implements MeetingService {
     private static final DateTimeFormatter PARTICIPANT_TIME_FORMAT = DateTimeFormatter.ofPattern("HH:mm");
 
     private final MeetingSessionRepository sessionRepository;
+    private final MeetingCommentRepository commentRepository;
     private final MeetingParticipantRepository participantRepository;
     private final MeetingRecordRepository recordRepository;
     private final MeetingAgentResultRepository resultRepository;
@@ -92,6 +95,7 @@ public class MeetingServiceImpl implements MeetingService {
     private final UserProfileService userProfileService;
 
     public MeetingServiceImpl(MeetingSessionRepository sessionRepository,
+                              MeetingCommentRepository commentRepository,
                               MeetingParticipantRepository participantRepository,
                               MeetingRecordRepository recordRepository,
                               MeetingAgentResultRepository resultRepository,
@@ -101,6 +105,7 @@ public class MeetingServiceImpl implements MeetingService {
                               LlmService llmService,
                               UserProfileService userProfileService) {
         this.sessionRepository = sessionRepository;
+        this.commentRepository = commentRepository;
         this.participantRepository = participantRepository;
         this.recordRepository = recordRepository;
         this.resultRepository = resultRepository;
@@ -834,6 +839,42 @@ public class MeetingServiceImpl implements MeetingService {
         participant.setSortOrder(participants.size());
         participant.setOnline(true);
         participantRepository.save(participant);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<MeetingDTO.CommentItem> listComments(Long userId, String sessionId) {
+        MeetingSession session = findAccessibleSession(userId, sessionId);
+        return commentRepository.findByMeetingSessionIdOrderByCreateTimeAscIdAsc(session.getId()).stream()
+                .map(this::toCommentItem)
+                .collect(Collectors.toList());
+    }
+
+    @Override
+    @Transactional
+    public MeetingDTO.CommentItem addComment(Long userId, String sessionId, MeetingDTO.CommentRequest request) {
+        MeetingSession session = findAccessibleSession(userId, sessionId);
+        if (!StringUtils.hasText(request.getContent())) {
+            throw new BusinessException(Result.BAD_REQUEST_CODE, "评论内容不能为空");
+        }
+        MeetingComment comment = new MeetingComment();
+        comment.setMeetingSessionId(session.getId());
+        comment.setSenderId(userId);
+        comment.setSenderName(resolveUserDisplayName(userId));
+        comment.setContent(request.getContent().trim());
+        MeetingComment saved = commentRepository.save(comment);
+        refreshCounters(session);
+        return toCommentItem(saved);
+    }
+
+    private MeetingDTO.CommentItem toCommentItem(MeetingComment comment) {
+        MeetingDTO.CommentItem item = new MeetingDTO.CommentItem();
+        item.setId(comment.getId());
+        item.setSenderId(comment.getSenderId());
+        item.setSenderName(comment.getSenderName());
+        item.setContent(comment.getContent());
+        item.setCreateTime(comment.getCreateTime());
+        return item;
     }
 
     private MeetingRecord saveRecord(MeetingSession session, String content, String source) {
