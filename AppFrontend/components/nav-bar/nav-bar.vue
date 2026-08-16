@@ -73,7 +73,7 @@
     </view>
 
     <view
-      v-if="placeholder"
+      v-if="placeholder && fixed"
       class="nav-placeholder"
       :style="{ height: totalHeightPx + 'px' }"
     ></view>

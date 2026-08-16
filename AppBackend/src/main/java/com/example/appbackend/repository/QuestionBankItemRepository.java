@@ -6,4 +6,5 @@ public interface QuestionBankItemRepository extends JpaRepository<QuestionBankIt
     List<QuestionBankItem> findByBankIdOrderByCreateTimeDesc(Long bankId);
     Optional<QuestionBankItem> findByBankIdAndQuestionId(Long bankId,Long questionId);
     void deleteByBankId(Long bankId);
+    void deleteByBankIdAndQuestionId(Long bankId, Long questionId);
 }
