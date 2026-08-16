@@ -137,7 +137,6 @@
       </view>
 
       <view class="wait-ring" :class="{ hidden: !showRing }"><i></i><i></i><b></b></view>
-      <view v-if="!isCompleted" class="skip-btn" @tap="skipAnimation">跳过动画 →</view>
     </view>
 
     <!-- 步骤点 -->
@@ -717,4 +716,28 @@ onUnload(() => { clearTimers() })
 .error-btn { flex: 1; padding: 26rpx; border-radius: 24rpx; display: flex; align-items: center; justify-content: center; font-size: 28rpx; font-weight: 600; }
 .error-btn--sec { background: #fff; color: #1e344f; border: 2rpx solid #e2e8ef; }
 .error-btn--pri { background: #4D6BFE; color: #fff; }
+.page { background: #F6F7FB; }
+.canvas-area { background: #F6F7FB; }
+.header { background: linear-gradient(180deg, #DFF0FF 0%, #EAF5FF 100%); padding: 0 28rpx; min-height: 108rpx; box-sizing: content-box; }
+.header { position: relative; }
+.header-center { position: absolute; left: 0; right: 0; top: 20rpx; pointer-events: none; }
+.header-back { left: 28rpx; top: 22rpx; width: 64rpx; height: 64rpx; }
+.header-back-icon { font-size: 0; width: 20rpx; height: 20rpx; border-left: 4rpx solid #1D4F7A; border-bottom: 4rpx solid #1D4F7A; transform: rotate(45deg); border-radius: 2rpx; }
+.header-title-text { color: #17466F; }
+.header-subtitle-text { color: #6F8DA8; }
+.done-btns { gap: 20rpx; padding: 0 24rpx 32rpx; }
+.done-btn { padding: 26rpx; border-radius: 24rpx; font-size: 28rpx; font-weight: 600; }
+.done-btn--sec { background: #FFFFFF; color: #1A1A2E; border: 2rpx solid #D9E2EE; }
+.done-btn--pri { background: #123E6D; color: #FFFFFF; box-shadow: 0 8rpx 20rpx rgba(18, 62, 109, 0.18); }
+.wait-ring b { background: #123E6D; }
+.wait-ring i { border-color: rgba(18, 62, 109, 0.38); }
+.bottom-step-dot--done, .bottom-step-dot--active, .status-float-dot { background: #123E6D; }
+.status-float-inner { border: 1rpx solid #E6E8F1; border-radius: 22rpx; box-shadow: 0 10rpx 28rpx rgba(20, 28, 48, 0.06); }
+.status-float-label, .status-float-pct { color: #123E6D; }
+.status-float-bar { background: #EEF4FC; }
+.status-float-bar-fill { background: #123E6D; }
+.done-btns { gap: 20rpx; padding: 0 24rpx 32rpx; background: #FFFFFF; }
+.done-btn { height: 88rpx; padding: 0 26rpx; border-radius: 24rpx; box-sizing: border-box; font-size: 28rpx; font-weight: 600; }
+.done-btn--sec { background: #FFFFFF; color: #1A1A2E; border: 2rpx solid #D9E2EE; }
+.done-btn--pri { background: #294574; color: #FFFFFF; border: 0; box-shadow: 0 8rpx 20rpx rgba(18, 62, 109, 0.18); }
 </style>

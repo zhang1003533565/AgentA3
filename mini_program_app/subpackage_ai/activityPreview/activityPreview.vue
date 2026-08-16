@@ -1,8 +1,14 @@
 <template>
   <view class="page">
+    <nav-bar title="活动图结果" :showBack="true" :border="false" :fixed="true" :placeholder="true" titleAlign="center" />
     <!-- 顶部工具栏 -->
-    <view class="top-bar">
-      <view class="top-action" @tap="goTutorial">
+                 <view class="top-bar" style="background: linear-gradient(180deg, #dff0ff 0%, #eaf5ff 100%) !important; border-bottom: 0 !important;">
+                   <view class="top-back" @tap="goBack" aria-label="返回上一页">
+                     <view class="top-back-icon"></view>
+                     <text class="top-back-text">返回</text>
+                   </view>
+                   <text class="top-title">活动图结果</text>
+                   <view class="top-action" @tap="goTutorial">
         <text class="top-action-icon">📖</text>
         <text class="top-action-text">使用教程</text>
       </view>
@@ -26,11 +32,11 @@
           <text class="desc-text">{{ aiDescription }}</text>
         </view>
         <view class="desc-actions">
-          <view class="desc-action-btn" @tap="copyDesc">
+          <view class="desc-action-btn" @tap="copyDescriptionReal">
             <text class="desc-action-icon">📋</text>
             <text class="desc-action-text">复制</text>
           </view>
-          <view class="desc-action-btn" @tap="editDesc">
+          <view class="desc-action-btn" @tap="editDescriptionReal">
             <text class="desc-action-icon">✏️</text>
             <text class="desc-action-text">编辑</text>
           </view>
@@ -44,7 +50,7 @@
           <text class="preview-regenerate" @tap="regenerate">效果不满意？重新生成</text>
         </view>
 
-        <view class="diagram-container">
+        <view class="diagram-container" :style="diagramStyle">
           <!-- 泳道表头 -->
           <view class="swimlane-header">
             <view class="lane-header" style="background: #B8D4F8;">
@@ -138,28 +144,28 @@
 
     <!-- 底部工具栏 -->
     <view class="bottom-bar">
-      <view class="bottom-tool" @tap="zoomIn">
+      <view class="bottom-tool" @tap="zoomInReal">
         <text class="bottom-tool-icon">🔍</text>
         <text class="bottom-tool-text">放大</text>
       </view>
-      <view class="bottom-tool" @tap="zoomOut">
+      <view class="bottom-tool" @tap="zoomOutReal">
         <text class="bottom-tool-icon"></text>
         <text class="bottom-tool-text">缩小</text>
       </view>
-      <view class="bottom-tool" @tap="fitWidth">
+      <view class="bottom-tool" @tap="fitWidthReal">
         <text class="bottom-tool-icon">⬌</text>
         <text class="bottom-tool-text">适应宽度</text>
       </view>
-      <view class="bottom-tool" @tap="fullscreen">
+      <view class="bottom-tool" @tap="fullscreenReal">
         <text class="bottom-tool-icon">⛶</text>
         <text class="bottom-tool-text">全屏</text>
       </view>
       <view class="bottom-divider"></view>
-      <view class="bottom-download" @tap="downloadImage">
+      <view class="bottom-download" @tap="downloadImageReal">
         <text class="bottom-download-icon">⬇</text>
         <text class="bottom-download-text">下载图片</text>
       </view>
-      <view class="bottom-copy" @tap="copyImage">
+      <view class="bottom-copy" @tap="copyImageReal">
         <text class="bottom-copy-icon">📋</text>
         <text class="bottom-copy-text">复制图片</text>
       </view>
@@ -168,11 +174,17 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
+import { onLoad } from '@dcloudio/uni-app'
+import NavBar from '@/components/nav-bar/nav-bar.vue'
+// #ifdef H5
+import { domToPng } from '../components/domToPng.js'
+// #endif
 
 const aiDescription = ref('创建一个清晰的活动图（泳道图），展示用户注册流程。包含三个泳道：用户、系统、邮件服务。流程从用户进入注册页面开始，依次包括填写注册信息、系统验证信息、判断验证结果（通过/不通过）。验证通过则创建用户账号、发送验证邮件，用户点击邮件链接完成验证，最终注册成功。使用现代风格，圆角矩形表示活动，菱形表示判断节点，箭头表示状态流流向，配色以蓝色和绿色为主，界面清晰易读。')
 
-const goTutorial = () => { uni.showToast({ title: '使用教程', icon: 'none' }) }
+             const goBack = () => { uni.navigateBack({ delta: 1 }) }
+             const goTutorial = () => { uni.showToast({ title: '使用教程', icon: 'none' }) }
 const goHistory = () => { uni.showToast({ title: '历史记录', icon: 'none' }) }
 const copyDesc = () => { uni.showToast({ title: '已复制', icon: 'success' }) }
 const editDesc = () => { uni.showToast({ title: '编辑描述词', icon: 'none' }) }
@@ -183,6 +195,33 @@ const fitWidth = () => { uni.showToast({ title: '适应宽度', icon: 'none' }) 
 const fullscreen = () => { uni.showToast({ title: '全屏', icon: 'none' }) }
 const downloadImage = () => { uni.showToast({ title: '下载图片', icon: 'none' }) }
 const copyImage = () => { uni.showToast({ title: '复制图片', icon: 'none' }) }
+const scale = ref(1)
+const diagramStyle = computed(() => ({ transform: `scale(${scale.value})`, transformOrigin: 'top center' }))
+const copyDescriptionReal = () => uni.setClipboardData({ data: aiDescription.value })
+const editDescriptionReal = () => uni.showModal({ title: '编辑描述词', editable: true, content: aiDescription.value, success: r => { if (r.confirm && r.content) aiDescription.value = r.content } })
+const regenerateReal = () => uni.navigateBack({ delta: 1 })
+const zoomInReal = () => { scale.value = Math.min(1.8, +(scale.value + 0.1).toFixed(2)) }
+const zoomOutReal = () => { scale.value = Math.max(0.6, +(scale.value - 0.1).toFixed(2)) }
+const fitWidthReal = () => { scale.value = 1 }
+const fullscreenReal = () => {
+  // #ifdef H5
+  const el = document.querySelector('.diagram-container')
+  if (document.fullscreenElement) {
+    document.exitFullscreen?.()
+  } else if (el?.requestFullscreen) {
+    el.requestFullscreen()
+  } else {
+    uni.showToast({ title: '当前环境不支持全屏', icon: 'none' })
+  }
+  // #endif
+}
+const downloadImageReal = () => {
+  // #ifdef H5
+  uni.showLoading({ title: '导出中' })
+  domToPng('.diagram-container', { title: '活动图结果', filename: '活动图结果' }).finally(() => uni.hideLoading())
+  // #endif
+}
+const copyImageReal = () => uni.showToast({ title: '请使用下载图片保存结果', icon: 'none' })
 </script>
 
 <style lang="scss" scoped>
@@ -195,19 +234,65 @@ const copyImage = () => { uni.showToast({ title: '复制图片', icon: 'none' })
 
 /* 顶部工具栏 */
 .top-bar {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: flex-end;
   gap: 24rpx;
-  padding: 20rpx 24rpx;
-  background: #FFF;
-  border-bottom: 1rpx solid #F0F0F0;
+  height: 128rpx;
+  padding: 40rpx 28rpx 0;
+  box-sizing: border-box;
+  background: linear-gradient(180deg, #dff0ff 0%, #eaf5ff 100%);
+  border-bottom: 0;
+}
+
+.top-back {
+  position: absolute;
+  left: 24rpx;
+  top: calc(50% + 20rpx);
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  gap: 4rpx;
+  width: 64rpx;
+  height: 64rpx;
+  padding: 0;
+  border-radius: 999rpx;
+  color: #1D1D1F;
+  background: transparent;
+  z-index: 2;
+}
+
+.top-back-icon {
+  position: relative;
+  width: 20rpx;
+  height: 20rpx;
+  border-left: 4rpx solid #1D1D1F;
+  border-bottom: 4rpx solid #1D1D1F;
+  transform: rotate(45deg);
+}
+
+.top-back-text {
+  display: none;
+}
+
+.top-title {
+  position: absolute;
+  left: 112rpx;
+  right: 112rpx;
+  top: calc(50% + 20rpx);
+  transform: translateY(-50%);
+  text-align: center;
+  color: #1D1D1F;
+  font-size: 32rpx;
+  font-weight: 700;
 }
 
 .top-action {
-  display: flex;
+  display: none;
   align-items: center;
   gap: 8rpx;
+  color: #1D1D1F;
 }
 
 .top-action-icon {
@@ -216,7 +301,7 @@ const copyImage = () => { uni.showToast({ title: '复制图片', icon: 'none' })
 
 .top-action-text {
   font-size: 26rpx;
-  color: #555;
+  color: #FFFFFF;
 }
 
 .content {
@@ -546,4 +631,88 @@ const copyImage = () => { uni.showToast({ title: '复制图片', icon: 'none' })
   font-size: 24rpx;
   color: #555;
 }
+.page { background: #F6F7FB; color: #172033; }
+.content { padding: 20rpx 24rpx 40rpx; }
+.desc-section, .preview-section { border: 1rpx solid #E6E8F1; border-radius: 22rpx; box-shadow: 0 10rpx 28rpx rgba(20, 28, 48, 0.045); }
+.desc-content, .diagram-container { border-color: #DBE1ED; background: #F7FAFE; }
+.desc-badge { background: #EEF4FC; color: #123E6D; }
+.desc-action-text, .preview-regenerate { color: #123E6D; }
+.bottom-bar { border-top-color: #E6E8F1; background: #FFFFFF; }
+.bottom-tool, .bottom-copy { border-color: #DBE1ED; }
+.bottom-download { background: #123E6D; }
+
+/* 结果页顶部与其他图表页面统一 */
+.top-bar {
+  height: 112rpx;
+  min-height: 112rpx;
+  padding: 0 28rpx;
+  box-sizing: border-box;
+  background: #EAF3FD !important;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+}
+
+.top-back {
+  position: absolute;
+  left: 28rpx;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 48rpx;
+  height: 48rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.top-back-text { display: none; }
+.top-back-icon { width: 22rpx; height: 22rpx; border-left: 4rpx solid #203452; border-bottom: 4rpx solid #203452; transform: rotate(45deg); }
+.top-title { color: #172033; font-size: 36rpx; line-height: 1.2; font-weight: 800; }
+.top-action { display: none; }
+
+/* 描述区采用明确的标题—提示—正文层级 */
+.content { padding: 24rpx 24rpx 48rpx; }
+.desc-section, .preview-section { padding: 28rpx; margin-bottom: 24rpx; background: #FFFFFF; }
+.desc-header { display: block; }
+.desc-title-wrapper { display: flex; align-items: center; gap: 16rpx; }
+.desc-title { color: #172033; font-size: 32rpx; line-height: 1.35; font-weight: 800; }
+.desc-badge { padding: 8rpx 14rpx; border-radius: 10rpx; font-size: 22rpx; font-weight: 700; }
+.desc-hint { display: block; margin-top: 12rpx; color: #7C879A; font-size: 24rpx; line-height: 1.5; }
+.desc-content { margin-top: 22rpx; padding: 24rpx; border-radius: 16rpx; }
+.desc-text { color: #40516A; font-size: 25rpx; line-height: 1.9; }
+.desc-actions { justify-content: flex-end; gap: 28rpx; margin-top: 18rpx; }
+.desc-action-btn { padding: 8rpx 4rpx; }
+.desc-action-icon { font-size: 22rpx; }
+.desc-action-text { font-size: 24rpx; font-weight: 600; }
+
+/* 预览区标题和画布分层，画布保持统一浅底 */
+.preview-header { display: flex; align-items: center; justify-content: space-between; gap: 18rpx; margin-bottom: 20rpx; }
+.preview-title { color: #172033; font-size: 30rpx; font-weight: 800; }
+.preview-regenerate { flex-shrink: 0; font-size: 22rpx; }
+.diagram-container { border-radius: 16rpx; overflow: hidden; }
+.lane-header-text { font-size: 26rpx; font-weight: 700; }
+.node-text { color: #25344D; font-size: 22rpx; }
+
+/* 底部工具栏收敛尺寸，突出下载操作 */
+.bottom-bar { padding: 12rpx 20rpx calc(14rpx + env(safe-area-inset-bottom)); gap: 8rpx; }
+.bottom-tool, .bottom-copy { min-height: 64rpx; padding: 8rpx 12rpx; border-radius: 12rpx; }
+.bottom-tool-text, .bottom-copy-text, .bottom-download-text { font-size: 22rpx; }
+.bottom-download { min-height: 64rpx; padding: 8rpx 18rpx; border-radius: 12rpx; }
+
+/* 强制覆盖旧版结果页样式，确保实际页面呈现统一布局 */
+.activity-preview-page .top-bar,
+.page .top-bar { height: 112rpx !important; min-height: 112rpx !important; padding: 0 28rpx !important; justify-content: center !important; background: #EAF3FD !important; }
+.page .top-back { left: 28rpx !important; top: 50% !important; width: 48rpx !important; height: 48rpx !important; transform: translateY(-50%) !important; }
+.page .top-back-icon { width: 16rpx !important; height: 16rpx !important; border-width: 3rpx !important; flex: 0 0 16rpx !important; }
+.page .top-back-text, .page .top-action { display: none !important; }
+.page > .top-bar { display: none !important; }
+.page .top-title { font-size: 36rpx !important; font-weight: 800 !important; color: #172033 !important; }
+.page .desc-header { display: block !important; }
+.page .desc-title-wrapper { display: flex !important; align-items: center !important; flex-wrap: nowrap !important; }
+.page .desc-hint { display: block !important; width: 100% !important; margin-top: 12rpx !important; }
+.page .preview-header { display: flex !important; align-items: center !important; justify-content: space-between !important; }
+.page .bottom-bar { min-height: 92rpx !important; padding: 12rpx 20rpx !important; }
+.page .bottom-tool, .page .bottom-copy, .page .bottom-download { min-height: 64rpx !important; padding: 8rpx 12rpx !important; }
+.page .bottom-tool-text, .page .bottom-copy-text, .page .bottom-download-text { font-size: 22rpx !important; line-height: 1.2 !important; }
 </style>
