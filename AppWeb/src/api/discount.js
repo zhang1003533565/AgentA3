@@ -53,8 +53,8 @@ export const getMerchantDiscountActivities = (merchantId, params = {}) =>
     },
   })
 
-export const offlineDiscountActivity = (id) =>
+export const endDiscountActivityEarly = (id) =>
   request({
-    url: `/api/discount/activity/${id}/offline`,
+    url: `/api/discount/activity/${id}/end-early`,
     method: 'put',
   })

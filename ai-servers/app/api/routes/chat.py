@@ -1,16 +1,23 @@
 import asyncio
 from typing import Optional
 
-from fastapi import APIRouter, Header, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException
 from fastapi.responses import StreamingResponse
 
 from app.models.schemas import ChatRequest, ChatResponse
 from app.model_providers.runtime_config import build_llm_runtime_config, reset_active_llm_config, set_active_llm_config
+from app.multi_agents.runtime import stream_agent
+from app.observability.langfuse import observe_request, settings_from_headers, use_settings
 from app.services.chat_orchestrator import resolve_user_id, run_chat_core
+from app.security.internal_auth import require_internal_token
 from app.utils.logger import get_logger, mask_id
 from app.utils.sse import build_sse, chunk_answer
 
-router = APIRouter(prefix="/internal", tags=["internal-chat"])
+router = APIRouter(
+    prefix="/internal",
+    tags=["internal-chat"],
+    dependencies=[Depends(require_internal_token)],
+)
 logger = get_logger("api.chat")
 
 
@@ -23,6 +30,10 @@ def internal_chat(
     x_ai_base_url: Optional[str] = Header(default=None, alias="X-AI-Base-Url"),
     x_ai_api_key: Optional[str] = Header(default=None, alias="X-AI-Api-Key"),
     x_ai_model: Optional[str] = Header(default=None, alias="X-AI-Model"),
+    x_langfuse_enabled: Optional[str] = Header(default=None, alias="X-Langfuse-Enabled"),
+    x_langfuse_base_url: Optional[str] = Header(default=None, alias="X-Langfuse-Base-Url"),
+    x_langfuse_public_key: Optional[str] = Header(default=None, alias="X-Langfuse-Public-Key"),
+    x_langfuse_secret_key: Optional[str] = Header(default=None, alias="X-Langfuse-Secret-Key"),
 ) -> ChatResponse:
     if not authorization:
         raise HTTPException(status_code=401, detail="未登录或Token无效")
@@ -40,7 +51,14 @@ def internal_chat(
         model=x_ai_model,
     ))
     try:
-        return run_chat_core(request, authorization, user_id)
+        with use_settings(settings_from_headers(x_langfuse_enabled, x_langfuse_base_url, x_langfuse_public_key, x_langfuse_secret_key)):
+            with observe_request(
+                "internal.chat",
+                session_id=request.sessionId,
+                user_id=user_id,
+                metadata={"agentName": request.agentName or "leader_agent", "streaming": False},
+            ):
+                return run_chat_core(request, authorization, user_id)
     finally:
         reset_active_llm_config(token)
 
@@ -54,6 +72,10 @@ async def internal_chat_stream(
     x_ai_base_url: Optional[str] = Header(default=None, alias="X-AI-Base-Url"),
     x_ai_api_key: Optional[str] = Header(default=None, alias="X-AI-Api-Key"),
     x_ai_model: Optional[str] = Header(default=None, alias="X-AI-Model"),
+    x_langfuse_enabled: Optional[str] = Header(default=None, alias="X-Langfuse-Enabled"),
+    x_langfuse_base_url: Optional[str] = Header(default=None, alias="X-Langfuse-Base-Url"),
+    x_langfuse_public_key: Optional[str] = Header(default=None, alias="X-Langfuse-Public-Key"),
+    x_langfuse_secret_key: Optional[str] = Header(default=None, alias="X-Langfuse-Secret-Key"),
 ):
     if not authorization:
         raise HTTPException(status_code=401, detail="未登录或Token无效")
@@ -77,9 +99,49 @@ async def internal_chat_stream(
         # Immediately confirm stream is alive to reduce "no response" perception.
         logger.info("stream emit status session_id=%s", mask_id(request.sessionId))
         yield build_sse("status", {"stage": "processing"})
+        settings_scope = use_settings(settings_from_headers(x_langfuse_enabled, x_langfuse_base_url, x_langfuse_public_key, x_langfuse_secret_key))
+        settings_scope.__enter__()
+        observation_scope = observe_request(
+            "internal.chat",
+            session_id=request.sessionId,
+            user_id=user_id,
+            metadata={"agentName": request.agentName or "leader_agent", "streaming": True},
+        )
+        observation_scope.__enter__()
         try:
             token = set_active_llm_config(llm_config)
             try:
+                if request.agentName == "meeting_summary_agent":
+                    session_id = request.sessionId or ""
+                    answer_parts = []
+                    yield build_sse("session", {
+                        "sessionId": session_id,
+                        "sessionToken": "",
+                        "model": llm_config.model,
+                        "agentName": request.agentName,
+                        "answerType": "markdown",
+                    })
+                    yield build_sse("search", {
+                        "searchKeyword": "",
+                        "matchedResults": [],
+                        "retrievalMeta": {"streamingDirect": True},
+                    })
+                    for chunk in stream_agent(request.agentName, request.input, []):
+                        answer_parts.append(chunk)
+                        yield build_sse("delta", {"content": chunk})
+                        await asyncio.sleep(0)
+                    answer = "".join(answer_parts).strip()
+                    yield build_sse("done", {
+                        "answer": answer,
+                        "answerType": "markdown",
+                        "ragStrategy": "direct_agent",
+                        "agentName": request.agentName,
+                        "searchKeyword": "",
+                        "matchedResults": [],
+                        "retrievalMeta": {"streamingDirect": True},
+                        "trace": [{"stage": "answer", "detail": {"agent": request.agentName, "answerLength": len(answer)}}],
+                    })
+                    return
                 response = await asyncio.to_thread(run_chat_core, request, authorization, user_id)
             finally:
                 reset_active_llm_config(token)
@@ -119,5 +181,8 @@ async def internal_chat_stream(
         except Exception as exc:
             logger.exception("stream failed session_id=%s", mask_id(request.sessionId))
             yield build_sse("error", {"message": str(exc)})
+        finally:
+            observation_scope.__exit__(None, None, None)
+            settings_scope.__exit__(None, None, None)
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")

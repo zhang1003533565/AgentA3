@@ -12,6 +12,8 @@ public interface CourseScheduleRepository extends JpaRepository<CourseSchedule, 
 
     List<CourseSchedule> findByUserId(Long userId);
 
+    List<CourseSchedule> findByUserIdAndAcademicYearAndSemesterTerm(Long userId, String academicYear, Integer semesterTerm);
+
     List<CourseSchedule> findByStudentId(String studentId);
 
     @Modifying
@@ -19,8 +21,14 @@ public interface CourseScheduleRepository extends JpaRepository<CourseSchedule, 
     void deleteByUserId(@Param("userId") Long userId);
 
     @Modifying
+    @Query("DELETE FROM CourseSchedule cs WHERE cs.userId = :userId AND cs.academicYear = :academicYear AND cs.semesterTerm = :semesterTerm")
+    void deleteByUserIdAndSemester(@Param("userId") Long userId, @Param("academicYear") String academicYear, @Param("semesterTerm") Integer semesterTerm);
+
+    @Modifying
     @Query("DELETE FROM CourseSchedule cs WHERE cs.studentId = :studentId")
     void deleteByStudentId(@Param("studentId") String studentId);
 
     long countByUserId(Long userId);
+
+    long countByUserIdAndAcademicYearAndSemesterTerm(Long userId, String academicYear, Integer semesterTerm);
 }

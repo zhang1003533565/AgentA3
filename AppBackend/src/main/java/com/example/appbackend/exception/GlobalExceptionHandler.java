@@ -33,9 +33,13 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(MaxUploadSizeExceededException.class)
     public Result<?> handleMaxUploadSizeExceededException(MaxUploadSizeExceededException e, HttpServletResponse response) {
+        long maxSize = e.getMaxUploadSize();
+        String hint = maxSize > 0
+                ? String.format("上传文件大小超出限制（单文件最大 %dMB，单次请求最大 500MB），请压缩后重试或分批上传", maxSize / (1024 * 1024))
+                : "上传文件大小超出限制，请压缩后重试或分批上传";
         log.warn("上传文件超限: {}", e.getMessage());
         response.setStatus(HttpServletResponse.SC_REQUEST_ENTITY_TOO_LARGE);
-        return Result.error(HttpServletResponse.SC_REQUEST_ENTITY_TOO_LARGE, "图片超过 5MB");
+        return Result.error(HttpServletResponse.SC_REQUEST_ENTITY_TOO_LARGE, hint);
     }
 
     @ExceptionHandler(RuntimeException.class)
@@ -48,7 +52,7 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(IllegalArgumentException.class)
     public Result<?> handleIllegalArgumentException(IllegalArgumentException e, HttpServletResponse response) {
         response.setStatus(Result.BAD_REQUEST_CODE);
-        return Result.error(e.getMessage());
+        return Result.error(Result.BAD_REQUEST_CODE, e.getMessage());
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)

@@ -1,36 +1,306 @@
-.post-manage-container {
+/* ===== 帖子管理 ===== */
+.pm-container {
+  min-height: calc(100vh - 64px);
   padding: 24px;
-  background: #f0f2f5;
+  position: relative;
+  overflow: hidden;
 }
 
-.manage-main {
-  max-width: 1400px;
-  margin: 0 auto;
-}
-
-.search-bar {
+/* 顶部统计区（白色矩形） */
+.pm-header {
+  position: relative;
+  z-index: 1;
   display: flex;
-  justify-content: space-between;
+  justify-content: flex-end;
   align-items: center;
   margin-bottom: 16px;
-  padding: 16px 24px;
+  padding: 18px 24px;
   background: #fff;
-  border-radius: 4px;
+  border-radius: 16px;
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 2px 10px rgba(15, 23, 42, 0.06);
 }
 
-.post-detail {
-  margin-top: 16px;
+.pm-header-stats {
+  display: flex;
+  align-items: center;
+  gap: 28px;
 }
 
-.post-detail p {
-  margin-bottom: 8px;
-  line-height: 1.8;
+.pm-header-stat {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  line-height: 1.2;
 }
 
-.post-content {
-  padding: 12px;
-  background: #f5f5f5;
-  border-radius: 4px;
+.pm-header-stat + .pm-header-stat {
+  padding-left: 28px;
+  border-left: 1px solid #eef2f7;
+}
+
+.pm-header-stat-value {
+  font-size: 24px;
+  font-weight: 700;
+  color: #1e293b;
+}
+
+.pm-header-stat-label {
+  font-size: 12px;
+  color: #64748b;
+  margin-top: 2px;
+}
+
+.pm-header-stat-blue .pm-header-stat-value { color: #1677ff; }
+.pm-header-stat-green .pm-header-stat-value { color: #52c41a; }
+.pm-header-stat-orange .pm-header-stat-value { color: #fa8c16; }
+
+/* 搜索卡片 */
+.pm-search-card {
+  position: relative;
+  z-index: 1;
+  margin-bottom: 12px;
+  border-radius: 12px;
+  padding: 16px;
+  border: 1px solid #e2e8f0;
+  background: #f8fafc;
+}
+
+.pm-search-card :global(.ant-form-inline) {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
+.pm-search-card :global(.ant-form-item) {
+  margin-bottom: 0;
+  margin-right: 0;
+}
+
+/* 批量操作栏 */
+.pm-batch-bar {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 18px;
+  margin-bottom: 12px;
+  background: linear-gradient(90deg, rgba(245, 34, 45, 0.12), rgba(245, 34, 45, 0.04));
+  border: 1px solid rgba(245, 34, 45, 0.25);
+  border-radius: 10px;
+}
+
+.pm-batch-count {
+  font-size: 14px;
+  color: #fca5a5;
+}
+
+.pm-batch-count strong {
+  color: #f87171;
+  font-size: 16px;
+}
+
+/* 表格卡片 */
+.pm-table-card {
+  position: relative;
+  z-index: 1;
+  border-radius: 12px !important;
+  border: 1px solid #e2e8f0 !important;
+  box-shadow: none !important;
+  overflow: hidden;
+}
+
+.pm-table-card :global(.ant-table-wrapper) {
+  background: transparent;
+}
+
+.pm-table-card :global(.ant-table) {
+  background: #fff;
+  color: #334155;
+}
+
+.pm-table-card :global(.ant-table-thead > tr > th) {
+  background: #f8fafc !important;
+  color: #475569 !important;
+  font-weight: 600;
+  border-bottom: 1px solid #e2e8f0 !important;
+}
+
+.pm-table-card :global(.ant-table-tbody > tr) {
+  background: #fff;
+  transition: background 0.15s ease;
+}
+
+.pm-table-card :global(.ant-table-tbody > tr:hover) {
+  background: #f8fafc !important;
+}
+
+.pm-table-card :global(.ant-table-tbody > tr.pm-row-pin) {
+  background: rgba(250, 173, 20, 0.06) !important;
+}
+
+.pm-table-card :global(.ant-table-tbody > tr > td) {
+  border-bottom: 1px solid #eef2f7 !important;
+  color: #334155;
+}
+
+/* 行悬停完整信息浮层 */
+.pm-row-pop {
+  min-width: 320px;
+  max-width: 420px;
+}
+
+.pm-row-pop-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: #1e293b;
+  margin-bottom: 10px;
+  word-break: break-word;
+}
+
+.pm-row-pop-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+  color: #334155;
+}
+
+.pm-row-pop-meta .pm-row-pop-label {
+  display: inline-block;
+  min-width: 96px;
+  color: #64748b;
+  font-weight: 500;
+}
+
+.pm-row-pop-content {
+  margin-top: 10px;
+  padding: 10px 12px;
+  background: #f8fafc;
+  border-radius: 8px;
+  max-height: 200px;
+  overflow-y: auto;
+  font-size: 13px;
+  color: #475569;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.pm-table-card :global(.ant-pagination) {
+  background: #fff;
+}
+
+.pm-table-card :global(.ant-pagination-item) {
+  border-color: #e2e8f0;
+  background: #fff;
+}
+
+.pm-table-card :global(.ant-pagination-item a) {
+  color: #94a3b8;
+}
+
+.pm-table-card :global(.ant-pagination-item-active) {
+  background: #3b82f6 !important;
+  border-color: #3b82f6 !important;
+}
+
+.pm-table-card :global(.ant-pagination-item-active a) {
+  color: #fff !important;
+}
+
+.pm-table-card :global(.ant-pagination-prev .ant-pagination-item-link),
+.pm-table-card :global(.ant-pagination-next .ant-pagination-item-link) {
+  background: #fff;
+  border-color: #e2e8f0;
+  color: #64748b;
+}
+
+/* 详情抽屉 */
+.pm-drawer {
+  padding: 4px;
+}
+
+.pm-drawer-section {
+  margin-bottom: 14px;
+}
+
+.pm-drawer-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: #1e293b;
+  margin: 0 0 8px;
+  line-height: 1.4;
+  word-break: break-word;
+}
+
+.pm-drawer-tags {
+  margin-top: 6px;
+}
+
+.pm-drawer-info {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.pm-info-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 12px;
+  background: #f8fafc;
+  border: 1px solid #eef2f7;
+  border-radius: 8px;
+}
+
+.pm-info-row .pm-info-label {
+  color: #94a3b8;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.pm-info-row span:last-child {
+  color: #1e293b;
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.pm-drawer-content h4 {
+  font-size: 14px;
+  color: #334155;
+  margin: 0 0 8px;
+}
+
+.pm-content-box {
+  padding: 14px 16px;
+  background: #f8fafc;
+  border-radius: 10px;
   line-height: 1.8;
   white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 400px;
+  overflow-y: auto;
+  font-size: 14px;
+  color: #334155;
+}
+
+/* 响应式 */
+@media (max-width: 768px) {
+  .pm-header {
+    flex-direction: column;
+    gap: 12px;
+  }
+  .pm-header-stats {
+    width: 100%;
+    justify-content: flex-start;
+    flex-wrap: wrap;
+    gap: 16px;
+  }
+  .pm-header-stat + .pm-header-stat {
+    padding-left: 16px;
+  }
 }

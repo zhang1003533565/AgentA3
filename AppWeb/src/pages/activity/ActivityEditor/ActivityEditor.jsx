@@ -1,52 +1,27 @@
-﻿import { useEffect, useState } from 'react'
+﻿import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { Button, Form, Input, InputNumber, Select, Space, Switch, Upload, message } from 'antd'
-import { MinusCircleOutlined, PlusOutlined, UploadOutlined } from '@ant-design/icons'
+import { Button, Form, Input, InputNumber, Select, Space, Upload, message } from 'antd'
+import { UploadOutlined } from '@ant-design/icons'
 import { createActivity, getActivityDetail, updateActivity } from '../../../api/activity'
 import { getUploadUrl } from '../../../api/upload'
 import { getCategoryList } from '../../../api/category'
 import '../ActivityManage/ActivityManage.css'
-import { parseImageList, toBackendDateTime, toDateTimeInput } from '../activityHelpers'
+import { toBackendDateTime, toDateTimeInput } from '../activityHelpers'
 
 const { TextArea } = Input
 const MAX_UPLOAD_BYTES = 4.5 * 1024 * 1024
 const MAX_IMAGE_EDGE = 1600
-const DEFAULT_CREDIT_RULES = [
-  { role: '主持人', score: 1.5 },
-  { role: '工作人员', score: 1.0 },
-  { role: '参赛人', score: 1.0 },
-  { role: '观众', score: 0.2 },
-]
 
 const parseUploadResponse = (response) => {
   if (!response) return null
   if (typeof response === 'string') {
     try {
       return JSON.parse(response)
-    } catch (error) {
+    } catch {
       return null
     }
   }
   return response
-}
-
-const normalizeCreditRules = (record) => {
-  let source = record?.creditConfig || record?.creditRules || []
-  if (typeof source === 'string') {
-    try {
-      source = JSON.parse(source)
-    } catch (error) {
-      source = []
-    }
-  }
-  if (!Array.isArray(source)) source = []
-  const normalized = source
-    .map((item) => ({
-      role: String(item?.role || '').trim(),
-      score: Number(item?.score),
-    }))
-    .filter((item) => item.role && Number.isFinite(item.score))
-  return normalized.length ? normalized : DEFAULT_CREDIT_RULES
 }
 
 const readFileAsDataUrl = (file) =>
@@ -147,9 +122,8 @@ function ActivityEditor() {
   const [loading, setLoading] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [uploading, setUploading] = useState(false)
-  const [imageUploading, setImageUploading] = useState(false)
-  const [galleryImages, setGalleryImages] = useState([])
   const coverImageValue = Form.useWatch('coverImage', form)
+  const originalRef = useRef(null)
 
   useEffect(() => {
     const run = async () => {
@@ -160,36 +134,19 @@ function ActivityEditor() {
         if (isEdit) {
           const detailRes = await getActivityDetail(id)
           const record = detailRes?.data
+          originalRef.current = record
           form.setFieldsValue({
             title: record?.title,
+            organizerName: record?.organizerName,
             categoryId: record?.categoryId,
             coverImage: record?.coverImage,
-            images: parseImageList(record?.images),
             location: record?.location,
             maxPeople: record?.maxPeople,
             content: record?.content,
-            contactName: record?.contactName,
-            contactPhone: record?.contactPhone,
-            requiresAudit: Boolean(record?.requiresAudit),
-            cancelRequiresAudit: Boolean(record?.cancelRequiresAudit),
-            score: record?.score,
-            creditRules: normalizeCreditRules(record),
             startTime: toDateTimeInput(record?.startTime),
             endTime: toDateTimeInput(record?.endTime),
-            signupStartTime: toDateTimeInput(record?.signupStartTime),
             signupEndTime: toDateTimeInput(record?.signupEndTime),
-            signInStartTime: toDateTimeInput(record?.signInStartTime),
-            signInEndTime: toDateTimeInput(record?.signInEndTime),
           })
-          setGalleryImages(parseImageList(record?.images))
-        } else {
-          form.setFieldsValue({
-            requiresAudit: true,
-            cancelRequiresAudit: false,
-            score: 0.2,
-            creditRules: DEFAULT_CREDIT_RULES,
-          })
-          setGalleryImages([])
         }
       } finally {
         setLoading(false)
@@ -203,32 +160,31 @@ function ActivityEditor() {
     try {
       const values = await form.validateFields()
       setSubmitting(true)
-      const creditRules = (values.creditRules || [])
-        .map((item) => ({
-          role: String(item?.role || '').trim(),
-          score: Number(item?.score),
-        }))
-        .filter((item) => item.role && Number.isFinite(item.score))
       const payload = {
         title: values.title,
+        organizerName: values.organizerName,
         categoryId: values.categoryId,
         coverImage: values.coverImage,
-        images: JSON.stringify(galleryImages),
         location: values.location,
         maxPeople: values.maxPeople,
         content: values.content,
-        contactName: values.contactName,
-        contactPhone: values.contactPhone,
-        requiresAudit: Boolean(values.requiresAudit),
-        cancelRequiresAudit: Boolean(values.cancelRequiresAudit),
-        score: Number(values.score),
-        creditConfig: JSON.stringify(creditRules),
         startTime: toBackendDateTime(values.startTime),
         endTime: toBackendDateTime(values.endTime),
-        signupStartTime: toBackendDateTime(values.signupStartTime),
         signupEndTime: toBackendDateTime(values.signupEndTime),
-        signInStartTime: toBackendDateTime(values.signInStartTime),
-        signInEndTime: toBackendDateTime(values.signInEndTime),
+        ...(isEdit
+          ? {
+              images: originalRef.current?.images,
+              requiresAudit: originalRef.current?.requiresAudit,
+              cancelRequiresAudit: originalRef.current?.cancelRequiresAudit,
+              score: originalRef.current?.score,
+              creditConfig: originalRef.current?.creditConfig,
+              signupStartTime: originalRef.current?.signupStartTime,
+              signInStartTime: originalRef.current?.signInStartTime,
+              signInEndTime: originalRef.current?.signInEndTime,
+              contactName: originalRef.current?.contactName,
+              contactPhone: originalRef.current?.contactPhone,
+            }
+          : {}),
       }
 
       if (isEdit) {
@@ -240,9 +196,9 @@ function ActivityEditor() {
       }
       navigate('/activity/manage')
     } catch (error) {
-      if (!error?.errorFields) {
-        message.error(error?.message || '提交失败')
-      }
+      // 后端接口错误已由全局请求拦截器统一提示，避免重复弹窗；
+      // 表单校验错误（errorFields）会由 antd 自动在表单项上内联展示
+      console.warn('活动保存失败:', error)
     } finally {
       setSubmitting(false)
     }
@@ -271,36 +227,6 @@ function ActivityEditor() {
     }
   }
 
-  const handleGalleryUploadChange = ({ file }) => {
-    if (file.status === 'uploading') {
-      setImageUploading(true)
-      return
-    }
-    if (file.status === 'done') {
-      setImageUploading(false)
-      const response = parseUploadResponse(file.response)
-      const url = response?.data?.url
-      if (response?.code === 200 && url) {
-        setGalleryImages((prev) => {
-          const next = [...prev, url]
-          form.setFieldValue('images', next)
-          if (!form.getFieldValue('coverImage')) {
-            form.setFieldValue('coverImage', url)
-          }
-          return next
-        })
-        message.success('活动图片上传成功')
-      } else {
-        message.error(response?.msg || '上传返回内容异常')
-      }
-      return
-    }
-    if (file.status === 'error') {
-      setImageUploading(false)
-      message.error(file.error?.message || '活动图片上传失败')
-    }
-  }
-
   return (
     <div className="activity-manage-container">
       <main className="manage-main">
@@ -312,6 +238,10 @@ function ActivityEditor() {
           <Form form={form} layout="vertical" disabled={loading}>
             <Form.Item name="title" label="活动标题" rules={[{ required: true, message: '请输入活动标题' }]}>
               <Input />
+            </Form.Item>
+
+            <Form.Item name="organizerName" label="主办方">
+              <Input placeholder="留空则默认使用当前账号姓名" maxLength={50} />
             </Form.Item>
 
             <Form.Item name="coverImage" label="封面图片">
@@ -343,55 +273,6 @@ function ActivityEditor() {
               }
             </Form.Item>
 
-            <Form.Item label="活动图片">
-              <Upload
-                name="file"
-                showUploadList={false}
-                customRequest={uploadImageFile}
-                onChange={handleGalleryUploadChange}
-              >
-                <Button icon={<UploadOutlined />} loading={imageUploading} style={{ marginBottom: 16 }}>
-                  上传活动图片
-                </Button>
-              </Upload>
-
-              {galleryImages.length ? (
-                <div className="activity-image-grid">
-                  {galleryImages.map((url, index) => {
-                    const isCover = form.getFieldValue('coverImage') === url
-                    return (
-                      <div key={`${url}-${index}`} className={`activity-image-card ${isCover ? 'cover' : ''}`}>
-                        <img src={url} alt={`活动图片${index + 1}`} />
-                        <div className="activity-image-actions">
-                          <Button size="small" type={isCover ? 'primary' : 'default'} onClick={() => form.setFieldValue('coverImage', url)}>
-                            {isCover ? '当前封面' : '设为封面'}
-                          </Button>
-                          <Button
-                            size="small"
-                            danger
-                            onClick={() => {
-                              setGalleryImages((prev) => {
-                                const next = prev.filter((item) => item !== url)
-                                form.setFieldValue('images', next)
-                                if (form.getFieldValue('coverImage') === url) {
-                                  form.setFieldValue('coverImage', next[0] || '')
-                                }
-                                return next
-                              })
-                            }}
-                          >
-                            删除
-                          </Button>
-                        </div>
-                      </div>
-                    )
-                  })}
-                </div>
-              ) : (
-                <div className="activity-image-empty">可上传多张活动图片，并从中选择封面图。</div>
-              )}
-            </Form.Item>
-
             <div className="form-row">
               <Form.Item name="categoryId" label="活动分类" rules={[{ required: true, message: '请选择活动分类' }]} style={{ flex: 1 }}>
                 <Select
@@ -403,88 +284,6 @@ function ActivityEditor() {
                 <InputNumber min={1} max={9999} style={{ width: '100%' }} />
               </Form.Item>
             </div>
-
-            <Form.Item
-              name="requiresAudit"
-              label="报名审核"
-              valuePropName="checked"
-              tooltip="开启后：学生报名先进入等待审核；关闭后：报名直接通过。"
-            >
-              <Switch checkedChildren="需要审核" unCheckedChildren="无需审核" />
-            </Form.Item>
-            <Form.Item
-              name="cancelRequiresAudit"
-              label="取消报名审核"
-              valuePropName="checked"
-              tooltip="开启后：学生点击取消报名先进入等待审核；关闭后：确认后立即取消。"
-            >
-              <Switch checkedChildren="需要审核" unCheckedChildren="无需审核" />
-            </Form.Item>
-
-            <Form.Item
-              name="score"
-              label="活动学分"
-              rules={[{ required: true, message: '请填写活动学分' }]}
-            >
-              <InputNumber min={0} max={99} precision={1} step={0.1} style={{ width: '100%' }} placeholder="例如 0.2" />
-            </Form.Item>
-
-            <Form.Item label="角色学分分配（申报人自定义）" required>
-              <Form.List
-                name="creditRules"
-                rules={[
-                  {
-                    validator: async (_, value) => {
-                      if (!Array.isArray(value) || value.length === 0) {
-                        throw new Error('请至少添加一个角色学分分配')
-                      }
-                      const hasInvalid = value.some(
-                        (item) =>
-                          !String(item?.role || '').trim() ||
-                          item?.score === undefined ||
-                          item?.score === null ||
-                          Number.isNaN(Number(item?.score))
-                      )
-                      if (hasInvalid) {
-                        throw new Error('请完整填写每个角色及对应学分')
-                      }
-                    },
-                  },
-                ]}
-              >
-                {(fields, { add, remove }, { errors }) => (
-                  <>
-                    {fields.map(({ key, name, ...restField }) => (
-                      <Space key={key} style={{ display: 'flex', marginBottom: 8 }} align="baseline">
-                        <Form.Item
-                          {...restField}
-                          name={[name, 'role']}
-                          rules={[{ required: true, message: '填写角色' }]}
-                          style={{ marginBottom: 0 }}
-                        >
-                          <Input placeholder="角色，如：主持人/工作人员/观众/参赛人" style={{ width: 360 }} />
-                        </Form.Item>
-                        <Form.Item
-                          {...restField}
-                          name={[name, 'score']}
-                          rules={[{ required: true, message: '填写学分' }]}
-                          style={{ marginBottom: 0 }}
-                        >
-                          <InputNumber min={0} max={99} precision={1} step={0.1} placeholder="score" />
-                        </Form.Item>
-                        <MinusCircleOutlined onClick={() => remove(name)} />
-                      </Space>
-                    ))}
-                    <Form.Item style={{ marginTop: 8, marginBottom: 0 }}>
-                      <Button type="dashed" onClick={() => add({ role: '', score: 0 })} icon={<PlusOutlined />}>
-                        添加角色学分
-                      </Button>
-                    </Form.Item>
-                    <Form.ErrorList errors={errors} />
-                  </>
-                )}
-              </Form.List>
-            </Form.Item>
 
             <Form.Item name="location" label="活动地点" rules={[{ required: true, message: '请输入活动地点' }]}>
               <Input />
@@ -499,32 +298,9 @@ function ActivityEditor() {
               </Form.Item>
             </div>
 
-            <div className="form-row">
-              <Form.Item name="signupStartTime" label="报名开始时间" rules={[{ required: true, message: '请输入报名开始时间' }]} style={{ flex: 1 }}>
-                <Input type="datetime-local" />
-              </Form.Item>
-              <Form.Item name="signupEndTime" label="报名截止时间" rules={[{ required: true, message: '请输入报名截止时间' }]} style={{ flex: 1, marginLeft: 16 }}>
-                <Input type="datetime-local" />
-              </Form.Item>
-            </div>
-
-            <div className="form-row">
-              <Form.Item name="signInStartTime" label="签到开始时间" rules={[{ required: true, message: '请输入签到开始时间' }]} style={{ flex: 1 }}>
-                <Input type="datetime-local" />
-              </Form.Item>
-              <Form.Item name="signInEndTime" label="签到结束时间" rules={[{ required: true, message: '请输入签到结束时间' }]} style={{ flex: 1, marginLeft: 16 }}>
-                <Input type="datetime-local" />
-              </Form.Item>
-            </div>
-
-            <div className="form-row">
-              <Form.Item name="contactName" label="联系人" rules={[{ required: true, message: '请输入联系人' }]} style={{ flex: 1 }}>
-                <Input />
-              </Form.Item>
-              <Form.Item name="contactPhone" label="联系电话" rules={[{ required: true, message: '请输入联系电话' }]} style={{ flex: 1, marginLeft: 16 }}>
-                <Input />
-              </Form.Item>
-            </div>
+            <Form.Item name="signupEndTime" label="报名截止时间" rules={[{ required: true, message: '请输入报名截止时间' }]}>
+              <Input type="datetime-local" />
+            </Form.Item>
 
             <Form.Item name="content" label="活动详情" rules={[{ required: true, message: '请输入活动详情' }]}>
               <TextArea rows={6} />
@@ -544,6 +320,5 @@ function ActivityEditor() {
 }
 
 export default ActivityEditor
-
 
 

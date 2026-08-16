@@ -1,0 +1,932 @@
+/* ===== 题库管理-题库页面样式 ===== */
+
+/* ----- 页面容器 ----- */
+.question-bank-page {
+  /* ===== 页面级设计令牌（蓝色主色 + 绿色辅助）===== */
+  --qb-primary: #3b82f6;
+  --qb-primary-deep: #2563eb;
+  --qb-primary-soft: #eaf1ff;
+  --qb-primary-ring: rgba(59, 130, 246, 0.12);
+  --qb-success: #22c55e;
+  --qb-success-deep: #16a34a;
+  --qb-success-soft: #e7f7ec;
+  /* 白色卡片（浅色页面背景） */
+  --qb-card: #ffffff;
+  --qb-card-border: rgba(226, 232, 240, 0.9);
+  --qb-text: #1e293b;
+  --qb-text-muted: #64748b;
+  --qb-text-micro: #94a3b8;
+  --qb-border: rgba(148, 180, 226, 0.28);
+  --qb-radius-card: 16px;
+  --qb-radius-control: 10px;
+  --qb-radius-pill: 999px;
+  --qb-shadow-card: 0 10px 28px rgba(15, 23, 42, 0.06);
+
+  /* 页面定高：视口高度 - 外层 Layout 留白与顶栏（含面包屑页题，约 108px），
+     列表数据量不再撑开页面，窗口过矮时由 min-height 兜底 */
+  height: calc(100vh - 106px);
+  min-height: 560px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* ============ 卡片通用 ============ */
+.question-bank-page .question-bank-card.ant-card {
+  border-radius: var(--qb-radius-card);
+  background: var(--qb-card);
+  box-shadow: var(--qb-shadow-card);
+  border: 1px solid var(--qb-card-border);
+}
+
+.question-bank-card .ant-card-body {
+  padding: 20px 24px;
+}
+
+/* ============ 筛选区域（作为表格 title 渲染在表头上方）============ */
+.question-bank-table .ant-table-title {
+  padding: 0;
+  border-bottom: none;
+}
+
+.question-bank-filter.ant-form {
+  display: flex;
+  /* 容器实际空间不足时允许换行，避免按钮被顶出卡片边界
+     （内容区被侧边栏压窄时，视口级媒体查询无法感知） */
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 16px;
+  /* 与下方表格单元格的左右内边距（12px）对齐：
+     使搜索框左边缘与表头全选框列对齐，重置按钮右边缘与操作列对齐 */
+  padding: 20px 12px 16px;
+}
+
+.question-bank-filter .ant-form-item {
+  margin: 0;
+  min-width: 0;
+}
+
+/* 搜索框 - 占据剩余空间 */
+.question-bank-filter .ant-form-item:first-child {
+  flex: 1 1 220px;
+  min-width: 220px;
+}
+
+/* 所属题库 / 题型 / 难度 - 基准 170px，空间不足时可收缩 */
+.question-bank-filter .ant-form-item:nth-child(2),
+.question-bank-filter .ant-form-item:nth-child(3),
+.question-bank-filter .ant-form-item:nth-child(4) {
+  flex: 0 1 170px;
+  min-width: 130px;
+}
+
+/* 搜索框、按钮组空 label 占位（保持与其他 label 等高） */
+.question-bank-filter .ant-form-item:first-child .ant-form-item-label,
+.question-bank-filter-actions .ant-form-item-label {
+  visibility: hidden;
+}
+
+/* 按钮组（不参与收缩，整组换行） */
+.question-bank-filter-actions {
+  flex-shrink: 0;
+}
+
+.question-bank-filter .ant-form-item-label {
+  padding-bottom: 6px;
+}
+
+.question-bank-filter .ant-form-item-label > label {
+  height: 20px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #475569;
+  display: inline-block;
+}
+
+/* 控件统一高度 40px */
+.question-bank-filter .ant-input-affix-wrapper,
+.question-bank-filter .ant-select-selector {
+  height: 40px !important;
+  border-radius: var(--qb-radius-control);
+  background: #ffffff !important;
+  border-color: #e2e8f0;
+  box-shadow: none;
+}
+
+/* 下拉外层也约束为 40px，使绝对定位的箭头 top:50% 真正居中 */
+.question-bank-filter .ant-select-single {
+  height: 40px;
+}
+
+.question-bank-filter .ant-select-single .ant-select-selector {
+  display: flex;
+  align-items: center;
+}
+
+/* 下拉选中值 / 占位符 / 搜索输入 垂直居中 */
+.question-bank-filter .ant-select-single .ant-select-selector .ant-select-selection-item,
+.question-bank-filter .ant-select-single .ant-select-selector .ant-select-selection-placeholder,
+.question-bank-filter .ant-select-single .ant-select-selector .ant-select-selection-search-input {
+  height: 38px;
+  line-height: 38px;
+}
+
+/* 下拉箭头垂直居中 */
+.question-bank-filter .ant-select-single .ant-select-arrow {
+  top: 50%;
+  margin-top: 0;
+  transform: translateY(-50%);
+}
+
+/* 搜索框内部输入垂直居中：自然高度交给外层 flex 居中，避免超出 40px 容器被裁切 */
+.question-bank-filter .ant-input-affix-wrapper {
+  align-items: center;
+}
+
+.question-bank-filter .ant-input-affix-wrapper .ant-input {
+  height: auto;
+  line-height: normal;
+}
+
+.question-bank-filter .ant-input-affix-wrapper .anticon {
+  color: #9ca3af;
+  font-size: 16px;
+}
+
+.question-bank-filter .ant-select-selection-placeholder {
+  color: #9ca3af;
+}
+
+/* 聚焦状态 */
+.question-bank-filter .ant-input-affix-wrapper:hover,
+.question-bank-filter .ant-select-selector:hover {
+  border-color: #cbd5e1;
+}
+
+.question-bank-filter .ant-input-affix-wrapper:focus,
+.question-bank-filter .ant-input-affix-wrapper-focused,
+.question-bank-filter .ant-select-focused .ant-select-selector {
+  border-color: var(--qb-primary) !important;
+  box-shadow: 0 0 0 2px var(--qb-primary-ring) !important;
+}
+
+/* 查询按钮 */
+.qb-search-btn {
+  width: 100px;
+  height: 40px;
+  padding: 0 22px;
+  border-radius: var(--qb-radius-control);
+  background: var(--qb-primary);
+  border-color: var(--qb-primary);
+  font-weight: 500;
+  font-size: 14px;
+  box-shadow: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.qb-search-btn:hover,
+.qb-search-btn:focus {
+  background: var(--qb-primary-deep) !important;
+  border-color: var(--qb-primary-deep) !important;
+}
+
+/* 重置按钮 */
+.qb-reset-btn {
+  height: 40px;
+  padding: 0 20px;
+  border-radius: var(--qb-radius-control);
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  color: #475569;
+  font-weight: 500;
+  font-size: 14px;
+  box-shadow: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.qb-reset-btn:hover {
+  color: var(--qb-primary) !important;
+  border-color: rgba(59, 130, 246, 0.5) !important;
+  background: #ffffff !important;
+}
+
+/* 新增题目按钮（与查询按钮同主色蓝圆角风格） */
+.qb-add-btn {
+  height: 40px;
+  padding: 0 20px;
+  border-radius: var(--qb-radius-control);
+  background: var(--qb-primary);
+  border-color: var(--qb-primary);
+  font-weight: 500;
+  font-size: 14px;
+  box-shadow: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.qb-add-btn:hover,
+.qb-add-btn:focus {
+  background: var(--qb-primary-deep) !important;
+  border-color: var(--qb-primary-deep) !important;
+}
+
+/* ============ 新增/编辑题目面板（通用 SidePanel 内的表单）============ */
+.question-bank-editor-form .ant-form-item {
+  margin-bottom: 18px;
+}
+
+.question-bank-editor-form .ant-form-item-label > label {
+  font-size: 13px;
+  font-weight: 500;
+  color: #475569;
+}
+
+.question-bank-editor-form .ant-input,
+.question-bank-editor-form .ant-select-selector {
+  border-radius: 10px;
+  border-color: rgba(148, 180, 226, 0.45);
+}
+
+/* 输入框统一高度（多行文本域除外） */
+.question-bank-editor-form .ant-input:not(textarea),
+.question-bank-editor-form .ant-select-selector,
+.question-bank-editor-form .ant-input-number {
+  height: 40px;
+}
+
+.question-bank-editor-form .ant-input-number {
+  width: 100%;
+  border-radius: 10px;
+  border-color: rgba(148, 180, 226, 0.45);
+}
+
+.question-bank-editor-form .ant-input-number-input {
+  height: 38px;
+}
+
+.question-bank-editor-form .ant-select-single .ant-select-selector {
+  display: flex;
+  align-items: center;
+}
+
+/* 选项编辑（仅选择题）：序号 + 输入框 + 删除 */
+.qb-editor-option-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.qb-editor-option-key {
+  flex: none;
+  width: 26px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: rgba(21, 101, 192, 0.1);
+  color: #1565c0;
+  font-weight: 600;
+  font-size: 12px;
+}
+
+.qb-editor-option-row .ant-input {
+  flex: 1;
+}
+
+.qb-editor-option-remove {
+  flex: none;
+  color: #94a3b8;
+  font-size: 15px;
+  cursor: pointer;
+  transition: color 0.2s;
+}
+
+.qb-editor-option-remove:hover {
+  color: #ef4444;
+}
+
+/* ============ 列表卡片（定高，内部列表区域滚动）============ */
+.question-bank-list-card .ant-card-body {
+  padding: 0;
+}
+
+/* flex 链路：卡片占满页面剩余高度，逐层下发高度约束 */
+.question-bank-page .question-bank-list-card.ant-card {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.question-bank-list-card .ant-card-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.question-bank-list-card .question-bank-table.ant-table-wrapper {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.question-bank-table .ant-spin-nested-loading {
+  flex: 1;
+  min-height: 0;
+}
+
+.question-bank-table .ant-spin-nested-loading .ant-spin-container {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+/* 筛选区（title）固定，表格主体占满剩余高度 */
+.question-bank-table .ant-table {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* 只让数据区域滚动（表头通过 sticky 固定在滚动容器顶部）；
+   min-height 保底，防止筛选区换行变高时把数据区挤没 */
+.question-bank-table .ant-table-container {
+  flex: 1;
+  min-height: 160px;
+  overflow-y: auto;
+}
+
+/* 分页固定在卡片底部，不参与滚动 */
+.question-bank-table .ant-pagination {
+  flex: none;
+}
+
+/* ============ 表格 ============ */
+.question-bank-table .ant-table-wrapper {
+  margin-top: 0;
+}
+
+.question-bank-table .ant-table {
+  background: transparent;
+}
+
+.question-bank-table .ant-table-thead > tr > th {
+  height: 44px;
+  /* 近乎不透明，避免滚动时下方行文字透出 */
+  background: #f1f6fd;
+  color: #64748b;
+  font-weight: 600;
+  font-size: 13px;
+  letter-spacing: 0.02em;
+  border-bottom: 1px solid var(--qb-border);
+  padding: 0 12px;
+  white-space: nowrap;
+  line-height: 44px;
+  /* 表头固定：粘在滚动容器（.ant-table-container）顶部 */
+  position: sticky;
+  top: 0;
+  z-index: 3;
+}
+
+.question-bank-table .ant-table-thead > tr > th::before {
+  display: none;
+}
+
+.question-bank-table .ant-table-tbody > tr > td {
+  padding: 16px 12px;
+  border-bottom: 1px solid rgba(148, 180, 226, 0.2);
+  font-size: 14px;
+  color: #334155;
+  vertical-align: middle;
+  line-height: 1.5;
+}
+
+.question-bank-table .ant-table-tbody > tr:hover > td {
+  background: rgba(232, 243, 255, 0.65);
+}
+
+.question-bank-table .ant-table-tbody > tr:last-child > td {
+  border-bottom: none;
+}
+
+/* 复选框 */
+.question-bank-table .ant-checkbox-inner {
+  border-radius: 4px;
+  border-color: #d1d5db;
+}
+
+.question-bank-table .ant-checkbox-checked .ant-checkbox-inner {
+  background: var(--qb-primary);
+  border-color: var(--qb-primary);
+}
+
+.question-bank-table .ant-checkbox-indeterminate .ant-checkbox-inner::after {
+  background: var(--qb-primary);
+}
+
+.qb-stem-text {
+  color: #1e293b;
+}
+
+.qb-bank-text {
+  color: #475569;
+}
+
+.qb-entry-text {
+  color: #475569;
+}
+
+/* ============ 题型标签 ============ */
+.qb-type-tag {
+  display: inline-block;
+  height: 24px;
+  padding: 0 12px;
+  border-radius: var(--qb-radius-pill);
+  font-size: 12px;
+  line-height: 24px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+/* 选择题 - 蓝色（主色） */
+.qb-tag-type-choice {
+  color: var(--qb-primary-deep);
+  background: var(--qb-primary-soft);
+}
+
+/* 判断题 - 紫色 */
+.qb-tag-type-judge {
+  color: #4a7fad;
+  background: #f2ecfe;
+}
+
+/* 填空题 - 橙色 */
+.qb-tag-type-blank {
+  color: #d97706;
+  background: #fdf1dd;
+}
+
+/* 简答题 - 绿色（正向辅助） */
+.qb-tag-type-answer {
+  color: var(--qb-success-deep);
+  background: var(--qb-success-soft);
+}
+
+/* 计算题 - 红色 */
+.qb-tag-type-calc {
+  color: #dc2626;
+  background: #fdecec;
+}
+
+/* ============ 难度标签 ============ */
+.qb-diff-tag {
+  display: inline-block;
+  height: 24px;
+  padding: 0 12px;
+  border-radius: var(--qb-radius-pill);
+  font-size: 12px;
+  line-height: 24px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+/* 简单 - 绿色（正向辅助） */
+.qb-tag-diff-easy {
+  color: var(--qb-success-deep);
+  background: var(--qb-success-soft);
+}
+
+/* 中等 - 橙色 */
+.qb-tag-diff-medium {
+  color: #d97706;
+  background: #fdf1dd;
+}
+
+/* 困难 - 红色 */
+.qb-tag-diff-hard {
+  color: #dc2626;
+  background: #fdecec;
+}
+
+/* ============ 操作按钮（文字链接）============ */
+.qb-actions {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  white-space: nowrap;
+  flex-wrap: nowrap;
+}
+
+.qb-actions .qb-action-link {
+  font-size: 14px;
+  cursor: pointer;
+  text-decoration: none;
+  transition: opacity 0.2s;
+  padding: 2px 0;
+  display: flex;
+  align-items: center;
+  white-space: nowrap;
+}
+
+.qb-actions .qb-action-link:hover {
+  opacity: 0.75;
+}
+
+.qb-action-view {
+  color: var(--qb-primary);
+}
+
+.qb-action-edit {
+  color: var(--qb-success-deep);
+}
+
+.qb-action-delete {
+  color: #ef4444 !important;
+}
+
+/* 收藏：浅灰色空心星，图标与文字水平排列；
+   固定宽度保证“收藏/已收藏”两态占位一致，避免挤偏右侧删除按钮 */
+.qb-action-favorite {
+  color: #94a3b8;
+  gap: 4px;
+  width: 64px;
+  flex: none;
+  justify-content: flex-start;
+}
+
+.qb-action-favorite .anticon {
+  font-size: 14px;
+}
+
+/* 已收藏：主题蓝实心星 */
+.qb-action-favorite-active {
+  color: var(--qb-primary) !important;
+}
+
+/* ============ 批量操作栏（勾选后显示，筛选区与表头之间）============ */
+.qb-batch-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 48px;
+  margin: 12px 16px 12px;
+  padding: 6px 16px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.6);
+  border: 1px solid rgba(148, 180, 226, 0.35);
+  box-shadow: 0 4px 14px rgba(11, 59, 143, 0.08);
+  backdrop-filter: blur(8px);
+}
+
+.qb-batch-count {
+  font-size: 14px;
+  font-weight: 500;
+  color: #1e3a5f;
+}
+
+/* 批量收藏：主题蓝，hover 提亮 */
+.qb-batch-fav-btn.ant-btn {
+  height: 40px;
+  padding: 0 18px;
+  border-radius: 8px;
+  background: var(--qb-primary);
+  border-color: var(--qb-primary);
+  font-weight: 500;
+}
+
+.qb-batch-fav-btn.ant-btn:hover,
+.qb-batch-fav-btn.ant-btn:focus {
+  filter: brightness(1.12);
+  background: var(--qb-primary) !important;
+  border-color: var(--qb-primary) !important;
+}
+
+/* 批量删除：红色，hover 透明度变化 */
+.qb-batch-del-btn.ant-btn {
+  height: 40px;
+  padding: 0 18px;
+  border-radius: 8px;
+  font-weight: 500;
+}
+
+.qb-batch-del-btn.ant-btn:hover,
+.qb-batch-del-btn.ant-btn:focus {
+  opacity: 0.82;
+}
+
+/* ============ 分页 - 三段式布局（固定在卡片底部）============ */
+.question-bank-table .ant-pagination {
+  margin-top: 16px;
+  margin-bottom: 16px;
+  padding: 0 16px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+/* 左侧：每页条数 */
+.question-bank-table .ant-pagination-options {
+  order: 0;
+  margin-right: auto !important;
+}
+
+/* 中间：页码 */
+.question-bank-table .ant-pagination-prev,
+.question-bank-table .ant-pagination-next,
+.question-bank-table .ant-pagination-item {
+  order: 1;
+}
+
+.question-bank-table .ant-pagination-jump-prev,
+.question-bank-table .ant-pagination-jump-next {
+  order: 1;
+}
+
+/* 右侧：跳至 */
+.question-bank-table .ant-pagination-options-quick-jumper {
+  order: 2;
+  margin-left: auto !important;
+}
+
+.question-bank-table .ant-pagination-item {
+  border-radius: 6px;
+  border-color: #e5e7eb;
+}
+
+.question-bank-table .ant-pagination-item-active {
+  background: var(--qb-primary);
+  border-color: var(--qb-primary);
+}
+
+.question-bank-table .ant-pagination-item-active a {
+  color: #ffffff;
+}
+
+.question-bank-table .ant-pagination-item:hover {
+  border-color: var(--qb-primary);
+}
+
+.question-bank-table .ant-pagination-item:hover a {
+  color: var(--qb-primary);
+}
+
+.question-bank-table .ant-pagination-prev .ant-pagination-item-link,
+.question-bank-table .ant-pagination-next .ant-pagination-item-link {
+  border-radius: 6px;
+  border-color: #e5e7eb;
+}
+
+.question-bank-table .ant-pagination-prev:hover .ant-pagination-item-link,
+.question-bank-table .ant-pagination-next:hover .ant-pagination-item-link {
+  border-color: var(--qb-primary);
+  color: var(--qb-primary);
+}
+
+/* ============ 详情抽屉 ============ */
+.question-bank-detail {
+  width: 100%;
+}
+
+.question-bank-analysis {
+  margin-top: 8px;
+  padding: 12px 14px;
+  color: #1f2937;
+  line-height: 1.75;
+  border-radius: 8px;
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+  white-space: pre-wrap;
+  font-size: 13px;
+}
+
+/* ----- 详情抽屉：面向老师/管理员的可读展示（抽屉挂在 body 下，不用页面级变量）----- */
+.qb-detail-box {
+  margin-top: 8px;
+  padding: 12px 14px;
+  color: #1f2937;
+  line-height: 1.75;
+  border-radius: 8px;
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+  font-size: 13px;
+}
+
+/* 选择题选项列表 */
+.qb-option-list {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.qb-option-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+  font-size: 13px;
+  color: #1f2937;
+}
+
+.qb-option-item.qb-option-correct {
+  background: #e7f7ec;
+  border-color: #86efac;
+}
+
+.qb-option-key {
+  flex: none;
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: #eef2f7;
+  color: #475569;
+  font-weight: 600;
+  font-size: 12px;
+}
+
+.qb-option-correct .qb-option-key {
+  background: #16a34a;
+  color: #fff;
+}
+
+.qb-option-text {
+  flex: 1;
+  line-height: 1.6;
+}
+
+.qb-option-badge {
+  flex: none;
+  padding: 1px 10px;
+  border-radius: 999px;
+  background: #16a34a;
+  color: #fff;
+  font-size: 12px;
+}
+
+/* 参考答案 */
+.qb-answer-main {
+  font-weight: 600;
+  color: #1e293b;
+}
+
+.qb-answer-text {
+  white-space: pre-wrap;
+}
+
+.qb-answer-line {
+  line-height: 1.9;
+}
+
+.qb-answer-note {
+  margin-top: 4px;
+  color: #94a3b8;
+  font-size: 12px;
+}
+
+.qb-answer-sub {
+  margin-top: 10px;
+  font-weight: 600;
+  color: #64748b;
+}
+
+.qb-point-list {
+  margin: 6px 0 0;
+  padding-left: 20px;
+}
+
+.qb-point-list li {
+  line-height: 1.8;
+}
+
+/* 作答说明分组 */
+.qb-require-group {
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+}
+
+.qb-require-group + .qb-require-group {
+  margin-top: 6px;
+}
+
+.qb-require-label {
+  flex: none;
+  font-weight: 600;
+  color: #64748b;
+  line-height: 1.9;
+}
+
+.qb-require-group .qb-point-list {
+  margin-top: 0;
+  flex: 1;
+}
+
+/* 评分规则列表 */
+.qb-rubric-list {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.qb-rubric-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+}
+
+.qb-rubric-name {
+  flex: 1;
+  color: #1f2937;
+}
+
+.qb-rubric-score {
+  flex: none;
+  font-weight: 600;
+  color: #2563eb;
+}
+
+/* ============ 响应式 ============ */
+@media (max-width: 1200px) {
+  .question-bank-filter .ant-form-item:first-child {
+    flex-basis: 100%;
+    min-width: 100%;
+  }
+
+  .question-bank-filter .ant-form-item:nth-child(2),
+  .question-bank-filter .ant-form-item:nth-child(3),
+  .question-bank-filter .ant-form-item:nth-child(4) {
+    flex: 1 1 140px;
+    min-width: 140px;
+  }
+}
+
+@media (max-width: 768px) {
+  /* 窄屏下筛选表单竖向堆叠后很高，定高布局会把数据区挤没；
+     改回自然高度，数据区保底 320px、最高 60vh 内部滚动 */
+  .question-bank-page {
+    height: auto;
+    min-height: calc(100vh - 92px);
+  }
+
+  .question-bank-table .ant-table-container {
+    flex: none;
+    min-height: 320px;
+    max-height: 60vh;
+  }
+
+  .question-bank-filter.ant-form {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .question-bank-filter .ant-form-item {
+    width: 100% !important;
+    flex: auto !important;
+  }
+
+  .question-bank-filter-actions {
+    margin-left: 0;
+  }
+
+  .question-bank-filter-actions .ant-space {
+    width: 100%;
+    justify-content: flex-end;
+  }
+
+  .question-bank-list-card .ant-card-body {
+    padding: 16px 0 0;
+  }
+
+  .qb-search-btn {
+    width: auto;
+    flex: 1;
+  }
+
+  .question-bank-table .ant-pagination {
+    justify-content: center;
+  }
+}

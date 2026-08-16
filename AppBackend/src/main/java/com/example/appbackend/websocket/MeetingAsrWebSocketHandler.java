@@ -100,6 +100,22 @@ public class MeetingAsrWebSocketHandler extends TextWebSocketHandler {
         if (!StringUtils.hasText(payload)) {
             return;
         }
+        // 弹幕消息：转发广播给该会议所有在线成员，实现跨账号实时同步
+        if (payload.contains("\"type\":\"danmaku\"")) {
+            try {
+                JsonNode node = objectMapper.readTree(payload);
+                if ("danmaku".equals(node.path("type").asText())) {
+                    broadcastToMeeting(session, Map.of(
+                            "type", "danmaku",
+                            "speakerUserId", speakerUserId(session),
+                            "speaker", node.path("speaker").asText(speakerName(session)),
+                            "text", node.path("text").asText("")
+                    ));
+                }
+            } catch (Exception ignored) {
+            }
+            return;
+        }
         if (payload.contains("\"stop\"") || payload.contains("\"is_speaking\":false")) {
             bridge.finish();
         }
@@ -294,8 +310,8 @@ public class MeetingAsrWebSocketHandler extends TextWebSocketHandler {
                         .orTimeout(8, TimeUnit.SECONDS)
                         .whenComplete((socket, error) -> {
                             if (error != null) {
+                                // 讯飞连接失败仅通知字幕不可用，不关闭 WebSocket，保留弹幕等轻量消息通道
                                 sendClient(Map.of("type", "asr_error", "message", "讯飞实时转写连接失败: " + error.getMessage()));
-                                closeClient(CloseStatus.SERVER_ERROR);
                                 return;
                             }
                             xfyunSocket = socket;
@@ -304,8 +320,8 @@ public class MeetingAsrWebSocketHandler extends TextWebSocketHandler {
                             sendClient(Map.of("type", "asr_ready"));
                         });
             } catch (Exception e) {
+                // 讯飞启动失败仅通知字幕不可用，不关闭 WebSocket，保留弹幕等轻量消息通道
                 sendClient(Map.of("type", "asr_error", "message", "讯飞实时转写启动失败: " + e.getMessage()));
-                closeClient(CloseStatus.SERVER_ERROR);
             }
         }
 

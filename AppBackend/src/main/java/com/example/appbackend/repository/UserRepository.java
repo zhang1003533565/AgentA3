@@ -1,18 +1,23 @@
 package com.example.appbackend.repository;
 
 import com.example.appbackend.entity.User;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.util.List;
 import java.util.Optional;
 
 public interface UserRepository extends JpaRepository<User, Long>, JpaSpecificationExecutor<User> {
 
     Optional<User> findByUsername(String username);
+
+    List<User> findByRealName(String realName);
 
     boolean existsByUsername(String username);
 
@@ -21,6 +26,10 @@ public interface UserRepository extends JpaRepository<User, Long>, JpaSpecificat
     boolean existsByShareCode(String shareCode);
 
     Optional<User> findByShareCode(String shareCode);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select user from User user where user.id = :userId")
+    Optional<User> findByIdForUpdate(@Param("userId") Long userId);
 
     @Query("SELECT u FROM User u WHERE " +
            "(:username IS NULL OR u.username LIKE %:username%) AND " +
@@ -33,4 +42,13 @@ public interface UserRepository extends JpaRepository<User, Long>, JpaSpecificat
 
     @Query("SELECT u.role.name FROM User u WHERE u.id = :userId")
     String findRoleNameById(@Param("userId") Long userId);
+
+    Optional<User> findByPersonalNumber(String personalNumber);
+
+    @Query("""
+            SELECT u.id FROM User u
+            WHERE LOWER(u.username) LIKE LOWER(CONCAT('%', :keyword, '%'))
+               OR LOWER(COALESCE(u.personalNumber, '')) LIKE LOWER(CONCAT('%', :keyword, '%'))
+            """)
+    List<Long> findIdsByUsernameOrPersonalNumber(@Param("keyword") String keyword);
 }

@@ -16,6 +16,7 @@ public class CommentResponse {
 
     private Long id;
     private Long postId;
+    private String postTitle;
     private Long userId;
     private String username;
     private String avatar;
@@ -23,6 +24,7 @@ public class CommentResponse {
     private Long replyToId;
     private String replyToUsername;
     private String content;
+    private List<String> images;
     private Integer likeCount;
     private Boolean isLiked;
     private String status;

@@ -1,0 +1,100 @@
+name: Deploy
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+
+jobs:
+  quality:
+    uses: ./.github/workflows/quality-gate.yml
+
+  deploy:
+    needs: quality
+    runs-on: ubuntu-latest
+    env:
+      ACR_REGISTRY: ${{ secrets.ACR_REGISTRY }}
+      ACR_USERNAME: ${{ secrets.ACR_USERNAME }}
+      ACR_PASSWORD: ${{ secrets.ACR_PASSWORD }}
+      BACKEND_IMAGE: ${{ vars.BACKEND_IMAGE || format('{0}/lukezhang/appbackend', secrets.ACR_REGISTRY) }}
+      WEB_IMAGE: ${{ vars.WEB_IMAGE || format('{0}/lukezhang/appweb', secrets.ACR_REGISTRY) }}
+      AI_SERVER_IMAGE: ${{ vars.AI_SERVER_IMAGE || format('{0}/lukezhang/ai-server', secrets.ACR_REGISTRY) }}
+      MYSQL_IMAGE: ${{ vars.MYSQL_IMAGE || format('{0}/lukezhang/mysql:{1}', secrets.ACR_REGISTRY, github.sha) }}
+      REDIS_IMAGE: ${{ vars.REDIS_IMAGE || format('{0}/lukezhang/redis:{1}', secrets.ACR_REGISTRY, github.sha) }}
+      IMAGE_TAG: ${{ github.sha }}
+      JWT_SECRET: ${{ secrets.JWT_SECRET }}
+      AI_INTERNAL_TOKEN: ${{ secrets.AI_INTERNAL_TOKEN }}
+      MYSQL_ROOT_PASSWORD: ${{ secrets.MYSQL_ROOT_PASSWORD }}
+      SMOKE_TOKEN: ${{ secrets.SMOKE_TOKEN }}
+      REPO_DIR: ${{ secrets.DEPLOY_PATH }}
+      DEPLOY_BRANCH: ${{ github.ref_name }}
+      BACKEND_PORT: ${{ vars.BACKEND_PORT || '18080' }}
+      AI_PORT: ${{ vars.AI_PORT || '18081' }}
+      DEPLOY_FORCE_RELEASE_PORTS: ${{ vars.DEPLOY_FORCE_RELEASE_PORTS || 'true' }}
+      DEPLOY_RELEASE_PORTS: ${{ vars.DEPLOY_RELEASE_PORTS || '8080 8081 18080 18081 3000' }}
+      DEPLOY_PRUNE_DOCKER: ${{ vars.DEPLOY_PRUNE_DOCKER || 'true' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login To ACR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ secrets.ACR_REGISTRY }}
+          username: ${{ secrets.ACR_USERNAME }}
+          password: ${{ secrets.ACR_PASSWORD }}
+
+      - name: Mirror Runtime Images To ACR
+        run: |
+          docker pull mysql:8.4.5
+          docker tag mysql:8.4.5 "$MYSQL_IMAGE"
+          docker push "$MYSQL_IMAGE"
+          docker pull redis:7.4.2-alpine
+          docker tag redis:7.4.2-alpine "$REDIS_IMAGE"
+          docker push "$REDIS_IMAGE"
+
+      - name: Build And Push Backend
+        uses: docker/build-push-action@v6
+        with:
+          context: ./AppBackend
+          file: ./AppBackend/Dockerfile
+          push: true
+          tags: ${{ env.BACKEND_IMAGE }}:${{ env.IMAGE_TAG }}
+
+      - name: Build And Push Web
+        uses: docker/build-push-action@v6
+        with:
+          context: ./AppWeb
+          file: ./AppWeb/Dockerfile
+          push: true
+          tags: ${{ env.WEB_IMAGE }}:${{ env.IMAGE_TAG }}
+
+      - name: Build And Push AI Server
+        uses: docker/build-push-action@v6
+        with:
+          context: ./ai-servers
+          file: ./ai-servers/Dockerfile
+          push: true
+          tags: ${{ env.AI_SERVER_IMAGE }}:${{ env.IMAGE_TAG }}
+
+      - name: Deploy On Server
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          port: ${{ secrets.DEPLOY_PORT || 22 }}
+          envs: ACR_REGISTRY,ACR_USERNAME,ACR_PASSWORD,BACKEND_IMAGE,WEB_IMAGE,AI_SERVER_IMAGE,MYSQL_IMAGE,REDIS_IMAGE,IMAGE_TAG,JWT_SECRET,AI_INTERNAL_TOKEN,MYSQL_ROOT_PASSWORD,SMOKE_TOKEN,REPO_DIR,DEPLOY_BRANCH,BACKEND_PORT,AI_PORT,DEPLOY_FORCE_RELEASE_PORTS,DEPLOY_RELEASE_PORTS,DEPLOY_PRUNE_DOCKER
+          script: |
+            cd "$REPO_DIR"
+            printf '%s' "$ACR_PASSWORD" | docker login --username="$ACR_USERNAME" --password-stdin "$ACR_REGISTRY"
+            git fetch origin "$DEPLOY_BRANCH"
+            git checkout -f -B "$DEPLOY_BRANCH" "origin/$DEPLOY_BRANCH"
+            git reset --hard "origin/$DEPLOY_BRANCH"
+            chmod +x AppBackend/deploy/deploy-on-server.sh
+            ./AppBackend/deploy/deploy-on-server.sh

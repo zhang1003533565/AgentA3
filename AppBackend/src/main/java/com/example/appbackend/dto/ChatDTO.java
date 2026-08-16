@@ -16,6 +16,9 @@ public class ChatDTO {
         private String itemTitle;
         private String itemImage;
         private BigDecimal itemPrice;
+        private Integer itemStatus;
+        private String itemStatusText;
+        private String itemTradeType;
         private Long sellerId;
         private String sellerName;
         private Long otherUserId;
@@ -25,6 +28,12 @@ public class ChatDTO {
         private String lastTime;
         private Integer unreadCount;
         private Boolean isSeller;
+        private Long tradeId;
+        private String tradeStatus;
+        private String tradeStatusText;
+        private String contactExchangeStatus;
+        private Long contactExchangeRequesterId;
+        private ContactExchangeVO contactExchange;
     }
 
     @Data
@@ -37,6 +46,7 @@ public class ChatDTO {
         private String senderAvatar;
         private String content;
         private Integer messageType;
+        private String tradeAction;
         private Boolean isRead;
         private Boolean isMine;
         private String createTime;
@@ -50,11 +60,89 @@ public class ChatDTO {
         private Long sessionId;
 
         @NotBlank(message = "消息内容不能为空")
-        @Size(min = 1, max = 500, message = "消息内容1-500字")
+        @Size(min = 1, max = 1000, message = "消息内容1-1000字")
         @Schema(description = "消息内容", example = "您好，请问还在吗？")
         private String content;
 
-        @Schema(description = "消息类型：1-文本 2-图片 3-位置，默认1")
+        @Schema(description = "消息类型：1-文本 2-图片 3-位置 4-交换联系方式，默认1")
         private Integer messageType = 1;
+
+        @Schema(description = "联系方式交换动作：AGREE-同意/发起 DECLINE-暂不交换")
+        private String contactExchangeAction;
+    }
+
+    @Data
+    @Schema(description = "创建交易记录请求")
+    public static class CreateTradeRecordRequest {
+        @NotNull(message = "商品ID不能为空")
+        @Schema(description = "商品ID", example = "10")
+        private Long itemId;
+
+        @NotNull(message = "买家ID不能为空")
+        @Schema(description = "买家ID", example = "3")
+        private Long buyerId;
+
+        @Schema(description = "卖家ID，不传时使用商品发布者", example = "5")
+        private Long sellerId;
+    }
+
+    @Data
+    @Schema(description = "交易记录响应")
+    public static class TradeRecordVO {
+        private Long id;
+        private Long itemId;
+        private Long buyerId;
+        private Long sellerId;
+        private String buyerName;
+        private String sellerName;
+        private String status;
+        private String statusText;
+        private String createTime;
+        private String updateTime;
+        private String itemTitle;
+        private BigDecimal itemPrice;
+        private Long otherUserId;
+        private String otherUsername;
+        private String otherAvatar;
+        private Boolean isSeller;
+        private String contactExchangeStatus;
+        private Long contactExchangeRequesterId;
+        private ContactExchangeVO contactExchange;
+    }
+
+    @Data
+    @Schema(description = "联系方式交换状态")
+    public static class ContactExchangeVO {
+        private String status;
+        private Boolean currentUserAgreed;
+        private Boolean otherUserAgreed;
+        private Boolean canAgree;
+        private Boolean canDecline;
+        private Long requesterId;
+    }
+
+    @Data
+    @Schema(description = "交易通知响应")
+    public static class TradeNotificationVO {
+        private Long id;
+        private Long sessionId;
+        private Long itemId;
+        private String itemTitle;
+        private String itemImage;
+        private Long tradeId;
+        private String tradeStatus;
+        private String tradeStatusText;
+        private String tradeAction;
+        private String content;
+        private String createTime;
+        private Boolean isRead;
+    }
+
+    @Data
+    @Schema(description = "消息概览（聚合接口，合并会话列表+未读数）")
+    public static class MessageSummaryVO {
+        private PageResponse<SessionVO> sessions;
+        private Long chatUnreadCount;
+        private Long tradeUnreadCount;
     }
 }

@@ -3,8 +3,8 @@
   display: grid;
   grid-template-columns: 308px minmax(0, 1fr);
   background:
-    radial-gradient(circle at top left, rgba(14, 165, 164, 0.18), transparent 28%),
-    linear-gradient(180deg, #f8fbfc, #eff5f7 42%, #f7fafc 100%);
+    radial-gradient(circle at top left, rgba(74, 127, 173, 0.1), transparent 30%),
+    linear-gradient(180deg, #f2f7fc, #eaf2fa 45%, #f2f7fc 100%);
 }
 
 .layout-body {
@@ -27,6 +27,11 @@
   gap: 16px;
 }
 
+/* 面包屑页题嵌入顶栏时去掉自身底部间距，由顶栏统一控制间距 */
+.layout-topbar .app-page-header {
+  padding: 0;
+}
+
 .layout-menu-trigger {
   display: none;
   width: 44px;
@@ -38,7 +43,7 @@
 
 .layout-kicker {
   display: inline-flex;
-  color: var(--brand-deep);
+  color: var(--color-primary);
   font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.1em;

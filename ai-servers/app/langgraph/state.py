@@ -11,7 +11,7 @@ class ConversationState:
     input_text: str
     model: str
     user_id: Optional[int]
-    rag_strategy: str = "naive_rag"
+    rag_strategy: str = "direct_agent"
     rag_strategy_explicit: bool = False
     requested_agent: str = ""
     active_agent: str = "leader_agent"

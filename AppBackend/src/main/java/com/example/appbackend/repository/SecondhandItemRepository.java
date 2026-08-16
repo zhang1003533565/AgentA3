@@ -19,6 +19,12 @@ public interface SecondhandItemRepository extends JpaRepository<SecondhandItem, 
 
     Page<SecondhandItem> findByUserIdAndStatus(Long userId, Integer status, Pageable pageable);
 
+    Page<SecondhandItem> findByUserIdAndStatusIn(Long userId, List<Integer> statuses, Pageable pageable);
+
+    Page<SecondhandItem> findByUserIdAndTradeType(Long userId, String tradeType, Pageable pageable);
+
+    Page<SecondhandItem> findByUserIdAndStatusAndTradeType(Long userId, Integer status, String tradeType, Pageable pageable);
+
     @Query("SELECT s FROM SecondhandItem s WHERE s.status = 2 " +
            "AND (:categoryId IS NULL OR s.categoryId = :categoryId) " +
            "AND (:keyword IS NULL OR s.title LIKE CONCAT('%', :keyword, '%')) " +
@@ -32,6 +38,19 @@ public interface SecondhandItemRepository extends JpaRepository<SecondhandItem, 
                                         @Param("maxPrice") java.math.BigDecimal maxPrice,
                                         Pageable pageable);
 
+    @Query("SELECT s FROM SecondhandItem s WHERE " +
+           "(:status IS NULL OR s.status = :status) " +
+           "AND (:categoryId IS NULL OR s.categoryId = :categoryId) " +
+           "AND (:userId IS NULL OR s.userId = :userId) " +
+           "AND (:tradeType IS NULL OR s.tradeType = :tradeType) " +
+           "AND (:keyword IS NULL OR s.title LIKE CONCAT('%', :keyword, '%') OR s.description LIKE CONCAT('%', :keyword, '%'))")
+    Page<SecondhandItem> findAdminList(@Param("status") Integer status,
+                                       @Param("categoryId") Long categoryId,
+                                       @Param("userId") Long userId,
+                                       @Param("tradeType") String tradeType,
+                                       @Param("keyword") String keyword,
+                                       Pageable pageable);
+
     @Modifying
     @Query("UPDATE SecondhandItem s SET s.viewCount = s.viewCount + 1 WHERE s.id = :id")
     void incrementViewCount(@Param("id") Long id);
@@ -39,6 +58,18 @@ public interface SecondhandItemRepository extends JpaRepository<SecondhandItem, 
     @Modifying
     @Query("UPDATE SecondhandItem s SET s.favoriteCount = s.favoriteCount + :delta WHERE s.id = :id")
     void updateFavoriteCount(@Param("id") Long id, @Param("delta") int delta);
+
+    @Modifying
+    @Query("UPDATE SecondhandItem s SET s.inquiryCount = s.inquiryCount + 1 WHERE s.id = :id")
+    void incrementInquiryCount(@Param("id") Long id);
+
+    @Modifying
+    @Query("UPDATE SecondhandItem s SET s.heatScore = (COALESCE(s.viewCount, 0) * 1 + COALESCE(s.favoriteCount, 0) * 3 + COALESCE(s.inquiryCount, 0) * 5) WHERE s.id = :id")
+    void updateHeatScore(@Param("id") Long id);
+
+    @Modifying
+    @Query("UPDATE SecondhandItem s SET s.status = :toStatus WHERE s.id = :id AND s.status = :fromStatus")
+    int updateStatusIfCurrent(@Param("id") Long id, @Param("fromStatus") Integer fromStatus, @Param("toStatus") Integer toStatus);
 
     @Query("SELECT COUNT(s) FROM SecondhandItem s WHERE s.status = 2")
     long countOnSale();

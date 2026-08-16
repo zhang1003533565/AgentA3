@@ -1,17 +1,20 @@
 {
-  "version": "2026-06-01",
+  "version": "2026-06-07",
   "sources": [
     {
       "provider": "qwen",
-      "title": "阿里云百炼模型列表、文本生成、视觉理解、图片生成与编辑、视频生成与编辑官方文档",
+      "title": "阿里云百炼与 Qwen Cloud 模型列表、文本生成、文本向量、视觉理解、图片生成与编辑、视频生成与编辑官方文档",
       "urls": [
         "https://help.aliyun.com/zh/model-studio/models",
         "https://help.aliyun.com/zh/model-studio/text-generation-model",
+        "https://help.aliyun.com/zh/model-studio/embedding",
+        "https://docs.qwencloud.com/developer-guides/getting-started/embedding-models",
+        "https://docs.qwencloud.com/developer-guides/embeddings/text-embedding",
         "https://help.aliyun.com/zh/model-studio/vision-model",
         "https://help.aliyun.com/zh/model-studio/image-model",
         "https://help.aliyun.com/zh/model-studio/video-generate-edit-model/"
       ],
-      "checkedAt": "2026-06-01"
+      "checkedAt": "2026-06-07"
     },
     {
       "provider": "deepseek",
@@ -32,6 +35,27 @@
         "https://platform.xiaomimimo.com/docs/usage-guide/speech-synthesis-v2.5"
       ],
       "checkedAt": "2026-06-01"
+    },
+    {
+      "provider": "xfyun",
+      "title": "讯飞星火认知大模型 HTTP API、图片理解、图片生成与星辰 Agent 能力官方文档",
+      "urls": [
+        "https://www.xfyun.cn/doc/spark/HTTP%E8%B0%83%E7%94%A8%E6%96%87%E6%A1%A3.html",
+        "https://www.xfyun.cn/doc/spark/ImageUnderstanding.html",
+        "https://www.xfyun.cn/doc/spark/ImageGeneration.html",
+        "https://xingchen.xfyun.cn/"
+      ],
+      "checkedAt": "2026-06-08"
+    },
+    {
+      "provider": "volcengine",
+      "title": "火山引擎方舟对话 API、产品简介与模型价格官方文档",
+      "urls": [
+        "https://www.volcengine.com/docs/82379/1302010",
+        "https://www.volcengine.com/docs/82379/1099455",
+        "https://www.volcengine.com/docs/82379/1544106"
+      ],
+      "checkedAt": "2026-06-08"
     }
   ],
   "providers": [
@@ -256,6 +280,51 @@
             },
             {
               "id": "qwen-omni-turbo"
+            }
+          ]
+        },
+        "embedding": {
+          "label": "向量模型",
+          "status": "implemented",
+          "defaultModel": "text-embedding-v4",
+          "models": [
+            {
+              "id": "text-embedding-v4",
+              "features": [
+                "text_embedding",
+                "multilingual",
+                "sparse_embedding",
+                "custom_dimension"
+              ],
+              "notes": "Recommended DashScope text embedding model"
+            },
+            {
+              "id": "text-embedding-v3",
+              "features": [
+                "text_embedding",
+                "multilingual",
+                "sparse_embedding",
+                "custom_dimension"
+              ]
+            },
+            {
+              "id": "tongyi-embedding-vision-plus",
+              "features": [
+                "multimodal_embedding",
+                "text_image_retrieval",
+                "text_video_retrieval"
+              ],
+              "notes": "DashScope API only; OpenAI-compatible embedding endpoint supports text embedding only"
+            },
+            {
+              "id": "tongyi-embedding-vision-flash",
+              "features": [
+                "multimodal_embedding",
+                "text_image_retrieval",
+                "text_video_retrieval",
+                "low_latency"
+              ],
+              "notes": "DashScope API only; OpenAI-compatible embedding endpoint supports text embedding only"
             }
           ]
         },
@@ -748,6 +817,198 @@
               "features": [
                 "keyframe_to_video"
               ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "xfyun",
+      "name": "讯飞星火 / iFlytek Spark",
+      "aliases": [
+        "xfyun",
+        "iflytek",
+        "spark",
+        "sparkdesk",
+        "spark_desk",
+        "spark-desk",
+        "xunfei",
+        "xunfei_spark",
+        "xunfei-spark"
+      ],
+      "baseUrl": "https://spark-api-open.xf-yun.com/v1",
+      "website": "https://xinghuo.xfyun.cn",
+      "capabilities": {
+        "text": {
+          "label": "语言模型",
+          "status": "implemented",
+          "defaultModel": "4.0Ultra",
+          "models": [
+            {
+              "id": "lite",
+              "name": "Spark Lite",
+              "features": [
+                "chat",
+                "streaming"
+              ]
+            },
+            {
+              "id": "generalv3",
+              "name": "Spark Pro",
+              "features": [
+                "chat",
+                "streaming"
+              ]
+            },
+            {
+              "id": "pro-128k",
+              "name": "Spark Pro-128K",
+              "features": [
+                "chat",
+                "long_context",
+                "streaming"
+              ]
+            },
+            {
+              "id": "generalv3.5",
+              "name": "Spark Max",
+              "features": [
+                "chat",
+                "streaming"
+              ]
+            },
+            {
+              "id": "max-32k",
+              "name": "Spark Max-32K",
+              "features": [
+                "chat",
+                "long_context",
+                "streaming"
+              ]
+            },
+            {
+              "id": "4.0Ultra",
+              "name": "Spark 4.0 Ultra",
+              "features": [
+                "chat",
+                "reasoning",
+                "streaming"
+              ]
+            },
+            {
+              "id": "spark-x",
+              "name": "Spark X",
+              "features": [
+                "chat",
+                "deep_reasoning",
+                "streaming"
+              ]
+            },
+            {
+              "id": "spark-x-lite",
+              "name": "Spark X Lite",
+              "features": [
+                "chat",
+                "deep_reasoning",
+                "streaming"
+              ]
+            }
+          ]
+        },
+        "vision": {
+          "label": "视觉理解",
+          "status": "planned",
+          "models": [
+            {
+              "id": "general",
+              "name": "图片理解",
+              "features": [
+                "image_understanding"
+              ],
+              "notes": "讯飞图片理解 WebSocket/API 形态与当前 OpenAI-compatible 视觉测试接口不同，已进入目录，运行时适配待接入。"
+            },
+            {
+              "id": "imagev3",
+              "name": "图片理解高级版",
+              "features": [
+                "image_understanding"
+              ],
+              "notes": "讯飞图片理解 WebSocket/API 形态与当前 OpenAI-compatible 视觉测试接口不同，已进入目录，运行时适配待接入。"
+            }
+          ]
+        },
+        "image": {
+          "label": "图片生成",
+          "status": "planned",
+          "defaultModel": "general",
+          "models": [
+            {
+              "id": "general",
+              "name": "图片生成",
+              "features": [
+                "text_to_image"
+              ],
+              "notes": "对应讯飞图片生成文档的 domain=general；当前项目图片生成路由仍固定为 Qwen，讯飞生成适配待接入。"
+            }
+          ]
+        },
+        "video": {
+          "label": "视频生成/编辑",
+          "status": "planned",
+          "models": [
+            {
+              "id": "spark-agent-video-generation",
+              "name": "星辰 Agent 视频生成",
+              "features": [
+                "text_to_video",
+                "agent_tool"
+              ],
+              "notes": "公开入口偏星辰 Agent/工具能力，当前项目视频生成路由仍固定为 Qwen，讯飞视频适配待接入。"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "volcengine",
+      "name": "火山引擎方舟 / Volcengine Ark",
+      "aliases": [
+        "volcengine",
+        "volc",
+        "volc_engine",
+        "volc-engine",
+        "ark",
+        "volcengine_ark",
+        "volcengine-ark",
+        "huoshan",
+        "huoshan_ark",
+        "huoshan-ark"
+      ],
+      "baseUrl": "https://ark.cn-beijing.volces.com/api/v3",
+      "website": "https://console.volcengine.com/ark",
+      "capabilities": {
+        "text": {
+          "label": "语言模型",
+          "status": "implemented",
+          "defaultModel": "deepseek-v3",
+          "models": [
+            {
+              "id": "deepseek-v3",
+              "name": "DeepSeek-V3",
+              "features": [
+                "chat",
+                "fast_generation"
+              ],
+              "notes": "火山方舟在线推理模型；用于普通对话和快速生成。"
+            },
+            {
+              "id": "deepseek-r1",
+              "name": "DeepSeek-R1",
+              "features": [
+                "chat",
+                "reasoning"
+              ],
+              "notes": "火山方舟在线推理模型；用于复杂推理任务。"
             }
           ]
         }

@@ -27,5 +27,22 @@ public interface PostService {
 
     PageResponse<UserLikeResponse> getUserLikes(Long userId, Integer pageNum, Integer pageSize);
 
+    ForumMessageUnreadResponse getMessageUnreadCount(Long userId);
+
     PostListItem toPostListItem(ForumPost post, Long currentUserId);
+
+    void batchDeletePostsByAdmin(List<Long> ids);
+
+    void togglePin(Long id);
+
+    void toggleHighlight(Long id);
+
+    void toggleHidden(Long id);
+
+    PageResponse<PostListItem> getAdminPostList(Integer pageNum, Integer pageSize, String keyword, String status, String sortBy, Long topicId);
+
+    PageResponse<PostListItem> getRecommendedPosts(String type, Integer pageNum, Integer pageSize);
+
+    long countAllPosts();
+    long countByStatus(String status);
 }

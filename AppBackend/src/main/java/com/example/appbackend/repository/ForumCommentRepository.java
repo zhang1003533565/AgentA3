@@ -31,6 +31,14 @@ public interface ForumCommentRepository extends JpaRepository<ForumComment, Long
 
     long countByPostId(Long postId);
 
+    long countByPostIdInAndUserIdNot(List<Long> postIds, Long userId);
+
+    @Query("SELECT c FROM ForumComment c WHERE c.postId IN :postIds AND c.userId <> :userId AND c.status = :status ORDER BY c.createTime DESC")
+    List<ForumComment> findReceivedByPostIds(@Param("postIds") List<Long> postIds, @Param("userId") Long userId, @Param("status") String status);
+
+    long count();
+    long countByStatus(String status);
+
     @Modifying
     @Query("UPDATE ForumComment c SET c.likeCount = c.likeCount + 1 WHERE c.id = :id")
     void incrementLikeCount(@Param("id") Long id);
@@ -46,6 +54,12 @@ public interface ForumCommentRepository extends JpaRepository<ForumComment, Long
     @Modifying
     @Query("DELETE FROM ForumComment c WHERE c.postId = :postId")
     void deleteByPostId(@Param("postId") Long postId);
+
+    @Modifying
+    @Query("DELETE FROM ForumComment c WHERE c.postId = :postId AND c.parentId IS NOT NULL")
+    void deleteByPostIdChildren(@Param("postId") Long postId);
+
+    List<ForumComment> findByPostId(Long postId);
 
     @Modifying
     @Query("DELETE FROM ForumComment c WHERE c.id IN :ids")

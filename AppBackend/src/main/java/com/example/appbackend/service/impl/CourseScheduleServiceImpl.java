@@ -1,10 +1,12 @@
 package com.example.appbackend.service.impl;
 
+import com.example.appbackend.dto.ScheduleChangeSummary;
 import com.example.appbackend.entity.CourseSchedule;
 import com.example.appbackend.entity.User;
 import com.example.appbackend.repository.CourseScheduleRepository;
 import com.example.appbackend.repository.UserRepository;
 import com.example.appbackend.service.CourseScheduleService;
+import com.example.appbackend.util.CourseScheduleChangeAnalyzer;
 import com.example.appbackend.util.CourseScheduleParser;
 import com.example.appbackend.util.WeekCalculator;
 import org.slf4j.Logger;
@@ -42,8 +44,53 @@ public class CourseScheduleServiceImpl implements CourseScheduleService {
     }
 
     @Override
+    @Transactional
+    public void saveSchedule(Long userId, String studentId, String rawData, String academicYear, Integer semesterTerm, String semesterCode) {
+        saveScheduleAndSummarizeChanges(userId, studentId, rawData, academicYear, semesterTerm, semesterCode);
+    }
+
+    @Override
+    @Transactional
+    public ScheduleChangeSummary saveScheduleAndSummarizeChanges(
+            Long userId,
+            String studentId,
+            String rawData,
+            String academicYear,
+            Integer semesterTerm,
+            String semesterCode) {
+        List<CourseSchedule> oldSchedules = courseScheduleRepository.findByUserIdAndAcademicYearAndSemesterTerm(
+                userId,
+                academicYear,
+                semesterTerm
+        );
+        List<CourseSchedule> schedules = CourseScheduleParser.parse(rawData, userId, studentId);
+        schedules.forEach(schedule -> {
+            schedule.setAcademicYear(academicYear);
+            schedule.setSemesterTerm(semesterTerm);
+            schedule.setSemesterCode(semesterCode);
+        });
+        ScheduleChangeSummary changeSummary = CourseScheduleChangeAnalyzer.compare(oldSchedules, schedules);
+        log.info("指定学期课表解析完成，userId={}, studentId={}, academicYear={}, semesterTerm={}, 解析到有效课程数={}",
+                userId, studentId, academicYear, semesterTerm, schedules.size());
+
+        courseScheduleRepository.deleteByUserIdAndSemester(userId, academicYear, semesterTerm);
+        courseScheduleRepository.saveAll(schedules);
+        log.info("指定学期课表保存完成，userId={}, academicYear={}, semesterTerm={}, 保存课程数={}",
+                userId, academicYear, semesterTerm, schedules.size());
+        return changeSummary;
+    }
+
+    @Override
     public List<CourseSchedule> getUserSchedule(Long userId) {
         return courseScheduleRepository.findByUserId(userId);
+    }
+
+    @Override
+    public List<CourseSchedule> getUserSchedule(Long userId, String academicYear, Integer semesterTerm) {
+        if (academicYear == null || academicYear.trim().isEmpty() || semesterTerm == null) {
+            return getUserSchedule(userId);
+        }
+        return courseScheduleRepository.findByUserIdAndAcademicYearAndSemesterTerm(userId, academicYear.trim(), semesterTerm);
     }
 
     @Override
@@ -55,6 +102,12 @@ public class CourseScheduleServiceImpl implements CourseScheduleService {
     @Transactional
     public void deleteSchedule(Long userId) {
         courseScheduleRepository.deleteByUserId(userId);
+    }
+
+    @Override
+    @Transactional
+    public void deleteSchedule(Long userId, String academicYear, Integer semesterTerm) {
+        courseScheduleRepository.deleteByUserIdAndSemester(userId, academicYear, semesterTerm);
     }
 
     @Override
@@ -77,6 +130,19 @@ public class CourseScheduleServiceImpl implements CourseScheduleService {
     }
 
     @Override
+    public List<CourseSchedule> getCurrentWeekSchedule(Long userId, java.time.LocalDate semesterStart, String academicYear, Integer semesterTerm) {
+        int currentWeek = WeekCalculator.getCurrentWeek(semesterStart);
+        log.info("按指定学期计算当前周次，userId={}, academicYear={}, semesterTerm={}, semesterStart={}, currentWeek={}",
+                userId, academicYear, semesterTerm, semesterStart, currentWeek);
+
+        if (currentWeek <= 0) {
+            return List.of();
+        }
+
+        return getWeekSchedule(userId, currentWeek, academicYear, semesterTerm);
+    }
+
+    @Override
     public List<CourseSchedule> getWeekSchedule(Long userId, int week) {
         // 获取用户的所有课表
         List<CourseSchedule> allSchedules = courseScheduleRepository.findByUserId(userId);
@@ -91,6 +157,20 @@ public class CourseScheduleServiceImpl implements CourseScheduleService {
                 })
                 .collect(Collectors.toList());
         log.info("按周查询结果，userId={}, week={}, 命中课程数={}", userId, week, result.size());
+        return result;
+    }
+
+    @Override
+    public List<CourseSchedule> getWeekSchedule(Long userId, int week, String academicYear, Integer semesterTerm) {
+        List<CourseSchedule> allSchedules = getUserSchedule(userId, academicYear, semesterTerm);
+        log.info("按学期周次查询课表，userId={}, academicYear={}, semesterTerm={}, week={}, 学期课程数={}",
+                userId, academicYear, semesterTerm, week, allSchedules.size());
+
+        List<CourseSchedule> result = allSchedules.stream()
+                .filter(schedule -> WeekCalculator.isWeekInRange(schedule.getWeekRange(), week))
+                .collect(Collectors.toList());
+        log.info("按学期周次查询结果，userId={}, academicYear={}, semesterTerm={}, week={}, 命中课程数={}",
+                userId, academicYear, semesterTerm, week, result.size());
         return result;
     }
 
@@ -110,6 +190,12 @@ public class CourseScheduleServiceImpl implements CourseScheduleService {
     @Override
     @Transactional
     public void copyScheduleByShareCode(Long userId, String shareCode) {
+        copyScheduleByShareCode(userId, shareCode, null, null);
+    }
+
+    @Override
+    @Transactional
+    public void copyScheduleByShareCode(Long userId, String shareCode, String academicYear, Integer semesterTerm) {
         // 1. 根据分享码查找用户
         User sourceUser = userRepository.findByShareCode(shareCode)
                 .orElseThrow(() -> new RuntimeException("分享码无效"));
@@ -119,24 +205,47 @@ public class CourseScheduleServiceImpl implements CourseScheduleService {
             throw new RuntimeException("不能复制自己的课表");
         }
 
-        // 2. 删除当前用户已有的课表数据
-        courseScheduleRepository.deleteByUserId(userId);
+        boolean scopedCopy = academicYear != null && !academicYear.trim().isEmpty() && semesterTerm != null;
+        String targetAcademicYear = scopedCopy ? academicYear.trim() : null;
+        Integer targetSemesterTerm = scopedCopy ? semesterTerm : null;
 
-        // 3. 获取分享者的课表
-        List<CourseSchedule> sourceSchedules = courseScheduleRepository.findByUserId(sourceUser.getId());
+        // 2. 获取分享者的课表
+        List<CourseSchedule> sourceSchedules = scopedCopy
+                ? courseScheduleRepository.findByUserIdAndAcademicYearAndSemesterTerm(sourceUser.getId(), targetAcademicYear, targetSemesterTerm)
+                : courseScheduleRepository.findByUserId(sourceUser.getId());
+
+        if (scopedCopy && (sourceSchedules == null || sourceSchedules.isEmpty())) {
+            List<CourseSchedule> legacySchedules = courseScheduleRepository.findByUserId(sourceUser.getId()).stream()
+                    .filter(schedule -> schedule.getAcademicYear() == null && schedule.getSemesterTerm() == null)
+                    .collect(Collectors.toList());
+            if (!legacySchedules.isEmpty()) {
+                sourceSchedules = legacySchedules;
+            }
+        }
 
         if (sourceSchedules == null || sourceSchedules.isEmpty()) {
-            throw new RuntimeException("该用户的课表为空");
+            throw new RuntimeException(scopedCopy ? "该用户本学期课表为空" : "该用户的课表为空");
         }
+
+        // 3. 只覆盖目标学期；未指定学期时保留旧行为，覆盖全部课表
+        if (scopedCopy) {
+            courseScheduleRepository.deleteByUserIdAndSemester(userId, targetAcademicYear, targetSemesterTerm);
+        } else {
+            courseScheduleRepository.deleteByUserId(userId);
+        }
+
+        User targetUser = userRepository.findById(userId).orElse(null);
+        String targetStudentId = targetUser != null ? targetUser.getPersonalNumber() : null;
+        String copiedStudentId = targetStudentId != null ? targetStudentId : sourceUser.getPersonalNumber();
 
         // 4. 复制课表数据，设置为目标用户的课表
         List<CourseSchedule> copiedSchedules = sourceSchedules.stream().map(schedule -> {
             CourseSchedule newSchedule = new CourseSchedule();
             newSchedule.setUserId(userId);
-            // 使用当前用户的 personalNumber 作为 studentId，如果没有则使用源用户的 studentId
-            User targetUser = userRepository.findById(userId).orElse(null);
-            String targetStudentId = targetUser != null ? targetUser.getPersonalNumber() : null;
-            newSchedule.setStudentId(targetStudentId != null ? targetStudentId : sourceUser.getPersonalNumber());
+            newSchedule.setStudentId(copiedStudentId);
+            newSchedule.setAcademicYear(scopedCopy ? targetAcademicYear : schedule.getAcademicYear());
+            newSchedule.setSemesterTerm(scopedCopy ? targetSemesterTerm : schedule.getSemesterTerm());
+            newSchedule.setSemesterCode(scopedCopy ? semesterCodeForTerm(targetSemesterTerm) : schedule.getSemesterCode());
             newSchedule.setCourseName(schedule.getCourseName());
             newSchedule.setWeekRange(schedule.getWeekRange());
             newSchedule.setClassSessions(schedule.getClassSessions());
@@ -155,9 +264,14 @@ public class CourseScheduleServiceImpl implements CourseScheduleService {
             return newSchedule;
         }).collect(Collectors.toList());
 
-        System.out.println("DEBUG - 复制课表：从用户 " + sourceUser.getUsername() + " 到用户 " + userId + ", 课程数：" + copiedSchedules.size());
+        log.info("复制课表：fromUser={}, toUser={}, academicYear={}, semesterTerm={}, count={}",
+                sourceUser.getUsername(), userId, targetAcademicYear, targetSemesterTerm, copiedSchedules.size());
 
         // 5. 保存复制的课表
         courseScheduleRepository.saveAll(copiedSchedules);
+    }
+
+    private String semesterCodeForTerm(Integer semesterTerm) {
+        return Integer.valueOf(2).equals(semesterTerm) ? "12" : "3";
     }
 }

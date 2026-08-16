@@ -1,5 +1,5 @@
 from app.langgraph.state import ConversationState
-from app.multi_agents.textbook_knowledge_agent.agent import textbook_knowledge_agent
+from app.services.data_store import data_store
 
 
 def search_results_node(state: ConversationState) -> None:
@@ -11,13 +11,16 @@ def search_results_node(state: ConversationState) -> None:
             "detail": {"skipped": True, "reason": "empty keyword"},
         })
         return
-    state.matched_results, retrieval_meta = textbook_knowledge_agent.retrieve_with_meta(
-        authorization=state.authorization,
-        intent=state.intent,
-        keyword=state.search_keyword,
-        input_text=state.input_text,
-        rag_strategy=state.rag_strategy,
-    )
+    if state.intent == "schedule":
+        state.matched_results = data_store.search_schedule(state.authorization, state.input_text)
+    else:
+        state.matched_results = data_store.search_keyword(state.authorization, state.search_keyword)
+    retrieval_meta = {
+        "javaBackendCount": len(state.matched_results),
+        "documentCount": 0,
+        "localKnowledgeBase": False,
+        "localRagStrategies": False,
+    }
     state.retrieval_meta.update(retrieval_meta)
     state.trace.append({
         "stage": "retrieve",

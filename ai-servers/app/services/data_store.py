@@ -1,12 +1,12 @@
 from typing import Any, Dict, List
 
-from app.rag.retrievers import JavaBackendRetriever, java_backend_retriever
+from app.services.java_backend import JavaBackendRetriever, java_backend_retriever
 
 
 class DataStore:
     """
     Backward-compatible adapter.
-    Real retrieval implementation now lives in app/rag/retrievers/java_backend.py.
+    Adapter around Java backend APIs. Third-party knowledge-base connections belong in Java.
     """
 
     def __init__(self, retriever: JavaBackendRetriever) -> None:
@@ -39,8 +39,20 @@ class DataStore:
     def search_schedule(self, authorization: str, input_text: str) -> List[Dict[str, Any]]:
         return self._retriever.search_schedule(authorization, input_text)
 
+    def search_service_tool(self, authorization: str, tool_name: str, input_text: str) -> List[Dict[str, Any]]:
+        return self._retriever.search_service_tool(authorization, tool_name, input_text)
+
+    def search_service_tool_with_meta(self, authorization: str, tool_name: str, input_text: str) -> tuple[List[Dict[str, Any]], Dict[str, Any]]:
+        return self._retriever.search_service_tool_with_meta(authorization, tool_name, input_text)
+
     def search_keyword(self, authorization: str, keyword: str) -> List[Dict[str, Any]]:
         return self._retriever.search_keyword(authorization, keyword)
+
+    def get_tool_cache_stats(self) -> Dict[str, Any]:
+        return self._retriever.tool_cache_stats()
+
+    def clear_tool_cache(self) -> Dict[str, Any]:
+        return self._retriever.clear_tool_cache()
 
 
 

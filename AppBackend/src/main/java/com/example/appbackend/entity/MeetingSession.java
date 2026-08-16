@@ -33,6 +33,9 @@ public class MeetingSession {
     @Column(name = "user_id", nullable = false, columnDefinition = "BIGINT NOT NULL COMMENT '创建用户ID'")
     private Long userId;
 
+    @Column(name = "create_user_id", columnDefinition = "BIGINT COMMENT '会议创建人ID'")
+    private Long createUserId;
+
     @Column(nullable = false, length = 120, columnDefinition = "VARCHAR(120) NOT NULL COMMENT '会议标题'")
     private String title;
 
@@ -44,6 +47,9 @@ public class MeetingSession {
 
     @Column(name = "scheduled_start_time", columnDefinition = "DATETIME COMMENT '预约开始时间'")
     private LocalDateTime scheduledStartTime;
+
+    @Column(name = "expected_duration_minutes", columnDefinition = "INT DEFAULT 30 COMMENT '预计时长（分钟）'")
+    private Integer expectedDurationMinutes = 30;
 
     @Column(name = "start_time", columnDefinition = "DATETIME COMMENT '实际开始时间'")
     private LocalDateTime startTime;
@@ -81,6 +87,9 @@ public class MeetingSession {
         }
         if (resultCount == null) {
             resultCount = 0;
+        }
+        if (expectedDurationMinutes == null) {
+            expectedDurationMinutes = 30;
         }
     }
 

@@ -19,18 +19,26 @@ public interface SecondhandService {
     SecondhandDTO.ItemVO createItem(SecondhandDTO.ItemRequest req, Long userId);
     void updateItem(Long id, SecondhandDTO.ItemRequest req, Long userId);
     void deleteItem(Long id, Long userId, boolean isAdmin);
-    PageResponse<SecondhandDTO.ItemVO> getMyItems(Long userId, Integer current, Integer size, Integer status);
-    void offlineItem(Long id, Long userId);
-    void onlineItem(Long id, Long userId);
-    void soldItem(Long id, Long userId);
+    PageResponse<SecondhandDTO.ItemVO> getMyItems(Long userId, Integer current, Integer size, Integer status, String tradeType);
+    void offlineItem(Long id, Long userId, boolean isAdmin);
+    void onlineItem(Long id, Long userId, boolean isAdmin);
+    void soldItem(Long id, Long userId, boolean isAdmin);
     PageResponse<SecondhandDTO.ItemVO> getAdminList(Integer current, Integer size, String keyword,
-                                                     Long categoryId, Integer status, Long userId);
+                                                     Long categoryId, Integer status, String tradeType, Long userId);
     void batchOperation(SecondhandDTO.BatchRequest req);
+
+    // ========== 用户公开主页 ==========
+    PageResponse<SecondhandDTO.ItemVO> getUserPublicItems(Long userId, Integer current, Integer size);
 
     // ========== 收藏 ==========
     void favoriteItem(Long itemId, Long userId);
     void unfavoriteItem(Long itemId, Long userId);
     PageResponse<SecondhandDTO.ItemVO> getMyFavorites(Long userId, Integer current, Integer size);
+
+    // ========== 浏览历史 ==========
+    void recordBrowseHistory(Long userId, Long itemId);
+    PageResponse<SecondhandDTO.BrowseHistoryVO> getBrowseHistory(Long userId, Integer current, Integer size);
+    void clearBrowseHistory(Long userId);
 
     // ========== 统计 ==========
     SecondhandDTO.StatisticsVO getStatistics(String startDate, String endDate);

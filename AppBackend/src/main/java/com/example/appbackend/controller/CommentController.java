@@ -3,6 +3,7 @@ package com.example.appbackend.controller;
 import com.example.appbackend.dto.CommentRequest;
 import com.example.appbackend.dto.CommentResponse;
 import com.example.appbackend.dto.PageResponse;
+import com.example.appbackend.dto.ReceivedCommentResponse;
 import com.example.appbackend.entity.Result;
 import com.example.appbackend.exception.BusinessException;
 import com.example.appbackend.service.CommentService;
@@ -10,6 +11,8 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
 
 @RestController
 @RequestMapping("/api/forum/comments")
@@ -58,6 +61,25 @@ public class CommentController {
         checkAdmin(request);
         commentService.deleteCommentByAdmin(id);
         return Result.success("删除成功", null);
+    }
+
+    @DeleteMapping("/admin/batch")
+    public Result<Void> batchDeleteComments(@RequestBody List<Long> ids, HttpServletRequest request) {
+        if (getCurrentUserId(request) == null) {
+            return Result.unauthorized("请先登录");
+        }
+        checkAdmin(request);
+        commentService.batchDeleteComments(ids);
+        return Result.success("批量删除成功", null);
+    }
+
+    @GetMapping("/received")
+    public Result<java.util.List<ReceivedCommentResponse>> getReceivedComments(HttpServletRequest request) {
+        Long userId = getCurrentUserId(request);
+        if (userId == null) {
+            return Result.unauthorized("请先登录");
+        }
+        return Result.success("操作成功", commentService.getReceivedComments(userId));
     }
 
     @GetMapping

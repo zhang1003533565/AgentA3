@@ -1,5 +1,6 @@
 package com.example.appbackend.entity;
 
+import com.example.appbackend.persistence.EncryptedStringConverter;
 import jakarta.persistence.*;
 import lombok.Data;
 import java.time.LocalDateTime;
@@ -47,13 +48,15 @@ public class User {
     @Column(name = "class_name", length = 50, columnDefinition = "VARCHAR(50) COMMENT '班级'")
     private String className;
 
-    @Column(name = "jwx_student_id", length = 50, columnDefinition = "VARCHAR(50) COMMENT '教务系统学号'")
+    @Convert(converter = EncryptedStringConverter.class)
+    @Column(name = "jwx_student_id", length = 512, columnDefinition = "VARCHAR(512) COMMENT '加密后的教务系统学号'")
     private String jwxStudentId;
 
     @Column(name = "share_code", length = 32, unique = true, columnDefinition = "VARCHAR(32) UNIQUE COMMENT '课表分享码'")
     private String shareCode;
 
-    @Column(name = "jwx_password", length = 100, columnDefinition = "VARCHAR(100) COMMENT '教务系统密码'")
+    @Convert(converter = EncryptedStringConverter.class)
+    @Column(name = "jwx_password", length = 512, columnDefinition = "VARCHAR(512) COMMENT '加密后的教务系统密码'")
     private String jwxPassword;
 
     @Column(name = "semester_start", columnDefinition = "DATE COMMENT '学期开始日期'")

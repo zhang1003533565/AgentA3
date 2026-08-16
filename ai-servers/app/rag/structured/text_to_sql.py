@@ -13,6 +13,9 @@ class SqlQueryResult:
 
 
 class TextToSqlService:
+    def __init__(self, sqlite_path: Optional[str] = None) -> None:
+        self.sqlite_path = sqlite_path or ""
+
     def generate_sql(self, user_query: str, schema: Dict[str, Any]) -> str:
         query = (user_query or "").strip()
         compact = re.sub(r"\s+", "", query.lower())
@@ -50,7 +53,15 @@ class TextToSqlService:
     def execute_sql(self, sql: str) -> List[Dict[str, Any]]:
         if not self.validate_readonly(sql):
             raise ValueError("Only readonly SELECT SQL is allowed")
-        return []
+        if not self.sqlite_path:
+            return []
+        path = Path(self.sqlite_path)
+        if not path.exists():
+            return []
+        uri = f"file:{path.resolve()}?mode=ro"
+        with sqlite3.connect(uri, uri=True) as conn:
+            conn.row_factory = sqlite3.Row
+            return [dict(row) for row in conn.execute(sql).fetchall()]
 
     def introspect_sqlite_schema(self, sqlite_path: Optional[str] = None) -> Dict[str, Any]:
         active_path = sqlite_path or ""

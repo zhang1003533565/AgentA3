@@ -1,0 +1,76 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:document xmlns:wpc="http://schemas.microsoft.com/office/word/2010/wordprocessingCanvas"
+            xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+            xmlns:o="urn:schemas-microsoft-com:office:office"
+            xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+            xmlns:m="http://schemas.openxmlformats.org/officeDocument/2006/math" xmlns:v="urn:schemas-microsoft-com:vml"
+            xmlns:wp14="http://schemas.microsoft.com/office/word/2010/wordprocessingDrawing"
+            xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"
+            xmlns:w10="urn:schemas-microsoft-com:office:word"
+            xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+            xmlns:w14="http://schemas.microsoft.com/office/word/2010/wordml"
+            xmlns:w15="http://schemas.microsoft.com/office/word/2012/wordml"
+            xmlns:wpg="http://schemas.microsoft.com/office/word/2010/wordprocessingGroup"
+            xmlns:wpi="http://schemas.microsoft.com/office/word/2010/wordprocessingInk"
+            xmlns:wne="http://schemas.microsoft.com/office/word/2006/wordml"
+            xmlns:wps="http://schemas.microsoft.com/office/word/2010/wordprocessingShape" mc:Ignorable="w14 w15 wp14">
+    <w:body>
+        <w:p w:rsidR="00C51EF4" w:rsidRPr="00771D19" w:rsidRDefault="00C51EF4" w:rsidP="00C51EF4">
+            <w:pPr>
+                <w:jc w:val="center"/>
+                <w:rPr>
+                    <w:rFonts w:eastAsia="黑体"/>
+                    <w:b/>
+                    <w:sz w:val="50"/>
+                    <w:szCs w:val="50"/>
+                </w:rPr>
+            </w:pPr>
+            <w:r w:rsidRPr="00771D19">
+                <w:rPr>
+                    <w:rFonts w:eastAsia="黑体" w:hint="eastAsia"/>
+                    <w:b/>
+                    <w:sz w:val="50"/>
+                    <w:szCs w:val="50"/>
+                </w:rPr>
+                <w:t>%TITLE%</w:t>
+            </w:r>
+        </w:p>
+        %SUBTITLE%
+        %TIME%
+        %NAME%
+        <w:p w:rsidR="00D8177A" w:rsidRDefault="00D8177A" w:rsidP="00C51EF4">
+            <w:pPr>
+                <w:jc w:val="center"/>
+                <w:rPr>
+                    <w:rFonts w:hint="eastAsia"/>
+                </w:rPr>
+            </w:pPr>
+        </w:p>
+        %SCORE%
+        %PRECAUTIONS%
+        <w:p w:rsidR="00C51EF4" w:rsidRDefault="00C51EF4" w:rsidP="00C51EF4"/>
+        <w:p w:rsidR="00C51EF4" w:rsidRPr="00FF0500" w:rsidRDefault="00C51EF4" w:rsidP="00C51EF4"/>
+
+        %QUESTION%
+
+        %ANSWER%
+        <w:p w:rsidR="00083677" w:rsidRPr="00CC4700" w:rsidRDefault="00AD5E70" w:rsidP="00CC4700">
+            <w:pPr>
+                <w:widowControl/>
+                <w:jc w:val="left"/>
+                <w:rPr>
+                    <w:rFonts w:hint="eastAsia"/>
+                </w:rPr>
+            </w:pPr>
+            <w:bookmarkStart w:id="0" w:name="_GoBack"/>
+            <w:bookmarkEnd w:id="0"/>
+        </w:p>
+
+
+        <w:p w:rsidR="00083677" w:rsidRPr="00C51EF4" w:rsidRDefault="00B24D52" w:rsidP="00C51EF4"/>
+        <w:sectPr w:rsidR="00083677" w:rsidRPr="00C51EF4" w:rsidSect="007A55E5">
+            %HEADER%
+            %PageSetting%
+        </w:sectPr>
+    </w:body>
+</w:document>

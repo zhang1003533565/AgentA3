@@ -28,5 +28,7 @@ public class PostListItem {
     private Boolean isLiked;
     private Boolean isFavorited;
     private String status;
+    private Integer pinOrder;
+    private Boolean highlighted;
     private LocalDateTime createTime;
 }

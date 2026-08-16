@@ -1,0 +1,113 @@
+import { request } from '../utils/request.js'
+
+export function getCurrentSchedule(params) {
+  return request({
+    url: '/api/browser/jwx/schedule/current',
+    method: 'GET',
+    data: params
+  })
+}
+
+export function getAllSchedules(params) {
+  return request({
+    url: '/api/schedule',
+    method: 'GET',
+    data: params
+  })
+}
+
+export function getScheduleDetail(courseId) {
+  return request({
+    url: `/api/browser/jwx/schedule/${courseId}`,
+    method: 'GET'
+  })
+}
+
+export function importScheduleAuto(data) {
+  return request({
+    url: '/api/browser/jwx/schedule/auto',
+    method: 'POST',
+    data
+  })
+}
+
+export function getScheduleImportProgress() {
+  return request({
+    url: '/api/browser/jwx/schedule/import-progress',
+    method: 'GET'
+  })
+}
+
+export function getSchedulePeriods() {
+  return request({
+    url: '/api/schedule/periods',
+    method: 'GET'
+  })
+}
+
+export function updateSchedulePeriods(data) {
+  return request({
+    url: '/api/schedule/periods',
+    method: 'PUT',
+    data
+  })
+}
+
+export function copyScheduleByShareCode(shareCode, semester = {}) {
+  return request({
+    url: '/api/schedule/copy',
+    method: 'POST',
+    data: {
+      shareCode,
+      academicYear: semester.academicYear,
+      semesterTerm: semester.semesterTerm
+    }
+  })
+}
+
+export function getCurrentUser() {
+  return request({
+    url: '/api/auth/current-user',
+    method: 'GET'
+  })
+}
+
+export function checkJwxBind() {
+  return request({
+    url: '/api/browser/jwx/user/check-jwx-bind',
+    method: 'GET'
+  })
+}
+
+export function getScheduleSettings() {
+  return request({
+    url: '/api/schedule/settings',
+    method: 'GET'
+  })
+}
+
+export function updateScheduleSettings(data) {
+  return request({
+    url: '/api/schedule/settings',
+    method: 'PUT',
+    data
+  })
+}
+
+export function clearSemesterSchedule(semester) {
+  const academicYear = encodeURIComponent(semester.academicYear)
+  const semesterTerm = encodeURIComponent(semester.semesterTerm)
+  return request({
+    url: `/api/schedule/settings/semesters/${academicYear}/${semesterTerm}/courses`,
+    method: 'DELETE'
+  })
+}
+
+export function deleteScheduleSemester(semester) {
+  const academicYear = encodeURIComponent(semester.academicYear)
+  const semesterTerm = encodeURIComponent(semester.semesterTerm)
+  return request({
+    url: `/api/schedule/settings/semesters/${academicYear}/${semesterTerm}`,
+    method: 'DELETE'
+  })
+}

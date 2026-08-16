@@ -1,0 +1,49 @@
+/**
+ * uni-app 全局样式变量
+ * 接入智慧校园设计规范（theme.scss）：克制、模块化、无线条
+ */
+@import "@/theme.scss";
+
+// 覆盖全局主题色：浅薄荷绿低饱和版
+$color-primary: #86C9A8;
+$color-primary-light: #A8DDC2;
+$color-primary-bg: #E8F8F2;
+$color-primary-text: #57A77D;
+
+$page-bg: $color-bg-canvas;
+$card-bg: $color-bg-block;
+$module-bg: $color-bg-block;
+$color-module: $color-bg-canvas;
+$card-radius: $radius-base-rpx;
+$card-shadow: none;                 /* 无影化：严禁 box-shadow */
+
+$color-title: $color-text-title;
+$color-subtitle: $color-text-body;
+$color-desc: $color-text-secondary;
+
+$uni-border-color: $color-divider;  /* 层次用 1px 极细分割线 #EEEEEE */
+$uni-color-primary: $color-primary;
+$uni-color-success: $color-success;
+$uni-color-warning: $color-warning;
+$uni-color-error: $color-error;
+
+$uni-text-color: $color-text-body;
+$uni-text-color-inverse: #fff;
+$uni-text-color-grey: $color-text-secondary;
+$uni-text-color-placeholder: $color-text-secondary;
+$uni-text-color-disable: #c0c0c0;
+
+$uni-bg-color: $color-bg-block;
+$uni-bg-color-grey: $color-bg-page;
+$uni-bg-color-hover: $color-bg-hover;
+$uni-bg-color-mask: $color-bg-mask;
+
+$uni-border-radius-sm: $radius-sm-rpx;
+$uni-border-radius-base: $radius-base-rpx;
+$uni-border-radius-lg: $radius-lg-rpx;
+$uni-border-radius-circle: $radius-circle;
+
+$uni-font-size-sm: $font-size-secondary;
+$uni-font-size-base: $font-size-body;
+$uni-font-size-lg: $font-size-title;
+$uni-opacity-disabled: 0.3;

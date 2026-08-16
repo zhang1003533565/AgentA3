@@ -1,0 +1,213 @@
+name: agent-a3-submission
+
+services:
+  config-guard:
+    image: ${REDIS_IMAGE:-redis:7.4.2-alpine}
+    restart: "no"
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?MYSQL_ROOT_PASSWORD must be set}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be set}
+      AI_INTERNAL_TOKEN: ${AI_INTERNAL_TOKEN:?AI_INTERNAL_TOKEN must be set}
+      NEO4J_PASSWORD: ${NEO4J_PASSWORD:?NEO4J_PASSWORD must be set}
+    command:
+      - /bin/sh
+      - -ec
+      - |
+        for value in "$$MYSQL_ROOT_PASSWORD" "$$JWT_SECRET" "$$AI_INTERNAL_TOKEN" "$$NEO4J_PASSWORD"; do
+          normalized="$$(printf '%s' "$$value" | tr '[:upper:]' '[:lower:]')"
+          case "$$normalized" in
+            *change-me*|*change_me*|*changeme*)
+              echo "[FAIL] submission secrets must not use CHANGE_ME placeholders" >&2
+              exit 1
+              ;;
+          esac
+        done
+        [ "$${#JWT_SECRET}" -ge 32 ] || { echo "[FAIL] JWT_SECRET must contain at least 32 characters" >&2; exit 1; }
+        [ "$${#AI_INTERNAL_TOKEN}" -ge 32 ] || { echo "[FAIL] AI_INTERNAL_TOKEN must contain at least 32 characters" >&2; exit 1; }
+        [ "$${#NEO4J_PASSWORD}" -ge 8 ] || { echo "[FAIL] NEO4J_PASSWORD must contain at least 8 characters" >&2; exit 1; }
+
+  mysql:
+    image: ${MYSQL_IMAGE:-mysql:8.4.5}
+    restart: unless-stopped
+    depends_on:
+      config-guard:
+        condition: service_completed_successfully
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?MYSQL_ROOT_PASSWORD must be set}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-smart-campus}
+      TZ: Asia/Shanghai
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p\"$$MYSQL_ROOT_PASSWORD\" --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 18
+      start_period: 20s
+
+  redis:
+    image: ${REDIS_IMAGE:-redis:7.4.2-alpine}
+    restart: unless-stopped
+    depends_on:
+      config-guard:
+        condition: service_completed_successfully
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+
+  neo4j:
+    image: ${NEO4J_IMAGE:-neo4j:5.26-community}
+    restart: unless-stopped
+    depends_on:
+      config-guard:
+        condition: service_completed_successfully
+    environment:
+      NEO4J_AUTH: "neo4j/${NEO4J_PASSWORD:?NEO4J_PASSWORD must be set}"
+      NEO4J_server_memory_heap_initial__size: ${NEO4J_HEAP_INITIAL:-256m}
+      NEO4J_server_memory_heap_max__size: ${NEO4J_HEAP_MAX:-512m}
+      NEO4J_server_memory_pagecache_size: ${NEO4J_PAGECACHE:-512m}
+    volumes:
+      - neo4j-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "password=\"$${NEO4J_AUTH#*/}\"; cypher-shell -u neo4j -p \"$$password\" 'RETURN 1' >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 5s
+      retries: 18
+      start_period: 25s
+
+  backend:
+    image: ${BACKEND_IMAGE:-agent-a3/backend}:${IMAGE_TAG:-submission}
+    build:
+      context: ../AppBackend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      neo4j:
+        condition: service_healthy
+    environment:
+      TZ: Asia/Shanghai
+      SERVER_PORT: "8080"
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/${MYSQL_DATABASE:-smart-campus}?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai
+      SPRING_DATASOURCE_USERNAME: root
+      SPRING_DATASOURCE_PASSWORD: ${MYSQL_ROOT_PASSWORD:?MYSQL_ROOT_PASSWORD must be set}
+      SPRING_SQL_INIT_MODE: never
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be set}
+      JWT_EXPIRATION_MS: ${JWT_EXPIRATION_MS:-86400000}
+      AI_INTERNAL_TOKEN: ${AI_INTERNAL_TOKEN:?AI_INTERNAL_TOKEN must be set}
+      AI_PYTHON_BASE_URL: http://ai-server:8081
+      AI_PYTHON_TIMEOUT_SECONDS: ${AI_PYTHON_TIMEOUT_SECONDS:-65}
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      NEO4J_ENABLED: "true"
+      NEO4J_URI: bolt://neo4j:7687
+      NEO4J_USERNAME: neo4j
+      NEO4J_PASSWORD: ${NEO4J_PASSWORD:?NEO4J_PASSWORD must be set}
+      FILE_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost:3000}
+      EXAM_PAPER_PREVIEW_SOFFICE_PATH: /usr/bin/soffice
+      JAVA_TOOL_OPTIONS: ${JAVA_TOOL_OPTIONS:--Xms256m -Xmx1024m}
+      KNOWLEDGE_MAXKB_TIMEOUT_SECONDS: ${KNOWLEDGE_MAXKB_TIMEOUT_SECONDS:-30}
+      TENCENT_MAP_KEY: ${TENCENT_MAP_KEY:-}
+      TENCENT_COS_SECRET_ID: ${TENCENT_COS_SECRET_ID:-}
+      TENCENT_COS_SECRET_KEY: ${TENCENT_COS_SECRET_KEY:-}
+      AMAP_APP_KEY: ${AMAP_APP_KEY:-}
+      AMAP_WEB_KEY: ${AMAP_WEB_KEY:-}
+      ALIYUN_OSS_ACCESS_KEY_ID: ${ALIYUN_OSS_ACCESS_KEY_ID:-}
+      ALIYUN_OSS_ACCESS_KEY_SECRET: ${ALIYUN_OSS_ACCESS_KEY_SECRET:-}
+    ports:
+      - "${BACKEND_BIND_ADDRESS:-127.0.0.1}:${BACKEND_PORT:-18080}:8080"
+    volumes:
+      - backend-uploads:/app/uploads
+    tmpfs:
+      - /tmp/agent-a3-exam-preview
+    networks:
+      default:
+        aliases:
+          # AppWeb/nginx.conf keeps this legacy upstream name. The alias makes
+          # the submission network work without changing existing deployments.
+          - smart-campus-backend
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:8080/actuator/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 18
+      start_period: 45s
+
+  ai-server:
+    image: ${AI_SERVER_IMAGE:-agent-a3/ai-server}:${IMAGE_TAG:-submission}
+    build:
+      context: ../ai-servers
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      PYTHONUNBUFFERED: "1"
+      AI_INTERNAL_TOKEN: ${AI_INTERNAL_TOKEN:?AI_INTERNAL_TOKEN must be set}
+      JAVA_BACKEND_BASE_URL: http://backend:8080
+      REDIS_URL: redis://redis:6379/0
+      AI_EXPORT_ROOT: /app/data/ai-exports
+      AI_TOOL_CACHE_ENABLED: ${AI_TOOL_CACHE_ENABLED:-true}
+      AI_TOOL_CACHE_TTL_SECONDS: ${AI_TOOL_CACHE_TTL_SECONDS:-180}
+      AI_TOOL_CACHE_MAX_ENTRIES: ${AI_TOOL_CACHE_MAX_ENTRIES:-1000}
+      PPT_DEFAULT_TEMPLATE: ${PPT_DEFAULT_TEMPLATE:-general}
+      PPT_TASK_TTL_SECONDS: ${PPT_TASK_TTL_SECONDS:-604800}
+      PPT_SOURCE_FILE_TTL_SECONDS: ${PPT_SOURCE_FILE_TTL_SECONDS:-86400}
+      AI_PPT_SOURCE_ROOT: /app/data/ppt-sources
+    ports:
+      - "${AI_BIND_ADDRESS:-127.0.0.1}:${AI_PORT:-18081}:8081"
+    volumes:
+      - ai-exports:/app/data/ai-exports
+      - ppt-sources:/app/data/ppt-sources
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - import urllib.request; urllib.request.urlopen('http://127.0.0.1:8081/healthz', timeout=3).read()
+      interval: 10s
+      timeout: 5s
+      retries: 18
+      start_period: 25s
+
+  web:
+    image: ${WEB_IMAGE:-agent-a3/web}:${IMAGE_TAG:-submission}
+    build:
+      context: ../AppWeb
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+      ai-server:
+        condition: service_healthy
+    ports:
+      - "${WEB_BIND_ADDRESS:-0.0.0.0}:${WEB_PORT:-3000}:80"
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--output-document=-", "http://127.0.0.1/"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
+volumes:
+  mysql-data:
+  redis-data:
+  neo4j-data:
+  backend-uploads:
+  ai-exports:
+  ppt-sources:

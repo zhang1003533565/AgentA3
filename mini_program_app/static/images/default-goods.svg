@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="320" height="320" viewBox="0 0 320 320" role="img" aria-label="Default goods image">
+  <defs>
+    <linearGradient id="bg" x1="44" y1="36" x2="276" y2="284" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#F7FAFC"/>
+      <stop offset="1" stop-color="#E6EEF8"/>
+    </linearGradient>
+    <linearGradient id="bag" x1="96" y1="86" x2="224" y2="238" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#EEF4FB"/>
+    </linearGradient>
+  </defs>
+  <rect width="320" height="320" rx="28" fill="url(#bg)"/>
+  <circle cx="252" cy="76" r="28" fill="#D6E4F5"/>
+  <circle cx="70" cy="248" r="34" fill="#DCE9F8"/>
+  <path d="M98 126h124l-11 112H109L98 126Z" fill="url(#bag)" stroke="#7B8CA5" stroke-width="8" stroke-linejoin="round"/>
+  <path d="M128 126c0-24 14-42 32-42s32 18 32 42" fill="none" stroke="#7B8CA5" stroke-width="8" stroke-linecap="round"/>
+  <path d="M134 170h52" stroke="#AAB8CA" stroke-width="8" stroke-linecap="round"/>
+  <path d="M134 194h38" stroke="#C1CDDA" stroke-width="8" stroke-linecap="round"/>
+</svg>

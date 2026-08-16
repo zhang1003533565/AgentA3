@@ -17,14 +17,20 @@ public class Dish {
     @Column(name = "name", nullable = false, length = 100, columnDefinition = "VARCHAR(100) NOT NULL COMMENT '菜品名称'")
     private String name;
 
-    @Column(name = "stall_id", nullable = false, columnDefinition = "BIGINT NOT NULL COMMENT '所属档口 ID'")
+    @Column(name = "stall_id")
     private Long stallId;
+
+    @Column(name = "stall_place_id")
+    private Long stallPlaceId;
 
     @Column(name = "price", nullable = false, columnDefinition = "DECIMAL(10,2) NOT NULL COMMENT '菜品价格'")
     private BigDecimal price;
 
     @Column(name = "category", length = 50, columnDefinition = "VARCHAR(50) COMMENT '菜品分类'")
     private String category;
+
+    @Column(name = "cuisine_id")
+    private Long cuisineId;
 
     @Column(name = "image_url", length = 255, columnDefinition = "VARCHAR(255) COMMENT '菜品图片 URL'")
     private String imageUrl;
@@ -64,4 +70,12 @@ public class Dish {
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "stall_id", insertable = false, updatable = false)
     private CanteenStall stall;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "stall_place_id", insertable = false, updatable = false)
+    private MapPlace stallPlace;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "cuisine_id", insertable = false, updatable = false)
+    private DishCuisine cuisine;
 }

@@ -19,6 +19,15 @@ public class CourseSchedule {
     @Column(name = "student_id", length = 50, columnDefinition = "VARCHAR(50) COMMENT '学号'")
     private String studentId;
 
+    @Column(name = "academic_year", length = 20, columnDefinition = "VARCHAR(20) COMMENT '学年，如 2025-2026'")
+    private String academicYear;
+
+    @Column(name = "semester_term", columnDefinition = "INT COMMENT '学期：1-第一学期，2-第二学期'")
+    private Integer semesterTerm;
+
+    @Column(name = "semester_code", length = 10, columnDefinition = "VARCHAR(10) COMMENT '教务系统学期代码，如 3/12'")
+    private String semesterCode;
+
     @Column(name = "course_name", nullable = false, length = 200, columnDefinition = "VARCHAR(200) NOT NULL COMMENT '课程名称'")
     private String courseName;
 

@@ -42,9 +42,27 @@ export const parseImageList = (images) => {
     try {
       const parsed = JSON.parse(images)
       return Array.isArray(parsed) ? parsed.filter(Boolean) : []
-    } catch (error) {
+    } catch {
       return []
     }
   }
   return []
+}
+
+export const PHASE_CONFIG = {
+  upcoming: { text: '即将开始', color: 'gold' },
+  ongoing: { text: '进行中', color: 'green' },
+  ended: { text: '已结束', color: 'default' },
+  full: { text: '已满', color: 'red' },
+}
+
+export const getPhaseKey = (record) => {
+  if (!record) return 'upcoming'
+  const now = new Date()
+  const startTime = parseTime(record?.startTime)
+  const endTime = parseTime(record?.endTime)
+  if (record?.status === 'COMPLETED' || (endTime && now >= endTime)) return 'ended'
+  if (startTime && now >= startTime) return 'ongoing'
+  if ((Number(record?.currentPeople) || 0) >= (Number(record?.maxPeople) || 0)) return 'full'
+  return 'upcoming'
 }

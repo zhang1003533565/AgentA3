@@ -9,6 +9,7 @@ CATALOG_PATH = Path(__file__).with_name("catalog.json")
 MODALITY_LABELS = {
     "text": "语言模型",
     "vision": "视觉/视频理解",
+    "embedding": "向量模型",
     "image": "图片生成/编辑",
     "video": "视频生成/编辑",
     "audio": "语音/音频",

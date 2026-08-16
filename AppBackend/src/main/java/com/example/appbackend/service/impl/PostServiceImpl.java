@@ -1,6 +1,7 @@
 package com.example.appbackend.service.impl;
 
 import com.example.appbackend.dto.*;
+import com.example.appbackend.entity.ForumComment;
 import com.example.appbackend.entity.ForumLike;
 import com.example.appbackend.entity.ForumPost;
 import com.example.appbackend.entity.ForumTopic;
@@ -22,6 +23,8 @@ import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDateTime;
+import java.util.Comparator;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -31,6 +34,12 @@ public class PostServiceImpl implements PostService {
 
     private static final String STATUS_PUBLISHED = "PUBLISHED";
     private static final String STATUS_DELETED = "DELETED";
+    private static final String STATUS_HIDDEN = "HIDDEN";
+
+    /** 最新话题：最近 N 天内发布的帖子 */
+    private static final int RECENT_TOPIC_DAYS = 7;
+    /** 热门话题：综合热度 TOP N */
+    private static final int HOT_TOPIC_LIMIT = 20;
 
     @Autowired
     private ForumPostRepository postRepository;
@@ -66,6 +75,8 @@ public class PostServiceImpl implements PostService {
         post.setLikeCount(0);
         post.setCommentCount(0);
         post.setStatus(STATUS_PUBLISHED);
+        post.setPinOrder(0);
+        post.setHighlighted(false);
 
         ForumPost savedPost = postRepository.save(post);
         if (savedPost.getTopicId() != null) {
@@ -168,6 +179,8 @@ public class PostServiceImpl implements PostService {
                     UserPostResponse response = new UserPostResponse();
                     response.setId(post.getId());
                     response.setTitle(post.getTitle());
+                    response.setContent(post.getContent());
+                    response.setImages(post.getImages());
                     response.setViewCount(post.getViewCount());
                     response.setLikeCount(post.getLikeCount());
                     response.setCommentCount(post.getCommentCount());
@@ -191,12 +204,139 @@ public class PostServiceImpl implements PostService {
                     response.setId(like.getId());
                     response.setPostId(like.getTargetId());
                     ForumPost post = postRepository.findById(like.getTargetId()).orElse(null);
-                    response.setPostTitle(post != null && STATUS_PUBLISHED.equals(post.getStatus()) ? post.getTitle() : null);
+                    if (post != null && STATUS_PUBLISHED.equals(post.getStatus())) {
+                        response.setPostTitle(post.getTitle());
+                        response.setContent(post.getContent());
+                        response.setImages(post.getImages());
+                        response.setLikeCount(post.getLikeCount());
+                        response.setCommentCount(post.getCommentCount());
+                    }
                     response.setCreateTime(like.getCreateTime());
                     return response;
                 })
                 .collect(Collectors.toList());
         return new PageResponse<>(items, likePage.getTotalElements(), safePage, safeSize);
+    }
+
+    @Override
+    public ForumMessageUnreadResponse getMessageUnreadCount(Long userId) {
+        ForumMessageUnreadResponse response = new ForumMessageUnreadResponse(0L, 0L, 0L);
+        if (userId == null) {
+            return response;
+        }
+        // 我的帖子
+        List<ForumPost> myPosts = postRepository.findByUserIdAndStatus(userId, STATUS_PUBLISHED, PageRequest.of(0, 1000)).getContent();
+        if (myPosts.isEmpty()) {
+            return response;
+        }
+        // 收到的评论数：他人（非本人）评论了我的帖子（顶级评论 + 子评论）
+        List<Long> postIds = myPosts.stream().map(ForumPost::getId).collect(Collectors.toList());
+        long commentCount = commentRepository.countByPostIdInAndUserIdNot(postIds, userId);
+        response.setCommentCount(commentCount);
+        // 被点赞的帖子数
+        long likeCount = myPosts.stream().filter(p -> p.getLikeCount() != null && p.getLikeCount() > 0).count();
+        response.setLikeCount(likeCount);
+        // 系统通知数：公告话题（topicId=3）下的帖子数
+        long systemCount = topicRepository.countById(3L);
+        response.setSystemCount(systemCount);
+        return response;
+    }
+
+    @Override
+    public void batchDeletePostsByAdmin(List<Long> ids) {
+        if (ids == null || ids.isEmpty()) {
+            return;
+        }
+        ids.forEach(id -> postRepository.findById(id).ifPresent(this::softDeletePost));
+    }
+
+    @Override
+    public void togglePin(Long id) {
+        ForumPost post = postRepository.findById(id)
+                .orElseThrow(() -> new BusinessException(404, "帖子不存在"));
+        if (STATUS_DELETED.equals(post.getStatus())) {
+            throw new BusinessException(400, "已删除的帖子不能置顶");
+        }
+        int currentPin = post.getPinOrder() != null ? post.getPinOrder() : 0;
+        int newPin = currentPin > 0 ? 0 : 999999;
+        post.setPinOrder(newPin);
+        postRepository.save(post);
+    }
+
+    @Override
+    public void toggleHighlight(Long id) {
+        ForumPost post = postRepository.findById(id)
+                .orElseThrow(() -> new BusinessException(404, "帖子不存在"));
+        if (STATUS_DELETED.equals(post.getStatus())) {
+            throw new BusinessException(400, "已删除的帖子不能加精");
+        }
+        Boolean current = post.getHighlighted() != null ? post.getHighlighted() : false;
+        post.setHighlighted(!current);
+        postRepository.save(post);
+    }
+
+    @Override
+    public void toggleHidden(Long id) {
+        ForumPost post = postRepository.findById(id)
+                .orElseThrow(() -> new BusinessException(404, "帖子不存在"));
+        if (STATUS_DELETED.equals(post.getStatus())) {
+            throw new BusinessException(400, "已删除的帖子不能隐藏");
+        }
+        if (STATUS_HIDDEN.equals(post.getStatus())) {
+            post.setStatus(STATUS_PUBLISHED);
+        } else {
+            post.setStatus(STATUS_HIDDEN);
+        }
+        postRepository.save(post);
+    }
+
+    @Override
+    public PageResponse<PostListItem> getAdminPostList(Integer pageNum, Integer pageSize, String keyword, String status, String sortBy, Long topicId) {
+        Sort sort = resolveSort(sortBy);
+        int safePage = pageNum == null || pageNum < 1 ? 1 : pageNum;
+        int safeSize = pageSize == null || pageSize < 1 ? 10 : pageSize;
+        PageRequest pageRequest = PageRequest.of(safePage - 1, safeSize, sort);
+        Page<ForumPost> postPage = postRepository.findAdminPosts(topicId, status, keyword, pageRequest);
+        List<PostListItem> items = postPage.getContent().stream()
+                .map(post -> toPostListItem(post, null))
+                .collect(Collectors.toList());
+        return new PageResponse<>(items, postPage.getTotalElements(), safePage, safeSize);
+    }
+
+    @Override
+    public PageResponse<PostListItem> getRecommendedPosts(String type, Integer pageNum, Integer pageSize) {
+        // 最新标准：最近 RECENT_TOPIC_DAYS 天内发布的已发布帖子，按发布时间倒序
+        LocalDateTime since = LocalDateTime.now().minusDays(RECENT_TOPIC_DAYS);
+        List<ForumPost> recent = postRepository.findRecentPublished(since);
+
+        List<ForumPost> ordered;
+        if ("hot".equalsIgnoreCase(type)) {
+            // 热门标准：最新时间窗内按综合热度(点赞×3 + 评论×5 + 浏览×0.1)降序，取前 HOT_TOPIC_LIMIT 条
+            ordered = recent.stream()
+                    .sorted(Comparator.comparingDouble(this::heatScore).reversed())
+                    .limit(HOT_TOPIC_LIMIT)
+                    .collect(Collectors.toList());
+        } else {
+            // latest：findRecentPublished 已按 createTime 倒序
+            ordered = recent;
+        }
+
+        int safePage = pageNum == null || pageNum < 1 ? 1 : pageNum;
+        int safeSize = pageSize == null || pageSize < 1 ? 10 : pageSize;
+        int from = (safePage - 1) * safeSize;
+        List<PostListItem> items = ordered.stream()
+                .skip(Math.max(from, 0)).limit(safeSize)
+                .map(post -> toPostListItem(post, null))
+                .collect(Collectors.toList());
+        return new PageResponse<>(items, (long) ordered.size(), safePage, safeSize);
+    }
+
+    /** 综合热度：点赞权重最高，评论次之，浏览最低 */
+    private double heatScore(ForumPost post) {
+        int like = post.getLikeCount() != null ? post.getLikeCount() : 0;
+        int comment = post.getCommentCount() != null ? post.getCommentCount() : 0;
+        int view = post.getViewCount() != null ? post.getViewCount() : 0;
+        return like * 3.0 + comment * 5.0 + view * 0.1;
     }
 
     private ForumPost getVisiblePost(Long id) {
@@ -215,6 +355,15 @@ public class PostServiceImpl implements PostService {
         post.setStatus(STATUS_DELETED);
         favoriteRepository.deleteByPostId(post.getId());
         likeRepository.deleteByTargetIdAndTargetType(post.getId(), ForumLike.TARGET_TYPE_POST);
+        // 级联删除该帖子的所有评论及其点赞，确保删除后不留任何关联数据
+        List<ForumComment> comments = commentRepository.findByPostId(post.getId());
+        List<Long> commentIds = comments.stream().map(ForumComment::getId).collect(Collectors.toList());
+        if (!commentIds.isEmpty()) {
+            likeRepository.deleteByTargetIdsAndTargetType(commentIds, ForumLike.TARGET_TYPE_COMMENT);
+        }
+        // 先删子评论再删父评论，避免 parent_id 外键约束冲突
+        commentRepository.deleteByPostIdChildren(post.getId());
+        commentRepository.deleteByPostId(post.getId());
         postRepository.save(post);
         if (post.getTopicId() != null) {
             topicRepository.decrementPostCount(post.getTopicId());
@@ -245,12 +394,12 @@ public class PostServiceImpl implements PostService {
 
     private Sort resolveSort(String sortBy) {
         if ("likeCount".equalsIgnoreCase(sortBy)) {
-            return Sort.by(Sort.Direction.DESC, "likeCount", "createTime");
+            return Sort.by(Sort.Direction.DESC, "pinOrder", "likeCount", "createTime");
         }
         if ("commentCount".equalsIgnoreCase(sortBy)) {
-            return Sort.by(Sort.Direction.DESC, "commentCount", "createTime");
+            return Sort.by(Sort.Direction.DESC, "pinOrder", "commentCount", "createTime");
         }
-        return Sort.by(Sort.Direction.DESC, "createTime");
+        return Sort.by(Sort.Direction.DESC, "pinOrder", "createTime");
     }
 
     private HotPostItem toHotPostItem(ForumPost post) {
@@ -278,6 +427,8 @@ public class PostServiceImpl implements PostService {
         response.setLikeCount(post.getLikeCount());
         response.setCommentCount(post.getCommentCount());
         response.setStatus(post.getStatus());
+        response.setPinOrder(post.getPinOrder());
+        response.setHighlighted(post.getHighlighted());
         response.setCreateTime(post.getCreateTime());
         response.setUpdateTime(post.getUpdateTime());
         response.setUsername(resolveUserName(post.getUserId()));
@@ -305,6 +456,8 @@ public class PostServiceImpl implements PostService {
         item.setLikeCount(post.getLikeCount());
         item.setCommentCount(post.getCommentCount());
         item.setStatus(post.getStatus());
+        item.setPinOrder(post.getPinOrder());
+        item.setHighlighted(post.getHighlighted());
         item.setCreateTime(post.getCreateTime());
         item.setUsername(resolveUserName(post.getUserId()));
         userRepository.findById(post.getUserId()).ifPresent(user -> item.setAvatar(user.getAvatar()));
@@ -332,5 +485,15 @@ public class PostServiceImpl implements PostService {
         return userRepository.findById(userId)
                 .map(user -> user.getRealName() != null && !user.getRealName().isBlank() ? user.getRealName() : user.getUsername())
                 .orElse("匿名用户");
+    }
+
+    @Override
+    public long countAllPosts() {
+        return postRepository.count();
+    }
+
+    @Override
+    public long countByStatus(String status) {
+        return postRepository.countByStatus(status);
     }
 }

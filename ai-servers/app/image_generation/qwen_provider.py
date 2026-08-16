@@ -2,6 +2,7 @@ import base64
 import json
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 import uuid
 from typing import Any, Dict, List, Optional
@@ -31,6 +32,14 @@ CHART_PROMPT_PREFIXES = {
     "state": "A UML state machine diagram describing states and transitions for: ",
     "journey": "A user journey map showing stages, touchpoints, and emotions for: ",
     "concept": "A concept map connecting key ideas and relationships about: ",
+}
+
+IMAGE_CONTENT_TYPES = {
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".gif": "image/gif",
+    ".webp": "image/webp",
 }
 
 
@@ -145,6 +154,8 @@ class QwenImageProvider:
         model_id = request.model
         if not model_id:
             raise HTTPException(status_code=400, detail="未传入图片模型 ID，请通过请求体 model 传入")
+        if self._is_qwen_image_model(model_id):
+            return self._submit_qwen_image_task(request, model_id, final_prompt)
         if self._is_wan_image_model(model_id):
             wan_size = self._normalize_wan_size(request.size, model_id)
             payload = {
@@ -198,6 +209,47 @@ class QwenImageProvider:
             raise HTTPException(status_code=502, detail=f"Qwen 图片任务创建失败：{response}")
         return provider_task_id
 
+    def _submit_qwen_image_task(self, request: ImageGenerationRequest, model_id: str, final_prompt: str) -> str:
+        """qwen-image 系列使用多模态同步接口，直接返回结果。"""
+        payload = {
+            "model": model_id,
+            "input": {
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": [
+                            {"text": final_prompt},
+                        ],
+                    }
+                ],
+            },
+            "parameters": {},
+        }
+        if request.seed is not None:
+            payload["parameters"]["seed"] = request.seed
+        if request.negativePrompt:
+            payload["parameters"]["negative_prompt"] = request.negativePrompt
+
+        response = self._request(
+            "POST",
+            "/api/v1/services/aigc/multimodal-generation/generation",
+            body=payload,
+            api_key=request.apiKey,
+            base_url=request.baseUrl,
+            async_mode=False,
+        )
+        request_id = response.get("request_id", "")
+        if not request_id:
+            raise HTTPException(status_code=502, detail=f"Qwen Image 请求失败：{response}")
+
+        # 同步返回时，将结果存入 completed_tasks 直接用 request_id 作为 key
+        provider_task_id = request_id
+        # 构造一个 task 记录，用 request_id 作为伪 task_id 供 get_task 查找
+        self.completed_tasks[provider_task_id] = self._build_response(
+            provider_task_id, response, request=request, task_id=provider_task_id, mode="single"
+        )
+        return provider_task_id
+
     def _request(
         self,
         method: str,
@@ -205,12 +257,14 @@ class QwenImageProvider:
         body: Optional[Dict[str, Any]] = None,
         api_key: str = "",
         base_url: str = "",
+        async_mode: bool = True,
     ) -> Dict[str, Any]:
         headers = {
             "Authorization": f"Bearer {self._active_api_key(api_key)}",
             "Content-Type": "application/json",
-            "X-DashScope-Async": "enable",
         }
+        if async_mode:
+            headers["X-DashScope-Async"] = "enable"
         url = f"{self._active_base_url(base_url)}{path}"
         data = json.dumps(body).encode("utf-8") if body is not None else None
         request = urllib.request.Request(url, data=data, headers=headers, method=method)
@@ -236,9 +290,14 @@ class QwenImageProvider:
         output = payload.get("output", {}) if payload else {}
         provider_status = str(output.get("task_status", "")).upper()
         message = output.get("message") or payload.get("message") or ""
+        # 多模态同步接口直接返回 choices，无 task_status
+        has_choices = bool(output.get("choices"))
         if timeout:
             status = "running"
             message = message or "图片任务仍在生成中"
+        elif has_choices and not provider_status:
+            status = "success"
+            message = "生成完成"
         elif provider_status == "SUCCEEDED":
             status = "success"
             message = message or "生成完成"
@@ -257,6 +316,7 @@ class QwenImageProvider:
                 index=index,
                 url=item.get("url", ""),
                 base64=self._download_base64(item.get("url", "")) if request and request.returnType in {"base64", "url_and_base64"} else "",
+                contentType=self._image_content_type(item),
                 status="success" if item.get("url") else status,
                 seed=request.seed if request else None,
                 errorMessage="" if item.get("url") else message,
@@ -348,6 +408,11 @@ class QwenImageProvider:
         return value.startswith("wan2.6-image") or value.startswith("wan2.7-image")
 
     @staticmethod
+    def _is_qwen_image_model(model_id: str) -> bool:
+        value = (model_id or "").strip().lower()
+        return value.startswith("qwen-image")
+
+    @staticmethod
     def _extract_results_from_choices(output: Dict[str, Any]) -> List[Dict[str, str]]:
         extracted: List[Dict[str, str]] = []
         choices = output.get("choices") or []
@@ -359,8 +424,36 @@ class QwenImageProvider:
                     continue
                 image_url = str(content.get("image") or "").strip()
                 if image_url:
-                    extracted.append({"url": image_url})
+                    extracted.append({
+                        "url": image_url,
+                        "contentType": str(
+                            content.get("contentType")
+                            or content.get("content_type")
+                            or content.get("mimeType")
+                            or content.get("mime_type")
+                            or ""
+                        ),
+                    })
         return extracted
+
+    @staticmethod
+    def _image_content_type(item: Dict[str, Any]) -> str:
+        declared = str(
+            item.get("contentType")
+            or item.get("content_type")
+            or item.get("mimeType")
+            or item.get("mime_type")
+            or ""
+        ).split(";", 1)[0].strip().lower()
+        if declared.startswith("image/"):
+            return "image/jpeg" if declared == "image/jpg" else declared
+
+        image_url = str(item.get("url") or "").strip()
+        suffix = urllib.parse.urlparse(image_url).path.lower()
+        for extension, content_type in IMAGE_CONTENT_TYPES.items():
+            if suffix.endswith(extension):
+                return content_type
+        return ""
 
     @staticmethod
     def _normalize_wan_size(size: str, model_id: str) -> str:

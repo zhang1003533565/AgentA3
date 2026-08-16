@@ -11,6 +11,8 @@ public interface DishService {
      */
     List<DishDTO> getDishesByStallId(Long stallId);
 
+    List<DishDTO> getDishesByStallPlaceId(Long stallPlaceId);
+
     /**
      * 获取所有菜品
      */

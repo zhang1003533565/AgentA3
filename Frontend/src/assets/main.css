@@ -1,0 +1,212 @@
+@import './base.css';
+@import './features.css';
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+  color: #1f2937;
+  background: #f4f7fb;
+  font-family:
+    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI',
+    sans-serif;
+}
+
+button,
+input {
+  font: inherit;
+}
+
+button {
+  border: 0;
+  cursor: pointer;
+}
+
+#app {
+  min-height: 100vh;
+}
+
+.page {
+  min-height: 100vh;
+  padding: 76px 16px 24px;
+}
+
+.page--center {
+  display: grid;
+  place-items: center;
+  padding-bottom: 20px;
+}
+
+.phone-shell {
+  width: min(100%, 430px);
+  min-height: 100vh;
+  margin: 0 auto;
+  background: #f4f7fb;
+}
+
+.card {
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 14px 34px rgba(15, 23, 42, 0.06);
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 4px 18px;
+}
+
+.topbar h1 {
+  margin: 0;
+  color: #111827;
+  font-size: 24px;
+  line-height: 1.2;
+}
+
+.muted {
+  color: #6b7280;
+}
+
+.primary-button {
+  width: 100%;
+  min-height: 46px;
+  border-radius: 8px;
+  color: #ffffff;
+  background: #2563eb;
+  font-weight: 700;
+}
+
+.primary-button:disabled {
+  cursor: not-allowed;
+  background: #93c5fd;
+}
+
+.ghost-button {
+  min-height: 38px;
+  padding: 0 14px;
+  border: 1px solid #dbe3ef;
+  border-radius: 8px;
+  color: #2563eb;
+  background: #ffffff;
+  font-weight: 700;
+}
+
+.app-tab-nav__profile {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.app-tab-nav__avatar {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  min-height: 36px;
+  padding: 0;
+  border: 1px solid #dbe3ef;
+  border-radius: 50%;
+  overflow: hidden;
+  color: #2563eb;
+  background: #f8fafc;
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.app-tab-nav__avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.app-tab-nav__panel {
+  position: absolute;
+  right: 0;
+  top: 48px;
+  width: 220px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 14px 34px rgba(15, 23, 42, 0.1);
+  overflow: hidden;
+}
+
+.app-tab-nav__panel-section {
+  padding: 14px 16px;
+}
+
+.app-tab-nav__panel-section + .app-tab-nav__panel-section {
+  border-top: 1px solid #eef2f7;
+}
+
+.app-tab-nav__panel-section--list {
+  padding-top: 8px;
+  padding-bottom: 8px;
+}
+
+.app-tab-nav__name,
+.app-tab-nav__student {
+  margin: 0;
+}
+
+.app-tab-nav__name {
+  color: #111827;
+  font-size: 16px;
+  font-weight: 800;
+}
+
+.app-tab-nav__student {
+  margin-top: 8px;
+  color: #64748b;
+  font-size: 13px;
+}
+
+.app-tab-nav__panel-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  min-height: 38px;
+  padding: 0;
+  color: #1f2937;
+  background: transparent;
+  text-align: left;
+}
+
+.app-tab-nav__panel-row + .app-tab-nav__panel-row {
+  margin-top: 4px;
+}
+
+.app-tab-nav__panel-arrow {
+  color: #94a3b8;
+  font-size: 20px;
+}
+
+.app-tab-nav__logout {
+  width: 100%;
+  min-height: 38px;
+  border: 1px solid #fecaca;
+  border-radius: 8px;
+  color: #dc2626;
+  background: #ffffff;
+  font-weight: 800;
+}
+
+.profile-panel-enter-active,
+.profile-panel-leave-active {
+  transition:
+    opacity 0.18s ease,
+    transform 0.18s ease;
+}
+
+.profile-panel-enter-from,
+.profile-panel-leave-to {
+  opacity: 0;
+  transform: translateY(-8px);
+}

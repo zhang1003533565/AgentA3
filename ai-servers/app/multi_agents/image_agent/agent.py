@@ -2,17 +2,27 @@ import json
 import re
 from typing import Any, Dict, List, Optional
 
+from fastapi import HTTPException
+
 from app.image_generation import get_qwen_image_provider
-from app.models.image_generation import ImageBatchRequest, ImageGenerationRequest
+from app.models.image_generation import ImageBatchRequest, ImageGenerationRequest, ImageGenerationResponse
 from app.model_providers.runtime_config import get_active_llm_config
-from app.services.langchain_chat_service import get_chat_service
 
 
 class ImageAgent:
     name = "image_agent"
 
+    def execute_request(self, request: ImageGenerationRequest) -> ImageGenerationResponse:
+        return get_qwen_image_provider().generate(request)
+
+    def execute_batch_request(self, request: ImageBatchRequest) -> ImageGenerationResponse:
+        return get_qwen_image_provider().batch(request)
+
+    def get_task(self, task_id: str) -> ImageGenerationResponse:
+        return get_qwen_image_provider().get_task(task_id)
+
     def build_image_prompt(self, topic: str, evidence: List[Dict[str, Any]], chat_service=None) -> str:
-        return self._enhance_prompt(topic, evidence, chat_service=chat_service)
+        return self._direct_prompt(topic)
 
     def generate_images(
         self,
@@ -26,7 +36,7 @@ class ImageAgent:
         return_type: str = "url",
         chat_service=None,
     ) -> Dict[str, Any]:
-        enhanced_prompt = self._enhance_prompt(topic, evidence, chat_service=chat_service)
+        enhanced_prompt = self._direct_prompt(topic)
         normalized_count = max(1, min(int(count or 1), 8))
         payload = {
             "prompt": enhanced_prompt,
@@ -50,47 +60,21 @@ class ImageAgent:
                 "apiKey": active_config.api_key,
                 "model": active_config.model,
             })
-        provider = get_qwen_image_provider()
         if normalized_count == 1:
-            response = provider.generate(ImageGenerationRequest(**payload))
+            response = self.execute_request(ImageGenerationRequest(**payload))
         else:
-            response = provider.batch(ImageBatchRequest(**payload, prompts=[enhanced_prompt] * normalized_count))
+            response = self.execute_batch_request(ImageBatchRequest(**payload, prompts=[enhanced_prompt] * normalized_count))
         return response.model_dump()
 
     def generate_images_json(self, topic: str, evidence: List[Dict[str, Any]], chat_service=None) -> str:
-        result = self.generate_images(topic, evidence, chat_service=chat_service)
+        result = self.generate_images(topic, evidence, return_type="url_and_base64", chat_service=chat_service)
         return json.dumps(result, ensure_ascii=False)
 
-    def _enhance_prompt(self, topic: str, evidence: List[Dict[str, Any]], chat_service=None) -> str:
-        normalized_topic = (topic or "").strip()
-        service = chat_service or get_chat_service()
-        instruction = (
-            "请根据用户输入和检索证据，生成一个可直接用于 Qwen 文生图模型的高质量图片提示词。"
-            "要求先给中文提示词，再给英文提示词；包含主体、场景、构图、风格、色彩、用途和需要避免的元素。"
-            "不要输出解释，只输出提示词正文。用户需求："
-            f"{normalized_topic}\n\n证据摘要：{self._evidence_summary(evidence)}"
-        )
-        try:
-            prompt = service.generate_specialist_answer(self.name, instruction, evidence)
-        except Exception:
-            prompt = ""
-        prompt = self._strip_markdown_fence(prompt)
+    def _direct_prompt(self, topic: str) -> str:
+        prompt = self._strip_markdown_fence(topic)
         if prompt:
             return prompt
-        return self._fallback_prompt(normalized_topic, evidence)
-
-    def _fallback_prompt(self, topic: str, evidence: List[Dict[str, Any]]) -> str:
-        evidence_summary = self._evidence_summary(evidence)
-        base = topic or "校园教学主题配图"
-        return (
-            f"中文提示词：生成一张清晰、专业、适合教学展示的图片，主题是“{base}”。"
-            f"画面需要准确表达核心知识点，构图简洁，主体明确，适合课堂或 PPT 使用。"
-            f"参考知识证据：{evidence_summary or '暂无检索证据，按用户主题生成'}。"
-            "避免低清晰度、乱码文字、错误公式、畸形人物和与主题无关的装饰。\n"
-            f"English prompt: Create a clear and professional educational illustration about {base}. "
-            "Use a clean composition, accurate visual metaphors, readable layout, and classroom/PPT friendly style. "
-            "Avoid blurry details, garbled text, wrong formulas, distorted people, and unrelated decorative elements."
-        )
+        raise HTTPException(status_code=400, detail="图片智能体缺少生成提示词，已禁止本地兜底生成。")
 
     def _evidence_summary(self, evidence: List[Dict[str, Any]]) -> str:
         snippets = []

@@ -1,0 +1,13 @@
+{
+  "default": "KNOWN_FONT_LIMITATION",
+  "checks": [
+    "page geometry and orientation",
+    "no clipping or overlap",
+    "score and grader tables",
+    "column flow and divider",
+    "binding furniture when enabled",
+    "footer and answer page break",
+    "Chinese glyph limitation matches authoritative reference in bundled LibreOffice"
+  ],
+  "pages": {}
+}

@@ -1,8 +1,8 @@
 from fastapi import HTTPException
 
 from app.langgraph.state import ConversationState
+from app.model_providers.factory import get_chat_model_provider
 from app.multi_agents.leader_agent.agent import leader_agent
-from app.services.langchain_chat_service import get_chat_service
 
 
 def extract_keyword_node(state: ConversationState) -> None:
@@ -44,8 +44,7 @@ def extract_keyword_node(state: ConversationState) -> None:
             "detail": {"intent": state.intent, "targetAgent": plan.target_agent, "needRetrieval": True, "keyword": state.search_keyword},
         })
         return
-    chat_service = get_chat_service()
-    state.search_keyword = (chat_service.extract_search_keyword(state.input_text) or "").strip()
+    state.search_keyword = (get_chat_model_provider().extract_search_keyword(state.input_text) or "").strip()
     if not state.search_keyword:
         raise HTTPException(status_code=502, detail="LLM 未返回检索关键词，已禁止本地关键词兜底")
     state.trace.append({

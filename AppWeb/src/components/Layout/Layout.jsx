@@ -1,22 +1,18 @@
 import { useMemo, useState } from 'react'
-import { Navigate, Outlet, useLocation } from 'react-router-dom'
+import { Outlet, useLocation } from 'react-router-dom'
 import { Button } from 'antd'
 import { MenuFoldOutlined, MenuUnfoldOutlined } from '@ant-design/icons'
 import NavBar from '../NavBar/NavBar'
-import { getNavMetaByPath } from '../../data/portalData'
-import { getUserInfo } from '../../utils/storage'
+import PageHeader from '../PageHeader/PageHeader'
+import { getNavMetaByPath, getBreadcrumbByPath } from '../../data/portalData'
 import './Layout.css'
 
 function Layout() {
-  const userInfo = getUserInfo()
   const location = useLocation()
   const [mobileOpen, setMobileOpen] = useState(false)
   const pageMeta = useMemo(() => getNavMetaByPath(location.pathname), [location.pathname])
+  const breadcrumb = useMemo(() => getBreadcrumbByPath(location.pathname), [location.pathname])
   const hidePageHeading = location.pathname !== '/home'
-
-  if (!userInfo) {
-    return <Navigate to="/" replace />
-  }
 
   return (
     <div className={`layout ${mobileOpen ? 'sidebar-open' : ''}`}>
@@ -36,11 +32,15 @@ function Layout() {
                 <h2>{pageMeta?.title || '管理驾驶舱'}</h2>
               </div>
             ) : null}
+            {/* 面包屑页题：由布局顶栏统一渲染，位置固定，不受页面内容布局影响 */}
+            {hidePageHeading && breadcrumb ? (
+              <PageHeader items={breadcrumb} />
+            ) : null}
           </div>
 
         </header>
 
-        <main className="layout-content">
+        <main className="layout-content app-content-surface">
           <Outlet />
         </main>
       </div>

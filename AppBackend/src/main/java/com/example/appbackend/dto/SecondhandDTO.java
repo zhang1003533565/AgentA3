@@ -18,12 +18,12 @@ public class SecondhandDTO {
         private Long categoryId;
 
         @NotBlank(message = "标题不能为空")
-        @Size(min = 4, max = 50, message = "标题4-50字")
+        @Size(max = 50, message = "标题最多50字")
         @Schema(description = "物品标题", example = "iPad Air 4 256G 平板")
         private String title;
 
         @NotBlank(message = "描述不能为空")
-        @Size(min = 10, max = 500, message = "描述10-500字")
+        @Size(max = 500, message = "描述最多500字")
         @Schema(description = "物品描述")
         private String description;
 
@@ -41,13 +41,26 @@ public class SecondhandDTO {
         @Schema(description = "原价", example = "4999.00")
         private BigDecimal originalPrice;
 
-        @NotNull(message = "新旧程度不能为空")
-        @Min(1) @Max(5)
         @Schema(description = "新旧程度：1-全新 2-几乎全新 3-轻微使用痕迹 4-明显使用痕迹 5-仅限零件", example = "3")
         private Integer condition;
 
         @Schema(description = "期望交易地点", example = "图书馆门口")
         private String location;
+
+        @Schema(description = "校区ID", example = "main")
+        private String campusId;
+
+        @Schema(description = "校区名称", example = "主校区")
+        private String campusName;
+
+        @Schema(description = "交易区域", example = "teaching_m")
+        private String tradeLocation;
+
+        @Schema(description = "自提点", example = "三教门口")
+        private String pickupPoint;
+
+        @Schema(description = "交易类型: sell-出物 buy-收物", example = "sell")
+        private String tradeType;
     }
 
     @Data
@@ -67,10 +80,17 @@ public class SecondhandDTO {
         private String location;
         private Integer viewCount;
         private Integer favoriteCount;
+        private Integer inquiryCount;
+        private Integer heatScore;
         private Integer status;
         private String statusText;
         private String createTime;
         private SellerVO seller;
+        private String campusId;
+        private String campusName;
+        private String tradeLocation;
+        private String pickupPoint;
+        private String tradeType;
     }
 
     @EqualsAndHashCode(callSuper = false)
@@ -135,5 +155,26 @@ public class SecondhandDTO {
         private Long offlineItems;
         private List<CountItem> dailyPublishTrend;
         private List<CountItem> categoryDistribution;
+    }
+
+    @Data
+    @Schema(description = "浏览历史响应")
+    public static class BrowseHistoryVO {
+        private Long id;
+        private Long itemId;
+        private String title;
+        private List<String> images;
+        private BigDecimal price;
+        private String tradeType;
+        private Integer status;
+        private String location;
+        private String campusName;
+        private String tradeLocation;
+        private String pickupPoint;
+        private Long sellerId;
+        private String sellerName;
+        private String sellerAvatar;
+        private String browseTime;
+        private String createTime;
     }
 }

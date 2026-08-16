@@ -13,10 +13,15 @@ public interface TopicService {
     TopicResponse updateTopic(Long id, TopicRequest request);
 
     void deleteTopic(Long id);
+    void batchDeleteTopics(List<Long> ids);
 
     TopicResponse getTopicById(Long id);
 
     PageResponse<TopicResponse> getTopicList(Integer pageNum, Integer pageSize, Integer isHot, String status);
 
     List<TopicResponse> getHotTopics(Integer limit);
+
+    long countAllTopics();
+    long countByStatus(String status);
+    long countHotTopics();
 }
