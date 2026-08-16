@@ -4,7 +4,11 @@ from typing import Any, Dict, Iterator, List, Optional
 from fastapi import HTTPException
 
 from app.model_providers.base import ChatModelProvider
-from app.model_providers.runtime_config import LlmRuntimeConfig, resolve_llm_config
+from app.model_providers.runtime_config import (
+    LlmRuntimeConfig,
+    get_active_llm_timeout_seconds,
+    resolve_llm_config,
+)
 from app.observability.langfuse import langchain_callbacks
 from app.utils.logger import get_logger
 from app.utils.prompts import KEYWORD_EXTRACTION_PROMPT, build_search_facts_prompt
@@ -41,7 +45,7 @@ class DeepSeekProvider(ChatModelProvider):
             base_url=normalize_base_url(deepseek_base_url),
             model=deepseek_model,
             temperature=0.2,
-            timeout=60,
+            timeout=get_active_llm_timeout_seconds(),
             max_retries=1,
             callbacks=langchain_callbacks(),
         )

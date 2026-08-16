@@ -14,6 +14,10 @@ public interface AiPptService {
 
     Object generateSlides(Long userId, AiPptDTO.SlidesRequest request, String authorization);
 
+    default Object createSlidesTask(Long userId, AiPptDTO.SlidesRequest request, String authorization) {
+        return generateSlides(userId, request, authorization);
+    }
+
     Object createTask(Long userId, AiPptDTO.TaskRequest request, String authorization);
 
     Object getTask(Long userId, String taskId, String authorization);

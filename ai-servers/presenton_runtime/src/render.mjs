@@ -3,74 +3,53 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
 import { chromium } from "@playwright/test";
-import { templateV2UiToHtmlFragment } from "../dist/template-v2-json-to-html.mjs";
+import { templateV2UiToHtml } from "../dist/template-v2-json-to-html.mjs";
 
 const input = JSON.parse(await fs.readFile(process.argv[2], "utf8"));
 const templateRoot = path.resolve(input.templateRoot);
 const outputRoot = path.resolve(input.outputRoot);
 await fs.mkdir(outputRoot, { recursive: true });
 
-function flatten(value) {
-  if (Array.isArray(value)) return value.flatMap(flatten);
-  if (value && typeof value === "object") {
-    return Object.values(value).flatMap(flatten);
-  }
-  return [];
-}
-
-function hydrate(value, spec, state) {
-  if (Array.isArray(value)) return value.map((item) => hydrate(item, spec, state));
+// The model returns a complete Presenton UI JSON tree. This function only
+// resolves local asset URLs; it never injects text, chooses layouts, or rebuilds
+// component children. That work belongs to Presenton's original renderer.
+function resolveUiAssets(value, spec) {
+  if (Array.isArray(value)) return value.map((item) => resolveUiAssets(item, spec));
   if (!value || typeof value !== "object") return value;
   const node = structuredClone(value);
-  const type = String(node.type || "");
-  const name = String(node.name || "").trim();
-  const slots = spec.layoutContent && typeof spec.layoutContent === "object" ? spec.layoutContent : {};
-  if (type === "text" && name) {
-    const explicit = Object.entries(slots).find(([key]) => key.toLowerCase() === name.toLowerCase())?.[1];
-    const sample = Array.isArray(node.runs) ? node.runs.map((run) => String(run?.text || "")).join("") : "";
-    let text = explicit !== undefined ? explicit : "";
-    if (Array.isArray(text)) text = text.join("\n");
-    if (!String(text).trim()) {
-      const lower = name.toLowerCase();
-      if (/(headline|heading|title)/.test(lower) && !/(item|card|feature|metric|label)/.test(lower)) text = spec.title;
-      else if (/(page|folio|pagination)/.test(lower)) text = String(spec.index).padStart(2, "0");
-      else if (/(body|paragraph|description|copy|caption|supporting|detail|summary|item_body|feature_description)/.test(lower)) text = state.next() || sample;
-      else if (/(label|item_title|feature_title|metric_title|quote)/.test(lower)) text = state.next() || sample;
-      else text = state.next() || sample;
-    }
-    node.runs = [{ text: String(text || ""), font: node.font }];
-    node.text = String(text || "");
-  }
-  if (type === "chart") {
-    const chartData = Object.entries(slots).find(([key]) => key.toLowerCase() === "chart_data")?.[1];
-    if (chartData && typeof chartData === "object" && !Array.isArray(chartData)) {
-      if (Array.isArray(chartData.categories)) node.categories = chartData.categories;
-      if (Array.isArray(chartData.series)) node.series = chartData.series;
-      if (Array.isArray(chartData.data)) node.data = chartData.data;
-      if (chartData.chartType || chartData.chart_type) node.chartType = chartData.chartType || chartData.chart_type;
-    }
-  }
-  if (type === "table") {
-    const tableData = Object.entries(slots).find(([key]) => key.toLowerCase() === "table_data")?.[1];
-    if (tableData && typeof tableData === "object" && !Array.isArray(tableData)) {
-      if (Array.isArray(tableData.columns)) node.columns = tableData.columns;
-      if (Array.isArray(tableData.rows)) node.rows = tableData.rows;
-    }
-  }
-  if (type === "image" && typeof node.data === "string") {
+  if (String(node.type || "") === "image" && typeof node.data === "string") {
     if (node.data.includes("replaceable_template_image")) {
       const imagePath = String(spec.imagePath || "");
-      if (imagePath) node.data = pathToFileURL(imagePath).href;
-      else node.data = "";
+      node.data = imagePath ? pathToFileURL(imagePath).href : "";
     } else {
       const raw = node.data.replace(/^\//, "").replace(/^static\//, "").replace(/^images\//, "");
-      const candidate = path.resolve(templateRoot, "static", raw.replace(/^images\//, ""));
-      if (candidate.startsWith(path.resolve(templateRoot, "static")) && (awaitExists.has(candidate))) node.data = pathToFileURL(candidate).href;
+      const candidate = path.resolve(templateRoot, "static", raw);
+      if (candidate.startsWith(path.resolve(templateRoot, "static")) && awaitExists.has(candidate)) {
+        node.data = pathToFileURL(candidate).href;
+      } else {
+        node.data = "";
+      }
     }
   }
-  for (const key of ["elements", "children"]) if (Array.isArray(node[key])) node[key] = node[key].map((item) => hydrate(item, spec, state));
-  if (node.child) node.child = hydrate(node.child, spec, state);
+  for (const key of ["elements", "components", "children"]) {
+    if (Array.isArray(node[key])) node[key] = node[key].map((item) => resolveUiAssets(item, spec));
+  }
+  if (node.child) node.child = resolveUiAssets(node.child, spec);
   return node;
+}
+
+function resolveFontAssets(value) {
+  if (Array.isArray(value)) return value.map(resolveFontAssets);
+  if (value && typeof value === "object") {
+    return Object.fromEntries(Object.entries(value).map(([key, raw]) => [key, resolveFontAssets(raw)]));
+  }
+  if (typeof value !== "string") return value;
+  const raw = value.replace(/^\//, "").replace(/^static\//, "");
+  const candidate = path.resolve(templateRoot, "static", raw);
+  if (candidate.startsWith(path.resolve(templateRoot, "static")) && awaitExists.has(candidate)) {
+    return pathToFileURL(candidate).href;
+  }
+  return value;
 }
 
 const awaitExists = new Set();
@@ -81,17 +60,30 @@ for (const spec of input.slides || []) {
 }
 
 const pages = [];
+let originalHead = "";
 for (const spec of input.slides || []) {
-  const layout = (input.template.layouts || []).find((item) => String(item.id) === String(spec.templateLayoutId || spec.layout)) || input.template.layouts[0];
-  const values = [...(spec.content || []), spec.objective].filter(Boolean).map(String);
-  let cursor = 0;
-  const state = { next: () => values[cursor++] || "" };
-  const ui = { components: hydrate(layout.components || [], spec, state), background: "#FFFFFF" };
-  const fragment = templateV2UiToHtmlFragment(ui, { width: 1280, height: 720, fonts: input.template.fonts || {} });
-  pages.push(`<section class="slide" data-slide-index="${spec.index}" style="width:1280px;height:720px">${fragment || ""}</section>`);
+  const ui = resolveUiAssets(spec.ui, spec);
+  if (!ui || (!Array.isArray(ui.components) && !Array.isArray(ui.elements))) {
+    throw new Error(`Presenton UI JSON missing for slide ${spec.index}`);
+  }
+  // Use Presenton's complete document renderer.  We only extract its head and
+  // body so several independently rendered pages can share one export HTML
+  // document; the component tree, CSS, font tags, SVG handling and chart
+  // scripts remain the original Presenton output.
+  const originalHtml = templateV2UiToHtml(ui, {
+    width: 1280,
+    height: 720,
+    fonts: resolveFontAssets(input.template.fonts || {}),
+  });
+  if (!originalHtml) throw new Error(`Presenton UI rendered empty for slide ${spec.index}`);
+  const headMatch = originalHtml.match(/<head>([\s\S]*?)<\/head>/i);
+  const bodyMatch = originalHtml.match(/<body>([\s\S]*?)<\/body>/i);
+  if (!bodyMatch) throw new Error(`Presenton HTML body missing for slide ${spec.index}`);
+  if (!originalHead && headMatch) originalHead = headMatch[1];
+  pages.push(`<section class="slide" data-slide-index="${spec.index}" style="width:1280px;height:720px">${bodyMatch[1]}</section>`);
 }
 
-const html = `<!doctype html><html><head><meta charset="utf-8"><style>html,body{margin:0;padding:0;background:#fff}.deck{width:1280px}.slide{page-break-after:always;overflow:hidden;position:relative}.slide:last-child{page-break-after:auto}</style></head><body><main class="deck">${pages.join("")}</main></body></html>`;
+const html = `<!doctype html><html><head><meta charset="utf-8">${originalHead}<style>html,body{margin:0;padding:0;background:#fff}.deck{width:1280px}.slide{page-break-after:always;overflow:hidden;position:relative}.slide:last-child{page-break-after:auto}</style></head><body><main class="deck">${pages.join("")}</main></body></html>`;
 const htmlPath = path.join(outputRoot, `${input.taskId}.html`);
 await fs.writeFile(htmlPath, html, "utf8");
 

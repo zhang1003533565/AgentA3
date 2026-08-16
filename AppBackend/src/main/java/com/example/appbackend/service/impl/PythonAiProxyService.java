@@ -324,6 +324,11 @@ public class PythonAiProxyService {
                 requirePptGenerationModel());
     }
 
+    public Object createPptSlidesTask(Map<String, Object> request, String authorization) {
+        return postPptObject("/internal/rag/ppt-generation/slides/tasks", request, authorization,
+                requirePptGenerationModel());
+    }
+
     public Object createPptTask(Map<String, Object> request, String authorization) {
         return postPptObject("/internal/rag/ppt-generation/tasks", request, authorization,
                 requirePptGenerationModel());
