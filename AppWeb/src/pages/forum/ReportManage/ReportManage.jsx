@@ -1,15 +1,14 @@
 import { useEffect, useState } from 'react'
 import dayjs from 'dayjs'
-import { Button, Card, Descriptions, Form, Input, message, Modal, Select, Space, Table, Tag, Timeline, Popover, Tooltip } from 'antd'
-import { CheckCircleOutlined, DeleteOutlined, EyeOutlined, SearchOutlined, StopOutlined } from '@ant-design/icons'
-import { getReportList, getReportLogs, getReportStatistics, handleReport, batchDeleteReports } from '../../../api/forum'
+import { Button, Card, Descriptions, Form, Input, message, Modal, Select, Space, Table, Tag, Timeline, Popover, Tooltip, Popconfirm } from 'antd'
+import { CheckCircleOutlined, DeleteOutlined, EyeOutlined, SearchOutlined, AuditOutlined, StopOutlined, RollbackOutlined } from '@ant-design/icons'
+import { getReportList, getReportLogs, getReportStatistics, handleReport, reopenReport, batchDeleteReports } from '../../../api/forum'
 import './ReportManage.css'
 
 const { TextArea } = Input
 
-const targetTypeMap = { 1: { text: '帖子', color: 'blue' }, 2: { text: '评论', color: 'green' } }
-const statusMap = { 0: { text: '待处理', color: 'orange' }, 1: { text: '已处理', color: 'green' }, 2: { text: '已忽略', color: 'default' } }
-const actionMap = { CREATE_REPORT: '提交举报', IGNORE: '忽略举报', DELETE_CONTENT: '删除内容' }
+const statusMap = { 0: { text: '待处理', color: 'orange' }, 1: { text: '已删除', color: 'green' }, 2: { text: '已忽略', color: 'default' } }
+const actionMap = { CREATE_REPORT: '提交举报', IGNORE: '忽略举报', DELETE_CONTENT: '删除内容', REOPEN: '恢复为待处理' }
 
 const formatTime = (t) => (t ? dayjs(t).format('YYYY-MM-DD HH:mm') : '-')
 
@@ -58,7 +57,11 @@ function ReportManage() {
 
   const openHandle = (record, action) => {
     setCurrentReport(record)
-    handleForm.setFieldsValue({ action, handleResult: action === 'DELETE_CONTENT' ? '举报成立，已删除被举报内容' : '举报不成立，已忽略' })
+    if (action) {
+      handleForm.setFieldsValue({ action, handleResult: action === 'DELETE_CONTENT' ? '举报成立，已删除被举报内容' : '举报不成立，已忽略' })
+    } else {
+      handleForm.resetFields()
+    }
     setHandleOpen(true)
   }
 
@@ -85,6 +88,17 @@ function ReportManage() {
     } catch (error) { message.error(error?.message || '删除失败') }
   }
 
+  const handleReopen = async (id) => {
+    try {
+      const res = await reopenReport(id)
+      if (res.code === 200) {
+        message.success('已恢复为待处理')
+        fetchReports()
+        fetchStats()
+      }
+    } catch (error) { message.error(error?.message || '恢复失败') }
+  }
+
   const rowSelection = { selectedRowKeys, onChange: (keys) => setSelectedRowKeys(keys) }
 
   const renderRowPopover = (record) => (
@@ -92,21 +106,20 @@ function ReportManage() {
       <div className="rm-row-pop-title">{record.targetTitle}</div>
       <div className="rm-row-pop-meta">
         <div><span className="rm-row-pop-label">举报人</span>{record.reporterName}</div>
-        <div><span className="rm-row-pop-label">类型</span><Tag color={targetTypeMap[record.targetType]?.color}>{targetTypeMap[record.targetType]?.text || record.targetType}</Tag></div>
         <div><span className="rm-row-pop-label">作者</span>{record.targetAuthor || '-'}</div>
         <div><span className="rm-row-pop-label">原因</span>{record.reasonText || '-'}</div>
         <div><span className="rm-row-pop-label">状态</span><Tag color={statusMap[record.status]?.color}>{statusMap[record.status]?.text || record.status}</Tag></div>
         <div><span className="rm-row-pop-label">提交时间</span>{formatTime(record.createTime)}</div>
       </div>
-      {record.description && <div className="rm-row-pop-desc">{record.description}</div>}
+      {record.targetContent && <div className="rm-row-pop-desc"><span className="rm-row-pop-label">内容</span>{record.targetContent}</div>}
+      {record.description && <div className="rm-row-pop-desc"><span className="rm-row-pop-label">举报描述</span>{record.description}</div>}
     </div>
   )
 
   const columns = [
     { title: '举报人', dataIndex: 'reporterName', width: 100 },
-    { title: '类型', dataIndex: 'targetType', width: 70, render: (v) => <Tag color={targetTypeMap[v]?.color}>{targetTypeMap[v]?.text || v}</Tag> },
     {
-      title: '被举报内容', dataIndex: 'targetTitle', ellipsis: true, width: 160,
+      title: '被举报标题', dataIndex: 'targetTitle', ellipsis: true, width: 200,
       render: (text, record) => (
         <Popover content={renderRowPopover(record)} title="举报完整信息" trigger="hover" placement="bottomLeft" mouseEnterDelay={0.3}>
           <span>{text}</span>
@@ -118,21 +131,30 @@ function ReportManage() {
     { title: '状态', dataIndex: 'status', width: 80, render: (v) => <Tag color={statusMap[v]?.color}>{statusMap[v]?.text || v}</Tag> },
     { title: '提交时间', dataIndex: 'createTime', width: 130, render: (t) => formatTime(t) },
     {
-      title: '操作', key: 'action', width: 130,
+      title: '操作', key: 'action', width: 170,
       render: (_, record) => (
         <Space size={0}>
-          <Tooltip title="查看">
+          <Tooltip title="查看举报详情">
             <Button type="text" size="small" icon={<EyeOutlined />} onClick={() => openDetail(record)} />
           </Tooltip>
-          {record.status === 0 && (
+          {record.status === 0 ? (
             <>
-              <Tooltip title="忽略">
+              <Tooltip title="处理举报">
+                <Button type="text" size="small" icon={<AuditOutlined />} onClick={() => openHandle(record)} />
+              </Tooltip>
+              <Tooltip title="忽略举报">
                 <Button type="text" size="small" icon={<StopOutlined />} onClick={() => openHandle(record, 'IGNORE')} />
               </Tooltip>
-              <Tooltip title="删除内容">
+              <Tooltip title="删除被举报内容">
                 <Button type="text" size="small" danger icon={<DeleteOutlined />} onClick={() => openHandle(record, 'DELETE_CONTENT')} />
               </Tooltip>
             </>
+          ) : (
+            <Popconfirm title="确定将该举报恢复为待处理吗？" onConfirm={() => handleReopen(record.id)} okText="确定" cancelText="取消">
+              <Tooltip title="恢复为待处理">
+                <Button type="text" size="small" icon={<RollbackOutlined />} />
+              </Tooltip>
+            </Popconfirm>
           )}
         </Space>
       ),
@@ -142,7 +164,7 @@ function ReportManage() {
   const statItems = [
     { label: '举报总数', value: stats?.total ?? 0, className: 'rm-header-stat-blue' },
     { label: '待处理', value: stats?.pending ?? 0, className: 'rm-header-stat-orange' },
-    { label: '已处理', value: stats?.handled ?? 0, className: 'rm-header-stat-green' },
+    { label: '已删除', value: stats?.handled ?? 0, className: 'rm-header-stat-green' },
     { label: '已忽略', value: stats?.rejected ?? 0, className: 'rm-header-stat-gray' },
   ]
 
@@ -164,15 +186,15 @@ function ReportManage() {
       {/* 搜索栏 */}
       <div className="rm-search-card">
         <Form form={searchForm} layout="inline" onFinish={() => fetchReports({ page: 1 })}>
-          <Form.Item name="targetType">
-            <Select placeholder="举报类型" allowClear style={{ width: 130 }} options={[{ value: 1, label: '帖子' }, { value: 2, label: '评论' }]} />
+          <Form.Item name="keyword">
+            <Input placeholder="搜索举报人/原因/标题" prefix={<SearchOutlined />} allowClear style={{ width: 200 }} />
           </Form.Item>
           <Form.Item name="status">
-            <Select placeholder="处理状态" allowClear style={{ width: 130 }} options={[{ value: 0, label: '待处理' }, { value: 1, label: '已处理' }, { value: 2, label: '已忽略' }]} />
+            <Select placeholder="处理状态" allowClear style={{ width: 130 }} options={[{ value: 0, label: '待处理' }, { value: 1, label: '已删除' }, { value: 2, label: '已忽略' }]} />
           </Form.Item>
           <Form.Item>
             <Button type="primary" htmlType="submit" icon={<SearchOutlined />}>搜索</Button>
-            <Button onClick={() => { searchForm.resetFields(); fetchReports({ page: 1, status: undefined, targetType: undefined }) }} style={{ marginLeft: 8 }}>重置</Button>
+            <Button onClick={() => { searchForm.resetFields(); fetchReports({ page: 1, status: undefined }) }} style={{ marginLeft: 8 }}>重置</Button>
           </Form.Item>
         </Form>
       </div>
@@ -208,9 +230,9 @@ function ReportManage() {
             <Descriptions bordered size="small" column={2}>
               <Descriptions.Item label="举报人">{currentReport.reporterName}</Descriptions.Item>
               <Descriptions.Item label="状态"><Tag color={statusMap[currentReport.status]?.color}>{statusMap[currentReport.status]?.text}</Tag></Descriptions.Item>
-              <Descriptions.Item label="类型"><Tag color={targetTypeMap[currentReport.targetType]?.color}>{targetTypeMap[currentReport.targetType]?.text}</Tag></Descriptions.Item>
               <Descriptions.Item label="作者">{currentReport.targetAuthor}</Descriptions.Item>
-              <Descriptions.Item label="内容" span={2}>{currentReport.targetTitle}</Descriptions.Item>
+              <Descriptions.Item label="标题" span={2}>{currentReport.targetTitle || '-'}</Descriptions.Item>
+              <Descriptions.Item label="内容" span={2}>{currentReport.targetContent || '-'}</Descriptions.Item>
               <Descriptions.Item label="原因" span={2}>{currentReport.reasonText || '-'}</Descriptions.Item>
               <Descriptions.Item label="描述" span={2}>{currentReport.description || '-'}</Descriptions.Item>
               <Descriptions.Item label="处理人">{currentReport.handleByName || '-'}</Descriptions.Item>
@@ -226,10 +248,10 @@ function ReportManage() {
       </Modal>
 
       {/* 处理弹窗 */}
-      <Modal title={<Space><StopOutlined />处理举报</Space>} open={handleOpen} onOk={submitHandle} onCancel={() => setHandleOpen(false)} okText="确认处理" cancelText="取消">
+      <Modal title={<Space><AuditOutlined />处理举报</Space>} open={handleOpen} onOk={submitHandle} onCancel={() => setHandleOpen(false)} okText="确认处理" cancelText="取消">
         <Form form={handleForm} layout="vertical">
           <Form.Item name="action" label="处理动作" rules={[{ required: true, message: '请选择处理动作' }]}>
-            <Select options={[{ value: 'IGNORE', label: '忽略举报' }, { value: 'DELETE_CONTENT', label: '删除被举报内容' }]} />
+            <Select placeholder="请选择处理动作" options={[{ value: 'IGNORE', label: '忽略举报（举报不成立）' }, { value: 'DELETE_CONTENT', label: '删除被举报内容（举报成立）' }]} />
           </Form.Item>
           <Form.Item name="handleResult" label="处理说明" rules={[{ required: true, message: '请输入处理说明' }]}>
             <TextArea rows={4} maxLength={500} showCount />

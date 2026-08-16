@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import dayjs from 'dayjs'
-import { message, Modal, Form, Input, Button, Table, Space, Popconfirm, Tag, Select, Card, Popover, Tooltip, Checkbox } from 'antd'
-import { PlusOutlined, EditOutlined, DeleteOutlined, SearchOutlined, FireFilled } from '@ant-design/icons'
+import { message, Drawer, Form, Input, Button, Table, Space, Popconfirm, Tag, Select, Card, Popover, Tooltip, Dropdown, Checkbox } from 'antd'
+import { PlusOutlined, EditOutlined, DeleteOutlined, SearchOutlined, FireFilled, CheckCircleOutlined, StopOutlined } from '@ant-design/icons'
 import { getTopicList, createTopic, updateTopic, deleteTopic, batchDeleteTopics, getForumStatistics, getForumRules } from '../../../api/forum'
 import './TopicManage.css'
 
@@ -15,6 +15,8 @@ function TopicManage() {
   const [modalVisible, setModalVisible] = useState(false)
   const [modalTitle, setModalTitle] = useState('创建话题')
   const [editingId, setEditingId] = useState(null)
+  const [editingRecord, setEditingRecord] = useState(null)
+  const [editingStatus, setEditingStatus] = useState('ACTIVE')
   const [form] = Form.useForm()
   const [searchForm] = Form.useForm()
   const [pagination, setPagination] = useState({ current: 1, pageSize: 10, total: 0 })
@@ -69,18 +71,21 @@ function TopicManage() {
   const handleCreate = () => {
     setModalTitle('创建话题')
     setEditingId(null)
+    setEditingRecord(null)
+    setEditingStatus('ACTIVE')
     form.resetFields()
-    form.setFieldsValue({ isHot: false, status: 'ACTIVE' })
+    form.setFieldsValue({ isHot: false })
     setModalVisible(true)
   }
 
   const handleEdit = (record) => {
     setModalTitle('编辑话题')
     setEditingId(record.id)
+    setEditingRecord(record)
+    setEditingStatus(record.status === 'ACTIVE' ? 'ACTIVE' : 'INACTIVE')
     form.setFieldsValue({
       topicName: record.topicName,
       isHot: record.isHot === 1,
-      status: record.status === 'ACTIVE' ? 'ACTIVE' : 'INACTIVE',
     })
     setModalVisible(true)
   }
@@ -88,7 +93,14 @@ function TopicManage() {
   const handleSubmit = async () => {
     try {
       const values = await form.validateFields()
-      const data = { ...values, isHot: values.isHot ? 1 : 0, status: values.status === 'ACTIVE' ? 'ACTIVE' : 'INACTIVE' }
+      const base = editingRecord || {}
+      const data = {
+        topicName: values.topicName,
+        topicIcon: base.topicIcon,
+        description: base.description,
+        isHot: values.isHot ? 1 : 0,
+        status: editingId ? editingStatus : 'ACTIVE',
+      }
       let res
       if (editingId) { res = await updateTopic(editingId, data) } else { res = await createTopic(data) }
       if (res.code === 200) {
@@ -105,6 +117,23 @@ function TopicManage() {
       const res = await deleteTopic(id)
       if (res.code === 200) { message.success('删除成功'); fetchTopics(); fetchStats() }
     } catch (error) { console.error('删除失败:', error) }
+  }
+
+  const handleToggleStatus = async (record, newStatus) => {
+    try {
+      const res = await updateTopic(record.id, {
+        topicName: record.topicName,
+        topicIcon: record.topicIcon,
+        description: record.description,
+        isHot: record.isHot === 1 ? 1 : 0,
+        status: newStatus,
+      })
+      if (res.code === 200) {
+        message.success(newStatus === 'ACTIVE' ? '话题已启用' : '话题已禁用')
+        fetchTopics()
+        fetchStats()
+      }
+    } catch (error) { message.error(error?.message || '操作失败') }
   }
 
   const handleBatchDelete = async () => {
@@ -145,12 +174,26 @@ function TopicManage() {
     },
     { title: '创建时间', dataIndex: 'createTime', width: 150, render: (t) => formatTime(t) },
     {
-      title: '操作', key: 'action', width: 100,
+      title: '操作', key: 'action', width: 150,
       render: (_, record) => (
         <Space size={0}>
           <Tooltip title="编辑">
             <Button type="text" size="small" icon={<EditOutlined />} onClick={() => handleEdit(record)} />
           </Tooltip>
+          <Dropdown
+            trigger={['click']}
+            menu={{
+              items: [
+                { key: 'ACTIVE', label: '启用', icon: <CheckCircleOutlined />, disabled: record.status === 'ACTIVE' },
+                { key: 'INACTIVE', label: '禁用', icon: <StopOutlined />, disabled: record.status === 'INACTIVE' },
+              ],
+              onClick: ({ key }) => handleToggleStatus(record, key),
+            }}
+          >
+            <Tooltip title={record.status === 'ACTIVE' ? '话题已启用（点击可切换状态）' : '话题已禁用（点击可切换状态）'}>
+              <Button type="text" size="small" icon={record.status === 'ACTIVE' ? <CheckCircleOutlined style={{ color: '#52c41a' }} /> : <StopOutlined style={{ color: '#f5222d' }} />} />
+            </Tooltip>
+          </Dropdown>
           <Popconfirm title="确定删除该话题吗？" onConfirm={() => handleDelete(record.id)} okText="确定" cancelText="取消">
             <Tooltip title="删除">
               <Button type="text" size="small" danger icon={<DeleteOutlined />} />
@@ -243,25 +286,31 @@ function TopicManage() {
         />
       </Card>
 
-      <Modal title={modalTitle} open={modalVisible} onOk={handleSubmit} onCancel={() => setModalVisible(false)} width={520} okText="确定" cancelText="取消">
-        <Form form={form} layout="vertical" style={{ marginTop: 16 }}>
-          <Form.Item name="topicName" label="话题名称" rules={[{ required: true, message: '请输入话题名称' }]}>
+      <Drawer
+        title={<Space><EditOutlined />{modalTitle}</Space>}
+        placement="right"
+        width={460}
+        open={modalVisible}
+        onClose={() => setModalVisible(false)}
+        extra={
+          <Space>
+            <Button size="small" onClick={() => setModalVisible(false)}>取消</Button>
+            <Button size="small" type="primary" onClick={handleSubmit}>确定</Button>
+          </Space>
+        }
+      >
+        <Form form={form} layout="vertical" size="small">
+          <Form.Item name="topicName" label="话题名称" style={{ marginBottom: 14 }} rules={[{ required: true, message: '请输入话题名称' }]}>
             <Input placeholder="请输入话题名称" maxLength={20} showCount />
           </Form.Item>
-          <Form.Item name="isHot" valuePropName="checked" style={{ marginBottom: 24 }}>
+          <Form.Item name="isHot" valuePropName="checked" style={{ marginBottom: 0 }}>
             <div className="tm-hot-row">
               <span className="tm-hot-label">热门话题</span>
               <Checkbox>设为热门话题</Checkbox>
             </div>
           </Form.Item>
-          <Form.Item name="status" label="状态" initialValue="ACTIVE" rules={[{ required: true, message: '请选择' }]}>
-            <Select placeholder="请选择">
-              <Option value="ACTIVE">启用</Option>
-              <Option value="INACTIVE">禁用</Option>
-            </Select>
-          </Form.Item>
         </Form>
-      </Modal>
+      </Drawer>
     </div>
   )
 }
