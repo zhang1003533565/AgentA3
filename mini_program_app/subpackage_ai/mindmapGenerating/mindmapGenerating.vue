@@ -1,7 +1,17 @@
 <template>
   <view class="page">
     <!-- 顶部（共用 nav-bar） -->
-    <nav-bar :title="navTitle" :subtitle="navSubtitle" :showBack="true" :border="false" />
+    <nav-bar :subtitle="navSubtitle" :showBack="true" :border="false">
+      <template #center>
+        <view class="mindmap-nav-title-wrap">
+          <view class="mindmap-nav-title-row">
+            <text v-if="isCompleted" class="mindmap-nav-done">✓</text>
+            <text v-else class="mindmap-nav-spark">✦</text>
+            <text class="mindmap-nav-title">{{ isCompleted ? '思维导图生成完成' : 'AI正在生成思维导图' }}</text>
+          </view>
+        </view>
+      </template>
+    </nav-bar>
 
     <!-- 画布 -->
     <view v-if="pageState !== 'error'" class="canvas-area" id="canvasArea">
@@ -45,7 +55,6 @@
         </view>
       </view>
       <view class="wait-ring" :class="{ hidden: !showRing }"><i></i><i></i><b></b></view>
-      <view v-if="!isCompleted" class="skip-btn" @tap="skipAnimation">跳过动画 →</view>
     </view>
 
     <!-- 步骤点 -->
@@ -136,7 +145,7 @@ const progressPct = ref(0)
 
 const navTitle = computed(() => {
   if (pageState.value === 'error') return '生成失败'
-  return isCompleted.value ? '思维导图生成完成' : 'AI正在生成思维导图'
+  return isCompleted.value ? '思维导图生成完成' : '✦ AI正在生成思维导图'
 })
 
 const stageStyle = computed(() => ({
@@ -600,4 +609,37 @@ onUnload(() => clearTimers())
 .error-btn { flex: 1; padding: 26rpx; border-radius: 24rpx; display: flex; align-items: center; justify-content: center; font-size: 28rpx; font-weight: 600; }
 .error-btn--sec { background: #fff; border: 2rpx solid #e2e8ef; }
 .error-btn--pri { background: #7C5FE0; color: #fff; }
+/* 与创作页保持同一套画布、卡片和紫色状态语言 */
+.page { background: #F6F7FB; }
+.timeline-scroll { padding-left: 28rpx; padding-right: 28rpx; }
+.timeline-card { border: 1rpx solid #E8EAF0; border-radius: 24rpx; box-shadow: 0 8rpx 24rpx rgba(24, 32, 51, 0.04); }
+.timeline-row--highlight .timeline-card { border-color: #9B83E8; box-shadow: 0 8rpx 26rpx rgba(124, 95, 224, 0.14); animation: none; }
+.rail-dot--active { background: #7653D6; box-shadow: 0 0 0 6rpx rgba(118, 83, 214, 0.14); animation: none; }
+.card-icon-box--active, .card-icon-box--done, .status-avatar-core { background: #7653D6; box-shadow: none; }
+.status-card { padding-left: 28rpx; padding-right: 28rpx; }
+.status-card-inner { border: 1rpx solid #E8EAF0; border-radius: 24rpx; box-shadow: 0 8rpx 24rpx rgba(24, 32, 51, 0.06); }
+.page { background: #F6F7FB; }
+.canvas-area { background: #F6F7FB; }
+.bottom-step-dot--done, .bottom-step-dot--active, .status-float-dot { background: #123E6D; }
+.status-float { padding: 0 24rpx calc(20rpx + env(safe-area-inset-bottom)); }
+.status-float-inner { border: 1rpx solid #E6E8F1; border-radius: 22rpx; box-shadow: 0 10rpx 28rpx rgba(20, 28, 48, 0.06); }
+.status-float-label, .status-float-pct { color: #123E6D; }
+.status-float-bar { background: #EEF4FC; }
+.status-float-bar-fill { background: #123E6D; }
+.done-btns { gap: 14rpx; padding: 12rpx 24rpx calc(18rpx + env(safe-area-inset-bottom)); background: #FFFFFF; border-top: 1rpx solid #E6E8F1; }
+.done-btn { min-height: 72rpx; padding: 0 10rpx; border-radius: 18rpx; font-size: 24rpx; font-weight: 700; white-space: nowrap; }
+.done-btn text { white-space: nowrap; }
+.done-btn--sec { color: #203452; border-color: #D9E2EE; background: #FFFFFF; }
+.done-btn--pri { background: #123E6D; box-shadow: 0 8rpx 20rpx rgba(18, 62, 109, 0.18); }
+.wait-ring b { background: #123E6D; }
+.wait-ring i { border-color: rgba(18, 62, 109, 0.38); }
+.done-btns { gap: 20rpx; padding: 0 24rpx 32rpx; background: #FFFFFF; }
+.done-btn { height: 88rpx; padding: 0 26rpx; border-radius: 24rpx; box-sizing: border-box; font-size: 28rpx; font-weight: 600; }
+.done-btn--sec { background: #FFFFFF; color: #1A1A2E; border: 2rpx solid #D9E2EE; }
+.done-btn--pri { background: #294574; color: #FFFFFF; border: 0; box-shadow: 0 8rpx 20rpx rgba(18, 62, 109, 0.18); }
+.mindmap-nav-title-wrap { display: flex; align-items: center; justify-content: center; width: 100%; }
+.mindmap-nav-title-row { display: flex; align-items: center; justify-content: center; gap: 8rpx; }
+.mindmap-nav-title { color: #17466F; font-size: 32rpx; line-height: 1.2; font-weight: 700; white-space: nowrap; }
+.mindmap-nav-spark { color: #4D6BFE; font-size: 28rpx; line-height: 1; }
+.mindmap-nav-done { color: #34C759; font-size: 30rpx; line-height: 1; font-weight: 700; }
 </style>
