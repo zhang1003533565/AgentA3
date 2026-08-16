@@ -424,4 +424,28 @@ watch(() => props.visible, (val) => {
 .submit-sparkle::after {
   transform: translate(-50%, -50%) rotate(-45deg);
 }
+/* 与架构图首页统一的蓝灰简洁样式 */
+.optimize-mask { background: rgba(18, 32, 52, 0.28); }
+.optimize-sheet { background: #FFFFFF; border-radius: 28rpx 28rpx 0 0; padding: 0 28rpx calc(24rpx + env(safe-area-inset-bottom)); }
+.sheet-drag-bar { padding: 14rpx 0 6rpx; }
+.drag-indicator { width: 64rpx; height: 6rpx; background: #D9E2EE; }
+.sheet-header { padding: 14rpx 0 24rpx; }
+.header-icon { width: 64rpx; height: 64rpx; background: #123E6D; box-shadow: none; }
+.header-title { color: #172033; font-size: 32rpx; letter-spacing: 0; }
+.header-subtitle { color: #7C879A; font-size: 23rpx; }
+.sheet-input-wrap { margin-bottom: 22rpx; padding: 22rpx; border: 1rpx solid #DBE1ED; border-radius: 18rpx; background: #F7FAFE; }
+.sheet-input-wrap:focus-within { border-color: #123E6D; }
+.optimize-input, .optimize-placeholder { color: #40516A; font-size: 25rpx; line-height: 1.65; }
+.optimize-placeholder { color: #98A5B8; }
+.input-counter { color: #7C879A; }
+.suggestions-label { color: #203452; font-size: 25rpx; font-weight: 700; }
+.suggestion-tags { gap: 12rpx; }
+.suggestion-tag { height: 52rpx; padding: 0 18rpx; border-radius: 16rpx; background: #F2F6FB; border: 1rpx solid #DBE5F0; }
+.suggestion-tag--active { background: #123E6D; border-color: #123E6D; }
+.tag-text { color: #29486C; font-size: 23rpx; }
+.sheet-actions { gap: 14rpx; padding-top: 8rpx; }
+.action-btn { height: 76rpx; border-radius: 18rpx; }
+.action-btn--cancel { border-color: #D9E2EE; }
+.action-btn--submit { background: #123E6D; box-shadow: 0 8rpx 20rpx rgba(18, 62, 109, 0.18); }
+.action-btn-text { font-size: 26rpx; letter-spacing: 0; }
 </style>

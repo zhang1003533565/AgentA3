@@ -6,13 +6,18 @@ import re
 import threading
 import time
 import uuid
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import Any, Dict, List, Mapping
+from typing import Any, Callable, Dict, List, Mapping, Optional
 
 from fastapi import HTTPException
 
-from app.model_providers.runtime_config import reset_active_llm_config, set_active_llm_config
+from app.model_providers.runtime_config import (
+    reset_active_llm_config,
+    reset_active_llm_timeout,
+    set_active_llm_config,
+    set_active_llm_timeout,
+)
 from app.multi_agents.image_agent.agent import image_agent
 from app.multi_agents.ppt_structure_agent.agent import normalize_structure_answer
 from app.multi_agents.runner import run_specialist_agent
@@ -35,6 +40,7 @@ from app.rag.document_conversion import generated_exporter
 _PAGE_HEADING = re.compile(r"###\s*第\s*(\d+)\s*页", re.IGNORECASE)
 _FIELD = re.compile(r"^-\s*([^：:]+)[：:]\s*(.*)$")
 logger = logging.getLogger(__name__)
+PPT_PAGE_LLM_TIMEOUT_SECONDS = max(60, int(os.getenv("PPT_PAGE_LLM_TIMEOUT_SECONDS") or 300))
 
 
 class PptGenerationService:
@@ -144,6 +150,7 @@ class PptGenerationService:
             "constraints": "严格依据上传资料，不得补造事实；输出结构化 PPT 大纲。",
         }, ensure_ascii=False)
         evidence = [{"id": "uploaded-material", "source": request.get("sourceName"), "content": source[:60_000]}]
+        timeout_token = set_active_llm_timeout(PPT_PAGE_LLM_TIMEOUT_SECONDS)
         token = set_active_llm_config(llm_config)
         try:
             try:
@@ -158,6 +165,7 @@ class PptGenerationService:
                 ) from exc
         finally:
             reset_active_llm_config(token)
+            reset_active_llm_timeout(timeout_token)
         return {
             "outlineId": f"outline_{uuid.uuid4().hex}",
             "title": topic,
@@ -170,6 +178,7 @@ class PptGenerationService:
         request: Mapping[str, Any],
         llm_config: Any,
         user_id: str = "",
+        progress_callback: Optional[Callable[[Mapping[str, Any]], None]] = None,
     ) -> Dict[str, Any]:
         outline = request.get("outline")
         if not isinstance(outline, Mapping):
@@ -185,6 +194,12 @@ class PptGenerationService:
         if not self._template_catalog.contains(template_id):
             template_id = self._embedded_config.default_template
         layout_catalog = self._template_catalog.layout_summaries(template_id)
+        template_payload = self._template_catalog.load(template_id)
+        layouts_by_id = {
+            str(layout.get("id")): layout
+            for layout in template_payload.get("layouts") or []
+            if isinstance(layout, Mapping) and str(layout.get("id") or "").strip()
+        }
         structure_prompt = json.dumps({
             "presentonStructureRules": PRESENTON_STRUCTURE_RULES,
             "templateId": template_id,
@@ -194,6 +209,7 @@ class PptGenerationService:
             "settings": dict(settings),
             "userInstructions": str(request.get("sharedPrompt") or request.get("instructions") or ""),
         }, ensure_ascii=False)
+        timeout_token = set_active_llm_timeout(PPT_PAGE_LLM_TIMEOUT_SECONDS)
         token = set_active_llm_config(llm_config)
         try:
             try:
@@ -215,6 +231,7 @@ class PptGenerationService:
                 selected_layouts = ["" for _ in items]
         finally:
             reset_active_llm_config(token)
+            reset_active_llm_timeout(timeout_token)
         enriched_slides: List[Dict[str, Any]] = []
         generation_warnings: List[str] = []
         valid_layout_ids = {str(item["id"]) for item in layout_catalog}
@@ -224,61 +241,38 @@ class PptGenerationService:
             )
             for index, value in enumerate(selected_layouts, start=1)
         ]
+        if progress_callback:
+            progress_callback({
+                "stage": "writing",
+                "progress": 10,
+                "currentSlide": 1,
+                "totalSlides": len(items),
+                "completedSlides": 0,
+                "remainingSlides": len(items),
+                "processingSlides": [],
+                "message": "布局已确定，准备逐页生成内容",
+            })
         if self._embedded_config.enabled:
             try:
                 source = self._resolve_source_text(request, user_id)
-                content_prompt = json.dumps({
-                    "title": str(outline.get("title") or "复习资料 PPT"),
-                    "outline": items,
-                    "settings": dict(settings),
-                    "templateId": template_id,
-                    "selectedLayouts": [
-                        {
-                            "slideIndex": index,
-                            "layoutId": selected_layouts[index - 1],
-                            "layout": next(
-                                (value for value in layout_catalog if value["id"] == selected_layouts[index - 1]),
-                                None,
-                            ),
-                        }
-                        for index in range(1, len(items) + 1)
-                    ],
-                    "presentonContentRules": PRESENTON_CONTENT_RULES,
-                    "layoutContentInstruction": (
-                        "如果 layout.slots 中存在组件 name，请额外返回 layoutContent 对象，"
-                        "键必须使用这些组件 name，值为该组件应显示的标题、正文、标签或数值。"
-                        "不要伪造图片；没有可靠映射时返回空对象。"
-                    ),
-                    "layoutContentOutputExample": {
-                        "headline_text": "本页核心标题",
-                        "supporting_paragraph": "支持标题的简短解释",
-                        "item_title": "卡片或条目标题",
-                        "item_body": "卡片或条目正文",
-                        "chart_data": {"categories": ["A", "B"], "series": [{"name": "数据", "values": [1, 2]}]},
-                    },
-                    "sharedPrompt": str(request.get("sharedPrompt") or ""),
-                    "sourceMaterial": source[:60_000],
-                }, ensure_ascii=False)
-                content_token = set_active_llm_config(llm_config)
-                try:
-                    content_answer = run_specialist_agent(
-                        "ppt_content_agent",
-                        content_prompt,
-                        ([{"id": "uploaded-material", "source": "学习资料", "content": source[:60_000]}] if source else []),
-                    )
-                finally:
-                    reset_active_llm_config(content_token)
-                content_payload = json.loads(content_answer)
-                normalized_content = _sanitize_content_payload(
-                    content_payload,
-                    selected_layouts,
-                    layout_catalog,
-                    len(items),
+                enriched_slides = self._generate_presenton_ui_slides(
+                    outline=outline,
+                    items=items,
+                    settings=settings,
+                    template_id=template_id,
+                    selected_layouts=selected_layouts,
+                    layouts_by_id=layouts_by_id,
+                    shared_prompt=str(request.get("sharedPrompt") or ""),
+                    source=source,
+                    llm_config=llm_config,
+                    progress_callback=progress_callback,
                 )
-                enriched_slides = normalized_content["slides"]
             except Exception as exc:
-                logger.warning("ppt content enrichment failed; using confirmed outline content: %s", _safe_error_message(exc))
-                generation_warnings.append("逐页内容模型未完全返回模板组件数据，已使用确认的大纲内容继续生成")
+                logger.exception("ppt content UI generation failed")
+                raise HTTPException(
+                    status_code=502,
+                    detail="PPT 内容模型未返回符合 Presenton UI Schema 的完整页面，请重试",
+                ) from exc
         slides = []
         for index, item in enumerate(items, start=1):
             if not isinstance(item, Mapping):
@@ -311,26 +305,9 @@ class PptGenerationService:
                     else "pending" if wants_ai_image
                     else "placeholder"
                 ),
-                # Preserve the Presenton component-slot payload generated by
-                # the content agent.  The renderer uses this before falling
-                # back to sequential legacy content.
-                "layoutContent": copy.deepcopy(
-                    enriched.get("layoutContent")
-                    if isinstance(enriched.get("layoutContent"), Mapping)
-                    and enriched.get("layoutContent")
-                    else _fallback_layout_content(
-                        {
-                            "index": index,
-                            "title": str(enriched.get("title") or item.get("title") or f"第 {index} 页"),
-                            "content": list(points) if isinstance(points, list) else [],
-                            "objective": str(enriched.get("objective") or item.get("objective") or ""),
-                        },
-                        next(
-                            (value for value in layout_catalog if value["id"] == selected_layouts[index - 1]),
-                            None,
-                        ),
-                    )
-                ),
+                # The renderer receives the complete Presenton UI tree. No
+                # application-side slot or coordinate hydration is performed.
+                "ui": copy.deepcopy(enriched.get("ui") if isinstance(enriched.get("ui"), Mapping) else {}),
             })
         return {
             "slides": slides,
@@ -340,6 +317,231 @@ class PptGenerationService:
             # actual decision now comes from Presenton structure JSON above.
             "layoutMarkdown": _selected_layouts_markdown(selected_layouts, items),
         }
+
+    def create_slides_task(
+        self,
+        user_id: str,
+        request: Mapping[str, Any],
+        llm_config: Any,
+    ) -> Dict[str, Any]:
+        """Queue per-slide AI generation and return immediately.
+
+        This task ends after complete Presenton UI JSON is available. The later
+        `/tasks` endpoint still owns HTML/PDF/PPTX rendering, so the client can
+        edit the generated pages between these two phases.
+        """
+        outline = request.get("outline")
+        if not isinstance(outline, Mapping):
+            raise HTTPException(status_code=422, detail="outline 必须是对象")
+        items = outline.get("items")
+        if not isinstance(items, list) or len(items) < 2:
+            raise HTTPException(status_code=422, detail="outline.items 至少需要两页")
+        task_id = f"ppt_task_{uuid.uuid4().hex}"
+        now = int(time.time() * 1000)
+        task = {
+            "taskId": task_id,
+            "kind": "slide_generation",
+            "userId": user_id,
+            "status": "queued",
+            "progress": 0,
+            "stage": "queued",
+            "message": "逐页内容生成已进入队列",
+            "currentSlide": 0,
+            "totalSlides": len(items),
+            "completedSlides": 0,
+            "remainingSlides": len(items),
+            "processingSlides": [],
+            "createdAt": now,
+            "updatedAt": now,
+            "outline": copy.deepcopy(dict(outline)),
+            "slides": [],
+            "sourceName": str(request.get("sourceName") or "复习资料 PPT"),
+            "sharedPrompt": str(request.get("sharedPrompt") or ""),
+            "settings": copy.deepcopy(request.get("settings") or {}),
+            "error": None,
+        }
+        with self._lock:
+            self._tasks[task_id] = task
+            self._task_store.put(task)
+        self._executor.submit(
+            self._execute_slides_task,
+            task_id,
+            copy.deepcopy(dict(request)),
+            llm_config,
+            user_id,
+        )
+        return {
+            "taskId": task_id,
+            "status": "queued",
+            "totalSlides": len(items),
+            "completedSlides": 0,
+            "remainingSlides": len(items),
+        }
+
+    def _execute_slides_task(
+        self,
+        task_id: str,
+        request: Dict[str, Any],
+        llm_config: Any,
+        user_id: str,
+    ) -> None:
+        try:
+            self._update(
+                task_id,
+                status="running",
+                stage="structuring",
+                progress=3,
+                message="正在分析页面结构和模板布局",
+            )
+
+            def report(event: Mapping[str, Any]) -> None:
+                if self._is_cancelled(task_id):
+                    return
+                self._update(task_id, **dict(event))
+
+            result = self.generate_slides(
+                request,
+                llm_config,
+                user_id,
+                progress_callback=report,
+            )
+            if self._is_cancelled(task_id):
+                return
+            total = len(result.get("slides") or [])
+            self._update(
+                task_id,
+                status="completed",
+                stage="completed",
+                progress=100,
+                message="逐页内容生成完成",
+                slides=result.get("slides") or [],
+                sharedPrompt=result.get("sharedPrompt") or "",
+                layoutMarkdown=result.get("layoutMarkdown") or "",
+                warnings=result.get("warnings") or [],
+                currentSlide=total,
+                totalSlides=total,
+                completedSlides=total,
+                remainingSlides=0,
+                processingSlides=[],
+            )
+        except Exception as exc:
+            logger.exception("async PPT slide generation failed")
+            self._update(
+                task_id,
+                status="failed",
+                stage="failed",
+                progress=100,
+                message="逐页内容生成失败",
+                error={"type": exc.__class__.__name__, "message": _safe_error_message(exc)},
+            )
+
+    def _generate_presenton_ui_slides(
+        self,
+        *,
+        outline: Mapping[str, Any],
+        items: List[Mapping[str, Any]],
+        settings: Mapping[str, Any],
+        template_id: str,
+        selected_layouts: List[str],
+        layouts_by_id: Mapping[str, Mapping[str, Any]],
+        shared_prompt: str,
+        source: str,
+        llm_config: Any,
+        progress_callback: Optional[Callable[[Mapping[str, Any]], None]] = None,
+    ) -> List[Dict[str, Any]]:
+        """Generate one complete Presenton UI tree per slide.
+
+        Presenton generates pages independently. Doing the same here prevents a
+        multi-page deck from exceeding the model context with repeated template
+        JSON and makes a malformed page fail without corrupting its neighbours.
+        """
+        def generate_one(index: int) -> Dict[str, Any]:
+            layout_id = selected_layouts[index]
+            payload = {
+                "title": str(outline.get("title") or "复习资料 PPT"),
+                "outline": items,
+                "currentSlide": items[index],
+                "settings": dict(settings),
+                "templateId": template_id,
+                "selectedLayouts": [{
+                    "slideIndex": index + 1,
+                    "layoutId": layout_id,
+                    "layout": copy.deepcopy(layouts_by_id.get(layout_id) or {}),
+                }],
+                "presentonContentRules": PRESENTON_CONTENT_RULES,
+                "uiOutputInstruction": (
+                    "必须完整复制当前 layout 的 components 数组，只修改文本和图表/表格数据；"
+                    "禁止修改坐标、尺寸、字体、颜色、SVG、图片路径或组件树；本次只返回当前页。"
+                ),
+                "sharedPrompt": shared_prompt,
+                "sourceMaterial": source[:60_000],
+            }
+            timeout_token = set_active_llm_timeout(PPT_PAGE_LLM_TIMEOUT_SECONDS)
+            content_token = set_active_llm_config(llm_config)
+            try:
+                content_answer = run_specialist_agent(
+                    "ppt_content_agent",
+                    json.dumps(payload, ensure_ascii=False),
+                    ([{"id": "uploaded-material", "source": "学习资料", "content": source[:60_000]}] if source else []),
+                )
+            finally:
+                reset_active_llm_config(content_token)
+                reset_active_llm_timeout(timeout_token)
+            normalized = _sanitize_content_payload(
+                json.loads(content_answer),
+                [layout_id],
+                {layout_id: layouts_by_id[layout_id]},
+                1,
+            )
+            return normalized["slides"][0]
+
+        total = len(items)
+        completed = 0
+        processing: set[int] = set()
+        results: Dict[int, Dict[str, Any]] = {}
+        max_workers = min(4, max(1, total))
+
+        def report(current: Optional[int] = None) -> None:
+            if not progress_callback:
+                return
+            active = sorted(index + 1 for index in processing)
+            next_slide = current or (active[0] if active else min(completed + 1, total))
+            progress_callback({
+                "stage": "writing",
+                "progress": 10 + int(completed * 80 / max(1, total)),
+                "currentSlide": next_slide,
+                "currentSlideTitle": str(items[next_slide - 1].get("title") or "") if next_slide else "",
+                "totalSlides": total,
+                "completedSlides": completed,
+                "remainingSlides": total - completed,
+                "processingSlides": active,
+                "message": f"正在生成第 {next_slide} / {total} 页" if next_slide else "正在生成页面内容",
+            })
+
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = {}
+            for index in range(total):
+                processing.add(index)
+                future = executor.submit(generate_one, index)
+                futures[future] = index
+                if len(processing) >= max_workers:
+                    break
+            report()
+            submitted = len(futures)
+            while futures:
+                for future in as_completed(list(futures)):
+                    index = futures.pop(future)
+                    results[index] = future.result()
+                    processing.discard(index)
+                    completed += 1
+                    if submitted < total:
+                        processing.add(submitted)
+                        next_future = executor.submit(generate_one, submitted)
+                        futures[next_future] = submitted
+                        submitted += 1
+                    report()
+                    break
+        return [results[index] for index in range(total)]
 
     def create_task(self, user_id: str, request: Mapping[str, Any], llm_config: Any) -> Dict[str, Any]:
         slides = request.get("slides")
@@ -709,166 +911,71 @@ def _selected_layouts_markdown(selected_layouts: List[str], items: List[Any]) ->
 def _sanitize_content_payload(
     payload: Mapping[str, Any],
     selected_layouts: List[str],
-    layout_catalog: List[Mapping[str, Any]],
+    layouts_by_id: Mapping[str, Mapping[str, Any]],
     expected_count: int,
 ) -> Dict[str, Any]:
     slides = payload.get("slides") if isinstance(payload, Mapping) else None
     if not isinstance(slides, list) or len(slides) < expected_count:
         raise ValueError(f"ppt_content_agent 返回 {len(slides) if isinstance(slides, list) else 0} 页，期望 {expected_count} 页")
-    layouts = {str(value.get("id")): value for value in layout_catalog}
     normalized: List[Dict[str, Any]] = []
     for index in range(expected_count):
         raw = slides[index] if isinstance(slides[index], Mapping) else {}
         item = dict(raw)
-        layout = layouts.get(selected_layouts[index]) or {}
+        layout = layouts_by_id.get(selected_layouts[index]) or {}
         item["index"] = index + 1
-        item["layoutContent"] = _sanitize_layout_content(
-            item.get("layoutContent") or item.get("componentContent"), layout
-        )
+        item["ui"] = _validate_presenton_ui(item.get("ui"), layout)
         normalized.append(item)
     return {"slides": normalized}
 
 
-def _sanitize_layout_content(value: Any, layout: Mapping[str, Any]) -> Dict[str, Any]:
+def _validate_presenton_ui(value: Any, layout: Mapping[str, Any]) -> Dict[str, Any]:
+    """Validate a model-returned UI tree without rebuilding or hydrating it."""
     if not isinstance(value, Mapping):
-        return {}
-    schema = layout.get("componentSchema") if isinstance(layout.get("componentSchema"), list) else []
-    by_name = {
-        str(item.get("name") or "").strip().lower(): item
-        for item in schema if isinstance(item, Mapping) and str(item.get("name") or "").strip()
-    }
-    result: Dict[str, Any] = {}
-    for raw_key, raw_value in value.items():
-        key = str(raw_key or "").strip()
-        if not key:
-            continue
-        component = by_name.get(key.lower())
-        canonical_key = str(component.get("name")) if component else key
-        if component is None and key.lower() not in {"chart_data", "table_data"}:
-            continue
-        if key.lower() == "chart_data":
-            chart = _sanitize_chart_data(raw_value)
-            if chart:
-                result[canonical_key] = chart
-            continue
-        if key.lower() == "table_data":
-            table = _sanitize_table_data(raw_value)
-            if table:
-                result[canonical_key] = table
-            continue
-        if isinstance(raw_value, list):
-            values = [item if isinstance(item, (str, int, float, bool)) else str(item) for item in raw_value]
-            max_children = component.get("max_children") if component else None
-            if isinstance(max_children, int) and max_children > 0:
-                values = values[:max_children]
-            result[canonical_key] = values
-        elif isinstance(raw_value, Mapping):
-            result[canonical_key] = dict(raw_value)
-        else:
-            text = str(raw_value) if raw_value is not None else ""
-            max_length = component.get("max_length") if component else None
-            if isinstance(max_length, int) and max_length > 0:
-                text = _fit_component_text(text, max_length)
-            result[canonical_key] = text
-    return result
+        raise ValueError("ppt_content_agent 每页必须返回完整 ui JSON")
+    expected_items = layout.get("components") or layout.get("elements")
+    actual_items = value.get("components") or value.get("elements")
+    if not isinstance(expected_items, list) or not isinstance(actual_items, list):
+        raise ValueError("Presenton UI 必须包含 components 或 elements 数组")
+    if _ui_static_signature(expected_items) != _ui_static_signature(actual_items):
+        raise ValueError("Presenton UI 组件树或布局属性被模型修改")
+    return copy.deepcopy(dict(value))
 
 
-def _fit_component_text(value: str, max_length: int) -> str:
-    if max_length <= 0:
-        return ""
-    if len(value) <= max_length:
+def _ui_static_signature(value: Any, parent_type: str = "") -> Any:
+    """Return the immutable portion of a Presenton UI tree for comparison."""
+    if isinstance(value, list):
+        return tuple(_ui_static_signature(item, parent_type) for item in value)
+    if not isinstance(value, Mapping):
         return value
-    if max_length == 1:
-        return "…"
-    clipped = value[:max_length].rstrip()
-    boundary = max(clipped.rfind("。"), clipped.rfind("；"), clipped.rfind("，"), clipped.rfind(" "))
-    if boundary >= max_length // 2:
-        clipped = clipped[:boundary]
-    return (clipped.rstrip("，；、,; ") + "…")[:max_length]
-
-
-def _sanitize_table_data(value: Any) -> Dict[str, Any]:
-    if not isinstance(value, Mapping):
-        return {}
-    columns = value.get("columns")
-    rows = value.get("rows")
-    if not isinstance(columns, list) or not columns or not isinstance(rows, list):
-        return {}
-    normalized_columns = [str(item)[:80] for item in columns]
-    normalized_rows = []
-    for row in rows[:30]:
-        if not isinstance(row, list) or len(row) != len(normalized_columns):
-            return {}
-        normalized_rows.append([str(item)[:160] for item in row])
-    return {"columns": normalized_columns, "rows": normalized_rows}
-
-
-def _sanitize_chart_data(value: Any) -> Dict[str, Any]:
-    if not isinstance(value, Mapping):
-        return {}
-    categories = value.get("categories")
-    series = value.get("series")
-    if not isinstance(categories, list) or not categories or not isinstance(series, list):
-        return {}
-    normalized_categories = [str(item)[:80] for item in categories[:30]]
-    normalized_series = []
-    for item in series[:8]:
-        if not isinstance(item, Mapping) or not isinstance(item.get("values"), list):
-            return {}
-        values = item.get("values")
-        if len(values) != len(normalized_categories):
-            return {}
-        try:
-            numeric_values = [float(number) for number in values]
-        except (TypeError, ValueError):
-            return {}
-        normalized_series.append({"name": str(item.get("name") or "数据")[:80], "values": numeric_values})
-    if not normalized_series:
-        return {}
-    result: Dict[str, Any] = {"categories": normalized_categories, "series": normalized_series}
-    chart_type = str(value.get("chartType") or value.get("chart_type") or "").strip()
-    if chart_type:
-        result["chartType"] = chart_type[:32]
-    return result
-
-
-def _fallback_layout_content(
-    slide: Mapping[str, Any],
-    layout: Mapping[str, Any] | None,
-) -> Dict[str, Any]:
-    """Build a safe slot payload when the model omits layoutContent.
-
-    This is deliberately semantic rather than coordinate-based: the slot name
-    is the contract, so the same fallback works across Presenton templates.
-    """
-    if not isinstance(layout, Mapping):
-        return {}
-    slots = layout.get("slots") if isinstance(layout.get("slots"), list) else []
-    title = str(slide.get("title") or "").strip()
-    values = [str(value).strip() for value in slide.get("content") or [] if str(value).strip()]
-    objective = str(slide.get("objective") or "").strip()
-    if objective and objective not in values:
-        values.append(objective)
-    cursor = 0
-    result: Dict[str, Any] = {}
-    for raw_name in slots:
-        name = str(raw_name or "").strip()
-        lower = name.lower()
-        if not name or name in result:
+    node_type = str(value.get("type") or parent_type or "")
+    mutable = {"text", "runs"} if node_type == "text" else set()
+    if node_type == "table":
+        mutable.update({"columns", "rows"})
+    if node_type == "chart":
+        mutable.update({"categories", "series", "data", "chartType", "chart_type"})
+    entries = []
+    for key, raw in sorted(value.items(), key=lambda pair: str(pair[0])):
+        key_name = str(key)
+        if key_name in mutable:
+            # Text content is mutable, but run-level font/alignment metadata is
+            # not. Compare the run shape while ignoring only run text values.
+            if node_type == "text" and key_name == "runs":
+                entries.append((key_name, _ui_text_runs_static_signature(raw)))
             continue
-        if any(token in lower for token in ("page_number", "page_number", "folio", "pagination")):
-            result[name] = str(slide.get("index") or "")
-        elif any(token in lower for token in ("headline", "heading", "main_title", "cover_title", "header_title", "intro_heading")):
-            result[name] = title
-        elif any(token in lower for token in ("list", "items", "bullet")):
-            result[name] = values[:6]
-        elif any(token in lower for token in ("body", "paragraph", "description", "copy", "supporting", "detail", "summary", "note")):
-            result[name] = values[cursor] if cursor < len(values) else ""
-            cursor += 1
-        elif any(token in lower for token in ("title", "label", "value", "metric", "quote", "item")):
-            result[name] = values[cursor] if cursor < len(values) else title
-            cursor += 1
-    return result
+        entries.append((key_name, _ui_static_signature(raw, node_type)))
+    return tuple(entries)
+
+
+def _ui_text_runs_static_signature(value: Any) -> Any:
+    if isinstance(value, list):
+        return tuple(_ui_text_runs_static_signature(item) for item in value)
+    if not isinstance(value, Mapping):
+        return value
+    return tuple(
+        (str(key), _ui_text_runs_static_signature(raw))
+        for key, raw in sorted(value.items(), key=lambda pair: str(pair[0]))
+        if str(key) != "text"
+    )
 
 
 def _select_layout_fallback(

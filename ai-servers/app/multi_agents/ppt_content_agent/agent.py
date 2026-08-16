@@ -36,8 +36,8 @@ def _normalize(value: str) -> Dict[str, Any]:
     except json.JSONDecodeError as exc:
         raise HTTPException(status_code=502, detail="ppt_content_agent 未返回有效 JSON") from exc
     slides = payload.get("slides") if isinstance(payload, dict) else None
-    if not isinstance(slides, list) or len(slides) < 2:
-        raise HTTPException(status_code=502, detail="ppt_content_agent 返回的 slides 数量不足")
+    if not isinstance(slides, list) or not slides:
+        raise HTTPException(status_code=502, detail="ppt_content_agent 未返回 slides")
     normalized = []
     for index, raw in enumerate(slides, start=1):
         item = raw if isinstance(raw, dict) else {}
@@ -54,33 +54,21 @@ def _normalize(value: str) -> Dict[str, Any]:
             "objective": str(item.get("objective") or "").strip()[:300],
             "visualPrompt": str(item.get("visualPrompt") or "").strip()[:500],
             "speakerNote": str(item.get("speakerNote") or item.get("__speaker_note__") or "").strip()[:500],
-            "layoutContent": _normalize_layout_content(item.get("layoutContent") or item.get("componentContent")),
+            "ui": _normalize_ui(item.get("ui")),
         })
     return {"slides": normalized}
 
 
-def _normalize_layout_content(value: Any) -> Dict[str, Any]:
-    """Keep Presenton component-slot content while remaining JSON-safe."""
-    if not isinstance(value, dict):
-        return {}
-    result: Dict[str, Any] = {}
-    for key, raw in value.items():
-        name = str(key).strip()
-        if not name:
-            continue
-        if isinstance(raw, (str, int, float, bool)) or raw is None:
-            result[name] = "" if raw is None else raw
-        elif isinstance(raw, list):
-            result[name] = [
-                _normalize_layout_content(item)
-                if isinstance(item, dict)
-                else (item if isinstance(item, (int, float, bool)) else str(item).strip())
-                for item in raw
-                if (isinstance(item, dict) or str(item).strip())
-            ]
-        elif isinstance(raw, dict):
-            result[name] = _normalize_layout_content(raw)
-    return result
+def _normalize_ui(value: Any, depth: int = 0, budget: List[int] | None = None) -> Any:
+    """Return the model's UI JSON unchanged.
+
+    The response has already been decoded from JSON, so it is safe to pass
+    through as-is.  Deliberately avoiding truncation, key rewriting, or tree
+    rebuilding is important here: Presenton's renderer relies on the exact
+    component hierarchy and all of its style/asset metadata.  The PPT service
+    performs the immutable-tree validation before rendering.
+    """
+    return value
 
 
 ppt_content_agent = PptContentAgent()

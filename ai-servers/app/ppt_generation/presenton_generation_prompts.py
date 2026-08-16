@@ -28,18 +28,26 @@ Rules:
 PRESENTON_CONTENT_RULES = """
 Generate the selected slide's content strictly from the supplied source and outline.
 
-The response must include layoutContent. Its keys must be real component names from
-the selected layout slots. Generate values by component role:
+The response must include a complete `ui` object copied from the supplied
+Presenton layout JSON. The UI tree, component order, names, coordinates, sizes,
+fonts, colors, SVG paths, image references, and nesting are immutable. Change only
+audience-visible text runs and the data fields of table/chart components. Do not
+return a simplified slot map and do not invent a new layout.
+
+For text components, replace the existing `runs[].text` or `text` value with:
 - headline/heading/title: a concise slide conclusion
 - body/paragraph/description/copy: short audience-facing explanation
 - item_title/item_body/feature_title/feature_description: repeated card content
-- text-list: a string array with only the requested number of items
-- table_data: {columns: [...], rows: [[...], ...]}
-- chart_data: {categories: [...], series: [{name: "...", values: [...]}]}
+- text-list: the requested number of concise list entries
+For data components use the existing Presenton shape:
+- table: `columns` and `rows`
+- chart: `categories` and `series` with numeric `values`
 
-Do not invent numbers, images, sources, or examples. Do not emit layout metadata,
-prompt text, or speaker instructions as slide content. Rephrase instead of clipping
-sentences. Keep each slide centered on one conclusion.
+Do not invent numbers, images, sources, or examples. Keep template image paths
+unchanged; image decisions belong in `visualPrompt` and are applied by the task
+worker after the UI JSON is validated. Do not emit layout metadata, prompt text,
+or speaker instructions as slide content. Rephrase instead of clipping sentences.
+Keep each slide centered on one conclusion.
 """.strip()
 
 

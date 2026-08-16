@@ -18,7 +18,10 @@ import java.util.concurrent.CompletableFuture;
 
 @Service
 public class AiPptServiceImpl implements AiPptService {
-    private static final long SSE_TIMEOUT_MILLIS = 10 * 60 * 1000L;
+    // A 20-page deck can legitimately spend up to five minutes per page while
+    // the content model is working. Keep the progress stream open long enough
+    // for the asynchronous slide-generation task to finish.
+    private static final long SSE_TIMEOUT_MILLIS = 2 * 60 * 60 * 1000L;
     private static final long OPTIONS_CACHE_TTL_SECONDS = 24 * 60 * 60L;
     private static final Set<String> SUPPORTED_SCENES = Set.of("review");
 
@@ -107,6 +110,13 @@ public class AiPptServiceImpl implements AiPptService {
     }
 
     @Override
+    public Object createSlidesTask(Long userId, AiPptDTO.SlidesRequest request, String authorization) {
+        requireUser(userId);
+        return pythonAiProxyService.createPptSlidesTask(
+                objectMapper.convertValue(request, Map.class), authorization);
+    }
+
+    @Override
     public Object createTask(Long userId, AiPptDTO.TaskRequest request, String authorization) {
         requireUser(userId);
         return pythonAiProxyService.createPptTask(objectMapper.convertValue(request, Map.class), authorization);
@@ -150,16 +160,25 @@ public class AiPptServiceImpl implements AiPptService {
         SseEmitter emitter = new SseEmitter(SSE_TIMEOUT_MILLIS);
         CompletableFuture.runAsync(() -> {
             String previousMarker = "";
+            long lastHeartbeatMillis = System.currentTimeMillis();
             try {
                 while (true) {
                     Object value = getTask(userId, taskId, authorization);
                     Map<?, ?> task = value instanceof Map<?, ?> map ? map : Map.of("status", "unknown");
                     String status = String.valueOf(task.containsKey("status") ? task.get("status") : "unknown");
                     String stage = String.valueOf(task.containsKey("stage") ? task.get("stage") : "message");
-                    String marker = status + ":" + task.get("progress") + ":" + stage;
+                    String marker = status + ":" + task.get("progress") + ":" + stage
+                            + ":" + task.get("currentSlide")
+                            + ":" + task.get("completedSlides")
+                            + ":" + task.get("remainingSlides")
+                            + ":" + task.get("processingSlides");
                     if (!marker.equals(previousMarker)) {
                         emitter.send(SseEmitter.event().name(safeEventName(stage)).data(task, MediaType.APPLICATION_JSON));
                         previousMarker = marker;
+                        lastHeartbeatMillis = System.currentTimeMillis();
+                    } else if (System.currentTimeMillis() - lastHeartbeatMillis >= 15_000L) {
+                        emitter.send(SseEmitter.event().comment("keepalive"));
+                        lastHeartbeatMillis = System.currentTimeMillis();
                     }
                     if ("completed".equals(status) || "failed".equals(status) || "cancelled".equals(status)) {
                         emitter.complete();

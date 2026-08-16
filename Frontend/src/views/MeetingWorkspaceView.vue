@@ -58,9 +58,9 @@ const createHeading = computed(
 const createDesc = computed(
   () =>
     ({
-      quick: '填写会议主题，一键发起视频会议并生成会议号。',
-      reserve: '设定主题、时间与参会人，提前安排一场会议。',
-      join: '输入他人分享的会议号，快速加入进行中的会议。',
+      quick: '',
+      reserve: '',
+      join: '',
     })[subMode.value],
 )
 
@@ -439,7 +439,6 @@ onMounted(() => {
       <aside class="meeting-sidebar feature-card">
         <div class="meeting-sidebar__brand">
           <strong>会议中心</strong>
-          <span>在线会议 · 智能整理</span>
         </div>
 
         <nav class="meeting-sidebar__menu" aria-label="会议菜单">
@@ -470,26 +469,16 @@ onMounted(() => {
             </span>
           </button>
         </nav>
-
-        <div class="meeting-sidebar__tip">
-          <p>提示</p>
-          <span>发起会议后，将会议号分享给同学即可邀请他们加入。</span>
-        </div>
       </aside>
 
       <div class="meeting-content">
-        <header class="meeting-heading">
-          <h1>会议</h1>
-          <p>发起、预约或加入校园会议，AI 帮你整理会后纪要。</p>
-        </header>
-
         <p v-if="error" class="meeting-alert meeting-alert--error">{{ error }}</p>
         <p v-else-if="notice" class="meeting-alert meeting-alert--success">{{ notice }}</p>
 
-        <section class="feature-card meeting-create" :class="{ 'meeting-create--join': subMode === 'join' }">
+        <section class="feature-card meeting-create" :class="{ 'meeting-create--join': subMode === 'join', 'meeting-create--fill': mode !== 'quick' }">
           <div class="meeting-create__head">
             <h2>{{ createHeading }}</h2>
-            <p>{{ createDesc }}</p>
+            <p v-if="createDesc">{{ createDesc }}</p>
           </div>
 
           <div v-if="mode === 'reserve'" class="meeting-tabs">
@@ -524,8 +513,7 @@ onMounted(() => {
               </label>
               <div class="reserve-toggle-row">
                 <div>
-                  <p class="reserve-toggle-row__title">入会开启麦克风</p>
-                  <p class="reserve-toggle-row__desc">进入会议时自动开启麦克风</p>
+                  <p class="reserve-toggle-row__title">进入会议自动开启麦克风</p>
                 </div>
                 <button
                   type="button"
@@ -545,20 +533,35 @@ onMounted(() => {
 
             <!-- 快速会议 -->
             <template v-else-if="subMode === 'quick'">
-              <label>
-                <span>会议主题</span>
-                <input v-model="form.title" class="feature-input" placeholder="请输入会议主题，例如：项目进度同步会" />
-              </label>
-              <button class="meet-btn meet-btn--primary meet-btn--block" type="submit" :disabled="submitting">
-                {{ submitting ? '处理中…' : '发起会议' }}
-              </button>
+              <div class="meeting-quick-row">
+                <input v-model="form.title" class="feature-input" placeholder="请输入会议主题" />
+                <button class="meet-btn meet-btn--primary" type="submit" :disabled="submitting">
+                  {{ submitting ? '处理中…' : '发起会议' }}
+                </button>
+              </div>
+
+              <div class="reserve-toggle-row">
+                <div>
+                  <p class="reserve-toggle-row__title">进入会议自动开启麦克风</p>
+                </div>
+                <button
+                  type="button"
+                  class="switch"
+                  :class="{ 'switch--on': micOn }"
+                  role="switch"
+                  :aria-checked="micOn"
+                  @click="micOn = !micOn"
+                >
+                  <span class="switch__thumb"></span>
+                </button>
+              </div>
             </template>
 
             <!-- 预约会议 -->
             <template v-else>
               <label>
                 <span>会议主题</span>
-                <input v-model="form.title" class="feature-input" placeholder="请输入会议主题，例如：项目进度同步会" />
+                <input v-model="form.title" class="feature-input" placeholder="请输入会议主题" />
               </label>
 
               <div class="reserve-grid">
@@ -590,8 +593,7 @@ onMounted(() => {
 
               <div class="reserve-toggle-row">
                 <div>
-                  <p class="reserve-toggle-row__title">入会开启麦克风</p>
-                  <p class="reserve-toggle-row__desc">进入会议时自动开启麦克风</p>
+                  <p class="reserve-toggle-row__title">进入会议自动开启麦克风</p>
                 </div>
                 <button
                   type="button"
@@ -826,6 +828,12 @@ onMounted(() => {
   align-items: start;
 }
 
+.meeting-content {
+  display: flex;
+  flex-direction: column;
+  height: calc(100vh - 112px);
+}
+
 /* ---------- Sidebar ---------- */
 .meeting-sidebar {
   position: sticky;
@@ -833,6 +841,9 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   gap: 18px;
+  box-sizing: border-box;
+  width: 100%;
+  height: calc(100vh - 112px);
   padding: 20px 16px;
 }
 
@@ -846,25 +857,24 @@ onMounted(() => {
   font-size: 18px;
 }
 
-.meeting-sidebar__brand span {
-  display: block;
-  margin-top: 3px;
-  color: #8494a7;
-  font-size: 12px;
-  letter-spacing: 0.4px;
-}
-
 .meeting-sidebar__menu {
-  display: grid;
-  gap: 8px;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  gap: 10px;
+  min-height: 0;
 }
 
 .meeting-menu-item {
   display: flex;
-  align-items: center;
+  flex-direction: column;
+  justify-content: center;
+  align-items: flex-start;
+  flex: 1;
   gap: 12px;
   width: 100%;
-  padding: 12px;
+  min-height: 0;
+  padding: 16px;
   border: 1px solid transparent;
   border-radius: 10px;
   background: transparent;
@@ -877,69 +887,52 @@ onMounted(() => {
 }
 
 .meeting-menu-item--active {
-  border-color: rgba(37, 99, 235, 0.18);
-  background: #eef4ff;
+  border-color: rgba(59, 130, 246, 0.22);
+  background: #eff6ff;
 }
 
 .meeting-menu-item__icon {
   display: grid;
   place-items: center;
   flex: 0 0 auto;
-  width: 36px;
-  height: 36px;
-  border-radius: 9px;
+  width: 44px;
+  height: 44px;
+  border-radius: 11px;
   color: #52627a;
   background: #f1f4f8;
 }
 
 .meeting-menu-item__icon svg {
-  width: 18px;
-  height: 18px;
+  width: 22px;
+  height: 22px;
 }
 
 .meeting-menu-item--active .meeting-menu-item__icon {
   color: #ffffff;
-  background: #2563eb;
+  background: linear-gradient(135deg, #3b82f6, #2563eb);
 }
 
 .meeting-menu-item__copy {
-  display: grid;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
   min-width: 0;
 }
 
 .meeting-menu-item__copy strong {
   color: #23344a;
-  font-size: 14px;
-}
-
-.meeting-menu-item--active .meeting-menu-item__copy strong {
-  color: #1d4ed8;
-}
-
-.meeting-menu-item__copy small {
-  margin-top: 2px;
-  color: #8494a7;
-  font-size: 12px;
-}
-
-.meeting-sidebar__tip {
-  margin-top: auto;
-  padding: 14px;
-  border-radius: 10px;
-  background: #f4f7fb;
-}
-
-.meeting-sidebar__tip p {
-  margin: 0 0 6px;
-  color: #23344a;
-  font-size: 13px;
+  font-size: 16px;
   font-weight: 700;
 }
 
-.meeting-sidebar__tip span {
-  color: #718096;
-  font-size: 12px;
-  line-height: 1.6;
+.meeting-menu-item--active .meeting-menu-item__copy strong {
+  color: #2563eb;
+}
+
+.meeting-menu-item__copy small {
+  margin-top: 4px;
+  color: #8494a7;
+  font-size: 13px;
 }
 
 /* ---------- Content ---------- */
@@ -975,14 +968,24 @@ onMounted(() => {
 }
 
 .meeting-create {
-  margin-top: 18px;
   padding: 22px;
 }
 
 .meeting-create--join {
-  max-width: 430px;
+  width: 540px;
+  max-width: 100%;
   margin-right: auto;
   margin-left: auto;
+}
+
+.meeting-create--join .feature-input {
+  width: 100%;
+}
+
+.meeting-create--fill {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
 }
 
 .meeting-create__head h2 {
@@ -999,6 +1002,7 @@ onMounted(() => {
 
 .meeting-tabs {
   display: inline-flex;
+  align-self: flex-start;
   gap: 4px;
   margin-top: 18px;
   padding: 4px;
@@ -1023,7 +1027,7 @@ onMounted(() => {
 }
 
 .meeting-tab--active {
-  color: #1d4ed8;
+  color: #2563eb;
   background: #ffffff;
   box-shadow: 0 2px 8px rgba(30, 43, 76, 0.08);
 }
@@ -1040,6 +1044,28 @@ onMounted(() => {
   color: #41536a;
   font-size: 13px;
   font-weight: 700;
+}
+
+.meeting-quick-row {
+  display: flex;
+  gap: 12px;
+  align-items: stretch;
+  margin: 0 4px;
+}
+
+.meeting-quick-row .feature-input {
+  flex: 1;
+  min-width: 0;
+  min-height: 46px;
+  margin: 0;
+}
+
+.meeting-quick-row .meet-btn {
+  flex: 0 0 auto;
+  min-height: 46px;
+  padding: 0 24px;
+  border-radius: 8px;
+  font-size: 15px;
 }
 
 /* ---------- Reserve form ---------- */
@@ -1073,8 +1099,8 @@ onMounted(() => {
   gap: 7px;
   padding: 5px 7px 5px 12px;
   border-radius: 999px;
-  color: #2956c2;
-  background: #edf3ff;
+  color: #2563eb;
+  background: #eff6ff;
   font-size: 13px;
   font-weight: 600;
 }
@@ -1085,14 +1111,14 @@ onMounted(() => {
   width: 18px;
   height: 18px;
   border-radius: 50%;
-  color: #2956c2;
-  background: rgba(37, 99, 235, 0.14);
+  color: #2563eb;
+  background: rgba(59, 130, 246, 0.14);
   font-size: 13px;
   line-height: 1;
 }
 
 .participant-chip button:hover {
-  background: rgba(37, 99, 235, 0.24);
+  background: rgba(59, 130, 246, 0.26);
 }
 
 .group-select-trigger {
@@ -1111,13 +1137,13 @@ onMounted(() => {
 }
 
 .group-select-trigger:hover {
-  border-color: #93b4f0;
+  border-color: #3b82f6;
 }
 
 .group-select-trigger:focus-visible {
   outline: none;
-  border-color: #2563eb;
-  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.12);
 }
 
 .group-select-trigger__placeholder {
@@ -1183,19 +1209,19 @@ onMounted(() => {
 }
 
 .group-option:hover {
-  border-color: #93b4f0;
+  border-color: #3b82f6;
 }
 
 .group-option--checked {
-  border-color: #2563eb;
-  background: #eef4ff;
+  border-color: #3b82f6;
+  background: #eff6ff;
 }
 
 .group-option input {
   flex: 0 0 auto;
   width: 16px;
   height: 16px;
-  accent-color: #2563eb;
+  accent-color: #3b82f6;
 }
 
 .group-modal__footer {
@@ -1256,7 +1282,7 @@ onMounted(() => {
 }
 
 .switch--on {
-  background: #2563eb;
+  background: #3b82f6;
 }
 
 .switch--on .switch__thumb {
@@ -1276,8 +1302,13 @@ onMounted(() => {
 
 /* ---------- Meetings list ---------- */
 .meeting-panel {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  box-sizing: border-box;
   margin-top: 18px;
   padding: 22px;
+  overflow: hidden;
 }
 
 .meeting-empty {
@@ -1285,7 +1316,9 @@ onMounted(() => {
 }
 
 .meeting-table-wrap {
-  overflow-x: auto;
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
 }
 
 .meeting-table {
@@ -1297,7 +1330,7 @@ onMounted(() => {
   padding: 10px 12px;
   border-bottom: 1px solid #e5eaf0;
   color: #64748b;
-  background: #f6f8fb;
+  background: #f5f9ff;
   font-size: 13px;
   font-weight: 700;
   text-align: left;
@@ -1318,7 +1351,7 @@ onMounted(() => {
 }
 
 .meeting-table tbody tr:hover {
-  background: #f6f9ff;
+  background: #f0f6ff;
 }
 
 .meeting-table tbody tr:last-child td {
@@ -1441,7 +1474,7 @@ onMounted(() => {
 .detail-copy code {
   padding: 3px 8px;
   border-radius: 6px;
-  color: #2956c2;
+  color: #2563eb;
   background: #f4f7fb;
   font-size: 13px;
   word-break: break-all;
@@ -1452,15 +1485,15 @@ onMounted(() => {
   padding: 0 10px;
   border: 1px solid #cbd5e1;
   border-radius: 6px;
-  color: #2563eb;
+  color: #3b82f6;
   background: #ffffff;
   font-size: 12px;
   font-weight: 700;
 }
 
 .detail-copy button:hover {
-  border-color: #2563eb;
-  background: #eef4ff;
+  border-color: #3b82f6;
+  background: #eff6ff;
 }
 
 .detail-section {
@@ -1494,7 +1527,7 @@ onMounted(() => {
   padding: 1px 6px;
   border-radius: 999px;
   color: #ffffff;
-  background: #2563eb;
+  background: #3b82f6;
   font-size: 11px;
   font-style: normal;
   font-weight: 700;
@@ -1524,7 +1557,7 @@ onMounted(() => {
 
 .detail-result h4 {
   margin: 0 0 6px;
-  color: #1d4ed8;
+  color: #2563eb;
   font-size: 13px;
 }
 
@@ -1591,13 +1624,13 @@ onMounted(() => {
 }
 
 .meeting-status--live {
-  color: #2f6b4f;
-  background: #edf8f3;
+  color: #2563eb;
+  background: #eff6ff;
 }
 
 .meeting-status--pending {
-  color: #2956c2;
-  background: #edf3ff;
+  color: #64748b;
+  background: #f1f5f9;
 }
 
 .meeting-status--ended {
@@ -1609,17 +1642,17 @@ onMounted(() => {
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: #22a06b;
+  background: #3b82f6;
   animation: meeting-pulse 1.4s ease-in-out infinite;
 }
 
 @keyframes meeting-pulse {
   0%,
   100% {
-    box-shadow: 0 0 0 0 rgba(34, 160, 107, 0.45);
+    box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.4);
   }
   50% {
-    box-shadow: 0 0 0 5px rgba(34, 160, 107, 0);
+    box-shadow: 0 0 0 5px rgba(59, 130, 246, 0);
   }
 }
 
@@ -1642,13 +1675,13 @@ onMounted(() => {
 }
 
 .meet-btn--primary {
-  border-color: #2563eb;
+  border-color: #3b82f6;
   color: #ffffff;
-  background: #2563eb;
+  background: #3b82f6;
 }
 
 .meet-btn--primary:hover {
-  background: #1d4ed8;
+  background: #2563eb;
 }
 
 .meet-btn--danger {
@@ -1676,6 +1709,22 @@ onMounted(() => {
 
   .meeting-sidebar {
     position: static;
+  }
+
+  .meeting-content {
+    height: auto;
+  }
+
+  .meeting-panel {
+    flex: none;
+    overflow: visible;
+  }
+
+  .meeting-table-wrap {
+    flex: none;
+    min-height: auto;
+    overflow-x: auto;
+    overflow-y: visible;
   }
 
   .reserve-grid {

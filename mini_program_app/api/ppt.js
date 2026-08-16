@@ -72,6 +72,13 @@ export const generatePptSlides = data => request({
   timeout: PPT_GENERATION_TIMEOUT
 })
 
+export const createPptSlidesTask = data => request({
+  url: `${base}/slides`,
+  method: 'POST',
+  data,
+  timeout: 120000
+})
+
 export const createPptTask = data => request({
   url: `${base}/tasks`,
   method: 'POST',

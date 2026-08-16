@@ -2,6 +2,7 @@ import asyncio
 import base64
 import binascii
 import json
+import time
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Header, HTTPException
@@ -134,6 +135,21 @@ def generate_slides(request: SlidesRequest, authorization: Optional[str] = Heade
     )
 
 
+@router.post("/slides/tasks")
+def create_slides_task(request: SlidesRequest, authorization: Optional[str] = Header(None),
+                       x_user_id: Optional[str] = Header(None, alias="X-User-Id"),
+                       provider: Optional[str] = Header(None, alias="X-AI-Provider"),
+                       base_url: Optional[str] = Header(None, alias="X-AI-Base-Url"),
+                       api_key: Optional[str] = Header(None, alias="X-AI-Api-Key"),
+                       model: Optional[str] = Header(None, alias="X-AI-Model")):
+    user_id = _identity(authorization, x_user_id)
+    return ppt_generation_service.create_slides_task(
+        user_id,
+        request.model_dump(),
+        _llm_config(provider, base_url, api_key, model),
+    )
+
+
 @router.post("/tasks")
 def create_task(request: TaskRequest, authorization: Optional[str] = Header(None),
                 x_user_id: Optional[str] = Header(None, alias="X-User-Id"),
@@ -197,12 +213,25 @@ async def stream_task(task_id: str, authorization: Optional[str] = Header(None),
 
     async def events():
         last = None
+        last_heartbeat = time.monotonic()
         while True:
             task = ppt_generation_service.get_task(user_id, task_id)
-            marker = (task["status"], task["progress"], task["stage"])
+            marker = (
+                task["status"],
+                task["progress"],
+                task["stage"],
+                task.get("currentSlide"),
+                task.get("completedSlides"),
+                task.get("remainingSlides"),
+                tuple(task.get("processingSlides") or []),
+            )
             if marker != last:
                 yield f"event: {task['stage']}\ndata: {json.dumps(task, ensure_ascii=False)}\n\n"
                 last = marker
+                last_heartbeat = time.monotonic()
+            elif time.monotonic() - last_heartbeat >= 15:
+                yield ": keepalive\n\n"
+                last_heartbeat = time.monotonic()
             if task["status"] in {"completed", "failed", "cancelled"}:
                 break
             await asyncio.sleep(0.4)

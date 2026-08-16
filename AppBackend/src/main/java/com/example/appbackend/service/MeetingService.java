@@ -3,6 +3,8 @@ package com.example.appbackend.service;
 import com.example.appbackend.dto.MeetingDTO;
 import com.example.appbackend.dto.PageResponse;
 
+import java.util.List;
+
 public interface MeetingService {
 
     MeetingDTO.SessionDetail createMeeting(Long userId, MeetingDTO.SessionRequest request);
@@ -17,6 +19,8 @@ public interface MeetingService {
 
     MeetingDTO.SessionDetail joinMeeting(Long userId, MeetingDTO.JoinRoomRequest request);
 
+    void leaveMeeting(Long userId, String sessionId);
+
     MeetingDTO.SessionDetail getMeeting(Long userId, String sessionId);
 
     MeetingDTO.SessionDetail startMeeting(Long userId, String sessionId);
@@ -25,6 +29,8 @@ public interface MeetingService {
 
     MeetingDTO.SessionDetail organizeMeeting(Long userId, String sessionId, String authorization);
 
+    MeetingDTO.SessionDetail transferHost(Long userId, String sessionId, String newHostName);
+
     void deleteMeeting(Long userId, String sessionId);
 
     MeetingDTO.RecordItem addRecord(Long userId, String sessionId, MeetingDTO.RecordRequest request);
@@ -32,4 +38,8 @@ public interface MeetingService {
     MeetingDTO.RunAgentResponse runAgent(Long userId, String sessionId, MeetingDTO.RunAgentRequest request, String authorization);
 
     MeetingDTO.RunAgentResponse previewAgent(Long userId, String sessionId, MeetingDTO.RunAgentRequest request, String authorization);
+
+    List<MeetingDTO.CommentItem> listComments(Long userId, String sessionId);
+
+    MeetingDTO.CommentItem addComment(Long userId, String sessionId, MeetingDTO.CommentRequest request);
 }
