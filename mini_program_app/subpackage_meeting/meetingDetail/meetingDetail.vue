@@ -27,8 +27,8 @@
 				</view>
 			</view>
 
-			<!-- 会议信息 -->
-			<view class="section-card">
+			<!-- 会议信息：仅非历史记录（已结束）会议展示 -->
+			<view v-if="status !== 'ended'" class="section-card">
 				<view class="section-title">会议信息</view>
 				<view class="info-row">
 					<text class="info-label">会议号</text>
@@ -47,27 +47,29 @@
 			</view>
 
 			<!-- 参会人 -->
-			<view class="section-card">
-				<view class="section-title" @click="openAllMemberPopup">
-					<text>参会人 ({{ participants.length }})</text>
-					<text v-if="participants.length > 1" class="more-link">查看全部 ></text>
-				</view>
-				<view class="participant-list">
-					<view v-for="(name, index) in displayedParticipants" :key="index" class="participant-item">
-						<view class="participant-avatar">{{ name.slice(0, 1) }}</view>
-						<view class="participant-info">
-							<view class="participant-name-row">
-								<text class="participant-name">{{ name }}</text>
-								<view v-if="index === 0" class="host-tag">主持人</view>
-							</view>
-							<text class="participant-status">已参会</text>
+			<view class="section-card participant-summary-card">
+				<view class="section-title">参会人（{{ allParticipantNames.length }}）</view>
+				<view class="participant-summary" @click="goMeetingHistory">
+					<view class="participant-avatars">
+						<view
+							v-for="(name, index) in displayedParticipants"
+							:key="index"
+							class="summary-avatar"
+							:style="{ zIndex: displayedParticipants.length - index }"
+						>
+							{{ name.slice(0, 1) }}
 						</view>
+					</view>
+					<text class="participant-summary-text">{{ participantSummaryText }}</text>
+					<view class="record-link">
+						<text>查看参会记录</text>
+						<text class="record-link-arrow">></text>
 					</view>
 				</view>
 			</view>
 
-			<!-- AI 会议纪要 -->
-			<view class="entry-card" :class="{ disabled: !hasResults && status !== 'ended' }" @click="onAiCardClick">
+			<!-- AI 会议纪要：预约（待开始）会议不展示 -->
+			<view v-if="status !== 'idle'" class="entry-card" :class="{ disabled: !hasResults && status !== 'ended' }" @click="onAiCardClick">
 				<view class="entry-icon entry-icon--ai">
 					<image class="entry-icon__img" src="@/static/icons/line/sparkles.svg" mode="aspectFit" />
 				</view>
@@ -92,8 +94,8 @@
 				</view>
 			</view>
 
-			<!-- 会议记录 -->
-			<view class="entry-card" :class="{ disabled: !hasRecords }" @click="onRecordCardClick">
+			<!-- 会议记录：预约（待开始）会议不展示 -->
+			<view v-if="status !== 'idle'" class="entry-card" :class="{ disabled: !hasRecords }" @click="onRecordCardClick">
 				<view class="entry-icon entry-icon--record">
 					<image class="entry-icon__img" src="@/static/icons/line/clipboard.svg" mode="aspectFit" />
 				</view>
@@ -120,22 +122,6 @@
 
 		</view>
 
-		<!-- 全部参会人弹窗 -->
-		<view v-if="showMemberPopup" class="popup-mask" @click.self="closeMemberPopup">
-			<view class="popup-box">
-				<view class="popup-title">全部参会人</view>
-				<view class="member-list">
-					<view v-for="(name, index) in participants" :key="name" class="member-item">
-						<view class="member-avatar">{{ name.slice(0,1) }}</view>
-						<text class="member-name">{{ name }}</text>
-						<view v-if="index === 0" class="host-tag">主持人</view>
-					</view>
-				</view>
-				<view class="popup-btn-row">
-					<view class="confirm-btn" @click="closeMemberPopup">关闭</view>
-				</view>
-			</view>
-		</view>
 	</view>
 </template>
 
@@ -154,10 +140,10 @@ export default {
 			startTime: '',
 			scheduledStartTime: '',
 			participants: [],
+				allParticipantNames: [],
 			records: [],
 			results: [],
 			organizing: false,
-			showMemberPopup: false,
 			showAiResults: false,
 			showRecords: false
 		}
@@ -183,7 +169,13 @@ export default {
 			return `${month}-${day} ${hour}:${minute}`
 		},
 		displayedParticipants() {
-			return this.participants.slice(0, 3)
+			return this.allParticipantNames.slice(0, 4)
+		},
+		participantSummaryText() {
+			const total = this.allParticipantNames.length
+			if (total === 0) return '暂无参会人'
+			const firstTwo = this.allParticipantNames.slice(0, 2).join('、')
+			return `${firstTwo} 等 ${total} 人`
 		},
 		hasResults() {
 			return this.results.length > 0
@@ -222,6 +214,9 @@ export default {
 			this.startTime = session.startTime || ''
 			this.scheduledStartTime = session.scheduledStartTime || ''
 			this.participants = Array.isArray(detail.participants) ? detail.participants : []
+						// 参会人数以最多人数为准：优先使用全部参会记录（含中途离开者），无记录时退回在线名单
+						const records = Array.isArray(detail.participantRecords) ? detail.participantRecords : []
+						this.allParticipantNames = records.length > 0 ? records.map(item => item && item.name).filter(Boolean) : this.participants
 			this.records = Array.isArray(detail.records) ? detail.records : []
 			this.results = Array.isArray(detail.results) ? detail.results : []
 		},
@@ -305,12 +300,10 @@ export default {
 		sourceLabel(source) {
 			return source === 'transcription' ? '实时转写' : '手动记录'
 		},
-		openAllMemberPopup() {
-			if (this.participants.length <= 1) return
-			this.showMemberPopup = true
-		},
-		closeMemberPopup() {
-			this.showMemberPopup = false
+		goMeetingHistory() {
+			uni.navigateTo({
+				url: `/subpackage_meeting/participantRecord/participantRecord?sessionId=${encodeURIComponent(this.sessionId)}&title=${encodeURIComponent(this.title)}`
+			})
 		}
 	}
 }
@@ -443,6 +436,69 @@ $card-radius: 24rpx;
 	font-size: 24rpx;
 	color: $text-muted;
 	font-weight: 500;
+}
+
+/* 参会人汇总卡片 */
+.participant-summary-card {
+	padding-bottom: 24rpx;
+}
+
+.participant-summary {
+	display: flex;
+	align-items: center;
+	gap: 20rpx;
+}
+
+.participant-avatars {
+	display: flex;
+	align-items: center;
+	flex-shrink: 0;
+}
+
+.summary-avatar {
+	width: 64rpx;
+	height: 64rpx;
+	border-radius: 50%;
+	background: #e5e7eb;
+	color: #6b7280;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	font-size: 26rpx;
+	font-weight: 700;
+	border: 4rpx solid #fff;
+	margin-left: -16rpx;
+	box-sizing: border-box;
+
+	&:first-child {
+		margin-left: 0;
+		background: #86c9a8;
+		color: #fff;
+	}
+}
+
+.participant-summary-text {
+	flex: 1;
+	min-width: 0;
+	font-size: 26rpx;
+	color: $text-main;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.record-link {
+	display: flex;
+	align-items: center;
+	gap: 6rpx;
+	font-size: 24rpx;
+	color: #86c9a8;
+	font-weight: 700;
+	flex-shrink: 0;
+}
+
+.record-link-arrow {
+	font-size: 22rpx;
 }
 
 /* 会议信息行 */
@@ -735,81 +791,5 @@ $card-radius: 24rpx;
 		background: #FEF2F2;
 		color: $danger;
 	}
-}
-
-/* 弹窗 */
-.popup-mask {
-	position: fixed;
-	top: 0;
-	left: 0;
-	right: 0;
-	bottom: 0;
-	background: rgba(0,0,0,0.5);
-	display: flex;
-	align-items: center;
-	justify-content: center;
-	z-index: 999;
-}
-
-.popup-box {
-	width: 660rpx;
-	background: #fff;
-	border-radius: $card-radius;
-	overflow: hidden;
-}
-
-.popup-title {
-	text-align: center;
-	font-size: 30rpx;
-	padding: 36rpx 0 20rpx;
-	font-weight: 800;
-}
-
-.member-list {
-	max-height: 60vh;
-	padding: 0 40rpx 20rpx;
-}
-
-.member-item {
-	display: flex;
-	align-items: center;
-	gap: 24rpx;
-	height: 96rpx;
-	border-bottom: 1rpx solid #F1F5F9;
-
-	&:last-child {
-		border-bottom: none;
-	}
-}
-
-.member-avatar {
-	width: 64rpx;
-	height: 64rpx;
-	border-radius: 50%;
-	background: linear-gradient(135deg, #BFDBFE, #93C5FD);
-	color: #fff;
-	display: flex;
-	align-items: center;
-	justify-content: center;
-	font-weight: 700;
-}
-
-.member-name {
-	flex: 1;
-	font-size: 28rpx;
-	color: $text-main;
-}
-
-.popup-btn-row {
-	border-top: 1rpx solid #F1F5F9;
-}
-
-.confirm-btn {
-	height: 96rpx;
-	text-align: center;
-	line-height: 96rpx;
-	font-size: 28rpx;
-	color: $primary;
-	font-weight: 700;
 }
 </style>

@@ -30,7 +30,10 @@
 		<view class="panel setting-panel">
 			<text class="panel-title">会议设置</text>
 			<view class="field-block">
-				<text class="field-label">会议主题</text>
+				<view class="field-label-wrap">
+					<text class="field-label">会议主题</text>
+					<text class="required-mark">*</text>
+				</view>
 				<view class="input-box">
 					<input v-model="meetingTitle" class="plain-input" placeholder="" />
 					<view class="clear-btn" @click="clearTitle">
@@ -89,11 +92,18 @@ export default {
 		goStartMeeting() { uni.redirectTo({ url: '/subpackage_meeting/startMeeting/startMeeting' }) },
 		async reserveNow() {
 			if (this.creating) return
+			const title = this.meetingTitle.trim()
+			if (!title) {
+				uni.showToast({ title: '请输入会议主题', icon: 'none' })
+				return
+			}
 			this.creating = true
 			try {
+				const durationMap = [15, 30, 45, 60, 90, 120]
 				await reserveMeeting({
-					title: this.meetingTitle || '预约会议',
+					title,
 					scheduledStartTime: `${this.scheduledDate}T${this.scheduledTime}:00`,
+					expectedDurationMinutes: durationMap[this.durationIndex],
 					participants: buildMeetingParticipants()
 				})
 				uni.showToast({ title: '会议已预约', icon: 'none' })
@@ -101,7 +111,7 @@ export default {
 					uni.redirectTo({ url: '/subpackage_meeting/meetingSchedule/meetingSchedule' })
 				}, 450)
 			} catch (error) {
-				uni.showToast({ title: '会议预约失败，请稍后重试', icon: 'none' })
+				uni.showToast({ title: (error && (error.msg || error.message)) || '会议预约失败，请稍后重试', icon: 'none' })
 			} finally {
 				this.creating = false
 			}
@@ -133,8 +143,10 @@ export default {
 .chevron { color: #8c969b; font-size: 42rpx; }
 .field-block { padding-bottom: 28rpx; }
 .field-block--inline { display: flex; align-items: center; justify-content: space-between; gap: 24rpx; }
+.field-label-wrap { display: flex; align-items: center; gap: 6rpx; margin-bottom: 16rpx; }
 .field-label { display: block; color: #29343a; font-size: 25rpx; margin-bottom: 16rpx; }
 .field-block--inline .field-label { margin-bottom: 0; }
+.required-mark { color: #ff4d4f; font-size: 25rpx; }
 
 /* 和发起会议页面统一输入框样式 */
 .input-box {

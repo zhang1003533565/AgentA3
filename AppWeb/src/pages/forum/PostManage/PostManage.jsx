@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
 import dayjs from 'dayjs'
 import { message, Drawer, Button, Table, Tag, Space, Popconfirm, Input, Select, Form, Card, Popover, Tooltip } from 'antd'
 import {
@@ -20,6 +21,7 @@ const statusMap = {
 const formatTime = (t) => (t ? dayjs(t).format('YYYY-MM-DD HH:mm') : '-')
 
 function PostManage() {
+  const navigate = useNavigate()
   const [posts, setPosts] = useState([])
   const [loading, setLoading] = useState(false)
   const [searchForm] = Form.useForm()
@@ -32,15 +34,17 @@ function PostManage() {
   const fetchPosts = async (params = {}) => {
     setLoading(true)
     try {
+      const pageNum = params.pageNum ?? pagination.current
+      const pageSize = params.pageSize ?? pagination.pageSize
       const res = await getAdminPostList({
-        pageNum: params.pageNum ?? pagination.current,
-        pageSize: params.pageSize ?? pagination.pageSize,
+        pageNum,
+        pageSize,
         ...params,
       })
       if (res.code === 200) {
         const records = res.data?.records || res.data?.list || res.data || []
         setPosts(Array.isArray(records) ? records : [])
-        setPagination({ ...pagination, total: res.data?.total || 0 })
+        setPagination((prev) => ({ ...prev, current: pageNum, pageSize, total: res.data?.total || 0 }))
       }
     } catch (error) {
       console.error('获取帖子列表失败:', error)
@@ -69,14 +73,12 @@ function PostManage() {
   }, [])
 
   const handleSearch = (values) => {
-    setPagination({ ...pagination, current: 1 })
-    fetchPosts(values)
+    fetchPosts({ pageNum: 1, ...values })
   }
 
   const handleReset = () => {
     searchForm.resetFields()
-    setPagination({ ...pagination, current: 1 })
-    fetchPosts()
+    fetchPosts({ pageNum: 1 })
   }
 
   const handleView = (record) => { setCurrentPost(record); setDrawerOpen(true) }
@@ -168,6 +170,9 @@ function PostManage() {
           <Tooltip title="查看">
             <Button type="text" size="small" icon={<EyeOutlined />} onClick={() => handleView(record)} />
           </Tooltip>
+          <Tooltip title="查看该帖评论">
+            <Button type="text" size="small" icon={<MessageOutlined />} onClick={() => navigate(`/forum/comment?postId=${record.id}&postTitle=${encodeURIComponent(record.title || '')}`)} />
+          </Tooltip>
           <Tooltip title={record.pinOrder > 0 ? '取消置顶' : '置顶'}>
             <Button type="text" size="small" icon={<PushpinOutlined />} onClick={() => handleTogglePin(record.id)} />
           </Tooltip>
@@ -216,7 +221,7 @@ function PostManage() {
           <Form.Item name="status">
             <Select placeholder="选择状态" allowClear style={{ width: 130 }}>
               {Object.entries(statusMap)
-                .filter(([key]) => key !== 'DELETED')
+                .filter(([key]) => key !== 'DELETED' && key !== 'DRAFT')
                 .map(([key, val]) => (<Option key={key} value={key}>{val.text}</Option>))}
             </Select>
           </Form.Item>
@@ -249,7 +254,7 @@ function PostManage() {
             ...pagination, showSizeChanger: true, showTotal: (t) => `共 ${t} 条`,
             pageSizeOptions: ['10', '20', '50'],
           }}
-          onChange={(pag) => { setPagination({ ...pagination, current: pag.current, pageSize: pag.pageSize }); fetchPosts({ pageNum: pag.current, pageSize: pag.pageSize }) }}
+          onChange={(pag) => fetchPosts({ pageNum: pag.current, pageSize: pag.pageSize })}
           size="middle"
           rowClassName={(record) => record.pinOrder > 0 ? 'pm-row-pin' : ''}
         />

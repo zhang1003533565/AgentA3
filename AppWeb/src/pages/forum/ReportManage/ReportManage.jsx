@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import dayjs from 'dayjs'
 import { Button, Card, Descriptions, Form, Input, message, Modal, Select, Space, Table, Tag, Timeline, Popover, Tooltip } from 'antd'
 import { CheckCircleOutlined, DeleteOutlined, EyeOutlined, SearchOutlined, StopOutlined } from '@ant-design/icons'
-import { getReportList, getReportLogs, getReportStatistics, handleReport } from '../../../api/forum'
+import { getReportList, getReportLogs, getReportStatistics, handleReport, batchDeleteReports } from '../../../api/forum'
 import './ReportManage.css'
 
 const { TextArea } = Input
@@ -24,6 +24,7 @@ function ReportManage() {
   const [searchForm] = Form.useForm()
   const [handleForm] = Form.useForm()
   const [pagination, setPagination] = useState({ current: 1, pageSize: 10, total: 0 })
+  const [selectedRowKeys, setSelectedRowKeys] = useState([])
 
   const fetchReports = async (params = {}) => {
     setLoading(true)
@@ -70,6 +71,21 @@ function ReportManage() {
     fetchReports()
     fetchStats()
   }
+
+  const handleBatchDelete = async () => {
+    if (selectedRowKeys.length === 0) return
+    try {
+      const res = await batchDeleteReports(selectedRowKeys)
+      if (res.code === 200) {
+        message.success(`已删除 ${selectedRowKeys.length} 条举报记录`)
+        setSelectedRowKeys([])
+        fetchReports()
+        fetchStats()
+      }
+    } catch (error) { message.error(error?.message || '删除失败') }
+  }
+
+  const rowSelection = { selectedRowKeys, onChange: (keys) => setSelectedRowKeys(keys) }
 
   const renderRowPopover = (record) => (
     <div className="rm-row-pop">
@@ -161,9 +177,20 @@ function ReportManage() {
         </Form>
       </div>
 
+      {/* 批量操作栏 */}
+      {selectedRowKeys.length > 0 && (
+        <div className="rm-batch-bar">
+          <span className="rm-batch-count">已选择 <strong>{selectedRowKeys.length}</strong> 条</span>
+          <Popconfirm title={`确定删除选中的 ${selectedRowKeys.length} 条举报记录吗？`} onConfirm={handleBatchDelete} okText="确定" cancelText="取消">
+            <Button type="primary" danger size="small" icon={<DeleteOutlined />}>批量删除</Button>
+          </Popconfirm>
+        </div>
+      )}
+
       {/* 举报表格 */}
       <Card className="rm-table-card" bodyStyle={{ padding: 0 }}>
         <Table
+          rowSelection={rowSelection}
           columns={columns}
           dataSource={reports}
           rowKey="id"
