@@ -212,7 +212,7 @@
                   <text v-if="fileInfo">{{ fileKindLabel }}</text>
                   <text v-else>FILE</text>
                 </view>
-                <view>
+                <view class="source-input-card__copy">
                   <text>{{ fileInfo ? fileInfo.name : '上传文件或直接粘贴内容' }}</text>
                   <text>{{ fileInfo ? `${fileInfo.sizeLabel} · ${sourceFileId ? '上传完成' : '读取完成'}` : supportedSourceHint }}</text>
                 </view>
@@ -2469,12 +2469,13 @@ export default {
 .source-input-card{overflow:hidden;border:1px solid #dce2ec;border-radius:16rpx;background:#fff}
 .source-input-card__head{display:flex;align-items:center;justify-content:space-between;gap:16rpx;padding:16rpx 18rpx;border-bottom:1px solid #edf1f5;background:#f8fafc}
 .source-input-card__status{display:flex;min-width:0;align-items:center;gap:14rpx}
-.source-input-card__icon{position:relative;display:flex;width:48rpx;height:52rpx;flex:none;align-items:flex-end;justify-content:center;padding-bottom:7rpx;border-radius:8rpx;background:#5265f5;color:#fff;font-size:14rpx;font-weight:820;box-sizing:border-box;box-shadow:0 6rpx 16rpx rgba(82,101,245,.18)}
-.source-input-card__icon::after{position:absolute;right:0;top:0;border-top:13rpx solid #fff;border-left:13rpx solid rgba(255,255,255,.58);content:''}
+.source-input-card__icon{position:relative;display:flex;width:50rpx;height:58rpx;flex:none;align-items:flex-end;justify-content:center;padding-bottom:9rpx;overflow:hidden;border-radius:9rpx;background:#5265f5;color:#fff;box-sizing:border-box;box-shadow:0 6rpx 16rpx rgba(82,101,245,.18)}
+.source-input-card__icon::after{position:absolute;right:0;top:0;border-top:15rpx solid #eef2ff;border-left:15rpx solid rgba(255,255,255,.5);content:''}
 .source-input-card__icon--empty{background:linear-gradient(145deg,#6878fb,#4c5eea)}
-.source-input-card__status text{display:block}
-.source-input-card__status text:first-child{max-width:330rpx;overflow:hidden;color:#26384a;font-size:22rpx;font-weight:760;text-overflow:ellipsis;white-space:nowrap}
-.source-input-card__status text:last-child{max-width:360rpx;margin-top:5rpx;overflow:hidden;color:#7b8798;font-size:17rpx;text-overflow:ellipsis;white-space:nowrap}
+.source-input-card__icon text{position:relative;z-index:1;color:#fff;font-size:13rpx;font-weight:820;line-height:1;letter-spacing:0}
+.source-input-card__copy text{display:block}
+.source-input-card__copy text:first-child{max-width:330rpx;overflow:hidden;color:#26384a;font-size:22rpx;font-weight:760;text-overflow:ellipsis;white-space:nowrap}
+.source-input-card__copy text:last-child{max-width:360rpx;margin-top:5rpx;overflow:hidden;color:#7b8798;font-size:17rpx;text-overflow:ellipsis;white-space:nowrap}
 .source-input-card__actions{display:flex;flex:none;align-items:center;gap:16rpx;color:#5265f5;font-size:20rpx;font-weight:720}
 .source-input-card__delete{color:#98a1b2}
 .source-textarea{width:100%;min-height:210rpx;padding:18rpx;border:0;background:#fff;color:#26384a;font-size:22rpx;line-height:1.55;box-sizing:border-box}
