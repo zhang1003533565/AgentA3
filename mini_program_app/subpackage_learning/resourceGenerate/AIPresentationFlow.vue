@@ -231,6 +231,15 @@
           </view>
         </view>
 
+        <view class="upload-preference-card">
+          <text class="upload-preference-card__title">生成偏好</text>
+          <view class="upload-preference-list">
+            <view><text>目标页数</text><text>{{ pageCount }} 页</text><text>建议 10-18 页</text></view>
+            <view><text>内容密度</text><text>{{ currentContentLevel.name }}</text><text>复习资料默认保留必要说明</text></view>
+            <view><text>配图模式</text><text>{{ selectedImageModeLabel }}</text><text>先占位，生成后可替换</text></view>
+          </view>
+        </view>
+
         <view class="capability-strip">
           <view v-for="item in capabilityCards" :key="item.title" class="capability-card">
             <text class="capability-card__title">{{ item.title }}</text>
@@ -291,6 +300,11 @@
     </view>
 
     <view v-else-if="currentStep === 3" class="panel outline-panel">
+      <view class="outline-design-hero">
+        <text class="outline-design-hero__eyebrow">大纲已生成</text>
+        <text class="outline-design-hero__title">先确认页面结构，再写入模板</text>
+        <text class="outline-design-hero__desc">避免直接生成不可控 PPT。这里可以调整顺序、删除重复页、补充老师要求的重点。</text>
+      </view>
       <view class="editor-toolbar">
         <view>
           <text class="editor-toolbar__title">PPT 大纲</text>
@@ -363,6 +377,15 @@
           <view><text>{{ selectedTemplateLayoutCount }}</text><text>可用版式</text></view>
           <view><text>{{ pageCount }}</text><text>预计页数</text></view>
           <view><text>{{ selectedTemplateCategoryLabel }}</text><text>模板分类</text></view>
+        </view>
+        <view class="template-usage-layouts">
+          <view v-for="layout in selectedTemplateLayouts.slice(0, 4)" :key="layout.id" class="template-usage-layout">
+            <view class="template-layout-preview" :class="`template-layout-preview--${layout.type}`">
+              <text></text><text></text><text></text>
+            </view>
+            <text>{{ layout.name }}</text>
+            <text>{{ layout.id === 'cover' ? '第 1 页' : layout.id === 'catalog' ? '自动生成' : layout.id === 'content' ? '第 3-12 页' : '可手动锁定' }}</text>
+          </view>
         </view>
         <view class="template-usage-plan">
           <view v-for="item in templateUsageItems" :key="item.label" class="template-usage-plan__item" :class="{ 'template-usage-plan__item--muted': !item.enabled }">
@@ -2194,6 +2217,11 @@ export default {
 .operation-banter__status{margin-top:7rpx;color:#9aa2b1;font-size:17rpx}
 .flow-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:22rpx}
 .flow-heading__copy{min-width:0;flex:1}
+.outline-design-hero{margin-bottom:22rpx;padding:22rpx;border:1px solid #dfe7ef;border-radius:18rpx;background:#f8fafc}
+.outline-design-hero__eyebrow,.outline-design-hero__title,.outline-design-hero__desc{display:block}
+.outline-design-hero__eyebrow{color:#314b63;font-size:19rpx;font-weight:780}
+.outline-design-hero__title{margin-top:9rpx;color:#07152a;font-size:34rpx;font-weight:830;line-height:1.2}
+.outline-design-hero__desc{margin-top:10rpx;color:#667386;font-size:21rpx;line-height:1.55}
 .editor-toolbar{display:flex;align-items:flex-start;justify-content:space-between;gap:18rpx;padding-bottom:23rpx;border-bottom:1px solid #eef0f4}
 .editor-toolbar__title,.editor-toolbar__desc{display:block}
 .editor-toolbar__title{font-size:29rpx;font-weight:800}
@@ -2481,6 +2509,13 @@ export default {
 .selected-template-strip__name{margin-top:4rpx;overflow:hidden;color:#172033;font-size:23rpx;font-weight:800;text-overflow:ellipsis;white-space:nowrap}
 .selected-template-strip__actions{display:flex;flex:none;gap:16rpx;color:#5265f5;font-size:20rpx;font-weight:720}
 .product-hero--compact{margin-bottom:24rpx}
+.upload-preference-card{margin-top:22rpx;padding:18rpx;border:1px solid #dfe7ef;border-radius:18rpx;background:#fff}
+.upload-preference-card__title{display:block;color:#172033;font-size:25rpx;font-weight:820}
+.upload-preference-list{display:flex;gap:12rpx;flex-direction:column;margin-top:16rpx}
+.upload-preference-list view{display:grid;grid-template-columns:1fr auto;gap:6rpx 18rpx;padding:16rpx;border:1px solid #e1e8ef;border-radius:13rpx;background:#fbfcfe}
+.upload-preference-list text:first-child{color:#26384a;font-size:22rpx;font-weight:760}
+.upload-preference-list text:nth-child(2){color:#314b63;font-size:22rpx;font-weight:820;text-align:right}
+.upload-preference-list text:last-child{grid-column:1/3;color:#718094;font-size:17rpx;line-height:1.4}
 .template-usage-card{margin-top:22rpx;padding:18rpx;border:1px solid #dfe7ef;border-radius:18rpx;background:#f8fafc}
 .template-usage-card__main{display:flex;align-items:flex-start;gap:16rpx}
 .template-usage-card__preview{display:flex;width:150rpx;height:84rpx;flex:none;align-items:center;justify-content:center;overflow:hidden;border:1px solid #d6e0ea;border-radius:12rpx;background:#fff;color:#5265f5;font-size:32rpx;font-weight:820}
@@ -2495,6 +2530,11 @@ export default {
 .template-usage-card__metrics text{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .template-usage-card__metrics text:first-child{color:#172033;font-size:23rpx;font-weight:820}
 .template-usage-card__metrics text:last-child{margin-top:4rpx;color:#718094;font-size:16rpx}
+.template-usage-layouts{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12rpx;margin-top:16rpx}
+.template-usage-layout{padding:12rpx;border:1px solid #e1e8ef;border-radius:13rpx;background:#fff;box-sizing:border-box}
+.template-usage-layout>text{display:block;margin-top:9rpx;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.template-usage-layout>text:nth-child(2){color:#172033;font-size:20rpx;font-weight:800}
+.template-usage-layout>text:nth-child(3){color:#718094;font-size:17rpx}
 .template-usage-plan{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8rpx;margin-top:14rpx}
 .template-usage-plan__item{padding:10rpx 6rpx;border-radius:11rpx;background:#eef1ff;text-align:center}
 .template-usage-plan__item--muted{background:#edf1f5}
