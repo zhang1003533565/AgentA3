@@ -87,7 +87,14 @@ export default {
 		}
 	},
 	methods: {
-		back() { uni.navigateBack() },
+		back() {
+			const pages = getCurrentPages()
+			if (pages.length > 1) {
+				uni.navigateBack()
+			} else {
+				uni.redirectTo({ url: '/subpackage_meeting/meetingRoom/meetingRoom' })
+			}
+		},
 		clearTitle() { this.meetingTitle = '' },
 		goStartMeeting() { uni.redirectTo({ url: '/subpackage_meeting/startMeeting/startMeeting' }) },
 		async reserveNow() {

@@ -590,11 +590,16 @@ export default {
 			this.members = currentName ? toMeetingMembers([currentName], currentName) : []
 		},
 		toggleMute() {
+			// 关麦时不断开 ASR Socket，只停止录音（但仍能接收广播）
 			this.muted = !this.muted
 			if (this.muted) {
+				// 停止录音但不关闭 socket，仍然能收其他客户端的识别广播
 				this.stopAsrRecording()
+				this.asrStatusText = '已静音'
 			} else {
+				// 开麦时启动录音并继续监听广播
 				this.startAsr()
+				this.asrStatusText = '已解除静音'
 			}
 			uni.showToast({ title: this.muted ? '已静音' : '已解除静音', icon: 'none' })
 		},
@@ -633,20 +638,28 @@ export default {
 			this.asrManualClosing = false
 			this.asrLastError = ''
 			const url = this.buildAsrSocketUrl(token)
+			console.log('[ASR-Socket] connecting', url)
 			this.asrSocket = uni.connectSocket({ url, complete: () => {} })
 			this.asrSocket.onOpen(() => {
+				console.log('[ASR-Socket] opened')
 				this.asrSocketReady = true
 				this.asrReconnectAttempts = 0
 				this.asrStatusText = this.muted ? '已静音' : '识别服务连接中'
 			})
-			this.asrSocket.onMessage((event) => this.handleAsrMessage(event.data))
+			this.asrSocket.onMessage((event) => {
+				console.log('[ASR-Socket] message', event.data?.slice(0, 200))
+				this.handleAsrMessage(event.data)
+			})
 			this.asrSocket.onError((error) => {
+				console.log('[ASR-Socket] error', error)
 				this.asrLastError = error?.errMsg || '识别连接异常'
 				this.asrStatusText = this.asrLastError
 				this.asrSocketReady = false
 			})
 			this.asrSocket.onClose(() => {
-				const shouldReconnect = !this.asrManualClosing && !this.muted && !!this.sessionId
+				console.log('[ASR-Socket] closed')
+				// 关播/会议结束时才不再重连，平时断线都要自动重连以维持广播通道
+				const shouldReconnect = !this.asrManualClosing && !!this.sessionId
 				this.asrSocketReady = false
 				this.asrServiceReady = false
 				this.asrSocket = null
@@ -670,7 +683,10 @@ export default {
 				this.openAsrSocket()
 				return
 			}
-			if (this.asrSocketReady && this.asrServiceReady) this.startAsrRecording()
+			// socket 已存在且 ready，直接启动录音（如果之前是静音状态）
+			if (this.asrSocketReady && this.asrServiceReady && !this.muted) {
+				this.startAsrRecording()
+			}
 		},
 		startAsrRecording() {
 			if (this.asrRecording || !this.asrSocketReady || !this.asrServiceReady || !this.asrSocket) return
@@ -840,7 +856,8 @@ export default {
 			return buffer
 		},
 		stopAsrRecording() {
-			this.asrManualClosing = true
+			// 关麦时停止录音和当前音频流，但保持 ASR WebSocket 连接以接收广播
+			this.asrManualClosing = false
 			this.clearAsrReconnectTimer()
 			if (this.asrRecorder && this.asrRecording) {
 				try {
@@ -899,7 +916,7 @@ export default {
 			this.asrReconnectAttempts += 1
 			const delay = Math.min(1000 * this.asrReconnectAttempts, 3000)
 			this.asrReconnectTimer = setTimeout(() => {
-				this.asrStatusText = `正在重连识别(${this.asrReconnectAttempts}/3)`
+				this.asrStatusText = `正在重连识别 (${this.asrReconnectAttempts}/3)`
 				this.openAsrSocket()
 			}, delay)
 		},
@@ -963,6 +980,7 @@ export default {
 			if (!payload) return
 			if (payload.type === 'asr_ready') {
 				this.asrServiceReady = true
+				// 关麦时也显示连接成功，但不启动录音
 				this.asrStatusText = this.muted ? '已静音' : (this.asrRecording ? '正在识别' : '识别已连接')
 				if (!this.muted) this.startAsrRecording()
 				return
