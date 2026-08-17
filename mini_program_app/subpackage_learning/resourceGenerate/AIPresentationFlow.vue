@@ -210,6 +210,22 @@
         <text class="settings-hint">最终页数可能根据资料内容进行小幅调整</text>
       </view>
 
+      <view class="generation-plan-card">
+        <view class="generation-plan-card__head">
+          <view>
+            <text class="generation-plan-card__title">生成计划</text>
+            <text class="generation-plan-card__desc">确认后会先生成完整页面 JSON，再进入可编辑页面。</text>
+          </view>
+          <text>{{ validOutlineItems.length }} 页大纲</text>
+        </view>
+        <view class="generation-plan-card__grid">
+          <view><text>模板</text><text>{{ selectedTemplateName }}</text></view>
+          <view><text>内容</text><text>{{ currentContentLevel.name }}</text></view>
+          <view><text>配图</text><text>{{ selectedImageModeLabel }}</text></view>
+          <view><text>资料</text><text>{{ sourceFileId ? '服务端解析' : '本地文本' }}</text></view>
+        </view>
+      </view>
+
       <view class="settings-section">
         <view class="template-section-head">
           <view>
@@ -305,6 +321,20 @@
         </view>
       </view>
 
+      <view v-if="slideGenerationSnapshot" class="slide-task-card">
+        <view class="slide-task-card__head">
+          <text>{{ slideGenerationSnapshot.message || '正在生成逐页内容' }}</text>
+          <text>{{ Math.min(99, Number(slideGenerationSnapshot.progress || 0)) }}%</text>
+        </view>
+        <view class="slide-task-card__track"><view :style="{ width: `${Math.min(99, Number(slideGenerationSnapshot.progress || 0))}%` }"></view></view>
+        <view class="slide-task-card__stats">
+          <view><text>{{ slideGenerationSnapshot.completedSlides || 0 }}</text><text>已完成</text></view>
+          <view><text>{{ slideGenerationSnapshot.remainingSlides || 0 }}</text><text>剩余</text></view>
+          <view><text>{{ slideGenerationCurrentLabel }}</text><text>当前页</text></view>
+        </view>
+        <text v-if="slideGenerationProcessingLabel" class="slide-task-card__processing">并行处理中：{{ slideGenerationProcessingLabel }}</text>
+      </view>
+
       <view class="bottom-actions">
         <view class="bottom-actions__buttons">
           <button class="secondary-button" @tap="goPrevious">上一步</button>
@@ -320,6 +350,13 @@
           <text class="editor-toolbar__desc">正式生成前，确认每页标题、内容和提示词</text>
         </view>
         <text class="page-editor-count">{{ activeSlideIndex + 1 }} / {{ slides.length }}</text>
+      </view>
+
+      <view class="slide-readiness">
+        <view v-for="item in slideReadiness" :key="item.label" class="slide-readiness__item">
+          <text>{{ item.value }}</text>
+          <text>{{ item.label }}</text>
+        </view>
       </view>
 
       <scroll-view class="slide-tabs" scroll-x :scroll-into-view="`slide-tab-${activeSlideIndex}`" :show-scrollbar="false">
@@ -639,6 +676,7 @@ export default {
       generationStream: null,
       slideGenerationTaskId: '',
       slideGenerationStream: null,
+      slideGenerationSnapshot: null,
       generationRunId: 0,
       slideGenerationRunId: 0,
       taskId: '',
@@ -732,6 +770,33 @@ export default {
     },
     selectedTemplate() {
       return this.pptStyles.find(item => item.id === this.pptStyle) || null
+    },
+    selectedTemplateName() {
+      return this.selectedTemplate?.name || this.pptStyle || '默认模板'
+    },
+    selectedImageModeLabel() {
+      const mode = this.imageModes.find(item => item.id === this.settings.imageMode)
+      if (!this.settings.includeVisuals) return '不生成'
+      return mode?.name || '先留空'
+    },
+    slideGenerationCurrentLabel() {
+      const value = Number(this.slideGenerationSnapshot?.currentSlide || 0)
+      return value ? String(value) : '-'
+    },
+    slideGenerationProcessingLabel() {
+      const values = this.slideGenerationSnapshot?.processingSlides
+      if (!Array.isArray(values) || !values.length) return ''
+      return values.map(value => `第 ${value} 页`).join('、')
+    },
+    slideReadiness() {
+      const total = this.slides.length
+      const withUi = this.slides.filter(slide => slide.ui && typeof slide.ui === 'object' && Object.keys(slide.ui).length).length
+      const imageReady = this.slides.filter(slide => ['generated', 'uploaded', 'placeholder'].includes(String(slide.imageStatus || ''))).length
+      return [
+        { label: '页面', value: total },
+        { label: '模板树', value: withUi },
+        { label: '配图状态', value: imageReady }
+      ]
     },
     supportedSourceHint() {
       return this.enhancedEngineAvailable
@@ -1092,6 +1157,7 @@ export default {
       this.apiBusy = true
       this.modelConfigError = false
       this.lastPptError = ''
+      this.slideGenerationSnapshot = null
       this.startOperationFeedback('slides')
       try {
         const outline = {
@@ -1167,6 +1233,7 @@ export default {
     },
     applySlideGenerationSnapshot(task, runId) {
       if (!task || runId !== this.slideGenerationRunId) return
+      this.slideGenerationSnapshot = task
       const total = Number(task.totalSlides || 0)
       const completed = Number(task.completedSlides || 0)
       const remaining = Number(task.remainingSlides ?? Math.max(0, total - completed))
@@ -1806,4 +1873,32 @@ export default {
 .task-runtime-card__row{display:flex;align-items:center;justify-content:space-between;padding:8rpx 0;color:#697587;font-size:20rpx}
 .task-runtime-card__row text:last-child{color:#314b63;font-weight:700}
 .task-runtime-card__message{display:block;margin-top:10rpx;padding-top:14rpx;border-top:1px solid #e8edf3;color:#526174;font-size:20rpx;line-height:1.5}
+.generation-plan-card{margin-top:28rpx;padding:20rpx;border:1px solid #dfe7ef;border-radius:17rpx;background:#f8fafc}
+.generation-plan-card__head{display:flex;align-items:flex-start;justify-content:space-between;gap:18rpx}
+.generation-plan-card__head>text{flex:none;padding:7rpx 12rpx;border-radius:99rpx;background:#e7eef5;color:#314b63;font-size:18rpx;font-weight:720}
+.generation-plan-card__title,.generation-plan-card__desc{display:block}
+.generation-plan-card__title{font-size:25rpx;font-weight:800}
+.generation-plan-card__desc{margin-top:7rpx;color:#718094;font-size:19rpx;line-height:1.45}
+.generation-plan-card__grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12rpx;margin-top:18rpx}
+.generation-plan-card__grid view{padding:15rpx;border:1px solid #e4ebf2;border-radius:13rpx;background:#fff}
+.generation-plan-card__grid text{display:block}
+.generation-plan-card__grid text:first-child{color:#7a8798;font-size:18rpx}
+.generation-plan-card__grid text:last-child{margin-top:7rpx;color:#26384a;font-size:22rpx;font-weight:760}
+.slide-task-card{margin-top:26rpx;padding:20rpx;border:1px solid #dfe7ef;border-radius:17rpx;background:#fff}
+.slide-task-card__head{display:flex;align-items:center;justify-content:space-between;color:#26384a;font-size:22rpx;font-weight:760}
+.slide-task-card__head text:first-child{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.slide-task-card__head text:last-child{flex:none;margin-left:18rpx;color:#526f88}
+.slide-task-card__track{height:8rpx;margin-top:14rpx;overflow:hidden;border-radius:99rpx;background:#e1e8ef}
+.slide-task-card__track view{height:100%;border-radius:inherit;background:#526f88;transition:width .25s ease}
+.slide-task-card__stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10rpx;margin-top:18rpx}
+.slide-task-card__stats view{padding:12rpx;border-radius:12rpx;background:#f4f7fa;text-align:center}
+.slide-task-card__stats text{display:block}
+.slide-task-card__stats text:first-child{color:#172033;font-size:27rpx;font-weight:820}
+.slide-task-card__stats text:last-child{margin-top:5rpx;color:#738195;font-size:17rpx}
+.slide-task-card__processing{display:block;margin-top:14rpx;color:#526f88;font-size:19rpx;line-height:1.45}
+.slide-readiness{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12rpx;margin-top:20rpx;padding-bottom:20rpx;border-bottom:1px solid #eef0f4}
+.slide-readiness__item{padding:15rpx;border:1px solid #e2e8f0;border-radius:13rpx;background:#f8fafc;text-align:center}
+.slide-readiness__item text{display:block}
+.slide-readiness__item text:first-child{color:#314b63;font-size:28rpx;font-weight:820}
+.slide-readiness__item text:last-child{margin-top:5rpx;color:#718094;font-size:17rpx}
 </style>
