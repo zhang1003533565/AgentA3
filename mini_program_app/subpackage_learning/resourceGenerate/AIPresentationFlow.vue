@@ -291,14 +291,14 @@
 
       <view class="outline-name-field">
         <text>名称</text>
-        <input v-model="outlineName" :maxlength="60" placeholder="请输入大纲名称" />
+        <input v-model="outlineName" :maxlength="60" placeholder="请输入大纲名称" spellcheck="false" />
       </view>
 
       <view class="outline-list">
         <view v-for="(item, index) in outlineItems" :key="item.id" class="outline-item">
           <view class="outline-item__head">
             <view class="outline-item__order">{{ index + 1 }}</view>
-            <input v-model="item.title" :maxlength="80" placeholder="输入大纲标题" />
+            <input v-model="item.title" :maxlength="80" placeholder="输入大纲标题" spellcheck="false" />
           </view>
           <view class="outline-item__meta">
             <picker :range="outlineLevelLabels" :value="outlineLevelIndex(item.level)" @change="updateOutlineItemLevel(index, $event)">
@@ -2472,10 +2472,10 @@ export default {
 .outline-toolbar-actions{display:flex;flex:none;align-items:center;gap:10rpx}
 .outline-page-count{display:flex;height:48rpx;align-items:center;padding:0 15rpx;border-radius:999rpx;background:#eef0ff;color:#5062e8;font-size:18rpx;font-weight:800}
 .outline-history-button{display:flex;height:48rpx;align-items:center;padding:0 17rpx;border:1px solid #d7def4;border-radius:12rpx;color:#5062e9;font-size:20rpx;font-weight:720}
-.outline-name-field{display:flex;align-items:center;gap:14rpx;margin-top:20rpx;padding:12rpx;border:1px solid #dfe6ef;border-radius:15rpx;background:#fff}
+.outline-name-field{display:flex;align-items:center;gap:14rpx;margin-top:20rpx;padding:12rpx;border:1px solid #dfe6ef;border-radius:15rpx;background:#f9fbfe}
 .outline-name-field>text{display:flex;height:58rpx;flex:none;align-items:center;padding:0 18rpx;border-radius:12rpx;background:#eef2f7;color:#44556b;font-size:21rpx;font-weight:780}
 .outline-name-field input,.outline-item input,.edit-field input,.edit-field textarea,.prompt-field textarea{width:100%;border:1px solid #dfe4ed;border-radius:13rpx;background:#fff;box-sizing:border-box}
-.outline-name-field input{min-width:0;height:58rpx;padding:0 18rpx;border:1px solid #dfe6ef;background:#f9fbfe;font-size:23rpx}
+.outline-name-field input{min-width:0;height:58rpx;padding:0 8rpx;border:0;background:transparent;font-size:23rpx}
 .outline-list{margin-top:20rpx}
 .outline-item{padding:18rpx;border:1px solid #e2e6ee;border-radius:16rpx;background:#fafbfe}
 .outline-item+.outline-item{margin-top:13rpx}

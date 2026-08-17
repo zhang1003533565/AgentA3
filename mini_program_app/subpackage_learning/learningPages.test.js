@@ -263,6 +263,7 @@ test('AIPPT upload and manual input come before template selection and keep acti
   assert.match(page, /outline-page-count/)
   assert.match(page, /outline-level-picker/)
   assert.match(page, /outline-level-picker__chevron/)
+  assert.match(page, /spellcheck="false"/)
   assert.match(page, /outlineLevelLabels/)
   assert.match(page, /updateOutlineItemLevel/)
   assert.match(page, /v-if="index > 0" @tap="moveOutlineItem\(index, -1\)">上移/)
