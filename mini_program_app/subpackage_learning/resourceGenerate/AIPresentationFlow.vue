@@ -96,6 +96,10 @@
                 <text class="template-library-card__tag">{{ template.categoryLabel }}</text>
               </view>
               <text class="template-library-card__desc">{{ template.description }}</text>
+              <view class="template-library-card__tags">
+                <text>{{ template.layoutCount || 0 }} layouts</text>
+                <text>{{ template.default ? '默认推荐' : template.categoryLabel }}</text>
+              </view>
               <view class="template-library-card__meta">
                 <text>{{ template.layoutCount || 0 }} 种页面布局</text>
                 <view class="template-library-card__actions">
@@ -128,6 +132,9 @@
             <text class="template-detail-card__eyebrow">{{ selectedTemplateCategoryLabel }}</text>
             <text class="template-detail-card__title">{{ selectedTemplateName }}</text>
             <text class="template-detail-card__desc">{{ selectedTemplateDescription }}</text>
+            <view class="template-detail-filter">
+              <text>全部</text><text>封面</text><text>内容</text><text>图文</text><text>总结</text>
+            </view>
             <view class="template-detail-card__stats">
               <view><text>{{ selectedTemplateLayoutCount }}</text><text>版式</text></view>
               <view><text>{{ selectedScene.label }}</text><text>场景</text></view>
@@ -149,13 +156,14 @@
               <text></text><text></text><text></text>
             </view>
             <text>{{ layout.name }}</text>
+            <text class="template-layout-card__desc">{{ layout.desc }}</text>
           </view>
         </view>
 
         <view class="bottom-actions">
           <view class="bottom-actions__buttons">
             <button class="secondary-button" @tap="showTemplateLibrary">返回模板库</button>
-            <button class="primary-button" @tap="showTemplateUpload">使用此模板</button>
+            <button class="primary-button" @tap="showTemplateUpload">使用这套模板生成</button>
           </view>
         </view>
       </view>
@@ -1071,12 +1079,12 @@ export default {
     selectedTemplateLayouts() {
       const total = this.selectedTemplateLayoutCount
       const baseLayouts = [
-        { id: 'cover', name: '封面', type: 'cover' },
-        { id: 'catalog', name: '目录', type: 'catalog' },
-        { id: 'content', name: '正文', type: 'content' },
-        { id: 'focus', name: '重点', type: 'focus' },
-        { id: 'visual', name: '图文', type: 'visual' },
-        { id: 'summary', name: '总结', type: 'summary' }
+        { id: 'cover', name: '标题封面', type: 'cover', desc: '课程名、主题、日期' },
+        { id: 'catalog', name: '目录列表', type: 'catalog', desc: '章节结构与学习路径' },
+        { id: 'content', name: '知识点内容', type: 'content', desc: '标题、要点、说明' },
+        { id: 'focus', name: '重点强调', type: 'focus', desc: '适合核心结论页' },
+        { id: 'visual', name: '图文讲解', type: 'visual', desc: '图示、流程、对比' },
+        { id: 'summary', name: '复习总结', type: 'summary', desc: '回顾与行动建议' }
       ]
       if (!total) return baseLayouts
       return baseLayouts.slice(0, Math.min(baseLayouts.length, Math.max(4, total)))
@@ -2412,6 +2420,8 @@ export default {
 .template-library-card__name{min-width:0;overflow:hidden;color:#172033;font-size:25rpx;font-weight:800;text-overflow:ellipsis;white-space:nowrap}
 .template-library-card__tag{flex:none;padding:5rpx 10rpx;border-radius:99rpx;background:#eef2f6;color:#526174;font-size:16rpx}
 .template-library-card__desc{display:-webkit-box;margin-top:8rpx;overflow:hidden;color:#6b7889;font-size:19rpx;line-height:1.45;-webkit-box-orient:vertical;-webkit-line-clamp:2}
+.template-library-card__tags{display:flex;flex-wrap:wrap;gap:8rpx;margin-top:10rpx}
+.template-library-card__tags text{display:inline-flex;align-items:center;height:30rpx;padding:0 10rpx;border-radius:999rpx;background:#eef3f8;color:#526376;font-size:16rpx;font-weight:720;line-height:1}
 .template-library-card__meta{display:flex;align-items:center;justify-content:space-between;gap:12rpx;margin-top:12rpx;color:#8190a4;font-size:18rpx}
 .template-library-card__actions{display:flex;flex:none;align-items:center;gap:14rpx;color:#5265f5;font-weight:700}
 .template-library-card__selected{color:#718094}
@@ -2433,6 +2443,9 @@ export default {
 .template-detail-card__eyebrow{color:#5265f5;font-size:19rpx;font-weight:760}
 .template-detail-card__title{margin-top:8rpx;color:#172033;font-size:34rpx;font-weight:820;line-height:1.22}
 .template-detail-card__desc{margin-top:10rpx;color:#667386;font-size:21rpx;line-height:1.5}
+.template-detail-filter{display:flex;flex-wrap:wrap;gap:10rpx;margin-top:18rpx}
+.template-detail-filter text{display:flex;height:42rpx;align-items:center;justify-content:center;padding:0 18rpx;border:1px solid #d6e0ea;border-radius:999rpx;background:#fff;color:#536477;font-size:19rpx;font-weight:720;box-sizing:border-box}
+.template-detail-filter text:first-child{border-color:#526f88;color:#314b63}
 .template-detail-card__stats{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12rpx;margin-top:18rpx}
 .template-detail-card__stats view{padding:15rpx;border:1px solid #e1e8ef;border-radius:13rpx;background:#fff}
 .template-detail-card__stats text{display:block}
@@ -2446,6 +2459,7 @@ export default {
 .template-layout-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14rpx;margin-top:18rpx}
 .template-layout-card{padding:12rpx;border:1px solid #e1e7ef;border-radius:15rpx;background:#fff;box-sizing:border-box}
 .template-layout-card>text{display:block;margin-top:10rpx;color:#26384a;font-size:20rpx;font-weight:720;text-align:center}
+.template-layout-card__desc{margin-top:6rpx!important;color:#718094!important;font-size:17rpx!important;font-weight:500!important;line-height:1.35;text-align:left!important}
 .template-layout-preview{position:relative;aspect-ratio:16/9;overflow:hidden;padding:14rpx;border-radius:11rpx;background:#f5f8fb;box-sizing:border-box}
 .template-layout-preview text{display:block;height:6rpx;border-radius:99rpx;background:#526f88}
 .template-layout-preview text+text{margin-top:9rpx;background:#becadb}
