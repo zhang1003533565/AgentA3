@@ -118,7 +118,7 @@
         <view class="bottom-actions">
           <view class="bottom-actions__buttons">
             <button v-if="currentStep > 1" class="secondary-button" @tap="goPrevious">上一步</button>
-            <button class="primary-button" :disabled="!selectedTemplate" @tap="goNext">下一步</button>
+            <button class="primary-button" :disabled="!selectedTemplate || apiBusy" @tap="goNext">{{ apiBusy ? '正在生成大纲…' : templateNextLabel }}</button>
           </view>
         </view>
       </view>
@@ -161,7 +161,7 @@
         <view class="bottom-actions">
           <view class="bottom-actions__buttons">
             <button class="secondary-button" @tap="showTemplateLibrary">返回模板库</button>
-            <button class="primary-button" @tap="goNext">使用该模板</button>
+            <button class="primary-button" :disabled="apiBusy" @tap="goNext">{{ apiBusy ? '正在生成大纲…' : templateDetailActionLabel }}</button>
           </view>
         </view>
       </view>
@@ -234,50 +234,32 @@
           </view>
         </view>
 
+        <view class="outline-mode-inline">
+          <view>
+            <text class="outline-mode-inline__title">大纲生成方式</text>
+            <text class="outline-mode-inline__desc">常规资料建议 AI 重整；已有目录的资料可保留原结构。</text>
+          </view>
+          <view class="outline-mode-inline__options">
+            <view
+              v-for="mode in outlineModes"
+              :key="mode.id"
+              class="outline-mode-chip"
+              :class="{ 'outline-mode-chip--active': outlineMode === mode.id }"
+              @tap="outlineMode = mode.id"
+            >{{ mode.shortName || mode.name }}</view>
+          </view>
+        </view>
+
         <view class="bottom-actions">
           <view class="bottom-actions__buttons">
             <button v-if="currentStep > 1" class="secondary-button" @tap="goPrevious">上一步</button>
-            <button class="primary-button" :disabled="!fileInfo" @tap="goNext">{{ uploadNextLabel }}</button>
+            <button class="primary-button" :disabled="!fileInfo || apiBusy" @tap="goNext">{{ apiBusy ? '正在生成大纲…' : uploadNextLabel }}</button>
           </view>
         </view>
       </view>
     </view>
 
-    <view v-else-if="currentStep === 3" class="panel">
-      <view class="mode-intro">
-        <text class="mode-intro__title">先决定大纲来源</text>
-        <text class="mode-intro__desc">这一步决定 AI 是重新组织资料，还是保留原始章节顺序。后面仍然可以手动调整每一页。</text>
-      </view>
-      <view
-        v-for="mode in outlineModes"
-        :key="mode.id"
-        class="choice-card choice-card--large"
-        :class="{ 'choice-card--selected': outlineMode === mode.id }"
-        @tap="outlineMode = mode.id"
-      >
-        <view class="choice-card__icon" :class="`choice-card__icon--${mode.id}`">
-          <view class="line-icon">
-            <text></text><text></text><text></text>
-          </view>
-        </view>
-        <view class="choice-card__body">
-          <text class="choice-card__title">{{ mode.name }}</text>
-          <text class="choice-card__desc">{{ mode.description }}</text>
-          <text class="choice-card__fit">{{ mode.fit }}</text>
-        </view>
-        <view class="radio-dot" :class="{ 'radio-dot--selected': outlineMode === mode.id }">
-          <text v-if="outlineMode === mode.id">✓</text>
-        </view>
-      </view>
-      <view class="bottom-actions">
-        <view class="bottom-actions__buttons">
-          <button class="secondary-button" @tap="goPrevious">上一步</button>
-          <button class="primary-button" :disabled="apiBusy" @tap="prepareOutline">{{ apiBusy ? '正在生成大纲…' : '下一步' }}</button>
-        </view>
-      </view>
-    </view>
-
-    <view v-else-if="currentStep === 4" class="panel outline-panel">
+    <view v-else-if="currentStep === 3" class="panel outline-panel">
       <view class="editor-toolbar">
         <view>
           <text class="editor-toolbar__title">PPT 大纲</text>
@@ -330,7 +312,7 @@
       </view>
     </view>
 
-    <view v-else-if="currentStep === 5" class="panel">
+    <view v-else-if="currentStep === 4" class="panel">
       <view class="scene-summary">
         <text class="scene-summary__label">学习场景</text>
         <text class="scene-summary__value">{{ selectedScene.label }}</text>
@@ -534,7 +516,7 @@
       </view>
     </view>
 
-    <view v-else-if="currentStep === 6" class="panel page-editor-panel">
+    <view v-else-if="currentStep === 5" class="panel page-editor-panel">
       <view class="editor-toolbar">
         <view>
           <text class="editor-toolbar__title">逐页编辑</text>
@@ -629,7 +611,7 @@
       </view>
     </view>
 
-    <view v-else-if="currentStep === 7" class="panel progress-panel">
+    <view v-else-if="currentStep === 6" class="panel progress-panel">
       <view class="progress-hero">
         <view class="progress-ring" :style="{ '--progress': `${progress * 3.6}deg` }">
           <view class="progress-ring__inner"><text>{{ progress }}</text><text>%</text></view>
@@ -698,7 +680,7 @@
       </view>
     </view>
 
-    <view v-else-if="currentStep === 8" class="panel result-panel">
+    <view v-else-if="currentStep === 7" class="panel result-panel">
       <view class="success-hero">
         <view class="success-icon">✓</view>
         <text class="success-hero__title">复习 PPT 已生成</text>
@@ -839,7 +821,7 @@
         <text class="download-ready__hint">文件已下载，可使用 PowerPoint、WPS 或系统阅读器打开</text>
       </view>
 
-      <button class="back-result-button" @tap="currentStep = 8">返回生成结果</button>
+      <button class="back-result-button" @tap="currentStep = 7">返回生成结果</button>
     </view>
 
     <view v-if="operationFeedback.active" class="operation-feedback">
@@ -1021,17 +1003,16 @@ export default {
         templateFirst
           ? { id: 2, shortTitle: '上传资料', title: '上传学习资料', description: '再提交要写入模板的资料' }
           : { id: 2, shortTitle: '选模板', title: '选择 PPT 模板', description: '根据这份资料选择合适的模板' },
-        { id: 3, shortTitle: '大纲来源', title: '选择大纲来源', description: '选择 AI 重新整理，或沿用资料原有大纲' },
-        { id: 4, shortTitle: '编辑大纲', title: '编辑 PPT 大纲', description: '确认内容结构，并将本次大纲独立保存' },
-        { id: 5, shortTitle: '设置 PPT', title: '设置 PPT', description: '设置 PPT 的页数和展示效果' },
-        { id: 6, shortTitle: '编辑页面', title: '编辑页面内容', description: '逐页调整内容、公共提示词和单页提示词' },
-        { id: 7, shortTitle: '生成进度', title: '正在生成 PPT', description: 'AI 正在整理你的学习资料，请稍候' },
-        { id: 8, shortTitle: '生成结果', title: 'PPT 生成完成', description: '预览生成效果并确认导出' },
-        { id: 9, shortTitle: '导出下载', title: '导出下载', description: '选择需要导出的文件格式' }
+        { id: 3, shortTitle: '编辑大纲', title: '编辑 PPT 大纲', description: '确认内容结构，并将本次大纲独立保存' },
+        { id: 4, shortTitle: '设置 PPT', title: '设置 PPT', description: '设置 PPT 的页数和展示效果' },
+        { id: 5, shortTitle: '编辑页面', title: '编辑页面内容', description: '逐页调整内容、公共提示词和单页提示词' },
+        { id: 6, shortTitle: '生成进度', title: '正在生成 PPT', description: 'AI 正在整理你的学习资料，请稍候' },
+        { id: 7, shortTitle: '生成结果', title: 'PPT 生成完成', description: '预览生成效果并确认导出' },
+        { id: 8, shortTitle: '导出下载', title: '导出下载', description: '选择需要导出的文件格式' }
       ],
       outlineModes: [
-        { id: 'ai_outline', name: 'AI 生成复习大纲', description: 'AI 分析资料内容，重新整理知识结构，生成适合复习的 PPT 大纲。', fit: '适合内容零散或没有明确结构的资料' },
-        { id: 'original_outline', name: '使用原内容作为大纲', description: '按照上传资料原有的内容顺序和标题层级生成 PPT。', fit: '适合已经整理好大纲的资料' }
+        { id: 'ai_outline', shortName: 'AI 重整', name: 'AI 生成复习大纲', description: 'AI 分析资料内容，重新整理知识结构，生成适合复习的 PPT 大纲。', fit: '适合内容零散或没有明确结构的资料' },
+        { id: 'original_outline', shortName: '保留原结构', name: '使用原内容作为大纲', description: '按照上传资料原有的内容顺序和标题层级生成 PPT。', fit: '适合已经整理好大纲的资料' }
       ],
       pptStyles: [],
       contentLevels: [
@@ -1100,8 +1081,14 @@ export default {
         ? '已选择模板，现在上传文件或粘贴内容来生成 PPT。'
         : '先确定要生成的内容，再选择适合这份资料的 PPT 模板。'
     },
+    templateNextLabel() {
+      return this.templateFirstEnabled ? '下一步：上传资料' : '生成大纲'
+    },
+    templateDetailActionLabel() {
+      return this.templateFirstEnabled ? '使用该模板' : '使用并生成大纲'
+    },
     uploadNextLabel() {
-      return this.templateFirstEnabled ? '下一步：大纲来源' : '下一步：选择模板'
+      return this.templateFirstEnabled ? '生成大纲' : '下一步：选择模板'
     },
     activeSlideLayoutLabel() {
       const layouts = this.selectedTemplateLayouts
@@ -1235,7 +1222,7 @@ export default {
       return value.slice(0, 4)
     },
     hasFloatingActions() {
-      return [1, 2, 3, 4, 5, 6, 8].includes(this.currentStep)
+      return [1, 2, 3, 4, 5, 6, 7, 8].includes(this.currentStep)
     },
     canRetryGeneration() {
       return Boolean(this.taskId && ['failed', 'cancelled'].includes(String(this.taskResult?.status || '')))
@@ -1641,7 +1628,7 @@ export default {
       }
       this.previewExpanded = false
     },
-    goNext() {
+    async goNext() {
       if (this.isTemplateStep) {
         if (!this.selectedTemplate) return
         if (this.templateFirstEnabled) {
@@ -1649,8 +1636,7 @@ export default {
           this.currentStep = this.uploadStepIndex
           return
         }
-        this.currentStep = 3
-        return
+        return this.prepareOutline()
       }
       if (this.isUploadStep) {
         if (!this.fileInfo) return
@@ -1659,8 +1645,7 @@ export default {
           this.currentStep = this.templateStepIndex
           return
         }
-        this.currentStep = 3
-        return
+        return this.prepareOutline()
       }
       this.currentStep = Math.min(this.stepMeta.length, this.currentStep + 1)
     },
@@ -1702,7 +1687,7 @@ export default {
         this.outlineDocument = { title: this.resultName, items: this.outlineItems }
         this.outlineName = `${this.resultName}大纲`
         this.outlineSavedAt = ''
-        this.currentStep = 4
+        this.currentStep = 3
         return
       }
       this.apiBusy = true
@@ -1732,7 +1717,7 @@ export default {
         this.outlineDocument = { ...outline, items: this.outlineItems }
         this.outlineName = `${outline.title || this.resultName}大纲`
         this.outlineSavedAt = ''
-        this.currentStep = 4
+        this.currentStep = 3
       } catch (error) {
         this.handlePptError(error, '大纲生成失败')
       } finally {
@@ -1790,7 +1775,7 @@ export default {
     confirmOutline() {
       if (!this.validOutlineItems.length) return
       this.saveOutlineSnapshot(false)
-      this.currentStep = 5
+      this.currentStep = 4
     },
     saveOutlineSnapshot(showFeedback = true) {
       if (!this.validOutlineItems.length) return
@@ -1816,7 +1801,7 @@ export default {
     async prepareSlides() {
       const outlines = this.validOutlineItems
       if (!outlines.length) {
-        this.currentStep = 4
+        this.currentStep = 3
         return
       }
       const runId = ++this.slideGenerationRunId
@@ -1864,7 +1849,7 @@ export default {
         if (result.sharedPrompt) this.sharedPrompt = String(result.sharedPrompt)
         this.pageCount = this.slides.length
         this.activeSlideIndex = 0
-        this.currentStep = 6
+        this.currentStep = 5
       } catch (error) {
         this.handlePptError(error, '页面内容生成失败')
       } finally {
@@ -1928,7 +1913,7 @@ export default {
       this.apiBusy = true
       this.modelConfigError = false
       this.lastPptError = ''
-      this.currentStep = 7
+      this.currentStep = 6
       this.progress = 2
       this.taskResult = null
       this.previewImages = {}
@@ -1956,7 +1941,7 @@ export default {
       } catch (error) {
         if (runId !== this.generationRunId) return
         this.apiBusy = false
-        this.currentStep = 6
+        this.currentStep = 5
         this.progress = 0
         this.handlePptError(error, 'PPT 生成失败')
       }
@@ -1968,7 +1953,7 @@ export default {
       this.apiBusy = true
       this.modelConfigError = false
       this.lastPptError = ''
-      this.currentStep = 7
+      this.currentStep = 6
       this.progress = 2
       this.previewImages = {}
       try {
@@ -1987,7 +1972,7 @@ export default {
       } catch (error) {
         if (runId !== this.generationRunId) return
         this.apiBusy = false
-        this.currentStep = 6
+        this.currentStep = 5
         this.progress = 0
         this.handlePptError(error, 'PPT 重试失败')
       }
@@ -2025,17 +2010,17 @@ export default {
       this.progress = Math.max(this.progress, Math.min(100, Number(task.progress || 0)))
       if (task.status === 'failed') {
         const message = task.error?.message || task.message || 'PPT 生成失败'
-        this.currentStep = 6
+        this.currentStep = 5
         this.progress = 0
         throw new Error(message)
       }
       if (task.status === 'cancelled') {
-        this.currentStep = 6
+        this.currentStep = 5
         this.progress = 0
         this.apiBusy = false
         return
       }
-      if (task.status === 'completed' && this.currentStep === 7) {
+      if (task.status === 'completed' && this.currentStep === 6) {
         this.progress = 100
         const availableFormat = (task.attachments || []).some(item => item?.type === this.exportFormat)
           ? this.exportFormat
@@ -2043,7 +2028,7 @@ export default {
         if (availableFormat) this.exportFormat = availableFormat
         this.loadPreviewImages()
         this.recordGenerationHistory()
-        this.currentStep = 8
+        this.currentStep = 7
       }
     },
     generationStatusClass(index) {
@@ -2070,12 +2055,12 @@ export default {
       this.generationRunId += 1
       this.slideGenerationRunId += 1
       this.progress = 0
-      this.currentStep = 6
+      this.currentStep = 5
     },
     restartFromSettings() {
       this.progress = 0
       this.exportReady = false
-      this.currentStep = 5
+      this.currentStep = 4
     },
     slideTitle(slide) {
       return this.slides[slide - 1]?.title || `第 ${slide} 页`
@@ -2129,7 +2114,7 @@ export default {
         this.previewImages = {}
         this.activeSlide.imageStatus = 'uploaded'
         this.generationRunId += 1
-        this.currentStep = 7
+        this.currentStep = 6
         this.progress = 0
         await this.followGenerationTask(this.generationRunId)
       } catch (error) {
@@ -2168,11 +2153,11 @@ export default {
         return
       }
       if (!this.isExportAvailable(this.exportFormat)) this.switchToPrimaryExportFormat()
-      this.currentStep = 9
+      this.currentStep = 8
       this.exportReady = false
     },
     returnToEditor() {
-      this.currentStep = 6
+      this.currentStep = 5
       this.exportReady = false
     },
     async prepareExport() {
@@ -2275,7 +2260,7 @@ export default {
         this.outlineName = item.name
         this.outlineMode = item.source
         this.outlineItems = (item.items || []).map(entry => ({ ...entry, id: this.createOutlineItem().id }))
-        this.currentStep = 4
+        this.currentStep = 3
       } else {
         this.pageCount = Number(item.pageCount || 15)
         this.scene = this.pptScenes.some(scene => scene.value === item.scene) ? item.scene : this.scene
@@ -2284,7 +2269,7 @@ export default {
         this.outlineMode = item.outlineMode || this.outlineMode
         this.settings = { ...this.settings, ...(item.settings || {}) }
         this.sharedPrompt = item.sharedPrompt || this.sharedPrompt
-        this.currentStep = this.validOutlineItems.length ? 5 : 3
+        this.currentStep = this.validOutlineItems.length ? 4 : 3
       }
       this.historyOpen = false
     },
@@ -2603,10 +2588,13 @@ export default {
 .source-input-card__actions{display:flex;flex:none;align-items:center;gap:16rpx;color:#5265f5;font-size:20rpx;font-weight:720}
 .source-input-card__delete{color:#98a1b2}
 .source-textarea{width:100%;min-height:210rpx;padding:18rpx;border:0;background:#fff;color:#26384a;font-size:22rpx;line-height:1.55;box-sizing:border-box}
-.mode-intro{margin-bottom:22rpx;padding:22rpx;border:1px solid #dfe7ef;border-radius:17rpx;background:#f8fafc}
-.mode-intro__title,.mode-intro__desc{display:block}
-.mode-intro__title{font-size:27rpx;font-weight:800}
-.mode-intro__desc{margin-top:9rpx;color:#6b7889;font-size:21rpx;line-height:1.5}
+.outline-mode-inline{display:flex;align-items:flex-start;justify-content:space-between;gap:18rpx;margin-top:18rpx;padding:18rpx;border:1px solid #e1e7ef;border-radius:15rpx;background:#fbfcff}
+.outline-mode-inline__title,.outline-mode-inline__desc{display:block}
+.outline-mode-inline__title{color:#172033;font-size:22rpx;font-weight:780}
+.outline-mode-inline__desc{margin-top:6rpx;color:#7c8798;font-size:18rpx;line-height:1.45}
+.outline-mode-inline__options{display:flex;flex:none;gap:8rpx}
+.outline-mode-chip{display:flex;height:46rpx;align-items:center;padding:0 16rpx;border:1px solid #dbe2ec;border-radius:999rpx;background:#fff;color:#64748b;font-size:18rpx;font-weight:720;white-space:nowrap}
+.outline-mode-chip--active{border-color:#5265f5;background:#eef1ff;color:#4658e7}
 .task-runtime-card{margin-top:22rpx;padding:20rpx;border:1px solid #e1e7ef;border-radius:16rpx;background:#fafbfd}
 .task-runtime-card__row{display:flex;align-items:center;justify-content:space-between;padding:8rpx 0;color:#697587;font-size:20rpx}
 .task-runtime-card__row text:last-child{color:#314b63;font-weight:700}
