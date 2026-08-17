@@ -1454,6 +1454,8 @@ export default {
     },
     closeLayoutViewer() {
       this.layoutViewerVisible = false
+      // 全屏预览关闭后直接回模板库列表，不再露出旧的详情页
+      this.showTemplateLibrary()
     },
     prewarmLayoutPreviews() {
       const templateId = this.selectedTemplate?.id
