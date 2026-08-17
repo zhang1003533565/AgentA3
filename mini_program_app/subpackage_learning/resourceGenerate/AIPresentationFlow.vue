@@ -8,16 +8,18 @@
 
     <view class="stepper-card">
       <view class="stepper-card__head">
-        <view v-if="inlinePreviousEnabled" class="stepper-card__back" @tap="goPrevious">上一步</view>
         <text>{{ currentStep }} / {{ stepMeta.length }}</text>
       </view>
-      <scroll-view class="step-scroll" scroll-x :show-scrollbar="false">
+      <scroll-view class="step-scroll" scroll-x scroll-with-animation :scroll-into-view="`ppt-step-${currentStep}`" :show-scrollbar="false">
         <view class="stepper">
           <view class="stepper__track">
-            <view class="stepper__track-value" :style="{ width: stepperProgress }"></view>
+            <view class="stepper__track-value" :style="{ width: stepperProgress }">
+              <view class="stepper__track-pulse"></view>
+            </view>
           </view>
           <view
             v-for="item in stepMeta"
+            :id="`ppt-step-${item.id}`"
             :key="item.id"
             class="stepper__item"
             :class="{ 'stepper__item--active': currentStep === item.id, 'stepper__item--done': currentStep > item.id }"
@@ -262,8 +264,11 @@
           </view>
         </view>
 
-        <view class="single-action single-action--floating">
-          <button class="primary-button" :disabled="!fileInfo" @tap="goNext">下一步</button>
+        <view class="bottom-actions">
+          <view class="bottom-actions__buttons">
+            <button class="secondary-button" @tap="goPrevious">上一步</button>
+            <button class="primary-button" :disabled="!fileInfo" @tap="goNext">下一步</button>
+          </view>
         </view>
       </view>
     </view>
@@ -1084,9 +1089,6 @@ export default {
     },
     activeSlide() {
       return this.slides[this.activeSlideIndex] || null
-    },
-    inlinePreviousEnabled() {
-      return (this.currentStep === 1 && this.templateEntryMode !== 'library') || (this.currentStep > 1 && this.currentStep < 6)
     },
     activeSlideLayoutLabel() {
       const layouts = this.selectedTemplateLayouts
@@ -2683,21 +2685,23 @@ export default {
 .stepper-card{margin-bottom:18rpx;padding:14rpx 18rpx 10rpx;border:1px solid #e2e8f0;border-radius:18rpx;background:#fff;box-shadow:0 8rpx 24rpx rgba(30,50,90,.04)}
 .stepper-card__head{display:flex;min-height:34rpx;align-items:center;justify-content:flex-end;margin-bottom:2rpx}
 .stepper-card__head>text{color:#5265f5;font-size:20rpx;font-weight:760}
-.stepper-card__back{margin-right:auto;padding:7rpx 12rpx;border:1px solid #d7def4;border-radius:999rpx;color:#5062e9;font-size:18rpx;font-weight:720;line-height:1}
 .step-scroll{width:100%;white-space:nowrap}
 .stepper{position:relative;display:inline-flex;min-width:1280rpx;padding:8rpx 0 10rpx;box-sizing:border-box}
 .stepper__track{position:absolute;left:68rpx;right:68rpx;top:35rpx;height:6rpx;overflow:hidden;border-radius:99rpx;background:#dfe5ee}
-.stepper__track-value{height:100%;border-radius:inherit;background:#5265f5;transition:width .25s ease}
+.stepper__track-value{position:relative;height:100%;border-radius:inherit;background:#5265f5;transition:width .25s ease}
+.stepper__track-pulse{position:absolute;right:-7rpx;top:50%;width:14rpx;height:14rpx;border-radius:50%;background:#5265f5;box-shadow:0 0 0 8rpx rgba(82,101,245,.14);transform:translateY(-50%);animation:stepper-pulse 1.6s ease-in-out infinite}
 .stepper__item{z-index:1;min-width:160rpx;align-items:center}
 .stepper__item:not(:last-child)::after{display:none}
 .stepper__marker{display:flex;height:66rpx;align-items:flex-start;justify-content:center}
 .stepper__number{width:48rpx;height:48rpx;border:2rpx solid #d7dfeb;background:#f8fafc;color:#96a1b2;font-size:21rpx;box-shadow:0 0 0 8rpx #fff}
 .stepper__item--done .stepper__number{border-color:#5265f5;background:#5265f5;color:#fff;box-shadow:0 0 0 8rpx #eef1ff}
-.stepper__item--active .stepper__number{width:54rpx;height:54rpx;border:3rpx solid #5265f5;background:#eef1ff;color:#5265f5;box-shadow:0 0 0 8rpx #fff,0 8rpx 18rpx rgba(78,97,246,.14)}
+.stepper__item--active .stepper__number{width:54rpx;height:54rpx;border:3rpx solid #5265f5;background:#eef1ff;color:#5265f5;box-shadow:0 0 0 8rpx #fff,0 8rpx 18rpx rgba(78,97,246,.14);animation:stepper-active 1.8s ease-in-out infinite}
 .stepper__copy{display:flex;align-items:center;flex-direction:column;gap:5rpx;text-align:center}
 .stepper__label{width:148rpx;margin-top:0;color:#8b95a7;font-size:19rpx;line-height:1.15;white-space:nowrap}
 .stepper__state{color:#b3bac8;font-size:15rpx;line-height:1.1}
 .stepper__item--done .stepper__label,.stepper__item--active .stepper__label{color:#4055e8;font-weight:780}
 .stepper__item--active .stepper__state{color:#5265f5;font-weight:700}
 .stepper__item--done .stepper__state{color:#718094}
+@keyframes stepper-pulse{0%,100%{opacity:.55;box-shadow:0 0 0 4rpx rgba(82,101,245,.12)}50%{opacity:1;box-shadow:0 0 0 12rpx rgba(82,101,245,.2)}}
+@keyframes stepper-active{0%,100%{transform:scale(1)}50%{transform:scale(1.04)}}
 </style>
