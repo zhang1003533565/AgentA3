@@ -51,7 +51,6 @@
       <view v-if="isTemplateStep && templateEntryMode === 'library'" class="template-library-entry">
         <view class="template-library-hero">
           <view class="template-library-hero__copy">
-            <text class="template-library-hero__eyebrow">Presenton 内置模板库</text>
             <text class="template-library-hero__title">{{ templateHeroTitle }}</text>
             <text class="template-library-hero__desc">{{ templateHeroDescription }}</text>
           </view>
@@ -798,10 +797,6 @@
         </view>
       </scroll-view>
       <view class="layout-fullscreen__footer">
-        <view class="layout-fullscreen__caption">
-          <text class="layout-fullscreen__caption-name">{{ currentLayout?.name }}</text>
-          <text class="layout-fullscreen__caption-hint">上下滑动浏览全部版式</text>
-        </view>
         <view class="layout-fullscreen__use" @tap="useTemplateFromViewer"><text>使用该模板</text></view>
       </view>
     </view>
@@ -1422,7 +1417,6 @@ export default {
       const index = Math.min(total - 1, Math.max(0, Math.round(scrollTop / stride)))
       if (index !== this.activeLayoutIndex) {
         this.activeLayoutIndex = index
-        this.prewarmLayoutPreviews()
       }
       this.measureLayoutStride()
     },
@@ -1437,7 +1431,7 @@ export default {
         if (first && second && second.top - first.top > 0) {
           this.layoutItemStride = second.top - first.top
         } else if (first && first.height > 0) {
-          this.layoutItemStride = first.height + 8
+          this.layoutItemStride = first.height + 12
         }
       })
     },
@@ -1445,7 +1439,21 @@ export default {
       this.layoutScrollTop = 0
       this.layoutItemStride = 0
       this.layoutViewerVisible = true
-      this.prewarmLayoutPreviews()
+      // 打开即一次性加载该模板的全部版式图，不按滚动分批；
+      // 小程序 downloadFile 有并发上限，用小并发队列避免请求被吞
+      const templateId = this.selectedTemplate?.id
+      const total = this.selectedTemplateLayouts.length
+      if (templateId && total) {
+        const concurrency = Math.min(6, total)
+        let cursor = 0
+        const worker = async () => {
+          while (cursor < total) {
+            const index = cursor++
+            await this.ensureLayoutPreview(templateId, index)
+          }
+        }
+        for (let i = 0; i < concurrency; i += 1) worker()
+      }
       this.$nextTick(() => setTimeout(() => this.measureLayoutStride(), 80))
     },
     useTemplateFromViewer() {
@@ -1456,20 +1464,6 @@ export default {
       this.layoutViewerVisible = false
       // 全屏预览关闭后直接回模板库列表，不再露出旧的详情页
       this.showTemplateLibrary()
-    },
-    prewarmLayoutPreviews() {
-      const templateId = this.selectedTemplate?.id
-      if (!templateId) return
-      const total = this.selectedTemplateLayouts.length
-      const targets = new Set([
-        this.activeLayoutIndex - 1,
-        this.activeLayoutIndex,
-        this.activeLayoutIndex + 1,
-        this.activeLayoutIndex + 2
-      ])
-      targets.forEach(index => {
-        if (index >= 0 && index < total) this.ensureLayoutPreview(templateId, index)
-      })
     },
     async ensureLayoutPreview(templateId, index) {
       const cache = this.layoutPreviewCache[templateId] || {}
@@ -2674,11 +2668,10 @@ export default {
 .bottom-actions__buttons{flex-wrap:wrap}
 .bottom-actions__buttons button{min-width:0}
 .template-library-entry,.template-detail-entry,.template-upload-entry{min-height:720rpx}
-.template-library-hero{position:relative;min-height:238rpx;margin-bottom:24rpx;padding:30rpx 28rpx;overflow:hidden;border:1px solid #dfe7ef;border-radius:20rpx;background:#f8fafc;box-sizing:border-box}
+.template-library-hero{position:relative;min-height:200rpx;display:flex;align-items:center;margin-bottom:24rpx;padding:28rpx;overflow:hidden;border:1px solid #dfe7ef;border-radius:20rpx;background:#f8fafc;box-sizing:border-box}
 .template-library-hero__copy{position:relative;z-index:1;max-width:470rpx}
-.template-library-hero__eyebrow,.template-library-hero__title,.template-library-hero__desc{display:block}
-.template-library-hero__eyebrow{color:#526f88;font-size:19rpx;font-weight:760}
-.template-library-hero__title{margin-top:10rpx;color:#172033;font-size:38rpx;font-weight:820;line-height:1.22}
+.template-library-hero__title,.template-library-hero__desc{display:block}
+.template-library-hero__title{color:#172033;font-size:38rpx;font-weight:820;line-height:1.22}
 .template-library-hero__desc{margin-top:12rpx;color:#667386;font-size:21rpx;line-height:1.55}
 .template-library-hero__stack{position:absolute;right:22rpx;bottom:24rpx;width:160rpx;height:112rpx}
 .template-library-hero__stack view{position:absolute;width:126rpx;height:78rpx;border:1px solid #cfdbe7;border-radius:12rpx;background:#fff;box-shadow:0 10rpx 24rpx rgba(49,75,99,.12)}
@@ -2747,10 +2740,7 @@ export default {
 .layout-fullscreen__image{display:block;width:100%;border-radius:8rpx;background:#1a2438}
 .layout-fullscreen__placeholder{display:flex;align-items:center;justify-content:center;flex-direction:column;gap:12rpx;width:100%;aspect-ratio:16/9;border-radius:8rpx;background:#1a2438;color:#8a97a8;font-size:21rpx;box-sizing:border-box}
 .layout-fullscreen__name{color:rgba(255,255,255,.5);font-size:18rpx}
-.layout-fullscreen__footer{display:flex;align-items:center;gap:18rpx;padding:16rpx 24rpx calc(20rpx + env(safe-area-inset-bottom))}
-.layout-fullscreen__caption{min-width:0;flex:1;display:flex;flex-direction:column;gap:4rpx}
-.layout-fullscreen__caption-name{overflow:hidden;color:rgba(255,255,255,.9);font-size:21rpx;font-weight:700;text-overflow:ellipsis;white-space:nowrap}
-.layout-fullscreen__caption-hint{color:rgba(255,255,255,.4);font-size:18rpx}
+.layout-fullscreen__footer{display:flex;align-items:center;justify-content:center;padding:16rpx 24rpx calc(20rpx + env(safe-area-inset-bottom));background:transparent}
 .layout-fullscreen__use{flex:none;display:flex;align-items:center;justify-content:center;height:76rpx;padding:0 44rpx;border-radius:999rpx;background:#5265f5}
 .layout-fullscreen__use text{color:#fff;font-size:24rpx;font-weight:760}
 .template-layout-preview{position:relative;aspect-ratio:16/9;overflow:hidden;padding:14rpx;border-radius:11rpx;background:#f5f8fb;box-sizing:border-box}
