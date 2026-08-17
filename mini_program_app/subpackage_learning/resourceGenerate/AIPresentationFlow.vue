@@ -602,6 +602,14 @@
           <view class="slide-editor__preview-decor"></view>
         </view>
 
+        <view class="slide-layout-lock-row">
+          <view>
+            <text>当前版式</text>
+            <text>{{ selectedTemplateName }} / {{ activeSlideLayoutLabel }}</text>
+          </view>
+          <text>锁定</text>
+        </view>
+
         <view class="edit-field">
           <view class="edit-field__label"><text>页面标题</text><text>{{ activeSlide.title.length }}/80</text></view>
           <input v-model="activeSlide.title" :maxlength="80" placeholder="请输入页面标题" @input="applyManualTextOverride" />
@@ -666,6 +674,14 @@
         </view>
       </view>
 
+      <view class="generation-focus-card">
+        <view>
+          <text>第 {{ currentGenerationPage }} / {{ pageCount }} 页</text>
+          <text>当前 layout：{{ currentGenerationLayoutLabel }}</text>
+        </view>
+        <text>{{ progress }}%</text>
+      </view>
+
       <view class="generation-list">
         <view v-for="(item, index) in generationSteps" :key="item.id" class="generation-item">
           <view class="generation-item__rail">
@@ -702,8 +718,8 @@
     <view v-else-if="currentStep === 7" class="panel result-panel">
       <view class="success-hero">
         <view class="success-icon">✓</view>
-        <text class="success-hero__title">PPT 生成完成</text>
-        <text class="success-hero__desc">你的复习资料 PPT 已经准备好了</text>
+        <text class="success-hero__title">复习 PPT 已生成</text>
+        <text class="success-hero__desc">共 {{ pageCount }} 页，使用 {{ selectedTemplateName }} 模板，已生成 {{ availableExportFormats.length }} 种可导出格式。</text>
       </view>
 
       <view class="result-summary">
@@ -792,6 +808,11 @@
     </view>
 
     <view v-else class="panel export-panel">
+      <view class="render-runtime-card">
+        <text class="render-runtime-card__eyebrow">Presenton embedded runtime</text>
+        <text class="render-runtime-card__title">正在生成可打开文件</text>
+        <text class="render-runtime-card__desc">先渲染 HTML 页面，再导出 PDF、预览图和 PPTX。若 PPTX 转换器不可用，会保留 PDF 并说明原因。</text>
+      </view>
       <view class="export-status-card" :class="{ 'export-status-card--warning': !isExportAvailable(exportFormat) }">
         <view>
           <text class="export-status-card__title">{{ exportStatusCopy }}</text>
@@ -1052,6 +1073,19 @@ export default {
     },
     activeSlide() {
       return this.slides[this.activeSlideIndex] || null
+    },
+    activeSlideLayoutLabel() {
+      const layouts = this.selectedTemplateLayouts
+      return layouts[this.activeSlideIndex % Math.max(1, layouts.length)]?.name || '图文内容'
+    },
+    currentGenerationPage() {
+      const fromTask = Number(this.taskResult?.currentSlide || 0)
+      if (fromTask) return Math.min(this.pageCount, Math.max(1, fromTask))
+      return Math.min(this.pageCount, Math.max(1, Math.ceil((this.progress / 100) * this.pageCount)))
+    },
+    currentGenerationLayoutLabel() {
+      const layouts = this.selectedTemplateLayouts
+      return layouts[(this.currentGenerationPage - 1) % Math.max(1, layouts.length)]?.name || '图文内容'
     },
     currentHistory() {
       return this.historyTab === 'outline' ? this.outlineHistory : this.generationHistory
@@ -2211,6 +2245,18 @@ export default {
 .operation-feedback__track{height:7rpx;margin-top:10rpx;overflow:hidden;border-radius:99rpx;background:#e8ebf3}
 .operation-feedback__value{height:100%;border-radius:inherit;background:#5265f5;transition:width .35s ease}
 .operation-feedback__detail{display:block;margin-top:8rpx;color:#8a94a6;font-size:18rpx}
+.generation-focus-card,.slide-layout-lock-row,.render-runtime-card{margin-top:20rpx;padding:18rpx;border:1px solid #dfe7ef;border-radius:16rpx;background:#fff}
+.generation-focus-card,.slide-layout-lock-row{display:flex;align-items:center;justify-content:space-between;gap:18rpx}
+.generation-focus-card text,.slide-layout-lock-row text,.render-runtime-card text{display:block}
+.generation-focus-card view text:first-child{color:#172033;font-size:24rpx;font-weight:800}
+.generation-focus-card view text:last-child,.slide-layout-lock-row view text:last-child{margin-top:5rpx;color:#718094;font-size:18rpx}
+.generation-focus-card>text,.slide-layout-lock-row>text{flex:none;color:#314b63;font-size:22rpx;font-weight:820}
+.slide-layout-lock-row{margin-top:18rpx;background:#f8fafc}
+.slide-layout-lock-row view text:first-child{color:#26384a;font-size:22rpx;font-weight:760}
+.render-runtime-card{margin:0 0 20rpx;background:#f8fafc}
+.render-runtime-card__eyebrow{color:#314b63;font-size:19rpx;font-weight:780}
+.render-runtime-card__title{margin-top:10rpx;color:#07152a;font-size:34rpx;font-weight:830;line-height:1.2}
+.render-runtime-card__desc{margin-top:10rpx;color:#667386;font-size:21rpx;line-height:1.55}
 .operation-banter{margin-top:12rpx;padding:18rpx 20rpx;border:1px solid #e5e9f3;border-radius:16rpx;background:rgba(255,255,255,.78);text-align:center}
 .operation-banter__text,.operation-banter__status{display:block}
 .operation-banter__text{color:#566176;font-size:20rpx;line-height:1.5;animation:banter-in .32s ease both}
