@@ -55,6 +55,9 @@ def _normalize(value: str) -> Dict[str, Any]:
             "visualPrompt": str(item.get("visualPrompt") or "").strip()[:500],
             "speakerNote": str(item.get("speakerNote") or item.get("__speaker_note__") or "").strip()[:500],
             "ui": _normalize_ui(item.get("ui")),
+            # 组件内容映射（组件name->文本/表格/图表数据），由 service 合并进模板版式。
+            # 之前白名单漏掉该字段导致 ui 永远是模板原件。
+            "componentContent": item.get("componentContent") if isinstance(item.get("componentContent"), dict) else None,
         })
     return {"slides": normalized}
 

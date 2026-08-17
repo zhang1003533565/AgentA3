@@ -324,6 +324,13 @@ class PptGenerationService:
                     detail="PPT 内容模型未返回符合 Presenton UI Schema 的完整页面，请重试",
                 ) from exc
         slides = []
+        fallback_count = sum(
+            1
+            for enriched in enriched_slides
+            if isinstance(enriched, Mapping) and (enriched.get("_contentFallback") or enriched.get("_generationError"))
+        )
+        if fallback_count:
+            generation_warnings.append(f"{fallback_count} 页未获得 AI 组件内容，已用大纲要点填充版式")
         for index, item in enumerate(items, start=1):
             if not isinstance(item, Mapping):
                 continue
@@ -572,6 +579,7 @@ class PptGenerationService:
                 batch_layout_ids,
                 batch_layouts_by_id,
                 len(indices),
+                [items[i] for i in indices],
             )
             return normalized["slides"]
 
@@ -1010,6 +1018,7 @@ def _sanitize_content_payload(
     selected_layouts: List[str],
     layouts_by_id: Mapping[str, Mapping[str, Any]],
     expected_count: int,
+    current_slides: Optional[List[Mapping[str, Any]]] = None,
 ) -> Dict[str, Any]:
     slides = payload.get("slides") if isinstance(payload, Mapping) else None
     if not isinstance(slides, list) or len(slides) < expected_count:
@@ -1021,10 +1030,18 @@ def _sanitize_content_payload(
         layout = layouts_by_id.get(selected_layouts[index]) or {}
         item["index"] = index + 1
         component_content = item.pop("componentContent", None)
-        if isinstance(component_content, dict):
+        outline_item = current_slides[index] if current_slides and index < len(current_slides) else {}
+        if isinstance(component_content, dict) and component_content:
             item["ui"] = _merge_content_into_layout(layout, component_content)
         else:
-            item["ui"] = copy.deepcopy(layout)
+            # componentContent 缺失时绝不输出模板原件：
+            # 用大纲标题/要点按字号角色填充版式文本组件
+            logger.warning(
+                "PPT slide %d missing componentContent, filling from outline title/keyPoints",
+                index + 1,
+            )
+            item["ui"] = _fill_layout_with_slide_text(layout, item, outline_item)
+            item["_contentFallback"] = True
         normalized.append(item)
     return {"slides": normalized}
 
@@ -1036,8 +1053,26 @@ def _merge_content_into_layout(layout: Mapping[str, Any], component_content: Map
     component whose name matches a key in component_content. The LLM
     only sends the mutable content, and the server reassembles the
     complete UI tree — no coordinate/style hallucination is possible.
+
+    键名匹配先精确后容错（忽略大小写与分隔符）；合并后清除未命中
+    组件上残留的英文模板占位文本，避免输出里出现"模板原件"痕迹。
     """
     result = copy.deepcopy(dict(layout))
+    # 容错键表：归一化键 -> 原始键（精确匹配优先，不覆盖）
+    fuzzy_keys: Dict[str, str] = {}
+    for key in component_content:
+        normalized_key = _normalize_component_key(key)
+        if normalized_key and normalized_key not in fuzzy_keys:
+            fuzzy_keys[normalized_key] = key
+    matched_names: set = set()
+
+    def _lookup(name: str):
+        if name in component_content:
+            return component_content[name]
+        normalized_name = _normalize_component_key(name)
+        if normalized_name and normalized_name in fuzzy_keys:
+            return component_content[fuzzy_keys[normalized_name]]
+        return None
 
     def _merge(node: Any) -> None:
         if isinstance(node, list):
@@ -1047,8 +1082,9 @@ def _merge_content_into_layout(layout: Mapping[str, Any], component_content: Map
         if not isinstance(node, dict):
             return
         name = str(node.get("name") or "")
-        if name and name in component_content:
-            content = component_content[name]
+        content = _lookup(name) if name else None
+        if name and content is not None:
+            matched_names.add(name)
             if isinstance(content, str):
                 _set_text_node_content(node, content)
             elif isinstance(content, dict):
@@ -1082,7 +1118,61 @@ def _merge_content_into_layout(layout: Mapping[str, Any], component_content: Map
     for key in ("components", "elements"):
         if key in result:
             _merge(result[key])
+
+    if not matched_names:
+        logger.warning(
+            "componentContent keys %s matched no layout component; layout=%s",
+            sorted(str(k) for k in component_content)[:10],
+            sorted(matched_names),
+        )
+    else:
+        _clear_template_placeholder_text(result, matched_names)
     return result
+
+
+def _normalize_component_key(key: Any) -> str:
+    """归一化组件名：小写并去掉非字母数字/中文分隔符，用于容错匹配。"""
+    return re.sub(r"[^a-z0-9\u4e00-\u9fff]+", "", str(key or "").lower())
+
+
+def _node_display_text(node: Mapping[str, Any]) -> str:
+    text = node.get("text")
+    if not isinstance(text, str) or not text:
+        runs = node.get("runs")
+        if isinstance(runs, list) and runs and isinstance(runs[0], Mapping):
+            text = str(runs[0].get("text") or "")
+    return str(text or "")
+
+
+def _is_template_placeholder_text(node: Mapping[str, Any]) -> bool:
+    """识别模板自带的占位文本（模板原件不含中文：非中文文本即残留）。"""
+    text = _node_display_text(node)
+    return bool(text.strip()) and not re.search(r"[\u4e00-\u9fff]", text)
+
+
+def _clear_template_placeholder_text(root: Dict[str, Any], matched_names: set) -> None:
+    """合并后清空未命中组件上的英文模板占位文本。"""
+
+    def _walk(node: Any) -> None:
+        if isinstance(node, list):
+            for item in node:
+                _walk(item)
+            return
+        if not isinstance(node, dict):
+            return
+        if str(node.get("type") or "") == "text":
+            name = str(node.get("name") or "")
+            if (not name or name not in matched_names) and _is_template_placeholder_text(node):
+                _set_text_node_content(node, "")
+        for key in ("components", "elements", "children"):
+            if key in node:
+                _walk(node[key])
+        if "child" in node:
+            _walk(node["child"])
+
+    for key in ("components", "elements"):
+        if key in root:
+            _walk(root[key])
 
 
 def _set_text_node_content(node: Dict[str, Any], content: Any) -> None:
@@ -1133,6 +1223,114 @@ def _compact_table_values(values: Any, max_children: Any = None) -> List[Any]:
     ]
 
 
+def _text_font_size(node: Mapping[str, Any]) -> float:
+    """取文本节点字号（node.font.size 优先，回退 runs[0].font.size）。"""
+    font = node.get("font")
+    if isinstance(font, Mapping):
+        try:
+            return float(font.get("size") or 0)
+        except (TypeError, ValueError):
+            pass
+    runs = node.get("runs")
+    if isinstance(runs, list) and runs and isinstance(runs[0], Mapping):
+        run_font = runs[0].get("font")
+        if isinstance(run_font, Mapping):
+            try:
+                return float(run_font.get("size") or 0)
+            except (TypeError, ValueError):
+                pass
+    return 0.0
+
+
+def _collect_text_nodes(root: Mapping[str, Any]) -> List[Dict[str, Any]]:
+    """收集版式树中所有 text 类型节点。"""
+    found: List[Dict[str, Any]] = []
+
+    def _walk(node: Any) -> None:
+        if isinstance(node, list):
+            for item in node:
+                _walk(item)
+            return
+        if not isinstance(node, dict):
+            return
+        if str(node.get("type") or "") == "text":
+            found.append(node)
+        for key in ("components", "elements", "children"):
+            if key in node:
+                _walk(node[key])
+        if "child" in node:
+            _walk(node["child"])
+
+    for key in ("components", "elements"):
+        if key in root:
+            _walk(root[key])
+    return found
+
+
+def _fill_layout_with_slide_text(
+    layout: Mapping[str, Any],
+    slide_item: Mapping[str, Any],
+    outline_item: Mapping[str, Any],
+) -> Dict[str, Any]:
+    """componentContent 缺失时的兜底：把大纲标题/要点填进版式文本组件。
+
+    规则：字号最大的文本位放标题，次大的放要点正文（• 分条），
+    其余文本位清空英文模板占位。保证输出永远是用户资料内容，
+    而不是模板原件。
+    """
+    result = copy.deepcopy(dict(layout))
+    title = str(
+        slide_item.get("title")
+        or outline_item.get("title")
+        or f"第 {slide_item.get('index') or outline_item.get('index') or ''} 页"
+    ).strip()
+
+    points = slide_item.get("content")
+    if not isinstance(points, list) or not points:
+        points = outline_item.get("keyPoints") or outline_item.get("content") or []
+    if isinstance(points, str):
+        points = [line.strip(" -*•") for line in points.splitlines() if line.strip(" -*•")]
+    points = [str(point).strip() for point in points if str(point).strip()][:6]
+    body_text = "\n".join(f"• {point}" for point in points) or str(slide_item.get("objective") or outline_item.get("objective") or "").strip()
+
+    text_nodes = _collect_text_nodes(result)
+    text_nodes.sort(key=_text_font_size, reverse=True)
+    if text_nodes:
+        _set_text_node_content(text_nodes[0], title)
+
+    def _capacity(node: Mapping[str, Any]) -> int:
+        try:
+            return int(node.get("max_length") or 0)
+        except (TypeError, ValueError):
+            return 0
+
+    # 容量过小的组件（如头像 initials）不参与正文分摊，直接清空占位
+    body_nodes = [n for n in text_nodes[1:] if _capacity(n) == 0 or _capacity(n) >= 8]
+    body_ids = {id(n) for n in body_nodes}
+    tiny_nodes = [n for n in text_nodes[1:] if id(n) not in body_ids]
+    for node in tiny_nodes:
+        if _is_template_placeholder_text(node):
+            _set_text_node_content(node, "")
+    if len(body_nodes) == 1:
+        if body_text:
+            _set_text_node_content(body_nodes[0], body_text)
+    elif body_nodes:
+        # 多个正文位：要点逐个分摊，多余要点并入首个正文位
+        for node, point in zip(body_nodes, points):
+            _set_text_node_content(node, f"• {point}")
+        if len(points) > len(body_nodes):
+            extras = points[len(body_nodes) - 1:]
+            merged = _node_display_text(body_nodes[0]) + "\n" + "\n".join(f"• {p}" for p in extras)
+            _set_text_node_content(body_nodes[0], merged)
+        elif not points and body_text:
+            _set_text_node_content(body_nodes[0], body_text)
+        # 未分摊到要点的正文位清掉模板占位
+        for node in body_nodes[len(points):] if points else body_nodes[1:]:
+            if _is_template_placeholder_text(node):
+                _set_text_node_content(node, "")
+    return result
+
+
 _EMPTY_SLIDE_UI: Dict[str, Any] = {
     "components": [{
         "type": "text",
@@ -1152,14 +1350,15 @@ def _fallback_slides(
     selected_layouts: List[str],
     layouts_by_id: Mapping[str, Mapping[str, Any]],
 ) -> List[Dict[str, Any]]:
-    """Return minimal slides from outline data when LLM generation fails."""
+    """LLM 整批失败时的降级：用真实版式 + 大纲标题/要点填充，而不是占位页。"""
     fallback: List[Dict[str, Any]] = []
     for i in indices:
         item = items[i] if i < len(items) else {}
         points = item.get("keyPoints") or item.get("content") or []
         if isinstance(points, str):
             points = [line.strip(" -") for line in points.splitlines() if line.strip(" -*")]
-        fallback.append({
+        layout = layouts_by_id.get(selected_layouts[i]) if i < len(selected_layouts) else None
+        slide_item = {
             "index": i + 1,
             "type": item.get("type") or "content",
             "title": str(item.get("title") or f"第 {i + 1} 页"),
@@ -1167,9 +1366,14 @@ def _fallback_slides(
             "objective": str(item.get("objective") or ""),
             "visualPrompt": "",
             "speakerNote": "",
-            "ui": copy.deepcopy(_EMPTY_SLIDE_UI),
-            "_generationError": "AI 内容生成失败，使用大纲原始内容",
-        })
+        }
+        slide = dict(slide_item)
+        if isinstance(layout, Mapping) and layout:
+            slide["ui"] = _fill_layout_with_slide_text(layout, slide_item, item)
+        else:
+            slide["ui"] = copy.deepcopy(_EMPTY_SLIDE_UI)
+        slide["_generationError"] = "AI 内容生成失败，使用大纲原始内容"
+        fallback.append(slide)
     return fallback
 
 
