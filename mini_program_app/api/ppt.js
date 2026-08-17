@@ -176,6 +176,12 @@ export function downloadPptTemplateThumbnail(templateId) {
   return downloadOwnedPptResource(`${base}/templates/${encodeURIComponent(templateId)}/thumbnail`)
 }
 
+export function downloadPptLayoutPreview(templateId, slideIndex) {
+  return downloadOwnedPptResource(
+    `${base}/templates/${encodeURIComponent(templateId)}/layout-previews/${encodeURIComponent(slideIndex)}`
+  )
+}
+
 function downloadOwnedPptResource(path) {
   const token = getToken()
   if (!token) return Promise.reject(new Error('登录状态已失效'))

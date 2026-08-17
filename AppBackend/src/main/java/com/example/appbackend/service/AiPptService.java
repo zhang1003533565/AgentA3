@@ -39,4 +39,7 @@ public interface AiPptService {
 
     PythonAiProxyService.GeneratedExportResponse downloadTemplateThumbnail(
             Long userId, String templateId, String authorization);
+
+    PythonAiProxyService.GeneratedExportResponse downloadTemplateLayoutPreview(
+            Long userId, String templateId, Integer slideIndex, String authorization);
 }

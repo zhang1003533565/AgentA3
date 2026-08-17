@@ -396,6 +396,51 @@ public class PythonAiProxyService {
         }
     }
 
+    public GeneratedExportResponse downloadPptTemplateLayoutPreview(
+            String templateId, Integer slideIndex, String authorization) {
+        validateAuthorization(authorization);
+        if (!StringUtils.hasText(templateId) || !templateId.matches("[A-Za-z0-9._-]{1,120}")) {
+            throw new BusinessException(Result.ERROR_CODE, "PPT 模板编号无效");
+        }
+        if (slideIndex == null || slideIndex < 1 || slideIndex > 200) {
+            throw new BusinessException(Result.ERROR_CODE, "版式页码无效");
+        }
+        String token = normalizeBearerToken(authorization);
+        Long userId = extractUserId(token);
+        String encodedTemplateId = UriUtils.encodePathSegment(templateId, StandardCharsets.UTF_8);
+        try {
+            // First request may trigger on-the-fly Chromium rendering for the
+            // whole template, so allow the longer PPT timeout here.
+            ResponseEntity<byte[]> response = buildFileResponseWebClient().get()
+                    .uri(buildUri("/internal/rag/ppt-generation/templates/" + encodedTemplateId
+                            + "/layout-previews/" + slideIndex))
+                    .headers(headers -> applyPythonAuthHeaders(headers, authorization, userId))
+                    .retrieve()
+                    .toEntity(byte[].class)
+                    .timeout(Duration.ofSeconds(pptTimeoutSeconds))
+                    .block();
+            if (response == null || response.getBody() == null) {
+                throw new BusinessException(502, "PPT 模板版式预览响应为空");
+            }
+            if (response.getBody().length > fileResponseMaxInMemoryBytes) {
+                throw new BusinessException(413, "PPT 模板版式预览超过允许大小");
+            }
+            MediaType contentType = response.getHeaders().getContentType();
+            return new GeneratedExportResponse(
+                    response.getBody(),
+                    contentType == null ? MediaType.IMAGE_PNG : contentType,
+                    response.getHeaders().getContentLength()
+            );
+        } catch (WebClientResponseException e) {
+            throw new BusinessException(e.getStatusCode().value(),
+                    "PPT 模板版式预览读取失败: " + extractRemoteMessage(e));
+        } catch (BusinessException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new BusinessException(502, "PPT 模板版式预览读取失败");
+        }
+    }
+
     public GeneratedExportResponse downloadPptTaskArtifact(String artifactPath, String authorization) {
         validateAuthorization(authorization);
         if (!StringUtils.hasText(artifactPath) || artifactPath.contains("..")) {

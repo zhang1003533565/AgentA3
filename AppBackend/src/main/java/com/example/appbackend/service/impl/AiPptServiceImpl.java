@@ -228,6 +228,19 @@ public class AiPptServiceImpl implements AiPptService {
         return pythonAiProxyService.downloadPptTemplateThumbnail(templateId, authorization);
     }
 
+    @Override
+    public PythonAiProxyService.GeneratedExportResponse downloadTemplateLayoutPreview(
+            Long userId, String templateId, Integer slideIndex, String authorization) {
+        requireUser(userId);
+        if (!StringUtils.hasText(templateId) || !templateId.matches("[A-Za-z0-9._-]{1,120}")) {
+            throw new BusinessException(Result.ERROR_CODE, "PPT 模板编号无效");
+        }
+        if (slideIndex == null || slideIndex < 1) {
+            throw new BusinessException(Result.ERROR_CODE, "版式页码必须大于 0");
+        }
+        return pythonAiProxyService.downloadPptTemplateLayoutPreview(templateId, slideIndex, authorization);
+    }
+
     private void requireTask(Long userId, String taskId) {
         requireUser(userId);
         if (!StringUtils.hasText(taskId) || !taskId.matches("ppt_task_[a-f0-9]{32}")) {

@@ -148,6 +148,21 @@ public class AppAiPptController {
                 .body(file.bytes());
     }
 
+    @GetMapping("/templates/{templateId}/layout-previews/{slideIndex}")
+    public ResponseEntity<byte[]> downloadTemplateLayoutPreview(
+            @PathVariable String templateId,
+            @PathVariable Integer slideIndex,
+            @RequestHeader(value = "Authorization", required = false) String authorization,
+            HttpServletRequest request) {
+        PythonAiProxyService.GeneratedExportResponse file = aiPptService.downloadTemplateLayoutPreview(
+                requireUserId(request), templateId, slideIndex, authorization);
+        return ResponseEntity.ok()
+                .contentType(file.contentType())
+                .contentLength(file.bytes().length)
+                .cacheControl(CacheControl.maxAge(java.time.Duration.ofHours(24)).cachePrivate())
+                .body(file.bytes());
+    }
+
     private ResponseEntity<byte[]> fileResponse(PythonAiProxyService.GeneratedExportResponse file, String filename) {
         return ResponseEntity.ok()
                 .contentType(file.contentType())

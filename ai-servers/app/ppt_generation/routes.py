@@ -88,6 +88,22 @@ def get_template_thumbnail(template_id: str, authorization: Optional[str] = Head
     )
 
 
+@router.get("/templates/{template_id}/layout-previews/{slide_index}")
+def get_template_layout_preview(template_id: str, slide_index: int, authorization: Optional[str] = Header(None),
+                                x_user_id: Optional[str] = Header(None, alias="X-User-Id")):
+    _identity(authorization, x_user_id)
+    if not template_id or len(template_id) > 120:
+        raise HTTPException(status_code=400, detail="模板编号无效")
+    if slide_index < 1:
+        raise HTTPException(status_code=400, detail="版式页码无效")
+    content, content_type = ppt_generation_service.get_template_layout_preview(template_id, slide_index)
+    return Response(
+        content=content,
+        media_type=content_type,
+        headers={"Cache-Control": "private, max-age=86400"},
+    )
+
+
 @router.post("/files")
 def upload_source_file(request: FileUploadRequest,
                        authorization: Optional[str] = Header(None),

@@ -94,8 +94,15 @@ const browser = await chromium.launch({
 const page = await browser.newPage({ viewport: { width: 1280, height: 720 }, deviceScaleFactor: 1 });
 await page.goto(pathToFileURL(htmlPath).href, { waitUntil: "load" });
 await page.waitForTimeout(700);
-const pdfPath = path.join(outputRoot, `${input.taskId}.pdf`);
-await page.pdf({ path: pdfPath, width: "1280px", height: "720px", printBackground: true, margin: { top: 0, right: 0, bottom: 0, left: 0 } });
+// pngOnly is used by the template layout preview generator: skip the PDF and
+// PPTX exports because only the per-slide PNG screenshots are consumed.
+const pngOnly = input.pngOnly === true;
+let pdfPath = path.join(outputRoot, `${input.taskId}.pdf`);
+if (!pngOnly) {
+  await page.pdf({ path: pdfPath, width: "1280px", height: "720px", printBackground: true, margin: { top: 0, right: 0, bottom: 0, left: 0 } });
+} else {
+  pdfPath = null;
+}
 const slideCount = pages.length;
 for (let index = 1; index <= slideCount; index += 1) {
   const target = path.join(outputRoot, `${input.taskId}-${index}.png`);

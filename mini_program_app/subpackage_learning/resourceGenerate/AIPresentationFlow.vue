@@ -47,13 +47,13 @@
       <button class="recover-card__button" @tap="openModelHelp">查看说明</button>
     </view>
 
-    <view v-if="(currentStep === 1 && templateEntryMode === 'upload') || (currentStep === 2 && templateEntryMode !== 'upload')" class="panel">
-      <view v-if="currentStep === 2 && templateEntryMode === 'library'" class="template-library-entry">
+    <view v-if="isTemplateStep || isUploadStep" class="panel">
+      <view v-if="isTemplateStep && templateEntryMode === 'library'" class="template-library-entry">
         <view class="template-library-hero">
           <view class="template-library-hero__copy">
             <text class="template-library-hero__eyebrow">Presenton 内置模板库</text>
-            <text class="template-library-hero__title">为刚才的资料选择模板</text>
-            <text class="template-library-hero__desc">模板只在这里确认一次，后续会按所选版式生成 PPTX、PDF 和页面预览。</text>
+            <text class="template-library-hero__title">{{ templateHeroTitle }}</text>
+            <text class="template-library-hero__desc">{{ templateHeroDescription }}</text>
           </view>
           <view class="template-library-hero__stack">
             <view></view><view></view><view></view>
@@ -117,27 +117,40 @@
 
         <view class="bottom-actions">
           <view class="bottom-actions__buttons">
-            <button class="secondary-button" @tap="goPrevious">上一步</button>
+            <button v-if="currentStep > 1" class="secondary-button" @tap="goPrevious">上一步</button>
             <button class="primary-button" :disabled="!selectedTemplate" @tap="goNext">下一步</button>
           </view>
         </view>
       </view>
 
-      <view v-else-if="currentStep === 2 && templateEntryMode === 'detail'" class="template-detail-entry">
-        <view class="template-detail-card">
-          <view class="template-detail-card__preview">
-            <image v-if="selectedTemplate && selectedTemplate.thumbnailUrl" :src="selectedTemplate.thumbnailUrl" mode="aspectFill" />
-            <view v-else class="template-detail-card__fallback">
-              <text></text><text></text><text></text>
-            </view>
+      <view v-else-if="isTemplateStep && templateEntryMode === 'detail'" class="template-detail-entry">
+        <view class="layout-viewer">
+          <swiper class="layout-viewer__swiper" :current="activeLayoutIndex" @change="onLayoutSlideChange">
+            <swiper-item v-for="(layout, index) in selectedTemplateLayouts" :key="layout.id || index">
+              <view class="layout-viewer__slide" @tap="retryLayoutPreview(index)">
+                <image v-if="layoutPreviewImages[index]" class="layout-viewer__image" :src="layoutPreviewImages[index]" mode="aspectFit" />
+                <view v-else class="layout-viewer__placeholder">
+                  <text v-if="layoutPreviewFailed[`${selectedTemplate?.id}:${index}`]">版式图加载失败，点击重试</text>
+                  <text v-else>正在加载版式图…</text>
+                </view>
+              </view>
+            </swiper-item>
+          </swiper>
+          <view class="layout-viewer__pager">
+            <text>{{ activeLayoutIndex + 1 }} / {{ selectedTemplateLayouts.length }}</text>
           </view>
+        </view>
+
+        <view class="layout-caption">
+          <text class="layout-caption__name">{{ currentLayout?.name || '版式预览' }}</text>
+          <text class="layout-caption__desc">{{ currentLayout?.desc || '左右滑动，像翻 PPT 一样查看该模板的每一页' }}</text>
+        </view>
+
+        <view class="template-detail-card">
           <view class="template-detail-card__body">
             <text class="template-detail-card__eyebrow">{{ selectedTemplateCategoryLabel }}</text>
             <text class="template-detail-card__title">{{ selectedTemplateName }}</text>
             <text class="template-detail-card__desc">{{ selectedTemplateDescription }}</text>
-            <view class="template-detail-filter">
-              <text>全部</text><text>封面</text><text>内容</text><text>图文</text><text>总结</text>
-            </view>
             <view class="template-detail-card__stats">
               <view><text>{{ selectedTemplateLayoutCount }}</text><text>版式</text></view>
               <view><text>{{ selectedScene.label }}</text><text>场景</text></view>
@@ -145,33 +158,10 @@
           </view>
         </view>
 
-        <view class="template-detail-head">
-          <view>
-            <text class="template-detail-head__title">版式预览</text>
-            <text class="template-detail-head__desc">生成时会从这些页面类型中匹配合适结构</text>
-          </view>
-          <text @tap="showTemplateLibrary">更换模板</text>
-        </view>
-
-        <view class="template-layout-grid">
-          <view v-for="layout in selectedTemplateLayouts" :key="layout.id" class="template-layout-card">
-            <view class="template-layout-preview" :class="`template-layout-preview--${layout.type}`">
-              <view v-if="layout.previewItems && layout.previewItems.length" class="template-layout-preview__slots">
-                <text v-for="slot in layout.previewItems.slice(0, 4)" :key="slot">{{ slot }}</text>
-              </view>
-              <template v-else>
-                <text></text><text></text><text></text>
-              </template>
-            </view>
-            <text>{{ layout.name }}</text>
-            <text class="template-layout-card__desc">{{ layout.desc }}</text>
-          </view>
-        </view>
-
         <view class="bottom-actions">
           <view class="bottom-actions__buttons">
             <button class="secondary-button" @tap="showTemplateLibrary">返回模板库</button>
-            <button class="primary-button" @tap="goNext">确认模板并继续</button>
+            <button class="primary-button" @tap="goNext">使用该模板</button>
           </view>
         </view>
       </view>
@@ -195,8 +185,8 @@
         <view class="product-hero product-hero--compact">
           <view class="product-hero__copy">
             <text class="product-hero__eyebrow">资料生成 · 内容优先</text>
-            <text class="product-hero__title">先上传学习资料</text>
-            <text class="product-hero__desc">先确定要生成的内容，再选择适合这份资料的 PPT 模板。</text>
+            <text class="product-hero__title">{{ uploadHeroTitle }}</text>
+            <text class="product-hero__desc">{{ uploadHeroDescription }}</text>
           </view>
           <view class="product-hero__slide">
             <text></text><text></text><text></text>
@@ -246,7 +236,8 @@
 
         <view class="bottom-actions">
           <view class="bottom-actions__buttons">
-            <button class="primary-button" :disabled="!fileInfo" @tap="goNext">下一步：选择模板</button>
+            <button v-if="currentStep > 1" class="secondary-button" @tap="goPrevious">上一步</button>
+            <button class="primary-button" :disabled="!fileInfo" @tap="goNext">{{ uploadNextLabel }}</button>
           </view>
         </view>
       </view>
@@ -913,6 +904,7 @@ import {
   cancelPptTask,
   createPptTask,
   createPptSlidesTask,
+  downloadPptLayoutPreview,
   downloadPptPreview,
   downloadPptTaskFile,
   downloadPptTemplateThumbnail,
@@ -929,11 +921,14 @@ import {
 export default {
   name: 'AiPresentationFlow',
   props: {
-    initialTopic: { type: String, default: '' }
+    initialTopic: { type: String, default: '' },
+    initialEntryMode: { type: String, default: 'sourceFirst' }
   },
   data() {
+    const templateFirst = this.initialEntryMode === 'templateFirst'
     return {
       currentStep: 1,
+      entryMode: templateFirst ? 'templateFirst' : 'sourceFirst',
       scene: 'review',
       pptScenes: [
         { value: 'review', label: '复习资料', description: '将学习资料整理成结构清晰的复习 PPT', enabled: true, default: true }
@@ -957,8 +952,8 @@ export default {
       ],
       pageCount: 15,
       pptStyle: 'general',
-      templateEntryMode: 'upload',
-      templateUploadSource: 'upload',
+      templateEntryMode: templateFirst ? 'library' : 'upload',
+      templateUploadSource: templateFirst ? 'library' : 'upload',
       templateCategory: 'all',
       templateCategories: [
         { id: 'all', name: '全部模板' },
@@ -967,6 +962,10 @@ export default {
       ],
       templateExpanded: false,
       templateOptionsLoading: false,
+      activeLayoutIndex: 0,
+      layoutPreviewCache: {},
+      layoutPreviewPending: {},
+      layoutPreviewFailed: {},
       contentLevel: 'standard',
       slides: [],
       activeSlideIndex: 0,
@@ -1019,8 +1018,12 @@ export default {
       generationHistory: [],
       outlineHistory: [],
       stepMeta: [
-        { id: 1, shortTitle: '上传资料', title: '上传学习资料', description: '先确定要生成 PPT 的内容' },
-        { id: 2, shortTitle: '选模板', title: '选择 PPT 模板', description: '根据这份资料选择合适的模板' },
+        templateFirst
+          ? { id: 1, shortTitle: '选模板', title: '选择 PPT 模板', description: '先选择可直接套用的模板' }
+          : { id: 1, shortTitle: '上传资料', title: '上传学习资料', description: '先确定要生成 PPT 的内容' },
+        templateFirst
+          ? { id: 2, shortTitle: '上传资料', title: '上传学习资料', description: '再提交要写入模板的资料' }
+          : { id: 2, shortTitle: '选模板', title: '选择 PPT 模板', description: '根据这份资料选择合适的模板' },
         { id: 3, shortTitle: '大纲来源', title: '选择大纲来源', description: '选择 AI 重新整理，或沿用资料原有大纲' },
         { id: 4, shortTitle: '编辑大纲', title: '编辑 PPT 大纲', description: '确认内容结构，并将本次大纲独立保存' },
         { id: 5, shortTitle: '设置 PPT', title: '设置 PPT', description: '设置 PPT 的页数和展示效果' },
@@ -1065,6 +1068,40 @@ export default {
     },
     activeSlide() {
       return this.slides[this.activeSlideIndex] || null
+    },
+    templateFirstEnabled() {
+      return this.entryMode === 'templateFirst'
+    },
+    templateStepIndex() {
+      return this.templateFirstEnabled ? 1 : 2
+    },
+    uploadStepIndex() {
+      return this.templateFirstEnabled ? 2 : 1
+    },
+    isTemplateStep() {
+      return this.currentStep === this.templateStepIndex && this.templateEntryMode !== 'upload'
+    },
+    isUploadStep() {
+      return this.currentStep === this.uploadStepIndex && this.templateEntryMode === 'upload'
+    },
+    templateHeroTitle() {
+      return this.templateFirstEnabled ? '先选择一套 PPT 模板' : '为刚才的资料选择模板'
+    },
+    templateHeroDescription() {
+      return this.templateFirstEnabled
+        ? '选定模板后再提交资料，系统会把内容写入所选版式。'
+        : '模板只在这里确认一次，后续会按所选版式生成 PPTX、PDF 和页面预览。'
+    },
+    uploadHeroTitle() {
+      return this.templateFirstEnabled ? '提交学习资料' : '先上传学习资料'
+    },
+    uploadHeroDescription() {
+      return this.templateFirstEnabled
+        ? '已选择模板，现在上传文件或粘贴内容来生成 PPT。'
+        : '先确定要生成的内容，再选择适合这份资料的 PPT 模板。'
+    },
+    uploadNextLabel() {
+      return this.templateFirstEnabled ? '下一步：大纲来源' : '下一步：选择模板'
     },
     activeSlideLayoutLabel() {
       const layouts = this.selectedTemplateLayouts
@@ -1149,6 +1186,14 @@ export default {
         { label: '章节页', enabled: this.settings.includeSection },
         { label: '总结页', enabled: this.settings.includeSummary }
       ]
+    },
+    layoutPreviewImages() {
+      const templateId = this.selectedTemplate?.id
+      return (templateId && this.layoutPreviewCache[templateId]) || {}
+    },
+    currentLayout() {
+      const layouts = this.selectedTemplateLayouts
+      return layouts[this.activeLayoutIndex] || layouts[0] || null
     },
     selectedImageModeLabel() {
       const mode = this.imageModes.find(item => item.id === this.settings.imageMode)
@@ -1397,13 +1442,63 @@ export default {
     },
     showTemplateLibrary() {
       this.templateEntryMode = 'library'
+      this.currentStep = this.templateStepIndex
     },
     showTemplateDetail(id = '') {
       if (id) this.pptStyle = id
       if (!this.selectedTemplate && this.pptStyles.length) {
         this.pptStyle = this.pptStyles[0].id
       }
+      this.activeLayoutIndex = 0
       this.templateEntryMode = 'detail'
+      this.currentStep = this.templateStepIndex
+      this.prewarmLayoutPreviews()
+    },
+    onLayoutSlideChange(event) {
+      const current = Number(event?.detail?.current || 0)
+      this.activeLayoutIndex = current
+      this.prewarmLayoutPreviews()
+    },
+    prewarmLayoutPreviews() {
+      const templateId = this.selectedTemplate?.id
+      if (!templateId) return
+      const total = this.selectedTemplateLayouts.length
+      const targets = new Set([this.activeLayoutIndex, this.activeLayoutIndex + 1])
+      if (this.activeLayoutIndex === 0) targets.add(2)
+      targets.forEach(index => {
+        if (index >= 0 && index < total) this.ensureLayoutPreview(templateId, index)
+      })
+    },
+    async ensureLayoutPreview(templateId, index) {
+      const cache = this.layoutPreviewCache[templateId] || {}
+      if (cache[index]) return cache[index]
+      const pendingKey = `${templateId}:${index}`
+      if (this.layoutPreviewPending[pendingKey]) return this.layoutPreviewPending[pendingKey]
+      const request = (async () => {
+        try {
+          const tempPath = await downloadPptLayoutPreview(templateId, index + 1)
+          if (!this.layoutPreviewCache[templateId]) this.layoutPreviewCache[templateId] = {}
+          this.layoutPreviewCache[templateId][index] = tempPath
+          this.layoutPreviewFailed[pendingKey] = false
+          return tempPath
+        } catch (error) {
+          if (!this.layoutPreviewFailed[pendingKey] && index === this.activeLayoutIndex) {
+            uni.showToast({ title: '版式图加载失败，可重试', icon: 'none' })
+          }
+          this.layoutPreviewFailed[pendingKey] = true
+          return ''
+        } finally {
+          delete this.layoutPreviewPending[pendingKey]
+        }
+      })()
+      this.layoutPreviewPending[pendingKey] = request
+      return request
+    },
+    retryLayoutPreview(index) {
+      const templateId = this.selectedTemplate?.id
+      if (!templateId) return
+      this.layoutPreviewFailed[`${templateId}:${index}`] = false
+      this.ensureLayoutPreview(templateId, index)
     },
     showTemplateUpload(sourceMode = this.templateEntryMode) {
       if (!this.selectedTemplate && this.pptStyles.length) {
@@ -1411,7 +1506,7 @@ export default {
       }
       this.templateUploadSource = sourceMode === 'detail' ? 'detail' : 'upload'
       this.templateEntryMode = 'upload'
-      this.currentStep = 1
+      this.currentStep = this.uploadStepIndex
     },
     chooseTxtFile() {
       if (typeof uni.chooseFile === 'function') {
@@ -1547,26 +1642,46 @@ export default {
       this.previewExpanded = false
     },
     goNext() {
-      if (this.currentStep === 1) {
-        if (!this.fileInfo) return
-        this.templateEntryMode = 'library'
-        this.currentStep = 2
+      if (this.isTemplateStep) {
+        if (!this.selectedTemplate) return
+        if (this.templateFirstEnabled) {
+          this.templateEntryMode = 'upload'
+          this.currentStep = this.uploadStepIndex
+          return
+        }
+        this.currentStep = 3
         return
       }
-      if (this.currentStep === 2) {
-        if (!this.selectedTemplate) return
+      if (this.isUploadStep) {
+        if (!this.fileInfo) return
+        if (!this.templateFirstEnabled) {
+          this.templateEntryMode = 'library'
+          this.currentStep = this.templateStepIndex
+          return
+        }
         this.currentStep = 3
         return
       }
       this.currentStep = Math.min(this.stepMeta.length, this.currentStep + 1)
     },
     goPrevious() {
-      if (this.currentStep === 2 && this.templateEntryMode === 'detail') {
+      if (this.isTemplateStep && this.templateEntryMode === 'detail') {
         this.templateEntryMode = 'library'
         return
       }
-      if (this.currentStep === 2) this.templateEntryMode = 'upload'
-      if (this.currentStep === 3) this.templateEntryMode = 'library'
+      if (this.isUploadStep && this.templateFirstEnabled) {
+        this.templateEntryMode = 'library'
+        this.currentStep = this.templateStepIndex
+        return
+      }
+      if (this.isTemplateStep && !this.templateFirstEnabled) {
+        this.templateEntryMode = 'upload'
+        this.currentStep = this.uploadStepIndex
+        return
+      }
+      if (this.currentStep === 3) {
+        this.templateEntryMode = this.templateFirstEnabled ? 'upload' : 'library'
+      }
       this.currentStep = Math.max(1, this.currentStep - 1)
     },
     setPageCount(event) {
@@ -2588,34 +2703,25 @@ export default {
 .template-loading-card__lines text:nth-child(2){width:82%}
 .template-loading-card__lines text:nth-child(3){width:58%}
 .template-detail-card{display:grid;grid-template-columns:1fr;gap:18rpx;padding:18rpx;border:1px solid #dfe7ef;border-radius:20rpx;background:#f8fafc}
-.template-detail-card__preview{position:relative;aspect-ratio:16/9;overflow:hidden;border:1px solid #d8e1ec;border-radius:16rpx;background:#fff}
-.template-detail-card__preview image{display:block;width:100%;height:100%}
-.template-detail-card__fallback{padding:42rpx}
-.template-detail-card__fallback text{display:block;height:10rpx;border-radius:99rpx;background:#526f88}
-.template-detail-card__fallback text+text{margin-top:16rpx;background:#bdc9d7}
-.template-detail-card__fallback text:nth-child(2){width:72%}
-.template-detail-card__fallback text:nth-child(3){width:48%}
 .template-detail-card__eyebrow,.template-detail-card__title,.template-detail-card__desc{display:block}
 .template-detail-card__eyebrow{color:#5265f5;font-size:19rpx;font-weight:760}
 .template-detail-card__title{margin-top:8rpx;color:#172033;font-size:34rpx;font-weight:820;line-height:1.22}
 .template-detail-card__desc{margin-top:10rpx;color:#667386;font-size:21rpx;line-height:1.5}
-.template-detail-filter{display:flex;flex-wrap:wrap;gap:10rpx;margin-top:18rpx}
-.template-detail-filter text{display:flex;height:42rpx;align-items:center;justify-content:center;padding:0 18rpx;border:1px solid #d6e0ea;border-radius:999rpx;background:#fff;color:#536477;font-size:19rpx;font-weight:720;box-sizing:border-box}
-.template-detail-filter text:first-child{border-color:#526f88;color:#314b63}
 .template-detail-card__stats{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12rpx;margin-top:18rpx}
 .template-detail-card__stats view{padding:15rpx;border:1px solid #e1e8ef;border-radius:13rpx;background:#fff}
 .template-detail-card__stats text{display:block}
 .template-detail-card__stats text:first-child{overflow:hidden;color:#172033;font-size:26rpx;font-weight:820;text-overflow:ellipsis;white-space:nowrap}
 .template-detail-card__stats text:last-child{margin-top:5rpx;color:#718094;font-size:17rpx}
-.template-detail-head{display:flex;align-items:flex-start;justify-content:space-between;gap:18rpx;margin-top:28rpx}
-.template-detail-head__title,.template-detail-head__desc{display:block}
-.template-detail-head__title{font-size:27rpx;font-weight:800}
-.template-detail-head__desc{margin-top:7rpx;color:#718094;font-size:19rpx;line-height:1.45}
-.template-detail-head>text{flex:none;padding:8rpx 12rpx;border-radius:10rpx;background:#eef1ff;color:#5265f5;font-size:19rpx;font-weight:720}
-.template-layout-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14rpx;margin-top:18rpx}
-.template-layout-card{padding:12rpx;border:1px solid #e1e7ef;border-radius:15rpx;background:#fff;box-sizing:border-box}
-.template-layout-card>text{display:block;margin-top:10rpx;color:#26384a;font-size:20rpx;font-weight:720;text-align:center}
-.template-layout-card__desc{margin-top:6rpx!important;color:#718094!important;font-size:17rpx!important;font-weight:500!important;line-height:1.35;text-align:left!important}
+.layout-viewer{position:relative;overflow:hidden;border:1px solid #d8e1ec;border-radius:16rpx;background:#fff}
+.layout-viewer__swiper{height:424rpx}
+.layout-viewer__slide{display:flex;align-items:center;justify-content:center;height:424rpx;background:#fff}
+.layout-viewer__image{width:100%;height:100%}
+.layout-viewer__placeholder{display:flex;align-items:center;justify-content:center;height:100%;color:#8a97a8;font-size:21rpx}
+.layout-viewer__pager{position:absolute;right:14rpx;bottom:14rpx;padding:6rpx 16rpx;border-radius:999rpx;background:rgba(23,32,51,.55)}
+.layout-viewer__pager text{color:#fff;font-size:18rpx;font-weight:700}
+.layout-caption{display:flex;flex-direction:column;margin-top:18rpx}
+.layout-caption__name{color:#172033;font-size:26rpx;font-weight:800}
+.layout-caption__desc{margin-top:6rpx;color:#667386;font-size:20rpx;line-height:1.5}
 .template-layout-preview{position:relative;aspect-ratio:16/9;overflow:hidden;padding:14rpx;border-radius:11rpx;background:#f5f8fb;box-sizing:border-box}
 .template-layout-preview text{display:block;height:6rpx;border-radius:99rpx;background:#526f88}
 .template-layout-preview text+text{margin-top:9rpx;background:#becadb}

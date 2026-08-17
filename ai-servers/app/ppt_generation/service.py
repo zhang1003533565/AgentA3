@@ -34,6 +34,10 @@ from app.ppt_generation.task_store import PptTaskStore
 from app.ppt_generation.source_file_store import PptSourceFileStore
 from app.ppt_generation.source_parser import PptSourceParseError, extract_source_text
 from app.ppt_generation.template_catalog import EmbeddedTemplateCatalog
+from app.ppt_generation.template_preview import (
+    get_template_layout_preview,
+    warm_up_previews,
+)
 from app.rag.document_conversion import generated_exporter
 
 
@@ -56,6 +60,35 @@ class PptGenerationService:
         self._embedded_config = EmbeddedPptConfig.from_env()
         self._template_catalog = EmbeddedTemplateCatalog()
         self._embedded_config.source_root.mkdir(parents=True, exist_ok=True)
+        self._start_template_preview_warmup()
+
+    def _start_template_preview_warmup(self) -> None:
+        if os.getenv("PPT_TEMPLATE_PREVIEW_WARMUP", "1").strip().lower() in ("0", "false", "no"):
+            return
+        template_ids = [str(item["id"]) for item in self._template_catalog.list_templates()]
+        if not template_ids:
+            return
+        thread = threading.Thread(
+            target=warm_up_previews,
+            args=(template_ids,),
+            name="ai-ppt-preview-warmup",
+            daemon=True,
+        )
+        thread.start()
+
+    def get_template_layout_preview(self, template_id: str, slide_index: int):
+        try:
+            return get_template_layout_preview(template_id, slide_index)
+        except FileNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except IndexError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except Exception as exc:
+            logger.exception("failed to render Presenton template layout preview")
+            raise HTTPException(
+                status_code=502,
+                detail=f"PPT 模板版式预览生成失败：{_safe_error_message(exc)}",
+            ) from exc
 
     def get_options(self) -> Dict[str, Any]:
         templates: List[Dict[str, Any]] = []
