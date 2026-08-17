@@ -481,8 +481,33 @@
       <view v-if="generationWarnings.length" class="generation-warning">
         <text>{{ generationWarnings[0] }}</text>
       </view>
-      <view v-if="taskResult?.formatErrors && Object.keys(taskResult.formatErrors).length" class="generation-warning generation-warning--error">
-        <text>{{ Object.values(taskResult.formatErrors)[0] }}</text>
+      <view v-if="formatErrorList.length" class="generation-warning generation-warning--error">
+        <text>{{ formatErrorList[0].label }}：{{ formatErrorList[0].message }}</text>
+      </view>
+
+      <view class="format-status-panel">
+        <view class="format-status-panel__head">
+          <view>
+            <text class="format-status-panel__title">导出文件</text>
+            <text class="format-status-panel__desc">{{ exportStatusCopy }}</text>
+          </view>
+          <text>{{ availableExportFormats.length }} / {{ exportFormats.length }}</text>
+        </view>
+        <view
+          v-for="format in exportFormats"
+          :key="format.id"
+          class="format-status-row"
+          :class="{ 'format-status-row--disabled': !isExportAvailable(format.id) }"
+          @tap="selectExportFormat(format.id)"
+        >
+          <view class="format-status-row__icon" :class="`format-status-row__icon--${format.id}`">{{ format.icon }}</view>
+          <view class="format-status-row__body">
+            <text>{{ format.name }}</text>
+            <text v-if="isExportAvailable(format.id)">文件已生成，可进入导出下载</text>
+            <text v-else>{{ formatErrorMessage(format.id) }}</text>
+          </view>
+          <text class="format-status-row__state">{{ isExportAvailable(format.id) ? '已生成' : '不可用' }}</text>
+        </view>
       </view>
 
       <view class="preview-section">
@@ -513,13 +538,26 @@
 
       <view class="bottom-actions">
         <view class="bottom-actions__buttons">
+          <button class="secondary-button" @tap="returnToEditor">继续修改</button>
           <button class="secondary-button" @tap="restartFromSettings">重新生成</button>
-          <button class="primary-button" @tap="currentStep = 8">导出下载</button>
+          <button class="primary-button" :disabled="!availableExportFormats.length" @tap="goExportStep">导出下载</button>
         </view>
       </view>
     </view>
 
     <view v-else class="panel export-panel">
+      <view class="export-status-card" :class="{ 'export-status-card--warning': !isExportAvailable(exportFormat) }">
+        <view>
+          <text class="export-status-card__title">{{ exportStatusCopy }}</text>
+          <text class="export-status-card__desc">
+            {{ isExportAvailable(exportFormat) ? `当前选择 ${selectedExportFormatName}，可直接下载。` : selectedExportIssue }}
+          </text>
+        </view>
+        <button v-if="!isExportAvailable(exportFormat) && primaryExportFormat" class="export-status-card__button" @tap="switchToPrimaryExportFormat">
+          切换可用格式
+        </button>
+      </view>
+
       <view
         v-for="format in exportFormats"
         :key="format.id"
@@ -531,11 +569,13 @@
         <view class="export-choice__body">
           <text class="export-choice__title">{{ format.name }} <text>（.{{ format.id }}）</text></text>
           <text class="export-choice__desc">{{ format.description }}</text>
+          <text v-if="isExportAvailable(format.id)" class="export-choice__ready">已生成，可下载</text>
+          <text v-else class="export-choice__issue">{{ formatErrorMessage(format.id) }}</text>
         </view>
         <view class="radio-dot" :class="{ 'radio-dot--selected': exportFormat === format.id }"><text v-if="exportFormat === format.id">✓</text></view>
       </view>
 
-      <button class="primary-button primary-button--full" :disabled="exportPreparing" @tap="prepareExport">
+      <button class="primary-button primary-button--full" :disabled="exportPreparing || !isExportAvailable(exportFormat)" @tap="prepareExport">
         {{ exportPreparing ? '正在下载文件…' : '下载文件' }}
       </button>
 
@@ -855,6 +895,41 @@ export default {
       const processing = this.taskResult?.processingSlides
       if (Array.isArray(processing) && processing.length) return `正在处理第 ${processing.join('、')} 页`
       return `预计还需 ${this.remainingTime}`
+    },
+    exportAttachmentTypes() {
+      if (!this.taskResult || !Array.isArray(this.taskResult.attachments)) return []
+      return this.taskResult.attachments
+        .map(item => String(item?.type || '').toLowerCase())
+        .filter(Boolean)
+    },
+    availableExportFormats() {
+      return this.exportFormats
+        .map(item => item.id)
+        .filter(format => this.exportAttachmentTypes.includes(format))
+    },
+    primaryExportFormat() {
+      if (this.availableExportFormats.includes(this.exportFormat)) return this.exportFormat
+      return this.availableExportFormats[0] || ''
+    },
+    selectedExportFormatName() {
+      return this.exportFormats.find(item => item.id === this.exportFormat)?.name || String(this.exportFormat || '').toUpperCase()
+    },
+    selectedExportIssue() {
+      return this.formatErrorMessage(this.exportFormat)
+    },
+    formatErrorList() {
+      const errors = this.taskResult?.formatErrors || {}
+      return Object.keys(errors).map(format => ({
+        format,
+        label: this.exportFormats.find(item => item.id === format)?.name || String(format).toUpperCase(),
+        message: String(errors[format] || '')
+      })).filter(item => item.message)
+    },
+    exportStatusCopy() {
+      if (!this.taskResult) return '等待生成结果'
+      if (!this.availableExportFormats.length) return '本次任务未返回可下载文件'
+      if (this.formatErrorList.length) return '部分格式已生成，可先下载可用文件'
+      return 'PPTX 与 PDF 均已生成'
     },
     resultName() {
       const name = this.fileInfo?.name || '复习资料.txt'
@@ -1443,8 +1518,7 @@ export default {
     },
     selectExportFormat(format) {
       if (!this.isExportAvailable(format)) {
-        const detail = this.taskResult?.formatErrors?.[format]
-        uni.showToast({ title: detail || `当前任务未生成 ${String(format).toUpperCase()} 文件`, icon: 'none' })
+        uni.showToast({ title: this.formatErrorMessage(format), icon: 'none' })
         return
       }
       if (this.exportFormat !== format) {
@@ -1453,18 +1527,41 @@ export default {
       }
     },
     isExportAvailable(format) {
-      if (!this.taskResult || !Array.isArray(this.taskResult.attachments)) return true
-      return this.taskResult.attachments.some(item => String(item?.type || '').toLowerCase() === String(format || '').toLowerCase())
+      return this.exportAttachmentTypes.includes(String(format || '').toLowerCase())
+    },
+    formatErrorMessage(format) {
+      const id = String(format || '').toLowerCase()
+      const detail = this.taskResult?.formatErrors?.[id]
+      if (detail) return String(detail)
+      return `当前任务未生成 ${id.toUpperCase()} 文件`
+    },
+    switchToPrimaryExportFormat() {
+      if (!this.primaryExportFormat) return
+      this.exportFormat = this.primaryExportFormat
+      this.exportReady = false
+    },
+    goExportStep() {
+      if (!this.availableExportFormats.length) {
+        uni.showToast({ title: '本次任务没有可下载文件，请重新生成', icon: 'none' })
+        return
+      }
+      if (!this.isExportAvailable(this.exportFormat)) this.switchToPrimaryExportFormat()
+      this.currentStep = 8
+      this.exportReady = false
+    },
+    returnToEditor() {
+      this.currentStep = 5
+      this.exportReady = false
     },
     async prepareExport() {
       if (!this.taskId) {
         uni.showToast({ title: 'PPT 任务不存在，请重新生成', icon: 'none' })
         return
       }
-      const attachment = (this.taskResult?.attachments || []).find(item => item.type === this.exportFormat)
+      if (!this.isExportAvailable(this.exportFormat) && this.primaryExportFormat) this.switchToPrimaryExportFormat()
+      const attachment = (this.taskResult?.attachments || []).find(item => String(item?.type || '').toLowerCase() === this.exportFormat)
       if (!attachment) {
-        const detail = this.taskResult?.formatErrors?.[this.exportFormat]
-        uni.showToast({ title: detail || `当前任务未生成 ${this.exportFormat.toUpperCase()} 文件`, icon: 'none' })
+        uni.showToast({ title: this.formatErrorMessage(this.exportFormat), icon: 'none' })
         return
       }
       this.exportPreparing = true
@@ -1901,4 +1998,35 @@ export default {
 .slide-readiness__item text{display:block}
 .slide-readiness__item text:first-child{color:#314b63;font-size:28rpx;font-weight:820}
 .slide-readiness__item text:last-child{margin-top:5rpx;color:#718094;font-size:17rpx}
+.format-status-panel{margin-top:22rpx;padding:20rpx;border:1px solid #dfe7ef;border-radius:17rpx;background:#f8fafc}
+.format-status-panel__head{display:flex;align-items:flex-start;justify-content:space-between;gap:18rpx;margin-bottom:16rpx}
+.format-status-panel__head>text{flex:none;padding:7rpx 12rpx;border-radius:99rpx;background:#e7eef5;color:#314b63;font-size:18rpx;font-weight:720}
+.format-status-panel__title,.format-status-panel__desc{display:block}
+.format-status-panel__title{font-size:25rpx;font-weight:800}
+.format-status-panel__desc{margin-top:7rpx;color:#718094;font-size:19rpx;line-height:1.45}
+.format-status-row{display:flex;align-items:center;gap:15rpx;padding:16rpx;border:1px solid #e4ebf2;border-radius:13rpx;background:#fff}
+.format-status-row+.format-status-row{margin-top:12rpx}
+.format-status-row--disabled{background:#fbfcfe;opacity:.72}
+.format-status-row__icon{display:flex;width:50rpx;height:50rpx;flex:none;align-items:center;justify-content:center;border-radius:10rpx;background:#f07032;color:#fff;font-size:22rpx;font-weight:800}
+.format-status-row__icon--pdf{background:#ed4d4d;font-size:15rpx}
+.format-status-row__body{min-width:0;flex:1}
+.format-status-row__body text{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.format-status-row__body text:first-child{color:#26384a;font-size:22rpx;font-weight:760}
+.format-status-row__body text:last-child{margin-top:5rpx;color:#748196;font-size:18rpx}
+.format-status-row__state{flex:none;color:#32ac73;font-size:19rpx;font-weight:720}
+.format-status-row--disabled .format-status-row__state{color:#a16b24}
+.export-status-card{display:flex;align-items:flex-start;justify-content:space-between;gap:18rpx;margin-bottom:20rpx;padding:20rpx;border:1px solid #dfe7ef;border-radius:17rpx;background:#f8fafc}
+.export-status-card--warning{border-color:#ecd8b4;background:#fff8ed}
+.export-status-card__title,.export-status-card__desc{display:block}
+.export-status-card__title{color:#26384a;font-size:25rpx;font-weight:800}
+.export-status-card__desc{margin-top:7rpx;color:#718094;font-size:19rpx;line-height:1.45}
+.export-status-card--warning .export-status-card__title{color:#7b541d}
+.export-status-card--warning .export-status-card__desc{color:#9b6b24}
+.export-status-card__button{flex:none;height:58rpx;margin:0;padding:0 18rpx;border:1px solid #d8b06f;border-radius:12rpx;background:#fff;color:#8b5f23;font-size:20rpx;line-height:58rpx}
+.export-status-card__button::after{border:0}
+.export-choice__ready,.export-choice__issue{display:block;margin-top:7rpx;font-size:18rpx;line-height:1.35}
+.export-choice__ready{color:#32ac73}
+.export-choice__issue{color:#a16b24}
+.bottom-actions__buttons{flex-wrap:wrap}
+.bottom-actions__buttons button{min-width:0}
 </style>
