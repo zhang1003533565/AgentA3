@@ -428,10 +428,13 @@ public class PythonAiProxyService {
     }
 
     private String requirePptGenerationModel() {
-        String model = resolveAgentBoundModel("ppt_outline_agent");
-        if (!StringUtils.hasText(model)) {
-            model = resolveAgentBoundModel(DEFAULT_AGENT_NAME);
-        }
+        String model = firstText(
+                resolveAgentBoundModel("ppt_outline_agent"),
+                resolveAgentBoundModel(DEFAULT_AGENT_NAME),
+                firstTestedTextConfigPrefix(),
+                firstCompleteTextConfigPrefix(),
+                hasCompleteTextConfig(LEGACY_TEXT_CONFIG_PREFIX) ? LEGACY_TEXT_CONFIG_PREFIX : ""
+        );
         if (!StringUtils.hasText(model)) {
             throw new BusinessException(Result.ERROR_CODE, "PPT 生成模型尚未配置");
         }

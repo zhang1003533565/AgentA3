@@ -663,6 +663,46 @@ class PythonAiProxyServiceTest {
     }
 
     @Test
+    void generatePptOutline_shouldReuseTestedTextModelWhenAgentBindingMissing() throws Exception {
+        AtomicReference<String> providerRef = new AtomicReference<>();
+        AtomicReference<String> baseUrlRef = new AtomicReference<>();
+        AtomicReference<String> apiKeyRef = new AtomicReference<>();
+        AtomicReference<String> modelRef = new AtomicReference<>();
+        AtomicReference<String> requestBodyRef = new AtomicReference<>();
+
+        server = HttpServer.create(new InetSocketAddress(0), 0);
+        server.createContext("/internal/rag/ppt-generation/outlines", exchange -> {
+            providerRef.set(exchange.getRequestHeaders().getFirst("X-AI-Provider"));
+            baseUrlRef.set(exchange.getRequestHeaders().getFirst("X-AI-Base-Url"));
+            apiKeyRef.set(exchange.getRequestHeaders().getFirst("X-AI-Api-Key"));
+            modelRef.set(exchange.getRequestHeaders().getFirst("X-AI-Model"));
+            requestBodyRef.set(readBody(exchange));
+            writeJson(exchange, 200, "{\"title\":\"数据结构复习\",\"items\":[]}");
+        });
+        server.start();
+
+        SystemConfigService systemConfigService = new NoAgentBindingSystemConfigService();
+        Object response = newService(
+                server.getAddress().getPort(),
+                systemConfigService,
+                newSystemConfigRepository(systemConfigService)
+        ).generatePptOutline(
+                Map.of("sourceName", "material.txt", "sourceContent", "栈与队列"),
+                "Bearer " + buildJwtToken(3002L)
+        );
+
+        Assertions.assertInstanceOf(Map.class, response);
+        Assertions.assertEquals("deepseek", providerRef.get());
+        Assertions.assertEquals("https://llm.test/v1", baseUrlRef.get());
+        Assertions.assertEquals("test-ai-key", apiKeyRef.get());
+        Assertions.assertEquals("test-model", modelRef.get());
+
+        JsonNode request = new ObjectMapper().readTree(requestBodyRef.get());
+        Assertions.assertEquals("material.txt", request.path("sourceName").asText());
+        Assertions.assertEquals("栈与队列", request.path("sourceContent").asText());
+    }
+
+    @Test
     void chat_shouldFailFastWhenAiConfigMissing() {
         PythonAiProxyService service = newService(65535, new MissingApiKeySystemConfigService());
         String token = buildJwtToken(1005L);
