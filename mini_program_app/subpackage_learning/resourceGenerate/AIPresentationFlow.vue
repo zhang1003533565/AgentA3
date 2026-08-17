@@ -204,50 +204,29 @@
         </view>
 
         <view class="field">
-          <text class="field__label">学习场景</text>
-          <picker :range="pptScenes" range-key="label" :value="selectedSceneIndex" @change="selectScene">
-            <view class="select-field">
-              <view>
-                <text class="select-field__value">{{ selectedScene.label }}</text>
-                <text class="select-field__hint">{{ selectedScene.description }}</text>
+          <text class="field__label">学习资料</text>
+          <view class="source-input-card">
+            <view class="source-input-card__head">
+              <view class="source-input-card__status">
+                <view class="source-input-card__icon">{{ fileInfo ? fileKindLabel : '+' }}</view>
+                <view>
+                  <text>{{ fileInfo ? fileInfo.name : '上传文件或直接粘贴内容' }}</text>
+                  <text>{{ fileInfo ? `${fileInfo.sizeLabel} · ${sourceFileId ? '上传完成' : '读取完成'}` : supportedSourceHint }}</text>
+                </view>
               </view>
-              <text class="select-field__arrow">⌄</text>
-            </view>
-          </picker>
-        </view>
-
-        <view class="field">
-          <text class="field__label">上传学习资料</text>
-          <view v-if="!fileInfo" class="upload-box" @tap="chooseTxtFile">
-            <view class="file-icon"><text>{{ fileKindLabel }}</text></view>
-            <text class="upload-box__title">点击上传学习资料</text>
-            <text class="upload-box__hint">{{ supportedSourceHint }}</text>
-          </view>
-          <view v-else class="file-row">
-            <view class="file-row__icon">{{ fileKindLabel }}</view>
-            <view class="file-row__main">
-              <text class="file-row__name">{{ fileInfo.name }}</text>
-              <view class="file-row__meta">
-                <text>{{ fileInfo.sizeLabel }}</text>
-                <text class="file-row__success">{{ sourceFileId ? '上传完成' : '读取完成' }}</text>
+              <view class="source-input-card__actions">
+                <text @tap.stop="chooseTxtFile">{{ fileInfo && !fileInfo.manual ? '重传' : '上传文件' }}</text>
+                <text v-if="fileInfo" class="source-input-card__delete" @tap.stop="removeFile">删除</text>
               </view>
             </view>
-            <view class="file-row__actions">
-              <text @tap.stop="chooseTxtFile">重传</text>
-              <text class="file-row__delete" @tap.stop="removeFile">删除</text>
-            </view>
+            <textarea
+              v-model="manualSourceContent"
+              class="source-textarea"
+              :maxlength="20000"
+              :placeholder="fileInfo && !fileInfo.manual && !fileContent ? '文件已上传，也可以在这里补充生成要求或粘贴额外资料' : '可以直接粘贴课堂笔记、复习提纲或老师给的资料内容'"
+              @input="applyManualSourceInput"
+            />
           </view>
-        </view>
-
-        <view class="field">
-          <text class="field__label">或直接输入内容</text>
-          <textarea
-            v-model="manualSourceContent"
-            class="source-textarea"
-            :maxlength="20000"
-            placeholder="可以直接粘贴课堂笔记、复习提纲或老师给的资料内容"
-            @input="applyManualSourceInput"
-          />
         </view>
 
         <view class="upload-preference-card">
@@ -1562,11 +1541,16 @@ export default {
       const content = String(event?.detail?.value ?? this.manualSourceContent ?? '')
       this.manualSourceContent = content
       if (!content.trim()) {
-        if (this.fileInfo?.manual) {
+        if (this.fileInfo?.manual || (this.fileInfo && !this.sourceFileId)) {
           this.fileInfo = null
           this.fileContent = ''
           this.sourceFileId = ''
         }
+        return
+      }
+      if (this.fileInfo && !this.fileInfo.manual) {
+        this.fileContent = content
+        this.previewExpanded = false
         return
       }
       const estimatedSize = typeof Blob !== 'undefined' ? new Blob([content]).size : encodeURIComponent(content).replace(/%[0-9A-F]{2}/g, 'x').length
@@ -2505,7 +2489,16 @@ export default {
 .capability-card__title,.capability-card__desc{display:block}
 .capability-card__title{color:#314b63;font-size:21rpx;font-weight:760}
 .capability-card__desc{margin-top:8rpx;color:#718094;font-size:17rpx;line-height:1.42}
-.source-textarea{width:100%;min-height:190rpx;padding:20rpx;border:1px solid #dce2ec;border-radius:16rpx;background:#fff;color:#26384a;font-size:22rpx;line-height:1.55;box-sizing:border-box}
+.source-input-card{overflow:hidden;border:1px solid #dce2ec;border-radius:16rpx;background:#fff}
+.source-input-card__head{display:flex;align-items:center;justify-content:space-between;gap:16rpx;padding:16rpx 18rpx;border-bottom:1px solid #edf1f5;background:#f8fafc}
+.source-input-card__status{display:flex;min-width:0;align-items:center;gap:14rpx}
+.source-input-card__icon{display:flex;width:48rpx;height:48rpx;flex:none;align-items:center;justify-content:center;border-radius:10rpx;background:#eef2ff;color:#5265f5;font-size:18rpx;font-weight:820}
+.source-input-card__status text{display:block}
+.source-input-card__status text:first-child{max-width:330rpx;overflow:hidden;color:#26384a;font-size:22rpx;font-weight:760;text-overflow:ellipsis;white-space:nowrap}
+.source-input-card__status text:last-child{max-width:360rpx;margin-top:5rpx;overflow:hidden;color:#7b8798;font-size:17rpx;text-overflow:ellipsis;white-space:nowrap}
+.source-input-card__actions{display:flex;flex:none;align-items:center;gap:16rpx;color:#5265f5;font-size:20rpx;font-weight:720}
+.source-input-card__delete{color:#98a1b2}
+.source-textarea{width:100%;min-height:210rpx;padding:18rpx;border:0;background:#fff;color:#26384a;font-size:22rpx;line-height:1.55;box-sizing:border-box}
 .mode-intro{margin-bottom:22rpx;padding:22rpx;border:1px solid #dfe7ef;border-radius:17rpx;background:#f8fafc}
 .mode-intro__title,.mode-intro__desc{display:block}
 .mode-intro__title{font-size:27rpx;font-weight:800}
