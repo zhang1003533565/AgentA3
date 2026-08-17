@@ -229,15 +229,6 @@
           </view>
         </view>
 
-        <view class="upload-preference-card">
-          <text class="upload-preference-card__title">生成偏好</text>
-          <view class="upload-preference-list">
-            <view><text>目标页数</text><text>{{ pageCount }} 页</text><text>建议 10-18 页</text></view>
-            <view><text>内容密度</text><text>{{ currentContentLevel.name }}</text><text>复习资料默认保留必要说明</text></view>
-            <view><text>配图模式</text><text>{{ selectedImageModeLabel }}</text><text>先占位，生成后可替换</text></view>
-          </view>
-        </view>
-
         <view class="capability-strip">
           <view v-for="item in capabilityCards" :key="item.title" class="capability-card">
             <text class="capability-card__title">{{ item.title }}</text>
