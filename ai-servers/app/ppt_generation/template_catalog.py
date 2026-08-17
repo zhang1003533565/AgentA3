@@ -10,6 +10,7 @@ _TEMPLATE_ROOT = Path(__file__).resolve().parent / "assets" / "templates"
 _CATALOG = {
     "general": ("简约通用", "清晰留白，适合课程复习与知识讲解"),
     "dynamic": ("活力校园", "明快配色与卡片结构，适合课堂展示"),
+    "editorial": ("编辑风格", "深色大气排版，适合杂志风格演示"),
     "executive": ("深色专注", "高对比深色风格，适合重点总结"),
     "modern": ("现代几何", "现代网格与几何装饰，适合概念呈现"),
     "momentum": ("动势表达", "强调节奏和视觉层级，适合故事化讲解"),
@@ -78,12 +79,15 @@ class EmbeddedTemplateCatalog:
                 continue
             kinds: set[str] = set()
             names: List[str] = []
+            texts: List[str] = []
             self._collect_slots(layout.get("components") or [], kinds, names)
+            self._collect_preview_texts(layout.get("components") or [], texts)
             summaries.append({
                 "id": str(layout["id"]),
                 "description": str(layout.get("description") or ""),
                 "elementTypes": sorted(kinds),
                 "slots": names[:40],
+                "previewTexts": texts[:8],
                 # Presenton generates slide content against the component
                 # schema, not against coordinates. Keep the useful contract
                 # fields in the prompt while avoiding the full template JSON.
@@ -153,3 +157,33 @@ class EmbeddedTemplateCatalog:
 
         visit(values)
         return result[:80]
+
+    @classmethod
+    def _collect_preview_texts(cls, values: Any, texts: List[str]) -> None:
+        if isinstance(values, list):
+            for value in values:
+                cls._collect_preview_texts(value, texts)
+            return
+        if not isinstance(values, dict):
+            return
+        if str(values.get("type") or "").strip() == "text":
+            data = values.get("data")
+            if isinstance(data, dict):
+                text = str(data.get("text") or "").strip()
+                if text and text not in texts:
+                    texts.append(text)
+            elif isinstance(data, str):
+                text = data.strip()
+                if text and "replaceable_template_image" not in text and text not in texts:
+                    texts.append(text)
+            runs = values.get("runs")
+            if isinstance(runs, list):
+                for run in runs:
+                    if not isinstance(run, dict):
+                        continue
+                    text = str(run.get("text") or "").strip()
+                    if text and text not in texts:
+                        texts.append(text)
+        for key in ("components", "elements", "children"):
+            cls._collect_preview_texts(values.get(key), texts)
+        cls._collect_preview_texts(values.get("child"), texts)

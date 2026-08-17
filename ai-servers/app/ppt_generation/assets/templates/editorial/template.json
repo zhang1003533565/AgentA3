@@ -1,0 +1,510 @@
+{
+  "id": "editorial",
+  "name": "Editorial",
+  "thumbnail": "static/thumbnail.png",
+  "icon_type": "thin",
+  "fonts": {
+    "Playfair Display Bold": "static/Playfair Display Bold Italic.ttf",
+    "DM Sans Bold": "static/DM Sans Bold.ttf",
+    "DM Sans": "static/DM Sans Regular.ttf",
+    "Playfair Display": "https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;1,400;1,700&display=swap"
+  },
+  "merged_components": [
+    {
+      "id": "background_canvas",
+      "description": "Full-slide dark canvas with subtle bottom gradient and fixed atmospheric treatment supporting the cover composition.",
+      "variants": [
+        {
+          "id": "background_canvas",
+          "description": "Full-slide dark canvas with subtle bottom gradient and fixed atmospheric treatment supporting the cover composition.",
+          "position": {
+            "x": 0,
+            "y": 0
+          },
+          "elements": [
+            {
+              "type": "image",
+              "position": {
+                "x": -5.18,
+                "y": -18.69
+              },
+              "size": {
+                "width": 1304.66,
+                "height": 738.69
+              },
+              "data": "static/freeform_3-eac87b3b9ab0.svg",
+              "fit": "fill",
+              "decorative": true,
+              "name": "background_shape",
+              "is_icon": false
+            },
+            {
+              "type": "image",
+              "position": {
+                "x": -901.99,
+                "y": 110.43
+              },
+              "size": {
+                "width": 1826.55,
+                "height": 988.62
+              },
+              "rotation": -4.88,
+              "opacity": 0.7,
+              "data": "static/image1-615fb2b5b0f5.png",
+              "fit": "fill",
+              "clip_path": "path('M 0 0 L 1826.55 0 L 1826.55 988.62 L 0 988.62 L 0 0 Z')",
+              "decorative": true,
+              "name": "background_gradient_accent",
+              "is_icon": false
+            }
+          ]
+        },
+        {
+          "id": "background_layer",
+          "description": "Full-slide atmospheric background with a dark field and subtle blue glow accent near the bottom edge.",
+          "position": {
+            "x": 0,
+            "y": 0
+          },
+          "elements": [
+            {
+              "type": "image",
+              "position": {
+                "x": -12.33,
+                "y": -10.79
+              },
+              "size": {
+                "width": 1304.66,
+                "height": 738.69
+              },
+              "data": "static/freeform_3-eac87b3b9ab0.svg",
+              "fit": "fill",
+              "decorative": true,
+              "name": "background_field",
+              "is_icon": false
+            },
+            {
+              "type": "image",
+              "position": {
+                "x": -901.99,
+                "y": 110.43
+              },
+              "size": {
+                "width": 1826.55,
+                "height": 988.62
+              },
+              "rotation": -4.88,
+              "opacity": 0.7,
+              "data": "static/image1-615fb2b5b0f5.png",
+              "fit": "fill",
+              "clip_path": "path('M 0 0 L 1826.55 0 L 1826.55 988.62 L 0 988.62 L 0 0 Z')",
+              "decorative": true,
+              "name": "bottom_glow_accent",
+              "is_icon": false
+            }
+          ]
+        },
+        {
+          "id": "layered_background",
+          "description": "Full-slide decorative backdrop with dark upper field, subtle overlays, and a clean lower band anchoring the composition.",
+          "position": {
+            "x": 0,
+            "y": 0
+          },
+          "elements": [
+            {
+              "type": "image",
+              "position": {
+                "x": -12.33,
+                "y": -29.27
+              },
+              "size": {
+                "width": 1304.66,
+                "height": 608.43
+              },
+              "data": "static/freeform_3-aea2ce21dee0.svg",
+              "fit": "fill",
+              "decorative": true,
+              "name": "background_field",
+              "is_icon": false
+            },
+            {
+              "type": "image",
+              "position": {
+                "x": -1016.57,
+                "y": -294.07
+              },
+              "size": {
+                "width": 1826.55,
+                "height": 988.62
+              },
+              "rotation": 15.47,
+              "opacity": 0.7,
+              "data": "static/image1-615fb2b5b0f5.png",
+              "fit": "fill",
+              "clip_path": "path('M 0 0 L 1826.5501 0 L 1826.5501 988.62 L 0 988.62 L 0 0 Z')",
+              "decorative": true,
+              "name": "background_texture",
+              "is_icon": false
+            },
+            {
+              "type": "container",
+              "position": {
+                "x": -994.93,
+                "y": 244.08
+              },
+              "size": {
+                "width": 1855.46,
+                "height": 818.09
+              },
+              "rotation": -59.52,
+              "child": {
+                "type": "image",
+                "position": {
+                  "x": -282.18,
+                  "y": -16.45
+                },
+                "size": {
+                  "width": 2137.64,
+                  "height": 839.5
+                },
+                "flip_v": true,
+                "opacity": 0.19999,
+                "data": "static/image6-16889f6f3a56.png",
+                "fit": "fill",
+                "clip_path": "path('M 282.18 823.05 L 2137.6399 823.05 L 2137.6399 4.96 L 282.18 4.96 L 282.18 823.05 Z')",
+                "decorative": true,
+                "name": "soft_background_overlay",
+                "is_icon": false
+              }
+            }
+          ]
+        },
+        {
+          "id": "background_art",
+          "description": "Full-slide dark backdrop with a soft blue glow accent anchored near the lower left edge.",
+          "position": {
+            "x": 0,
+            "y": 0
+          },
+          "elements": [
+            {
+              "type": "image",
+              "position": {
+                "x": -12.33,
+                "y": -10.79
+              },
+              "size": {
+                "width": 1304.66,
+                "height": 738.69
+              },
+              "data": "static/freeform_3-eac87b3b9ab0.svg",
+              "fit": "fill",
+              "decorative": true,
+              "name": "dark_background_shape",
+              "is_icon": false
+            },
+            {
+              "type": "image",
+              "position": {
+                "x": -899.39,
+                "y": 105.49
+              },
+              "size": {
+                "width": 1826.55,
+                "height": 988.62
+              },
+              "rotation": -4.88,
+              "opacity": 0.7,
+              "data": "static/image1-615fb2b5b0f5.png",
+              "fit": "fill",
+              "clip_path": "path('M 0 0 L 1826.5501 0 L 1826.5501 988.6201 L 0 988.6201 L 0 0 Z')",
+              "decorative": true,
+              "name": "blue_glow_accent",
+              "is_icon": false
+            }
+          ]
+        },
+        {
+          "id": "background_layers",
+          "description": "Full-slide dark backdrop with subtle angled blue gradient accent fixed behind all content.",
+          "position": {
+            "x": 0,
+            "y": 0
+          },
+          "elements": [
+            {
+              "type": "image",
+              "position": {
+                "x": -12.33,
+                "y": -10.79
+              },
+              "size": {
+                "width": 1304.66,
+                "height": 738.69
+              },
+              "data": "static/freeform_3-eac87b3b9ab0.svg",
+              "fit": "fill",
+              "decorative": true,
+              "name": "background_panel",
+              "is_icon": false
+            },
+            {
+              "type": "image",
+              "position": {
+                "x": -901.99,
+                "y": 110.43
+              },
+              "size": {
+                "width": 1826.55,
+                "height": 988.62
+              },
+              "rotation": -4.88,
+              "opacity": 0.7,
+              "data": "static/image1-615fb2b5b0f5.png",
+              "fit": "fill",
+              "clip_path": "path('M 0 0 L 1826.55 0 L 1826.55 988.62 L 0 988.62 L 0 0 Z')",
+              "decorative": true,
+              "name": "background_gradient_accent",
+              "is_icon": false
+            }
+          ]
+        },
+        {
+          "id": "background_layer",
+          "description": "Background decorations spanning the full canvas with a dark base and subtle glow accents fixed for the visual template.",
+          "position": {
+            "x": 0,
+            "y": 0
+          },
+          "elements": [
+            {
+              "type": "image",
+              "position": {
+                "x": -12.33,
+                "y": -10.79
+              },
+              "size": {
+                "width": 1304.66,
+                "height": 738.69
+              },
+              "data": "static/freeform_3-eac87b3b9ab0.svg",
+              "fit": "fill",
+              "decorative": true,
+              "name": "background_base_image",
+              "is_icon": false
+            },
+            {
+              "type": "image",
+              "position": {
+                "x": -901.99,
+                "y": 110.43
+              },
+              "size": {
+                "width": 1826.55,
+                "height": 988.62
+              },
+              "rotation": -4.88,
+              "opacity": 0.7,
+              "data": "static/image1-615fb2b5b0f5.png",
+              "fit": "fill",
+              "clip_path": "path('M 0 0 L 1826.55 0 L 1826.55 988.62 L 0 988.62 L 0 0 Z')",
+              "decorative": true,
+              "name": "background_glow_image",
+              "is_icon": false
+            }
+          ]
+        },
+        {
+          "id": "background_layers",
+          "description": "Full-slide dark layered background with subtle lower texture and color wash used as fixed visual styling.",
+          "position": {
+            "x": 0,
+            "y": 0
+          },
+          "elements": [
+            {
+              "type": "image",
+              "position": {
+                "x": -12.33,
+                "y": -10.79
+              },
+              "size": {
+                "width": 1304.66,
+                "height": 738.69
+              },
+              "data": "static/freeform_3-eac87b3b9ab0.svg",
+              "fit": "fill",
+              "decorative": true,
+              "name": "background_color_wash",
+              "is_icon": false
+            },
+            {
+              "type": "image",
+              "position": {
+                "x": -901.99,
+                "y": 110.43
+              },
+              "size": {
+                "width": 1826.55,
+                "height": 988.62
+              },
+              "rotation": -4.88,
+              "opacity": 0.7,
+              "data": "static/image1-615fb2b5b0f5.png",
+              "fit": "fill",
+              "clip_path": "path('M 0 0 L 1826.55 0 L 1826.55 988.62 L 0 988.62 L 0 0 Z')",
+              "decorative": true,
+              "name": "background_texture",
+              "is_icon": false
+            }
+          ]
+        },
+        {
+          "id": "background_layer",
+          "description": "Full-slide dark background with subtle blue atmospheric accenting fixed behind all replaceable content areas.",
+          "position": {
+            "x": 0,
+            "y": 0
+          },
+          "elements": [
+            {
+              "type": "image",
+              "position": {
+                "x": -12.33,
+                "y": -10.79
+              },
+              "size": {
+                "width": 1304.66,
+                "height": 738.69
+              },
+              "data": "static/freeform_3-eac87b3b9ab0.svg",
+              "fit": "fill",
+              "decorative": true,
+              "name": "background_field",
+              "is_icon": false
+            },
+            {
+              "type": "image",
+              "position": {
+                "x": -901.99,
+                "y": 110.43
+              },
+              "size": {
+                "width": 1826.55,
+                "height": 988.62
+              },
+              "rotation": -4.88,
+              "opacity": 0.7,
+              "data": "static/image1-615fb2b5b0f5.png",
+              "fit": "fill",
+              "clip_path": "path('M 0 0 L 1826.55 0 L 1826.55 988.62 L 0 988.62 L 0 0 Z')",
+              "decorative": true,
+              "name": "background_glow",
+              "is_icon": false
+            }
+          ]
+        },
+        {
+          "id": "background_visuals",
+          "description": "Full-slide dark backdrop with a soft abstract glow anchored near the lower left edge.",
+          "position": {
+            "x": 0,
+            "y": 0
+          },
+          "elements": [
+            {
+              "type": "image",
+              "position": {
+                "x": -12.33,
+                "y": -10.79
+              },
+              "size": {
+                "width": 1304.66,
+                "height": 738.69
+              },
+              "data": "static/freeform_3-eac87b3b9ab0.svg",
+              "fit": "fill",
+              "decorative": true,
+              "name": "background_base",
+              "is_icon": false
+            },
+            {
+              "type": "image",
+              "position": {
+                "x": -901.99,
+                "y": 110.43
+              },
+              "size": {
+                "width": 1826.55,
+                "height": 988.62
+              },
+              "rotation": -4.88,
+              "opacity": 0.7,
+              "data": "static/image1-615fb2b5b0f5.png",
+              "fit": "fill",
+              "clip_path": "path('M 0 0 L 1826.55 0 L 1826.55 988.62 L 0 988.62 L 0 0 Z')",
+              "decorative": true,
+              "name": "background_glow",
+              "is_icon": false
+            }
+          ]
+        },
+        {
+          "id": "full_bleed_background",
+          "description": "Full-bleed dark layered imagery provides a fixed atmospheric backdrop with subtle blue texture and gradient depth.",
+          "position": {
+            "x": 0,
+            "y": 0
+          },
+          "elements": [
+            {
+              "type": "image",
+              "position": {
+                "x": -12.33,
+                "y": -10.79
+              },
+              "size": {
+                "width": 1304.66,
+                "height": 738.69
+              },
+              "data": "static/freeform_3-eac87b3b9ab0.svg",
+              "fit": "fill",
+              "decorative": true,
+              "name": "background_base_texture",
+              "is_icon": false
+            },
+            {
+              "type": "image",
+              "position": {
+                "x": -901.99,
+                "y": 110.43
+              },
+              "size": {
+                "width": 1826.55,
+                "height": 988.62
+              },
+              "rotation": -4.88,
+              "opacity": 0.7,
+              "data": "static/image1-615fb2b5b0f5.png",
+              "fit": "fill",
+              "clip_path": "path('M 0 0 L 1826.55 0 L 1826.55 988.62 L 0 988.62 L 0 0 Z')",
+              "decorative": true,
+              "name": "background_blue_overlay",
+              "is_icon": false
+            }
+          ]
+        },
+        {
+          "id": "slide_background",
+          "description": "Full-slide dark background with subtle atmospheric gradient styling behind all foreground content regions.",
+          "position": {
+            "x": 0,
+            "y": 0
+          },
+          "elements": [
+            {
+              "type": "image",
+              "position": {
+                "x": -12.33,
+                "y":
