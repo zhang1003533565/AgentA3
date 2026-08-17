@@ -22,6 +22,8 @@ def test_embedded_engine_is_default(monkeypatch, tmp_path):
     assert options["enhancedEngineAvailable"] is True
     assert options["editorEnabled"] is False
     assert len(options["templates"]) == 7
+    assert options["templates"][0]["layouts"]
+    assert options["templates"][0]["layouts"][0]["previewTexts"]
 
 
 def test_template_catalog_reads_bundled_resources():
@@ -36,6 +38,7 @@ def test_template_catalog_reads_bundled_resources():
         catalog.thumbnail("../general")
     assert len(catalog.layout_summaries("general")) == 12
     assert {"text", "image"}.issubset(set(catalog.layout_summaries("general")[0]["elementTypes"]))
+    assert catalog.layout_summaries("general")[0]["previewTexts"]
 
 
 def test_uploaded_source_file_is_local_and_owner_scoped(monkeypatch, tmp_path):

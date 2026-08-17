@@ -67,6 +67,16 @@ class PptGenerationService:
                 "description": str(item["description"]),
                 "thumbnailUrl": f"/api/app/ai/ppt/templates/{template_id}/thumbnail",
                 "layoutCount": int(item.get("layout_count") or 0),
+                "layouts": [
+                    {
+                        "id": str(layout.get("id") or ""),
+                        "description": str(layout.get("description") or ""),
+                        "elementTypes": list(layout.get("elementTypes") or [])[:8],
+                        "slots": list(layout.get("slots") or [])[:8],
+                        "previewTexts": list(layout.get("previewTexts") or [])[:8],
+                    }
+                    for layout in self._template_catalog.layout_summaries(template_id)
+                ],
                 "default": bool(item.get("is_default")),
             })
         return {

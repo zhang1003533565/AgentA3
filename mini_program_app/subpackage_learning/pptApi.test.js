@@ -121,5 +121,5 @@ test('PPT options do not cache an incomplete response without templates', async 
   `)(async () => ({ data: { scenes: [{ value: 'review' }] } }), () => {}, '', false, () => '', uni)
 
   await assert.rejects(api.getPptOptions(), /PPT 模板配置为空/)
-  assert.equal(storage.has('aiPptOptions:v4'), false)
+  assert.equal(storage.has('aiPptOptions:v5'), false)
 })

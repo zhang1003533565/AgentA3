@@ -4,8 +4,8 @@ import { getToken } from '@/utils/storage.js'
 import { streamSse } from './ai.js'
 
 const base = '/api/app/ai/ppt'
-const PPT_OPTIONS_CACHE_KEY = 'aiPptOptions:v4'
-const PPT_OPTIONS_LEGACY_CACHE_KEYS = ['aiPptOptions:v1', 'aiPptOptions:v2', 'aiPptOptions:v3']
+const PPT_OPTIONS_CACHE_KEY = 'aiPptOptions:v5'
+const PPT_OPTIONS_LEGACY_CACHE_KEYS = ['aiPptOptions:v1', 'aiPptOptions:v2', 'aiPptOptions:v3', 'aiPptOptions:v4']
 const DEFAULT_OPTIONS_CACHE_TTL = 24 * 60 * 60 * 1000
 const PPT_GENERATION_TIMEOUT = 5 * 60 * 1000
 let pptOptionsRequest = null

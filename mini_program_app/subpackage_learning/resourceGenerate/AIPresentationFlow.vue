@@ -2,15 +2,13 @@
   <view class="ppt-flow" :class="{ 'ppt-flow--floating-actions': hasFloatingActions }">
     <view class="flow-heading">
       <view class="flow-heading__copy">
-        <text class="flow-heading__eyebrow">AI 复习资料 PPT</text>
         <text class="flow-heading__title">{{ stepMeta[currentStep - 1].title }}</text>
-        <text class="flow-heading__desc">{{ stepMeta[currentStep - 1].description }}</text>
       </view>
     </view>
 
     <view class="stepper-card">
       <view class="stepper-card__head">
-        <text>PPT 生成流程</text>
+        <view v-if="inlinePreviousEnabled" class="stepper-card__back" @tap="goPrevious">上一步</view>
         <text>{{ currentStep }} / {{ stepMeta.length }}</text>
       </view>
       <scroll-view class="step-scroll" scroll-x :show-scrollbar="false">
@@ -153,7 +151,12 @@
         <view class="template-layout-grid">
           <view v-for="layout in selectedTemplateLayouts" :key="layout.id" class="template-layout-card">
             <view class="template-layout-preview" :class="`template-layout-preview--${layout.type}`">
-              <text></text><text></text><text></text>
+              <view v-if="layout.previewItems && layout.previewItems.length" class="template-layout-preview__slots">
+                <text v-for="slot in layout.previewItems.slice(0, 4)" :key="slot">{{ slot }}</text>
+              </view>
+              <template v-else>
+                <text></text><text></text><text></text>
+              </template>
             </view>
             <text>{{ layout.name }}</text>
             <text class="template-layout-card__desc">{{ layout.desc }}</text>
@@ -381,7 +384,12 @@
         <view class="template-usage-layouts">
           <view v-for="layout in selectedTemplateLayouts.slice(0, 4)" :key="layout.id" class="template-usage-layout">
             <view class="template-layout-preview" :class="`template-layout-preview--${layout.type}`">
-              <text></text><text></text><text></text>
+              <view v-if="layout.previewItems && layout.previewItems.length" class="template-layout-preview__slots">
+                <text v-for="slot in layout.previewItems.slice(0, 3)" :key="slot">{{ slot }}</text>
+              </view>
+              <template v-else>
+                <text></text><text></text><text></text>
+              </template>
             </view>
             <text>{{ layout.name }}</text>
             <text>{{ layout.id === 'cover' ? '第 1 页' : layout.id === 'catalog' ? '自动生成' : layout.id === 'content' ? '第 3-12 页' : '可手动锁定' }}</text>
@@ -712,7 +720,10 @@
         </view>
         <text class="task-runtime-card__message">{{ taskResult.message || activeGenerationStep.description }}</text>
       </view>
-      <button class="secondary-button secondary-button--full" @tap="cancelGeneration">取消生成</button>
+      <view class="generation-actions">
+        <button class="secondary-button" @tap="returnToEditor">返回编辑</button>
+        <button class="secondary-button" @tap="cancelGeneration">取消生成</button>
+      </view>
     </view>
 
     <view v-else-if="currentStep === 7" class="panel result-panel">
@@ -1074,6 +1085,9 @@ export default {
     activeSlide() {
       return this.slides[this.activeSlideIndex] || null
     },
+    inlinePreviousEnabled() {
+      return (this.currentStep === 1 && this.templateEntryMode !== 'library') || (this.currentStep > 1 && this.currentStep < 6)
+    },
     activeSlideLayoutLabel() {
       const layouts = this.selectedTemplateLayouts
       return layouts[this.activeSlideIndex % Math.max(1, layouts.length)]?.name || '图文内容'
@@ -1134,14 +1148,18 @@ export default {
       return this.selectedTemplate?.categoryLabel || '模板'
     },
     selectedTemplateLayouts() {
+      const templateLayouts = Array.isArray(this.selectedTemplate?.layouts) ? this.selectedTemplate.layouts : []
+      if (templateLayouts.length) {
+        return templateLayouts.map((layout, index) => this.normalizeTemplateLayout(layout, index))
+      }
       const total = this.selectedTemplateLayoutCount
       const baseLayouts = [
-        { id: 'cover', name: '标题封面', type: 'cover', desc: '课程名、主题、日期' },
-        { id: 'catalog', name: '目录列表', type: 'catalog', desc: '章节结构与学习路径' },
-        { id: 'content', name: '知识点内容', type: 'content', desc: '标题、要点、说明' },
-        { id: 'focus', name: '重点强调', type: 'focus', desc: '适合核心结论页' },
-        { id: 'visual', name: '图文讲解', type: 'visual', desc: '图示、流程、对比' },
-        { id: 'summary', name: '复习总结', type: 'summary', desc: '回顾与行动建议' }
+        { id: 'cover', name: '标题封面', type: 'cover', desc: '课程名、主题、日期', previewItems: [] },
+        { id: 'catalog', name: '目录列表', type: 'catalog', desc: '章节结构与学习路径', previewItems: [] },
+        { id: 'content', name: '知识点内容', type: 'content', desc: '标题、要点、说明', previewItems: [] },
+        { id: 'focus', name: '重点强调', type: 'focus', desc: '适合核心结论页', previewItems: [] },
+        { id: 'visual', name: '图文讲解', type: 'visual', desc: '图示、流程、对比', previewItems: [] },
+        { id: 'summary', name: '复习总结', type: 'summary', desc: '回顾与行动建议', previewItems: [] }
       ]
       if (!total) return baseLayouts
       return baseLayouts.slice(0, Math.min(baseLayouts.length, Math.max(4, total)))
@@ -1323,6 +1341,7 @@ export default {
               name: String(item.name),
               description: String(item.description || `${Number(item.layoutCount || 0)} 种页面布局`),
               layoutCount: Number(item.layoutCount || 0),
+              layouts: Array.isArray(item.layouts) ? item.layouts : [],
               thumbnailUrl,
               default: Boolean(item.default || item.defaultOption)
             }
@@ -1354,6 +1373,42 @@ export default {
     },
     templateCategoryName(id) {
       return this.templateCategories.find(item => item.id === id)?.name || '模板'
+    },
+    normalizeTemplateLayout(layout = {}, index = 0) {
+      const id = String(layout.id || `layout-${index + 1}`)
+      const previewTexts = Array.isArray(layout.previewTexts) ? layout.previewTexts : []
+      const slots = Array.isArray(layout.slots) ? layout.slots : []
+      return {
+        id,
+        name: this.templateLayoutName(id, index),
+        type: this.templateLayoutType(id, layout, index),
+        desc: String(layout.description || this.templateLayoutDescription(id, layout)).trim(),
+        previewItems: [...previewTexts, ...slots].map(item => String(item || '').trim()).filter(Boolean).slice(0, 6)
+      }
+    },
+    templateLayoutName(id = '', index = 0) {
+      const value = String(id).toLowerCase()
+      if (/cover|title/.test(value)) return '标题封面'
+      if (/agenda|catalog|toc|contents?/.test(value)) return '目录列表'
+      if (/summary|closing|conclusion/.test(value)) return '复习总结'
+      if (/image|visual|photo|picture/.test(value)) return '图文讲解'
+      if (/quote|focus|highlight|big/.test(value)) return '重点强调'
+      return `版式 ${index + 1}`
+    },
+    templateLayoutType(id = '', layout = {}, index = 0) {
+      const value = `${id} ${(layout.elementTypes || []).join(' ')}`.toLowerCase()
+      if (/cover|title/.test(value)) return 'cover'
+      if (/agenda|catalog|toc|contents?/.test(value)) return 'catalog'
+      if (/quote|focus|highlight|big/.test(value)) return 'focus'
+      if (/image|visual|photo|picture/.test(value)) return 'visual'
+      if (/summary|closing|conclusion/.test(value)) return 'summary'
+      return index % 5 === 0 ? 'visual' : 'content'
+    },
+    templateLayoutDescription(id = '', layout = {}) {
+      const slots = Array.isArray(layout.slots) ? layout.slots.filter(Boolean).slice(0, 3).join('、') : ''
+      if (slots) return `包含 ${slots}`
+      const elementTypes = Array.isArray(layout.elementTypes) ? layout.elementTypes.join(' / ') : ''
+      return elementTypes ? `元素：${elementTypes}` : '模板原始版式'
     },
     selectTemplateCategory(id) {
       this.templateCategory = id
@@ -2262,7 +2317,9 @@ export default {
 .operation-banter__text{color:#566176;font-size:20rpx;line-height:1.5;animation:banter-in .32s ease both}
 .operation-banter__status{margin-top:7rpx;color:#9aa2b1;font-size:17rpx}
 .flow-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:22rpx}
+.flow-heading{padding:18rpx 4rpx 10rpx}
 .flow-heading__copy{min-width:0;flex:1}
+.flow-heading__title{margin-top:0;font-size:36rpx;line-height:1.18}
 .outline-design-hero{margin-bottom:22rpx;padding:22rpx;border:1px solid #dfe7ef;border-radius:18rpx;background:#f8fafc}
 .outline-design-hero__eyebrow,.outline-design-hero__title,.outline-design-hero__desc{display:block}
 .outline-design-hero__eyebrow{color:#314b63;font-size:19rpx;font-weight:780}
@@ -2537,6 +2594,9 @@ export default {
 .template-layout-preview{position:relative;aspect-ratio:16/9;overflow:hidden;padding:14rpx;border-radius:11rpx;background:#f5f8fb;box-sizing:border-box}
 .template-layout-preview text{display:block;height:6rpx;border-radius:99rpx;background:#526f88}
 .template-layout-preview text+text{margin-top:9rpx;background:#becadb}
+.template-layout-preview__slots{display:flex;gap:7rpx;flex-direction:column}
+.template-layout-preview__slots text{display:block!important;height:auto!important;min-height:13rpx;overflow:hidden;border-radius:0!important;background:transparent!important;color:#526f88;font-size:14rpx;font-weight:700;line-height:1.25;text-overflow:ellipsis;white-space:nowrap}
+.template-layout-preview--focus .template-layout-preview__slots text{color:#e9eef4}
 .template-layout-preview--cover{display:flex;justify-content:center;flex-direction:column;background:#edf2f7}
 .template-layout-preview--cover text:first-child{width:68%;height:10rpx}
 .template-layout-preview--catalog text{width:82%}
@@ -2609,6 +2669,8 @@ export default {
 .generation-template-card__name,.result-template-card__name{margin-top:4rpx;overflow:hidden;color:#172033;font-size:23rpx;font-weight:820;text-overflow:ellipsis;white-space:nowrap}
 .generation-template-card__facts{display:flex;gap:8rpx;margin-top:8rpx;overflow:hidden}
 .generation-template-card__facts text{flex:none;max-width:170rpx;overflow:hidden;padding:5rpx 9rpx;border-radius:99rpx;background:#eef2f6;color:#526174;font-size:16rpx;text-overflow:ellipsis;white-space:nowrap}
+.generation-actions{display:flex;gap:16rpx;margin-top:22rpx}
+.generation-actions button{min-width:0;flex:1}
 .result-template-card{margin-top:18rpx;background:#fff}
 .result-template-card__desc{margin-top:7rpx;overflow:hidden;color:#718094;font-size:18rpx;text-overflow:ellipsis;white-space:nowrap}
 .retry-render-card{display:flex;align-items:center;justify-content:space-between;gap:18rpx;margin-bottom:22rpx;padding:18rpx;border:1px solid #ecd8b4;border-radius:16rpx;background:#fff8ed}
@@ -2618,23 +2680,23 @@ export default {
 .retry-render-card__button{flex:none;height:58rpx;margin:0;padding:0 18rpx;border:1px solid #d8b06f;border-radius:12rpx;background:#fff;color:#8b5f23;font-size:20rpx;line-height:58rpx}
 .retry-render-card__button::after{border:0}
 .retry-render-card__button[disabled]{opacity:.5}
-.stepper-card{margin-bottom:26rpx;padding:22rpx 22rpx 18rpx;border:1px solid #e2e8f0;border-radius:18rpx;background:#fff;box-shadow:0 8rpx 24rpx rgba(30,50,90,.04)}
-.stepper-card__head{display:flex;align-items:center;justify-content:space-between;margin-bottom:10rpx}
-.stepper-card__head text:first-child{color:#172033;font-size:24rpx;font-weight:780}
-.stepper-card__head text:last-child{color:#5265f5;font-size:20rpx;font-weight:760}
+.stepper-card{margin-bottom:18rpx;padding:14rpx 18rpx 10rpx;border:1px solid #e2e8f0;border-radius:18rpx;background:#fff;box-shadow:0 8rpx 24rpx rgba(30,50,90,.04)}
+.stepper-card__head{display:flex;min-height:34rpx;align-items:center;justify-content:flex-end;margin-bottom:2rpx}
+.stepper-card__head>text{color:#5265f5;font-size:20rpx;font-weight:760}
+.stepper-card__back{margin-right:auto;padding:7rpx 12rpx;border:1px solid #d7def4;border-radius:999rpx;color:#5062e9;font-size:18rpx;font-weight:720;line-height:1}
 .step-scroll{width:100%;white-space:nowrap}
-.stepper{position:relative;display:inline-flex;min-width:1344rpx;padding:14rpx 0 20rpx;box-sizing:border-box}
-.stepper__track{position:absolute;left:72rpx;right:72rpx;top:41rpx;height:7rpx;overflow:hidden;border-radius:99rpx;background:#dfe5ee}
+.stepper{position:relative;display:inline-flex;min-width:1280rpx;padding:8rpx 0 10rpx;box-sizing:border-box}
+.stepper__track{position:absolute;left:68rpx;right:68rpx;top:35rpx;height:6rpx;overflow:hidden;border-radius:99rpx;background:#dfe5ee}
 .stepper__track-value{height:100%;border-radius:inherit;background:#5265f5;transition:width .25s ease}
-.stepper__item{z-index:1;min-width:168rpx;align-items:center}
+.stepper__item{z-index:1;min-width:160rpx;align-items:center}
 .stepper__item:not(:last-child)::after{display:none}
-.stepper__marker{display:flex;height:78rpx;align-items:flex-start;justify-content:center}
-.stepper__number{width:52rpx;height:52rpx;border:2rpx solid #d7dfeb;background:#f8fafc;color:#96a1b2;font-size:22rpx;box-shadow:0 0 0 9rpx #fff}
+.stepper__marker{display:flex;height:66rpx;align-items:flex-start;justify-content:center}
+.stepper__number{width:48rpx;height:48rpx;border:2rpx solid #d7dfeb;background:#f8fafc;color:#96a1b2;font-size:21rpx;box-shadow:0 0 0 8rpx #fff}
 .stepper__item--done .stepper__number{border-color:#5265f5;background:#5265f5;color:#fff;box-shadow:0 0 0 8rpx #eef1ff}
-.stepper__item--active .stepper__number{width:60rpx;height:60rpx;border:3rpx solid #5265f5;background:#eef1ff;color:#5265f5;box-shadow:0 0 0 9rpx #fff,0 10rpx 24rpx rgba(78,97,246,.16)}
-.stepper__copy{display:flex;align-items:center;flex-direction:column;gap:7rpx;text-align:center}
-.stepper__label{width:156rpx;margin-top:0;color:#8b95a7;font-size:20rpx;line-height:1.2;white-space:nowrap}
-.stepper__state{color:#b3bac8;font-size:16rpx;line-height:1.2}
+.stepper__item--active .stepper__number{width:54rpx;height:54rpx;border:3rpx solid #5265f5;background:#eef1ff;color:#5265f5;box-shadow:0 0 0 8rpx #fff,0 8rpx 18rpx rgba(78,97,246,.14)}
+.stepper__copy{display:flex;align-items:center;flex-direction:column;gap:5rpx;text-align:center}
+.stepper__label{width:148rpx;margin-top:0;color:#8b95a7;font-size:19rpx;line-height:1.15;white-space:nowrap}
+.stepper__state{color:#b3bac8;font-size:15rpx;line-height:1.1}
 .stepper__item--done .stepper__label,.stepper__item--active .stepper__label{color:#4055e8;font-weight:780}
 .stepper__item--active .stepper__state{color:#5265f5;font-weight:700}
 .stepper__item--done .stepper__state{color:#718094}
