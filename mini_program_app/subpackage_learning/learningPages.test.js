@@ -220,6 +220,7 @@ test('AIPPT upload preview expands on demand and keeps next action floating at t
 })
 
 test('AIPPT stepper follows the approved flow-card design', () => {
+  const container = source('resourceGenerate/resourceGenerate.vue')
   const page = source('resourceGenerate/AIPresentationFlow.vue')
   assert.match(page, /stepper-card/)
   assert.match(page, /PPT 生成流程/)
@@ -227,6 +228,10 @@ test('AIPPT stepper follows the approved flow-card design', () => {
   assert.match(page, /stepper__track-value/)
   assert.match(page, /stepStateLabel\(item\)/)
   assert.match(page, /return '进行中'/)
+  assert.match(container, /presentation-history-action/)
+  assert.match(container, /history-lucide\.svg/)
+  assert.match(container, /openPresentationHistory/)
+  assert.doesNotMatch(page, /history-entry/)
 })
 
 test('course resources never display review success when grounding still says model-only', async () => {

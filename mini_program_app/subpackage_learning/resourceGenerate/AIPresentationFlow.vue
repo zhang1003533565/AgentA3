@@ -6,10 +6,6 @@
         <text class="flow-heading__title">{{ stepMeta[currentStep - 1].title }}</text>
         <text class="flow-heading__desc">{{ stepMeta[currentStep - 1].description }}</text>
       </view>
-      <view class="history-entry" @tap="openHistory('generation')">
-        <view class="history-entry__icon"><text></text><text></text><text></text></view>
-        <text>生成历史</text>
-      </view>
     </view>
 
     <view class="stepper-card">
@@ -2185,11 +2181,6 @@ export default {
 .operation-banter__status{margin-top:7rpx;color:#9aa2b1;font-size:17rpx}
 .flow-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:22rpx}
 .flow-heading__copy{min-width:0;flex:1}
-.history-entry{display:flex;min-width:112rpx;height:62rpx;align-items:center;justify-content:center;gap:9rpx;margin-top:10rpx;border:1px solid #d9dff0;border-radius:14rpx;background:#fff;color:#4b5de7;font-size:20rpx;font-weight:650;box-shadow:0 7rpx 18rpx rgba(42,58,120,.05)}
-.history-entry__icon{display:flex;width:24rpx;gap:4rpx;flex-direction:column}
-.history-entry__icon text{display:block;height:3rpx;border-radius:99rpx;background:#5869ed}
-.history-entry__icon text:nth-child(2){width:75%}
-.history-entry__icon text:nth-child(3){width:88%}
 .editor-toolbar{display:flex;align-items:flex-start;justify-content:space-between;gap:18rpx;padding-bottom:23rpx;border-bottom:1px solid #eef0f4}
 .editor-toolbar__title,.editor-toolbar__desc{display:block}
 .editor-toolbar__title{font-size:29rpx;font-weight:800}
@@ -2526,18 +2517,18 @@ export default {
 .stepper-card__head text:first-child{color:#172033;font-size:24rpx;font-weight:780}
 .stepper-card__head text:last-child{color:#5265f5;font-size:20rpx;font-weight:760}
 .step-scroll{width:100%;white-space:nowrap}
-.stepper{position:relative;display:inline-flex;min-width:1220rpx;padding:10rpx 0 12rpx;box-sizing:border-box}
-.stepper__track{position:absolute;left:66rpx;right:66rpx;top:34rpx;height:7rpx;overflow:hidden;border-radius:99rpx;background:#dfe5ee}
+.stepper{position:relative;display:inline-flex;min-width:1344rpx;padding:14rpx 0 20rpx;box-sizing:border-box}
+.stepper__track{position:absolute;left:72rpx;right:72rpx;top:41rpx;height:7rpx;overflow:hidden;border-radius:99rpx;background:#dfe5ee}
 .stepper__track-value{height:100%;border-radius:inherit;background:#5265f5;transition:width .25s ease}
-.stepper__item{z-index:1;min-width:152rpx;align-items:center}
+.stepper__item{z-index:1;min-width:168rpx;align-items:center}
 .stepper__item:not(:last-child)::after{display:none}
-.stepper__marker{display:flex;height:64rpx;align-items:flex-start;justify-content:center}
+.stepper__marker{display:flex;height:78rpx;align-items:flex-start;justify-content:center}
 .stepper__number{width:52rpx;height:52rpx;border:2rpx solid #d7dfeb;background:#f8fafc;color:#96a1b2;font-size:22rpx;box-shadow:0 0 0 9rpx #fff}
 .stepper__item--done .stepper__number{border-color:#5265f5;background:#5265f5;color:#fff;box-shadow:0 0 0 8rpx #eef1ff}
 .stepper__item--active .stepper__number{width:60rpx;height:60rpx;border:3rpx solid #5265f5;background:#eef1ff;color:#5265f5;box-shadow:0 0 0 9rpx #fff,0 10rpx 24rpx rgba(78,97,246,.16)}
-.stepper__copy{display:flex;align-items:center;flex-direction:column;gap:5rpx;text-align:center}
-.stepper__label{width:140rpx;margin-top:0;color:#8b95a7;font-size:20rpx;white-space:nowrap}
-.stepper__state{color:#b3bac8;font-size:16rpx;line-height:1}
+.stepper__copy{display:flex;align-items:center;flex-direction:column;gap:7rpx;text-align:center}
+.stepper__label{width:156rpx;margin-top:0;color:#8b95a7;font-size:20rpx;line-height:1.2;white-space:nowrap}
+.stepper__state{color:#b3bac8;font-size:16rpx;line-height:1.2}
 .stepper__item--done .stepper__label,.stepper__item--active .stepper__label{color:#4055e8;font-weight:780}
 .stepper__item--active .stepper__state{color:#5265f5;font-weight:700}
 .stepper__item--done .stepper__state{color:#718094}
