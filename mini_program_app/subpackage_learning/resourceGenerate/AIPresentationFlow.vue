@@ -278,50 +278,44 @@
     </view>
 
     <view v-else-if="currentStep === 4" class="panel outline-panel">
-      <view class="outline-design-hero">
-        <text class="outline-design-hero__eyebrow">大纲已生成</text>
-        <text class="outline-design-hero__title">先确认页面结构，再写入模板</text>
-        <text class="outline-design-hero__desc">避免直接生成不可控 PPT。这里可以调整顺序、删除重复页、补充老师要求的重点。</text>
-      </view>
       <view class="editor-toolbar">
         <view>
           <text class="editor-toolbar__title">PPT 大纲</text>
-          <text class="editor-toolbar__desc">{{ outlineMode === 'ai_outline' ? 'AI 生成大纲草稿，可继续调整' : '已按原资料层级识别，可继续调整' }}</text>
+          <text class="editor-toolbar__desc">确认页面顺序和标题，生成时会写入已选模板</text>
         </view>
-        <view class="outline-history-button" @tap="openHistory('outline')">大纲记录</view>
+        <view class="outline-toolbar-actions">
+          <text class="outline-page-count">{{ validOutlineItems.length || outlineItems.length }} 页</text>
+          <view class="outline-history-button" @tap="openHistory('outline')">记录</view>
+        </view>
       </view>
 
       <view class="outline-name-field">
-        <text>大纲名称</text>
+        <text>名称</text>
         <input v-model="outlineName" :maxlength="60" placeholder="请输入大纲名称" />
       </view>
 
       <view class="outline-list">
         <view v-for="(item, index) in outlineItems" :key="item.id" class="outline-item">
-          <view class="outline-item__order">{{ index + 1 }}</view>
-          <view class="outline-item__main">
-            <view class="outline-item__level-row">
-              <view
-                v-for="level in outlineLevels"
-                :key="level.value"
-                class="outline-level"
-                :class="{ 'outline-level--active': item.level === level.value }"
-                @tap="item.level = level.value"
-              >{{ level.label }}</view>
-            </view>
+          <view class="outline-item__head">
+            <view class="outline-item__order">{{ index + 1 }}</view>
             <input v-model="item.title" :maxlength="80" placeholder="输入大纲标题" />
           </view>
-          <view class="outline-item__actions">
-            <text :class="{ disabled: index === 0 }" @tap="moveOutlineItem(index, -1)">↑</text>
-            <text :class="{ disabled: index === outlineItems.length - 1 }" @tap="moveOutlineItem(index, 1)">↓</text>
-            <text class="outline-item__delete" @tap="removeOutlineItem(index)">×</text>
+          <view class="outline-item__meta">
+            <picker :range="outlineLevelLabels" :value="outlineLevelIndex(item.level)" @change="updateOutlineItemLevel(index, $event)">
+              <view class="outline-level-picker">{{ outlineLevelLabel(item.level) }}⌄</view>
+            </picker>
+            <view class="outline-item__actions">
+              <text v-if="index > 0" @tap="moveOutlineItem(index, -1)">上移</text>
+              <text v-if="index < outlineItems.length - 1" @tap="moveOutlineItem(index, 1)">下移</text>
+              <text class="outline-item__delete" @tap="removeOutlineItem(index)">删除</text>
+            </view>
           </view>
         </view>
       </view>
 
-      <button class="add-outline-button" @tap="addOutlineItem">＋ 添加大纲项</button>
+      <button class="add-outline-button" @tap="addOutlineItem">+ 添加页面</button>
       <view class="outline-save-tip">
-        <text>当前大纲会独立保存，之后可从“大纲记录”再次使用</text>
+        <text>大纲可保存到记录，之后可再次使用</text>
         <text v-if="outlineSavedAt">已保存 {{ outlineSavedAt }}</text>
       </view>
       <view class="bottom-actions bottom-actions--three">
@@ -1066,6 +1060,9 @@ export default {
     validOutlineItems() {
       return this.outlineItems.filter(item => String(item.title || '').trim())
     },
+    outlineLevelLabels() {
+      return this.outlineLevels.map(level => level.label)
+    },
     activeSlide() {
       return this.slides[this.activeSlideIndex] || null
     },
@@ -1758,6 +1755,18 @@ export default {
     },
     addOutlineItem() {
       this.outlineItems.push(this.createOutlineItem('', 2))
+    },
+    outlineLevelIndex(level) {
+      const index = this.outlineLevels.findIndex(item => item.value === level)
+      return index >= 0 ? index : 1
+    },
+    outlineLevelLabel(level) {
+      return this.outlineLevels[this.outlineLevelIndex(level)]?.label || '小节'
+    },
+    updateOutlineItemLevel(index, event) {
+      const selected = this.outlineLevels[Number(event?.detail?.value || 0)] || this.outlineLevels[1]
+      if (!this.outlineItems[index] || !selected) return
+      this.outlineItems[index].level = selected.value
     },
     removeOutlineItem(index) {
       if (this.outlineItems.length <= 1) {
@@ -2452,34 +2461,30 @@ export default {
 .flow-heading{padding:18rpx 4rpx 10rpx}
 .flow-heading__copy{min-width:0;flex:1}
 .flow-heading__title{margin-top:0;font-size:36rpx;line-height:1.18}
-.outline-design-hero{margin-bottom:22rpx;padding:22rpx;border:1px solid #dfe7ef;border-radius:18rpx;background:#f8fafc}
-.outline-design-hero__eyebrow,.outline-design-hero__title,.outline-design-hero__desc{display:block}
-.outline-design-hero__eyebrow{color:#314b63;font-size:19rpx;font-weight:780}
-.outline-design-hero__title{margin-top:9rpx;color:#07152a;font-size:34rpx;font-weight:830;line-height:1.2}
-.outline-design-hero__desc{margin-top:10rpx;color:#667386;font-size:21rpx;line-height:1.55}
 .editor-toolbar{display:flex;align-items:flex-start;justify-content:space-between;gap:18rpx;padding-bottom:23rpx;border-bottom:1px solid #eef0f4}
+.editor-toolbar>view:first-child{min-width:0;flex:1}
 .editor-toolbar__title,.editor-toolbar__desc{display:block}
 .editor-toolbar__title{font-size:29rpx;font-weight:800}
 .editor-toolbar__desc{margin-top:7rpx;color:#8992a4;font-size:20rpx;line-height:1.45}
-.outline-history-button{flex:none;padding:12rpx 17rpx;border:1px solid #d7def4;border-radius:12rpx;color:#5062e9;font-size:20rpx}
-.outline-name-field{margin-top:23rpx}
-.outline-name-field>text{display:block;margin-bottom:11rpx;font-size:23rpx;font-weight:700}
+.outline-toolbar-actions{display:flex;flex:none;align-items:center;gap:10rpx}
+.outline-page-count{display:flex;height:48rpx;align-items:center;padding:0 15rpx;border-radius:999rpx;background:#eef0ff;color:#5062e8;font-size:18rpx;font-weight:800}
+.outline-history-button{display:flex;height:48rpx;align-items:center;padding:0 17rpx;border:1px solid #d7def4;border-radius:12rpx;color:#5062e9;font-size:20rpx;font-weight:720}
+.outline-name-field{display:flex;align-items:center;gap:16rpx;margin-top:20rpx;padding:16rpx 18rpx;border:1px solid #dfe6ef;border-radius:15rpx;background:#f9fbfe}
+.outline-name-field>text{flex:none;color:#506074;font-size:21rpx;font-weight:760}
 .outline-name-field input,.outline-item input,.edit-field input,.edit-field textarea,.prompt-field textarea{width:100%;border:1px solid #dfe4ed;border-radius:13rpx;background:#fff;box-sizing:border-box}
-.outline-name-field input{height:72rpx;padding:0 19rpx;font-size:23rpx}
-.outline-list{margin-top:22rpx}
-.outline-item{display:flex;align-items:center;gap:14rpx;padding:18rpx 12rpx;border:1px solid #e2e6ee;border-radius:15rpx;background:#fafbfe}
+.outline-name-field input{min-width:0;height:58rpx;padding:0;border:0;background:transparent;font-size:23rpx}
+.outline-list{margin-top:20rpx}
+.outline-item{padding:18rpx;border:1px solid #e2e6ee;border-radius:16rpx;background:#fafbfe}
 .outline-item+.outline-item{margin-top:13rpx}
 .outline-item__order{display:flex;width:39rpx;height:39rpx;flex:none;align-items:center;justify-content:center;border-radius:11rpx;background:#eef0ff;color:#5062e8;font-size:19rpx;font-weight:750}
-.outline-item__main{min-width:0;flex:1}
-.outline-item__level-row{display:flex;gap:7rpx;margin-bottom:10rpx}
-.outline-level{padding:6rpx 12rpx;border-radius:99rpx;background:#eef1f5;color:#7f899b;font-size:17rpx}
-.outline-level--active{background:#5668f1;color:#fff}
+.outline-item__head{display:flex;align-items:center;gap:14rpx}
 .outline-item input{height:63rpx;padding:0 15rpx;font-size:22rpx}
-.outline-item__actions{display:flex;width:36rpx;gap:7rpx;flex-direction:column;text-align:center}
-.outline-item__actions text{color:#6675e9;font-size:22rpx;line-height:27rpx}
-.outline-item__actions .disabled{color:#c9ced8}
-.outline-item__actions .outline-item__delete{color:#a1a8b5;font-size:27rpx}
-.add-outline-button{height:72rpx;margin-top:15rpx;border:1px dashed #bfc8e9;border-radius:13rpx;background:#f9faff;color:#5264eb;font-size:21rpx;line-height:72rpx}
+.outline-item__meta{display:flex;align-items:center;justify-content:space-between;gap:16rpx;margin-top:14rpx;padding-left:53rpx}
+.outline-level-picker{display:flex;height:40rpx;align-items:center;padding:0 18rpx;border-radius:999rpx;background:#eef2f7;color:#526176;font-size:18rpx;font-weight:760}
+.outline-item__actions{display:flex;align-items:center;justify-content:flex-end;gap:22rpx}
+.outline-item__actions text{color:#6675e9;font-size:19rpx;font-weight:720;line-height:40rpx}
+.outline-item__actions .outline-item__delete{color:#9aa3b3}
+.add-outline-button{height:72rpx;margin-top:16rpx;border:1px dashed #bfc8e9;border-radius:13rpx;background:#f9faff;color:#5264eb;font-size:21rpx;line-height:72rpx}
 .add-outline-button::after{border:0}
 .outline-save-tip{display:flex;justify-content:space-between;gap:12rpx;margin-top:15rpx;color:#929bad;font-size:18rpx;line-height:1.45}
 .outline-save-tip text:last-child{flex:none;color:#31a971}
