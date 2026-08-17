@@ -63,7 +63,9 @@ _SAMPLE_TEXT_RULES: List[Tuple[str, str]] = [
     ("presenter_metadata", "2026年8月 · 复习资料"),
     ("profile_metadata", "计算机学院 · 软件工程"),
     ("year", "2026"),
-    ("date", "2026年8月"),
+    ("date_label", "2026"),
+    ("date_value", "2026年8月"),
+    ("date", "2026"),
     ("duration", "40分钟"),
     ("price", "免费"),
     ("plan_name", "基础方案"),
@@ -71,12 +73,19 @@ _SAMPLE_TEXT_RULES: List[Tuple[str, str]] = [
     ("table_header", "对比维度"),
     ("table_row", "示例条目"),
     ("footer_callout", "本资料由 AI 根据上传的学习材料自动整理生成，仅供参考。"),
-    ("footer_left", "复习资料 · 自动生成"),
+    ("footer_left", "复习资料"),
     ("footer_page_label", "页面"),
     ("footer_page_marker", "第 3 页"),
     ("footer_page_value", "03"),
-    ("footer_text", "复习资料 · 自动生成"),
-    ("footer", "复习资料 · AI 生成"),
+    ("footer_value", "03"),
+    ("footer_number", "03"),
+    ("footer_index", "01"),
+    ("footer_marker", "•"),
+    ("footer_slide_marker", "•"),
+    ("footer_marker_text", "•"),
+    ("footer_pagination", "01"),
+    ("footer_text", "复习资料"),
+    ("footer", "复习资料"),
     ("agenda_index", "01"),
     ("agenda_item_label", "01"),
     ("agenda_item_description", "线性表、栈与队列的核心概念梳理"),
@@ -127,7 +136,7 @@ _SAMPLE_TEXT_RULES: List[Tuple[str, str]] = [
     ("testimonial_body", "把零散的知识点串成体系，复习效率翻倍。"),
     ("caption", "配图：知识结构示意"),
     ("slide_title", "课程复习要点精讲"),
-    ("slide_heading", "本章知识地图"),
+    ("slide_heading", "核心考点"),
     ("slide_headline", "构建清晰的知识框架"),
     ("slide_subtitle", "第二单元 · 核心概念梳理"),
     ("slide_intro", "本页先把本章的知识结构串一遍，再逐个突破重点难点。"),
@@ -141,7 +150,7 @@ _SAMPLE_TEXT_RULES: List[Tuple[str, str]] = [
     ("section_body", "把每个考点的定义、适用场景和易错点整理成卡片，反复记忆。"),
     ("section_paragraph", "把每个考点的定义、适用场景和易错点整理成卡片，反复记忆。"),
     ("primary_title", "课程复习要点精讲"),
-    ("primary_heading", "本章知识地图"),
+    ("primary_heading", "核心考点"),
     ("primary_headline", "构建清晰的知识框架"),
     ("header_title", "课程复习要点精讲"),
     ("header_subtitle", "第二单元 · 核心概念梳理"),
@@ -150,7 +159,7 @@ _SAMPLE_TEXT_RULES: List[Tuple[str, str]] = [
     ("cover", "数据结构期末复习"),
     ("headline", "构建清晰的知识框架"),
     ("subtitle", "第二单元 · 核心概念梳理"),
-    ("heading", "本章知识地图"),
+    ("heading", "核心考点"),
     ("title", "课程复习要点精讲"),
     ("column_header", "重点概念"),
     ("column_heading", "重点概念"),
@@ -205,7 +214,7 @@ _SAMPLE_TEXT_RULES: List[Tuple[str, str]] = [
     ("supporting_summary", "补充说明：示例文字用于展示版式效果，生成时会替换为真实内容。"),
     ("supporting_statement", "补充说明：示例文字用于展示版式效果，生成时会替换为真实内容。"),
     ("supporting_sentence", "补充说明：示例文字用于展示版式效果，生成时会替换为真实内容。"),
-    ("supporting_tagline", "补充说明：示例文字用于展示版式效果，生成时会替换为真实内容。"),
+    ("supporting_tagline", "补充说明：示例文字仅用于展示版式效果。"),
     ("intro_heading", "复习目标"),
     ("intro_headline", "明确本单元的复习目标"),
     ("intro_body", "本单元复习围绕线性表、栈与队列展开，目标是掌握结构差异与典型操作的时间复杂度。"),
@@ -374,14 +383,21 @@ def _sample_image_path(template_dir: Path) -> Optional[str]:
     static_dir = template_dir / "static"
     if not static_dir.is_dir():
         return None
+    # Prefer real photos (jpeg assets shipped with the template). Chart-shaped
+    # PNG samples (donut/line demo images) look wrong inside photo slots.
+    photos = [
+        p for p in static_dir.glob("*.jp*g")
+        if p.stat().st_size > 0
+    ]
+    if photos:
+        return str(max(photos, key=lambda p: p.stat().st_size).resolve())
     candidates = [
         p for p in static_dir.glob("*.png")
         if p.name != "thumbnail.png" and p.stat().st_size > 0
     ]
     if not candidates:
         return None
-    richest = max(candidates, key=lambda p: p.stat().st_size)
-    return str(richest.resolve())
+    return str(max(candidates, key=lambda p: p.stat().st_size).resolve())
 
 
 def ensure_template_previews(template_id: str) -> List[Path]:
