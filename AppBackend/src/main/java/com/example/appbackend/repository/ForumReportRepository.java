@@ -16,10 +16,13 @@ public interface ForumReportRepository extends JpaRepository<ForumReport, Long> 
 
     @Query("SELECT r FROM ForumReport r WHERE " +
            "(:status IS NULL OR r.status = :status) AND " +
-           "(:targetType IS NULL OR r.targetType = :targetType)")
+           "(:targetType IS NULL OR r.targetType = :targetType) AND " +
+           "(:keyword IS NULL OR r.reasonText LIKE %:keyword% OR r.description LIKE %:keyword% " +
+           " OR r.reporter.username LIKE %:keyword% OR r.reporter.realName LIKE %:keyword%)")
     Page<ForumReport> findReports(
             @Param("status") Integer status,
             @Param("targetType") Integer targetType,
+            @Param("keyword") String keyword,
             Pageable pageable);
 
     long countByStatus(Integer status);

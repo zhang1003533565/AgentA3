@@ -297,6 +297,8 @@ export default {
       this.currentUserId = userInfo?.id || userInfo?.userId || ''
       this.currentUserName = userInfo?.username || userInfo?.realName || ''
       this.currentUserAvatar = userInfo?.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(seed)}`
+      // 草稿按用户隔离：key 带上当前用户 id，避免不同账号看到彼此的草稿
+      this.DRAFT_KEY = `forum_drafts_${this.currentUserId || 'anonymous'}`
     },
     async loadTopics() {
       // 从后端动态加载「启用中」的话题,后台禁用的板块不会出现在标题栏与发帖列表
