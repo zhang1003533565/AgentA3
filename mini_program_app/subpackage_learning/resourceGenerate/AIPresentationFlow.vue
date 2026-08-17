@@ -98,7 +98,10 @@
               <text class="template-library-card__desc">{{ template.description }}</text>
               <view class="template-library-card__meta">
                 <text>{{ template.layoutCount || 0 }} 种页面布局</text>
-                <text>{{ pptStyle === template.id ? '已选择' : '查看详情' }}</text>
+                <view class="template-library-card__actions">
+                  <text v-if="pptStyle === template.id" class="template-library-card__selected">已选择</text>
+                  <text @tap.stop="showTemplateDetail(template.id)">查看详情</text>
+                </view>
               </view>
             </view>
           </view>
@@ -109,7 +112,7 @@
         </view>
 
         <view class="single-action single-action--floating">
-          <button class="primary-button" :disabled="!selectedTemplate" @tap="showTemplateDetail">查看模板详情</button>
+          <button class="primary-button" :disabled="!selectedTemplate" @tap="showTemplateUpload('library')">下一步</button>
         </view>
       </view>
 
@@ -907,6 +910,7 @@ export default {
       pageCount: 15,
       pptStyle: 'general',
       templateEntryMode: 'library',
+      templateUploadSource: 'library',
       templateCategory: 'all',
       templateCategories: [
         { id: 'all', name: '全部模板' },
@@ -1292,21 +1296,22 @@ export default {
     selectPptTemplate(id) {
       if (!id) return
       this.pptStyle = id
-      this.templateEntryMode = 'detail'
     },
     showTemplateLibrary() {
       this.templateEntryMode = 'library'
     },
-    showTemplateDetail() {
+    showTemplateDetail(id = '') {
+      if (id) this.pptStyle = id
       if (!this.selectedTemplate && this.pptStyles.length) {
         this.pptStyle = this.pptStyles[0].id
       }
       this.templateEntryMode = 'detail'
     },
-    showTemplateUpload() {
+    showTemplateUpload(sourceMode = this.templateEntryMode) {
       if (!this.selectedTemplate && this.pptStyles.length) {
         this.pptStyle = this.pptStyles[0].id
       }
+      this.templateUploadSource = sourceMode === 'detail' ? 'detail' : 'library'
       this.templateEntryMode = 'upload'
     },
     chooseTxtFile() {
@@ -1418,7 +1423,7 @@ export default {
     },
     goPrevious() {
       if (this.currentStep === 1 && this.templateEntryMode === 'upload') {
-        this.templateEntryMode = 'detail'
+        this.templateEntryMode = this.templateUploadSource || 'library'
         return
       }
       if (this.currentStep === 1 && this.templateEntryMode === 'detail') {
@@ -2408,7 +2413,8 @@ export default {
 .template-library-card__tag{flex:none;padding:5rpx 10rpx;border-radius:99rpx;background:#eef2f6;color:#526174;font-size:16rpx}
 .template-library-card__desc{display:-webkit-box;margin-top:8rpx;overflow:hidden;color:#6b7889;font-size:19rpx;line-height:1.45;-webkit-box-orient:vertical;-webkit-line-clamp:2}
 .template-library-card__meta{display:flex;align-items:center;justify-content:space-between;gap:12rpx;margin-top:12rpx;color:#8190a4;font-size:18rpx}
-.template-library-card__meta text:last-child{flex:none;color:#5265f5;font-weight:700}
+.template-library-card__actions{display:flex;flex:none;align-items:center;gap:14rpx;color:#5265f5;font-weight:700}
+.template-library-card__selected{color:#718094}
 .template-loading-card{display:flex;gap:18rpx;padding:14rpx;border:1px solid #e1e7ef;border-radius:18rpx;background:#fff}
 .template-loading-card__thumb{width:178rpx;height:100rpx;flex:none;border-radius:12rpx;background:#edf2f7}
 .template-loading-card__lines{display:flex;flex:1;justify-content:center;flex-direction:column;gap:12rpx}

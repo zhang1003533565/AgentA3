@@ -194,6 +194,10 @@ test('AIPPT exposes the backend template catalog and sends the selected template
   assert.match(page, /downloadPptTemplateThumbnail/)
   assert.match(page, /templateId:\s*this\.pptStyle/)
   assert.match(page, /pptStyles:\s*\[\]/)
+  assert.match(page, /@tap="selectPptTemplate\(template\.id\)"/)
+  assert.match(page, /@tap\.stop="showTemplateDetail\(template\.id\)"/)
+  assert.match(page, /@tap="showTemplateUpload\('library'\)">下一步/)
+  assert.doesNotMatch(page, /@tap="showTemplateDetail">查看模板详情/)
   assert.doesNotMatch(page, /id:\s*'simple',\s*name:\s*'简洁学习风'/)
 })
 
