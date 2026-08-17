@@ -2465,7 +2465,6 @@ export default {
 .template-scroll-hint text:last-child{color:#5265f5}
 .template-empty{display:flex;min-height:130rpx;align-items:center;justify-content:center;gap:12rpx;flex-direction:column;border:1px dashed #d9deea;border-radius:12rpx;background:#fafbfe;color:#8b94a5;font-size:20rpx}
 .template-empty__retry{color:#5265f5;font-weight:600}
-to{opacity:1;transform:translateY(0)}}
 .slide-thumb__image{position:absolute;inset:0;z-index:0;width:100%;height:100%}
 .generation-warning{margin-top:16rpx;padding:14rpx 18rpx;border:1px solid #f1d9a6;border-radius:12rpx;background:#fff9eb;color:#9a6a18;font-size:19rpx;line-height:1.5}
 .generation-warning--error{border-color:#efc7c2;background:#fff5f4;color:#9d4f49}
