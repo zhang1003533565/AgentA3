@@ -47,13 +47,13 @@
       <button class="recover-card__button" @tap="openModelHelp">查看说明</button>
     </view>
 
-    <view v-if="currentStep === 1" class="panel">
-      <view v-if="templateEntryMode === 'library'" class="template-library-entry">
+    <view v-if="(currentStep === 1 && templateEntryMode === 'upload') || (currentStep === 2 && templateEntryMode !== 'upload')" class="panel">
+      <view v-if="currentStep === 2 && templateEntryMode === 'library'" class="template-library-entry">
         <view class="template-library-hero">
           <view class="template-library-hero__copy">
             <text class="template-library-hero__eyebrow">Presenton 内置模板库</text>
-            <text class="template-library-hero__title">先选模板，再生成可编辑 PPT</text>
-            <text class="template-library-hero__desc">选择一套现成模板后，系统会按它的版式生成 PPTX、PDF 和页面预览。</text>
+            <text class="template-library-hero__title">为刚才的资料选择模板</text>
+            <text class="template-library-hero__desc">模板只在这里确认一次，后续会按所选版式生成 PPTX、PDF 和页面预览。</text>
           </view>
           <view class="template-library-hero__stack">
             <view></view><view></view><view></view>
@@ -115,12 +115,15 @@
           <text v-if="!templateOptionsLoading" class="template-empty__retry" @tap="loadPptScenes(true)">重新加载模板</text>
         </view>
 
-        <view class="single-action single-action--floating">
-          <button class="primary-button" :disabled="!selectedTemplate" @tap="showTemplateUpload('library')">下一步</button>
+        <view class="bottom-actions">
+          <view class="bottom-actions__buttons">
+            <button class="secondary-button" @tap="goPrevious">上一步</button>
+            <button class="primary-button" :disabled="!selectedTemplate" @tap="goNext">下一步</button>
+          </view>
         </view>
       </view>
 
-      <view v-else-if="templateEntryMode === 'detail'" class="template-detail-entry">
+      <view v-else-if="currentStep === 2 && templateEntryMode === 'detail'" class="template-detail-entry">
         <view class="template-detail-card">
           <view class="template-detail-card__preview">
             <image v-if="selectedTemplate && selectedTemplate.thumbnailUrl" :src="selectedTemplate.thumbnailUrl" mode="aspectFill" />
@@ -168,13 +171,13 @@
         <view class="bottom-actions">
           <view class="bottom-actions__buttons">
             <button class="secondary-button" @tap="showTemplateLibrary">返回模板库</button>
-            <button class="primary-button" @tap="showTemplateUpload">使用这套模板生成</button>
+            <button class="primary-button" @tap="goNext">确认模板并继续</button>
           </view>
         </view>
       </view>
 
       <view v-else class="template-upload-entry">
-        <view class="selected-template-strip">
+        <view v-if="currentStep > 1 && selectedTemplate" class="selected-template-strip">
           <view class="selected-template-strip__preview">
             <image v-if="selectedTemplate && selectedTemplate.thumbnailUrl" :src="selectedTemplate.thumbnailUrl" mode="aspectFill" />
             <text v-else>{{ selectedTemplateName.slice(0, 1) }}</text>
@@ -191,9 +194,9 @@
 
         <view class="product-hero product-hero--compact">
           <view class="product-hero__copy">
-            <text class="product-hero__eyebrow">资料生成 · 模板渲染</text>
-            <text class="product-hero__title">上传学习资料</text>
-            <text class="product-hero__desc">资料上传后会进入大纲生成，再按所选模板生成可编辑 PPT。</text>
+            <text class="product-hero__eyebrow">资料生成 · 内容优先</text>
+            <text class="product-hero__title">先上传学习资料</text>
+            <text class="product-hero__desc">先确定要生成的内容，再选择适合这份资料的 PPT 模板。</text>
           </view>
           <view class="product-hero__slide">
             <text></text><text></text><text></text>
@@ -236,6 +239,17 @@
           </view>
         </view>
 
+        <view class="field">
+          <text class="field__label">或直接输入内容</text>
+          <textarea
+            v-model="manualSourceContent"
+            class="source-textarea"
+            :maxlength="20000"
+            placeholder="可以直接粘贴课堂笔记、复习提纲或老师给的资料内容"
+            @input="applyManualSourceInput"
+          />
+        </view>
+
         <view class="upload-preference-card">
           <text class="upload-preference-card__title">生成偏好</text>
           <view class="upload-preference-list">
@@ -266,14 +280,13 @@
 
         <view class="bottom-actions">
           <view class="bottom-actions__buttons">
-            <button class="secondary-button" @tap="goPrevious">上一步</button>
-            <button class="primary-button" :disabled="!fileInfo" @tap="goNext">下一步</button>
+            <button class="primary-button" :disabled="!fileInfo" @tap="goNext">下一步：选择模板</button>
           </view>
         </view>
       </view>
     </view>
 
-    <view v-else-if="currentStep === 2" class="panel">
+    <view v-else-if="currentStep === 3" class="panel">
       <view class="mode-intro">
         <text class="mode-intro__title">先决定大纲来源</text>
         <text class="mode-intro__desc">这一步决定 AI 是重新组织资料，还是保留原始章节顺序。后面仍然可以手动调整每一页。</text>
@@ -307,7 +320,7 @@
       </view>
     </view>
 
-    <view v-else-if="currentStep === 3" class="panel outline-panel">
+    <view v-else-if="currentStep === 4" class="panel outline-panel">
       <view class="outline-design-hero">
         <text class="outline-design-hero__eyebrow">大纲已生成</text>
         <text class="outline-design-hero__title">先确认页面结构，再写入模板</text>
@@ -363,7 +376,7 @@
       </view>
     </view>
 
-    <view v-else-if="currentStep === 4" class="panel">
+    <view v-else-if="currentStep === 5" class="panel">
       <view class="scene-summary">
         <text class="scene-summary__label">学习场景</text>
         <text class="scene-summary__value">{{ selectedScene.label }}</text>
@@ -567,7 +580,7 @@
       </view>
     </view>
 
-    <view v-else-if="currentStep === 5" class="panel page-editor-panel">
+    <view v-else-if="currentStep === 6" class="panel page-editor-panel">
       <view class="editor-toolbar">
         <view>
           <text class="editor-toolbar__title">逐页编辑</text>
@@ -662,7 +675,7 @@
       </view>
     </view>
 
-    <view v-else-if="currentStep === 6" class="panel progress-panel">
+    <view v-else-if="currentStep === 7" class="panel progress-panel">
       <view class="progress-hero">
         <view class="progress-ring" :style="{ '--progress': `${progress * 3.6}deg` }">
           <view class="progress-ring__inner"><text>{{ progress }}</text><text>%</text></view>
@@ -731,7 +744,7 @@
       </view>
     </view>
 
-    <view v-else-if="currentStep === 7" class="panel result-panel">
+    <view v-else-if="currentStep === 8" class="panel result-panel">
       <view class="success-hero">
         <view class="success-icon">✓</view>
         <text class="success-hero__title">复习 PPT 已生成</text>
@@ -872,7 +885,7 @@
         <text class="download-ready__hint">文件已下载，可使用 PowerPoint、WPS 或系统阅读器打开</text>
       </view>
 
-      <button class="back-result-button" @tap="currentStep = 7">返回生成结果</button>
+      <button class="back-result-button" @tap="currentStep = 8">返回生成结果</button>
     </view>
 
     <view v-if="operationFeedback.active" class="operation-feedback">
@@ -961,6 +974,7 @@ export default {
       ],
       fileInfo: null,
       fileContent: '',
+      manualSourceContent: '',
       sourceFileId: '',
       enhancedEngineAvailable: false,
       previewExpanded: false,
@@ -977,8 +991,8 @@ export default {
       ],
       pageCount: 15,
       pptStyle: 'general',
-      templateEntryMode: 'library',
-      templateUploadSource: 'library',
+      templateEntryMode: 'upload',
+      templateUploadSource: 'upload',
       templateCategory: 'all',
       templateCategories: [
         { id: 'all', name: '全部模板' },
@@ -1039,14 +1053,15 @@ export default {
       generationHistory: [],
       outlineHistory: [],
       stepMeta: [
-        { id: 1, shortTitle: '选模板', title: '选择 PPT 模板', description: '先选择可直接套用的模板，再上传资料生成 PPT' },
-        { id: 2, shortTitle: '大纲来源', title: '选择大纲来源', description: '选择 AI 重新整理，或沿用资料原有大纲' },
-        { id: 3, shortTitle: '编辑大纲', title: '编辑 PPT 大纲', description: '确认内容结构，并将本次大纲独立保存' },
-        { id: 4, shortTitle: '设置 PPT', title: '设置 PPT', description: '设置 PPT 的页数和展示效果' },
-        { id: 5, shortTitle: '编辑页面', title: '编辑页面内容', description: '逐页调整内容、公共提示词和单页提示词' },
-        { id: 6, shortTitle: '生成进度', title: '正在生成 PPT', description: 'AI 正在整理你的学习资料，请稍候' },
-        { id: 7, shortTitle: '生成结果', title: 'PPT 生成完成', description: '预览生成效果并确认导出' },
-        { id: 8, shortTitle: '导出下载', title: '导出下载', description: '选择需要导出的文件格式' }
+        { id: 1, shortTitle: '上传资料', title: '上传学习资料', description: '先确定要生成 PPT 的内容' },
+        { id: 2, shortTitle: '选模板', title: '选择 PPT 模板', description: '根据这份资料选择合适的模板' },
+        { id: 3, shortTitle: '大纲来源', title: '选择大纲来源', description: '选择 AI 重新整理，或沿用资料原有大纲' },
+        { id: 4, shortTitle: '编辑大纲', title: '编辑 PPT 大纲', description: '确认内容结构，并将本次大纲独立保存' },
+        { id: 5, shortTitle: '设置 PPT', title: '设置 PPT', description: '设置 PPT 的页数和展示效果' },
+        { id: 6, shortTitle: '编辑页面', title: '编辑页面内容', description: '逐页调整内容、公共提示词和单页提示词' },
+        { id: 7, shortTitle: '生成进度', title: '正在生成 PPT', description: 'AI 正在整理你的学习资料，请稍候' },
+        { id: 8, shortTitle: '生成结果', title: 'PPT 生成完成', description: '预览生成效果并确认导出' },
+        { id: 9, shortTitle: '导出下载', title: '导出下载', description: '选择需要导出的文件格式' }
       ],
       outlineModes: [
         { id: 'ai_outline', name: 'AI 生成复习大纲', description: 'AI 分析资料内容，重新整理知识结构，生成适合复习的 PPT 大纲。', fit: '适合内容零散或没有明确结构的资料' },
@@ -1214,7 +1229,7 @@ export default {
       return value.slice(0, 4)
     },
     hasFloatingActions() {
-      return [1, 2, 3, 4, 5, 7].includes(this.currentStep)
+      return [1, 2, 3, 4, 5, 6, 8].includes(this.currentStep)
     },
     canRetryGeneration() {
       return Boolean(this.taskId && ['failed', 'cancelled'].includes(String(this.taskResult?.status || '')))
@@ -1433,8 +1448,9 @@ export default {
       if (!this.selectedTemplate && this.pptStyles.length) {
         this.pptStyle = this.pptStyles[0].id
       }
-      this.templateUploadSource = sourceMode === 'detail' ? 'detail' : 'library'
+      this.templateUploadSource = sourceMode === 'detail' ? 'detail' : 'upload'
       this.templateEntryMode = 'upload'
+      this.currentStep = 1
     },
     chooseTxtFile() {
       if (typeof uni.chooseFile === 'function') {
@@ -1483,6 +1499,7 @@ export default {
             if (!uploaded.fileId) throw new Error('服务端未返回资料文件编号')
             this.sourceFileId = String(uploaded.fileId)
             this.fileContent = ''
+            this.manualSourceContent = ''
             this.previewExpanded = false
             const size = Number(file.size || uploaded.size || 0)
             this.fileInfo = { name, size, sizeLabel: this.formatFileSize(size) }
@@ -1497,6 +1514,7 @@ export default {
           return
         }
         this.fileContent = content
+        this.manualSourceContent = content
         this.sourceFileId = ''
         this.previewExpanded = false
         const estimatedSize = typeof Blob !== 'undefined' ? new Blob([content]).size : encodeURIComponent(content).replace(/%[0-9A-F]{2}/g, 'x').length
@@ -1534,24 +1552,55 @@ export default {
     removeFile() {
       this.fileInfo = null
       this.fileContent = ''
+      this.manualSourceContent = ''
       this.sourceFileId = ''
       this.previewExpanded = false
       this.outlineItems = []
       this.slides = []
     },
+    applyManualSourceInput(event) {
+      const content = String(event?.detail?.value ?? this.manualSourceContent ?? '')
+      this.manualSourceContent = content
+      if (!content.trim()) {
+        if (this.fileInfo?.manual) {
+          this.fileInfo = null
+          this.fileContent = ''
+          this.sourceFileId = ''
+        }
+        return
+      }
+      const estimatedSize = typeof Blob !== 'undefined' ? new Blob([content]).size : encodeURIComponent(content).replace(/%[0-9A-F]{2}/g, 'x').length
+      this.fileContent = content
+      this.sourceFileId = ''
+      this.fileInfo = {
+        name: '手动输入资料.txt',
+        size: estimatedSize,
+        sizeLabel: this.formatFileSize(estimatedSize),
+        manual: true
+      }
+      this.previewExpanded = false
+    },
     goNext() {
-      if (this.currentStep === 1 && (this.templateEntryMode !== 'upload' || !this.fileInfo)) return
+      if (this.currentStep === 1) {
+        if (!this.fileInfo) return
+        this.templateEntryMode = 'library'
+        this.currentStep = 2
+        return
+      }
+      if (this.currentStep === 2) {
+        if (!this.selectedTemplate) return
+        this.currentStep = 3
+        return
+      }
       this.currentStep = Math.min(this.stepMeta.length, this.currentStep + 1)
     },
     goPrevious() {
-      if (this.currentStep === 1 && this.templateEntryMode === 'upload') {
-        this.templateEntryMode = this.templateUploadSource || 'library'
-        return
-      }
-      if (this.currentStep === 1 && this.templateEntryMode === 'detail') {
+      if (this.currentStep === 2 && this.templateEntryMode === 'detail') {
         this.templateEntryMode = 'library'
         return
       }
+      if (this.currentStep === 2) this.templateEntryMode = 'upload'
+      if (this.currentStep === 3) this.templateEntryMode = 'library'
       this.currentStep = Math.max(1, this.currentStep - 1)
     },
     setPageCount(event) {
@@ -1572,7 +1621,7 @@ export default {
         this.outlineDocument = { title: this.resultName, items: this.outlineItems }
         this.outlineName = `${this.resultName}大纲`
         this.outlineSavedAt = ''
-        this.currentStep = 3
+        this.currentStep = 4
         return
       }
       this.apiBusy = true
@@ -1602,7 +1651,7 @@ export default {
         this.outlineDocument = { ...outline, items: this.outlineItems }
         this.outlineName = `${outline.title || this.resultName}大纲`
         this.outlineSavedAt = ''
-        this.currentStep = 3
+        this.currentStep = 4
       } catch (error) {
         this.handlePptError(error, '大纲生成失败')
       } finally {
@@ -1648,7 +1697,7 @@ export default {
     confirmOutline() {
       if (!this.validOutlineItems.length) return
       this.saveOutlineSnapshot(false)
-      this.currentStep = 4
+      this.currentStep = 5
     },
     saveOutlineSnapshot(showFeedback = true) {
       if (!this.validOutlineItems.length) return
@@ -1674,7 +1723,7 @@ export default {
     async prepareSlides() {
       const outlines = this.validOutlineItems
       if (!outlines.length) {
-        this.currentStep = 3
+        this.currentStep = 4
         return
       }
       const runId = ++this.slideGenerationRunId
@@ -1722,7 +1771,7 @@ export default {
         if (result.sharedPrompt) this.sharedPrompt = String(result.sharedPrompt)
         this.pageCount = this.slides.length
         this.activeSlideIndex = 0
-        this.currentStep = 5
+        this.currentStep = 6
       } catch (error) {
         this.handlePptError(error, '页面内容生成失败')
       } finally {
@@ -1786,7 +1835,7 @@ export default {
       this.apiBusy = true
       this.modelConfigError = false
       this.lastPptError = ''
-      this.currentStep = 6
+      this.currentStep = 7
       this.progress = 2
       this.taskResult = null
       this.previewImages = {}
@@ -1814,7 +1863,7 @@ export default {
       } catch (error) {
         if (runId !== this.generationRunId) return
         this.apiBusy = false
-        this.currentStep = 5
+        this.currentStep = 6
         this.progress = 0
         this.handlePptError(error, 'PPT 生成失败')
       }
@@ -1826,7 +1875,7 @@ export default {
       this.apiBusy = true
       this.modelConfigError = false
       this.lastPptError = ''
-      this.currentStep = 6
+      this.currentStep = 7
       this.progress = 2
       this.previewImages = {}
       try {
@@ -1845,7 +1894,7 @@ export default {
       } catch (error) {
         if (runId !== this.generationRunId) return
         this.apiBusy = false
-        this.currentStep = 5
+        this.currentStep = 6
         this.progress = 0
         this.handlePptError(error, 'PPT 重试失败')
       }
@@ -1883,17 +1932,17 @@ export default {
       this.progress = Math.max(this.progress, Math.min(100, Number(task.progress || 0)))
       if (task.status === 'failed') {
         const message = task.error?.message || task.message || 'PPT 生成失败'
-        this.currentStep = 5
+        this.currentStep = 6
         this.progress = 0
         throw new Error(message)
       }
       if (task.status === 'cancelled') {
-        this.currentStep = 5
+        this.currentStep = 6
         this.progress = 0
         this.apiBusy = false
         return
       }
-      if (task.status === 'completed' && this.currentStep === 6) {
+      if (task.status === 'completed' && this.currentStep === 7) {
         this.progress = 100
         const availableFormat = (task.attachments || []).some(item => item?.type === this.exportFormat)
           ? this.exportFormat
@@ -1901,7 +1950,7 @@ export default {
         if (availableFormat) this.exportFormat = availableFormat
         this.loadPreviewImages()
         this.recordGenerationHistory()
-        this.currentStep = 7
+        this.currentStep = 8
       }
     },
     generationStatusClass(index) {
@@ -1928,12 +1977,12 @@ export default {
       this.generationRunId += 1
       this.slideGenerationRunId += 1
       this.progress = 0
-      this.currentStep = 5
+      this.currentStep = 6
     },
     restartFromSettings() {
       this.progress = 0
       this.exportReady = false
-      this.currentStep = 3
+      this.currentStep = 5
     },
     slideTitle(slide) {
       return this.slides[slide - 1]?.title || `第 ${slide} 页`
@@ -1987,7 +2036,7 @@ export default {
         this.previewImages = {}
         this.activeSlide.imageStatus = 'uploaded'
         this.generationRunId += 1
-        this.currentStep = 6
+        this.currentStep = 7
         this.progress = 0
         await this.followGenerationTask(this.generationRunId)
       } catch (error) {
@@ -2026,11 +2075,11 @@ export default {
         return
       }
       if (!this.isExportAvailable(this.exportFormat)) this.switchToPrimaryExportFormat()
-      this.currentStep = 8
+      this.currentStep = 9
       this.exportReady = false
     },
     returnToEditor() {
-      this.currentStep = 5
+      this.currentStep = 6
       this.exportReady = false
     },
     async prepareExport() {
@@ -2133,7 +2182,7 @@ export default {
         this.outlineName = item.name
         this.outlineMode = item.source
         this.outlineItems = (item.items || []).map(entry => ({ ...entry, id: this.createOutlineItem().id }))
-        this.currentStep = 3
+        this.currentStep = 4
       } else {
         this.pageCount = Number(item.pageCount || 15)
         this.scene = this.pptScenes.some(scene => scene.value === item.scene) ? item.scene : this.scene
@@ -2142,7 +2191,7 @@ export default {
         this.outlineMode = item.outlineMode || this.outlineMode
         this.settings = { ...this.settings, ...(item.settings || {}) }
         this.sharedPrompt = item.sharedPrompt || this.sharedPrompt
-        this.currentStep = this.validOutlineItems.length ? 4 : 2
+        this.currentStep = this.validOutlineItems.length ? 5 : 3
       }
       this.historyOpen = false
     },
@@ -2456,6 +2505,7 @@ export default {
 .capability-card__title,.capability-card__desc{display:block}
 .capability-card__title{color:#314b63;font-size:21rpx;font-weight:760}
 .capability-card__desc{margin-top:8rpx;color:#718094;font-size:17rpx;line-height:1.42}
+.source-textarea{width:100%;min-height:190rpx;padding:20rpx;border:1px solid #dce2ec;border-radius:16rpx;background:#fff;color:#26384a;font-size:22rpx;line-height:1.55;box-sizing:border-box}
 .mode-intro{margin-bottom:22rpx;padding:22rpx;border:1px solid #dfe7ef;border-radius:17rpx;background:#f8fafc}
 .mode-intro__title,.mode-intro__desc{display:block}
 .mode-intro__title{font-size:27rpx;font-weight:800}
