@@ -29,7 +29,26 @@
       </view>
     </scroll-view>
 
+    <view v-if="modelConfigError" class="recover-card recover-card--warning">
+      <view>
+        <text class="recover-card__title">模型还没有准备好</text>
+        <text class="recover-card__desc">{{ lastPptError || 'PPT 生成和思维导图、活动图使用同一套已测试模型配置。请先确认 API key 已配置并测试成功。' }}</text>
+      </view>
+      <button class="recover-card__button" @tap="openModelHelp">查看说明</button>
+    </view>
+
     <view v-if="currentStep === 1" class="panel">
+      <view class="product-hero">
+        <view class="product-hero__copy">
+          <text class="product-hero__eyebrow">Presenton 模板渲染 · 学习资料优先</text>
+          <text class="product-hero__title">从资料到可编辑 PPTX</text>
+          <text class="product-hero__desc">先生成大纲，再逐页写入模板，最后导出 PPTX、PDF 和页面预览。</text>
+        </view>
+        <view class="product-hero__slide">
+          <text></text><text></text><text></text>
+        </view>
+      </view>
+
       <view class="field">
         <text class="field__label">学习场景</text>
         <picker :range="pptScenes" range-key="label" :value="selectedSceneIndex" @change="selectScene">
@@ -46,23 +65,30 @@
       <view class="field">
         <text class="field__label">上传学习资料</text>
         <view v-if="!fileInfo" class="upload-box" @tap="chooseTxtFile">
-          <view class="file-icon"><text>TXT</text></view>
+          <view class="file-icon"><text>{{ fileKindLabel }}</text></view>
           <text class="upload-box__title">点击上传学习资料</text>
-          <text class="upload-box__hint">{{ enhancedEngineAvailable ? '支持 TXT、PDF、Word、PPT 和表格文件' : '当前仅支持单个 TXT 文件' }}</text>
+          <text class="upload-box__hint">{{ supportedSourceHint }}</text>
         </view>
         <view v-else class="file-row">
-          <view class="file-row__icon">TXT</view>
+          <view class="file-row__icon">{{ fileKindLabel }}</view>
           <view class="file-row__main">
             <text class="file-row__name">{{ fileInfo.name }}</text>
             <view class="file-row__meta">
               <text>{{ fileInfo.sizeLabel }}</text>
-              <text class="file-row__success">上传完成</text>
+              <text class="file-row__success">{{ sourceFileId ? '上传完成' : '读取完成' }}</text>
             </view>
           </view>
           <view class="file-row__actions">
             <text @tap.stop="chooseTxtFile">重传</text>
             <text class="file-row__delete" @tap.stop="removeFile">删除</text>
           </view>
+        </view>
+      </view>
+
+      <view class="capability-strip">
+        <view v-for="item in capabilityCards" :key="item.title" class="capability-card">
+          <text class="capability-card__title">{{ item.title }}</text>
+          <text class="capability-card__desc">{{ item.desc }}</text>
         </view>
       </view>
 
@@ -84,6 +110,10 @@
     </view>
 
     <view v-else-if="currentStep === 2" class="panel">
+      <view class="mode-intro">
+        <text class="mode-intro__title">先决定大纲来源</text>
+        <text class="mode-intro__desc">这一步决定 AI 是重新组织资料，还是保留原始章节顺序。后面仍然可以手动调整每一页。</text>
+      </view>
       <view
         v-for="mode in outlineModes"
         :key="mode.id"
@@ -384,7 +414,15 @@
       <view class="overall-progress">
         <view class="overall-progress__head"><text>总体进度</text><text>{{ progress }}%</text></view>
         <view class="overall-progress__track"><view class="overall-progress__value" :style="{ width: `${progress}%` }"></view></view>
-        <text class="overall-progress__time">预计还需 {{ remainingTime }}</text>
+        <text class="overall-progress__time">{{ generationRuntimeHint }}</text>
+      </view>
+      <view v-if="taskResult" class="task-runtime-card">
+        <view class="task-runtime-card__row"><text>任务状态</text><text>{{ taskResult.status || 'running' }}</text></view>
+        <view class="task-runtime-card__row"><text>当前阶段</text><text>{{ taskResult.stage || activeGenerationStep.id }}</text></view>
+        <view v-if="taskResult.currentSlide || taskResult.totalSlides" class="task-runtime-card__row">
+          <text>页面进度</text><text>{{ taskResult.currentSlide || 0 }} / {{ taskResult.totalSlides || pageCount }}</text>
+        </view>
+        <text class="task-runtime-card__message">{{ taskResult.message || activeGenerationStep.description }}</text>
       </view>
       <button class="secondary-button secondary-button--full" @tap="cancelGeneration">取消生成</button>
     </view>
@@ -405,6 +443,9 @@
       </view>
       <view v-if="generationWarnings.length" class="generation-warning">
         <text>{{ generationWarnings[0] }}</text>
+      </view>
+      <view v-if="taskResult?.formatErrors && Object.keys(taskResult.formatErrors).length" class="generation-warning generation-warning--error">
+        <text>{{ Object.values(taskResult.formatErrors)[0] }}</text>
       </view>
 
       <view class="preview-section">
@@ -537,6 +578,7 @@ import {
   downloadPptTaskFile,
   downloadPptTemplateThumbnail,
   generatePptOutline,
+  generatePptSlides,
   getPptOptions,
   getPptTask,
   replacePptSlideImage,
@@ -603,6 +645,8 @@ export default {
       taskResult: null,
       previewImages: {},
       generationWarnings: [],
+      modelConfigError: false,
+      lastPptError: '',
       apiBusy: false,
       operationFeedback: { active: false, progress: 0, message: '', detail: '' },
       operationFeedbackTimer: null,
@@ -637,6 +681,11 @@ export default {
       outlineModes: [
         { id: 'ai_outline', name: 'AI 生成复习大纲', description: 'AI 分析资料内容，重新整理知识结构，生成适合复习的 PPT 大纲。', fit: '适合内容零散或没有明确结构的资料' },
         { id: 'original_outline', name: '使用原内容作为大纲', description: '按照上传资料原有的内容顺序和标题层级生成 PPT。', fit: '适合已经整理好大纲的资料' }
+      ],
+      capabilityCards: [
+        { title: '资料解析', desc: 'TXT 直读，Office 与 PDF 走服务端解析' },
+        { title: '模板渲染', desc: '使用内置 Presenton 模板输出页面' },
+        { title: '可导出', desc: '生成 PPTX、PDF 和页面预览' }
       ],
       pptStyles: [],
       contentLevels: [
@@ -684,6 +733,21 @@ export default {
     selectedTemplate() {
       return this.pptStyles.find(item => item.id === this.pptStyle) || null
     },
+    supportedSourceHint() {
+      return this.enhancedEngineAvailable
+        ? '支持 TXT、PDF、Word、PPT 和表格文件，最大 25MB'
+        : '当前仅支持单个 TXT 文件'
+    },
+    fileKindLabel() {
+      const name = String(this.fileInfo?.name || '').trim()
+      const extension = (name.match(/\.([a-z0-9]+)$/i) || [])[1]
+      if (!extension) return this.enhancedEngineAvailable ? 'FILE' : 'TXT'
+      const value = extension.toUpperCase()
+      if (['DOC', 'DOCX'].includes(value)) return 'DOC'
+      if (['PPT', 'PPTX'].includes(value)) return 'PPT'
+      if (['XLS', 'XLSX'].includes(value)) return 'XLS'
+      return value.slice(0, 4)
+    },
     hasFloatingActions() {
       return [1, 2, 3, 4, 5, 7].includes(this.currentStep)
     },
@@ -720,6 +784,12 @@ export default {
     remainingTime() {
       const seconds = Math.max(1, Math.ceil((100 - this.progress) / 5))
       return seconds > 10 ? `${seconds - 5}～${seconds + 5} 秒` : `约 ${seconds} 秒`
+    },
+    generationRuntimeHint() {
+      if (this.taskResult?.message) return this.taskResult.message
+      const processing = this.taskResult?.processingSlides
+      if (Array.isArray(processing) && processing.length) return `正在处理第 ${processing.join('、')} 页`
+      return `预计还需 ${this.remainingTime}`
     },
     resultName() {
       const name = this.fileInfo?.name || '复习资料.txt'
@@ -917,6 +987,8 @@ export default {
         return
       }
       this.apiBusy = true
+      this.modelConfigError = false
+      this.lastPptError = ''
       this.startOperationFeedback('outline')
       try {
         const response = await generatePptOutline({
@@ -943,7 +1015,7 @@ export default {
         this.outlineSavedAt = ''
         this.currentStep = 3
       } catch (error) {
-        uni.showToast({ title: this.errorMessage(error, '大纲生成失败'), icon: 'none' })
+        this.handlePptError(error, '大纲生成失败')
       } finally {
         this.apiBusy = false
         this.stopOperationFeedback()
@@ -1018,6 +1090,8 @@ export default {
       }
       const runId = ++this.slideGenerationRunId
       this.apiBusy = true
+      this.modelConfigError = false
+      this.lastPptError = ''
       this.startOperationFeedback('slides')
       try {
         const outline = {
@@ -1060,7 +1134,7 @@ export default {
         this.activeSlideIndex = 0
         this.currentStep = 5
       } catch (error) {
-        uni.showToast({ title: this.errorMessage(error, '页面内容生成失败'), icon: 'none' })
+        this.handlePptError(error, '页面内容生成失败')
       } finally {
         this.apiBusy = false
         this.stopOperationFeedback()
@@ -1119,6 +1193,8 @@ export default {
       this.clearTimers()
       const runId = ++this.generationRunId
       this.apiBusy = true
+      this.modelConfigError = false
+      this.lastPptError = ''
       this.currentStep = 6
       this.progress = 2
       this.taskResult = null
@@ -1149,7 +1225,7 @@ export default {
         this.apiBusy = false
         this.currentStep = 5
         this.progress = 0
-        uni.showToast({ title: this.errorMessage(error, 'PPT 生成失败'), icon: 'none' })
+        this.handlePptError(error, 'PPT 生成失败')
       }
     },
     async followGenerationTask(runId) {
@@ -1470,6 +1546,26 @@ export default {
     errorMessage(error, fallback) {
       return String(error?.msg || error?.message || error?.data?.msg || fallback || '操作失败').slice(0, 80)
     },
+    isModelConfigError(error) {
+      const message = this.errorMessage(error, '')
+      return /模型|API key|Api Key|apikey|api_key|provider|配置|测试成功/.test(message)
+    },
+    handlePptError(error, fallback) {
+      const message = this.errorMessage(error, fallback)
+      this.lastPptError = message
+      if (this.isModelConfigError(error)) {
+        this.modelConfigError = true
+      }
+      uni.showToast({ title: message, icon: 'none' })
+    },
+    openModelHelp() {
+      uni.showModal({
+        title: '模型配置说明',
+        content: 'PPT 生成复用 AI 创作中已测试成功的模型配置。请先在后端模型配置中完成 API key 测试，再回到本页重新生成。',
+        showCancel: false,
+        confirmText: '知道了'
+      })
+    },
     startOperationFeedback(type) {
       this.stopOperationFeedback()
       const phases = type === 'slides'
@@ -1677,5 +1773,37 @@ export default {
 @keyframes banter-in{from{opacity:0;transform:translateY(5rpx)}to{opacity:1;transform:translateY(0)}}
 .slide-thumb__image{position:absolute;inset:0;z-index:0;width:100%;height:100%}
 .generation-warning{margin-top:16rpx;padding:14rpx 18rpx;border:1px solid #f1d9a6;border-radius:12rpx;background:#fff9eb;color:#9a6a18;font-size:19rpx;line-height:1.5}
+.generation-warning--error{border-color:#efc7c2;background:#fff5f4;color:#9d4f49}
 .export-choice--disabled{opacity:.52}
+.product-hero{position:relative;margin-bottom:28rpx;padding:28rpx 28rpx 30rpx;overflow:hidden;border:1px solid #dfe7ef;border-radius:20rpx;background:linear-gradient(135deg,#fff,#f1f5f9)}
+.product-hero__copy{position:relative;z-index:1;max-width:470rpx}
+.product-hero__eyebrow,.product-hero__title,.product-hero__desc{display:block}
+.product-hero__eyebrow{color:#526f88;font-size:19rpx;font-weight:760}
+.product-hero__title{margin-top:10rpx;color:#172033;font-size:38rpx;font-weight:820;line-height:1.22}
+.product-hero__desc{margin-top:12rpx;color:#667386;font-size:21rpx;line-height:1.55}
+.product-hero__slide{position:absolute;right:22rpx;bottom:24rpx;width:140rpx;height:86rpx;padding:17rpx 16rpx;border:1px solid #cfdbe7;border-radius:13rpx;background:#fff;box-shadow:0 10rpx 26rpx rgba(49,75,99,.12);box-sizing:border-box;transform:rotate(-4deg)}
+.product-hero__slide text{display:block;height:6rpx;border-radius:99rpx;background:#526f88}
+.product-hero__slide text+text{margin-top:10rpx;background:#b8c6d4}
+.product-hero__slide text:nth-child(2){width:75%}
+.product-hero__slide text:nth-child(3){width:52%}
+.recover-card{display:flex;align-items:center;justify-content:space-between;gap:20rpx;margin-bottom:22rpx;padding:20rpx;border:1px solid #e1e7ef;border-radius:17rpx;background:#fff}
+.recover-card--warning{border-color:#ecd8b4;background:#fff8ed}
+.recover-card__title,.recover-card__desc{display:block}
+.recover-card__title{color:#7b541d;font-size:24rpx;font-weight:760}
+.recover-card__desc{margin-top:7rpx;color:#9b6b24;font-size:19rpx;line-height:1.45}
+.recover-card__button{flex:none;height:58rpx;margin:0;padding:0 18rpx;border:1px solid #d8b06f;border-radius:12rpx;background:#fff;color:#8b5f23;font-size:20rpx;line-height:58rpx}
+.recover-card__button::after{border:0}
+.capability-strip{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12rpx;margin-top:24rpx}
+.capability-card{min-height:112rpx;padding:16rpx 14rpx;border:1px solid #e1e8ef;border-radius:15rpx;background:#f8fafc;box-sizing:border-box}
+.capability-card__title,.capability-card__desc{display:block}
+.capability-card__title{color:#314b63;font-size:21rpx;font-weight:760}
+.capability-card__desc{margin-top:8rpx;color:#718094;font-size:17rpx;line-height:1.42}
+.mode-intro{margin-bottom:22rpx;padding:22rpx;border:1px solid #dfe7ef;border-radius:17rpx;background:#f8fafc}
+.mode-intro__title,.mode-intro__desc{display:block}
+.mode-intro__title{font-size:27rpx;font-weight:800}
+.mode-intro__desc{margin-top:9rpx;color:#6b7889;font-size:21rpx;line-height:1.5}
+.task-runtime-card{margin-top:22rpx;padding:20rpx;border:1px solid #e1e7ef;border-radius:16rpx;background:#fafbfd}
+.task-runtime-card__row{display:flex;align-items:center;justify-content:space-between;padding:8rpx 0;color:#697587;font-size:20rpx}
+.task-runtime-card__row text:last-child{color:#314b63;font-weight:700}
+.task-runtime-card__message{display:block;margin-top:10rpx;padding-top:14rpx;border-top:1px solid #e8edf3;color:#526174;font-size:20rpx;line-height:1.5}
 </style>
