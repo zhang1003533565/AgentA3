@@ -1,0 +1,780 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>AgentA3 AI创作 PPT生成设计板</title>
+  <style>
+    :root {
+      --bg: #f4f7fb;
+      --panel: #ffffff;
+      --text: #172033;
+      --muted: #6a788b;
+      --line: #dfe6ef;
+      --soft: #eef3f8;
+      --blue: #526f88;
+      --blue-dark: #314b63;
+      --green: #4d8a72;
+      --red: #b65f58;
+      --amber: #b9833e;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: #e9eef5;
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
+    }
+    .board {
+      max-width: 1480px;
+      margin: 0 auto;
+      padding: 36px 28px 56px;
+    }
+    .board-head {
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      gap: 24px;
+      margin-bottom: 28px;
+    }
+    h1 {
+      margin: 0;
+      font-size: 28px;
+      letter-spacing: 0;
+    }
+    .board-head p {
+      max-width: 720px;
+      margin: 10px 0 0;
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.7;
+    }
+    .legend {
+      display: flex;
+      gap: 12px;
+      color: var(--muted);
+      font-size: 13px;
+      white-space: nowrap;
+    }
+    .legend span {
+      padding: 7px 10px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: rgba(255,255,255,.72);
+    }
+    .screens {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(330px, 1fr));
+      gap: 28px;
+    }
+    .screen-wrap {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .caption {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      min-height: 36px;
+      color: #334155;
+      font-size: 14px;
+      font-weight: 700;
+    }
+    .caption small {
+      color: var(--muted);
+      font-weight: 500;
+    }
+    .phone {
+      width: 390px;
+      height: 844px;
+      background: var(--bg);
+      border: 1px solid #cdd6e2;
+      border-radius: 22px;
+      overflow: hidden;
+      box-shadow: 0 16px 35px rgba(31, 45, 61, .12);
+      position: relative;
+    }
+    .nav {
+      height: 56px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+      background: var(--panel);
+      border-bottom: 1px solid #edf1f5;
+      font-weight: 760;
+      font-size: 17px;
+    }
+    .back {
+      position: absolute;
+      left: 18px;
+      top: 19px;
+      width: 11px;
+      height: 11px;
+      border-left: 2px solid #1f2937;
+      border-bottom: 2px solid #1f2937;
+      transform: rotate(45deg);
+    }
+    .content {
+      height: calc(100% - 56px);
+      overflow: hidden;
+      padding: 16px;
+    }
+    .stepper {
+      display: flex;
+      gap: 6px;
+      margin-bottom: 14px;
+    }
+    .step {
+      flex: 1;
+      height: 4px;
+      border-radius: 999px;
+      background: #dbe4ee;
+    }
+    .step.on { background: var(--blue); }
+    .hero {
+      padding: 20px 18px;
+      background: linear-gradient(135deg, #ffffff 0%, #edf3f8 100%);
+      border: 1px solid #e1e8f0;
+      border-radius: 12px;
+    }
+    .eyebrow {
+      color: var(--blue);
+      font-size: 12px;
+      font-weight: 760;
+    }
+    h2 {
+      margin: 8px 0 8px;
+      font-size: 24px;
+      line-height: 1.25;
+      letter-spacing: 0;
+    }
+    .sub {
+      margin: 0;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.55;
+    }
+    .upload {
+      margin-top: 16px;
+      padding: 18px;
+      border: 1px dashed #b8c6d5;
+      border-radius: 10px;
+      background: #fafcff;
+      text-align: center;
+    }
+    .upload-icon {
+      width: 42px;
+      height: 42px;
+      margin: 0 auto 10px;
+      border-radius: 12px;
+      background: #dfeaf3;
+      position: relative;
+    }
+    .upload-icon:before {
+      content: "";
+      position: absolute;
+      left: 15px;
+      top: 11px;
+      width: 12px;
+      height: 16px;
+      border: 2px solid var(--blue);
+      border-top: 0;
+    }
+    .upload-icon:after {
+      content: "";
+      position: absolute;
+      left: 15px;
+      top: 9px;
+      width: 12px;
+      height: 12px;
+      border-left: 2px solid var(--blue);
+      border-top: 2px solid var(--blue);
+      transform: rotate(45deg);
+    }
+    .upload strong, .row strong { display: block; font-size: 15px; }
+    .upload span { display: block; margin-top: 6px; color: var(--muted); font-size: 12px; }
+    .field, .panel {
+      margin-top: 14px;
+      padding: 14px;
+      background: var(--panel);
+      border: 1px solid #e4ebf2;
+      border-radius: 10px;
+    }
+    .label {
+      display: block;
+      margin-bottom: 8px;
+      color: #334155;
+      font-size: 13px;
+      font-weight: 720;
+    }
+    .input, .textarea {
+      min-height: 40px;
+      padding: 10px 12px;
+      border-radius: 8px;
+      background: #f6f9fc;
+      color: #526174;
+      font-size: 13px;
+      line-height: 1.45;
+    }
+    .textarea { min-height: 92px; }
+    .chips { display: flex; flex-wrap: wrap; gap: 8px; }
+    .chip {
+      padding: 8px 10px;
+      border-radius: 999px;
+      border: 1px solid #d7e0ea;
+      color: #536273;
+      font-size: 12px;
+      background: #fff;
+    }
+    .chip.on {
+      border-color: #9bb1c4;
+      background: #edf3f8;
+      color: var(--blue-dark);
+      font-weight: 720;
+    }
+    .btn {
+      height: 46px;
+      margin-top: 16px;
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: var(--blue);
+      color: #fff;
+      font-size: 15px;
+      font-weight: 760;
+    }
+    .btn.secondary {
+      background: #edf3f8;
+      color: var(--blue-dark);
+      border: 1px solid #d4e0ea;
+    }
+    .btn-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .progress {
+      margin-top: 22px;
+      padding: 18px;
+      border-radius: 12px;
+      background: var(--panel);
+      border: 1px solid #e4ebf2;
+    }
+    .progress-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 14px;
+      font-weight: 720;
+    }
+    .bar {
+      margin-top: 14px;
+      height: 8px;
+      border-radius: 999px;
+      background: #e1e8ef;
+      overflow: hidden;
+    }
+    .bar i {
+      display: block;
+      height: 100%;
+      width: 62%;
+      background: linear-gradient(90deg, var(--blue), var(--green));
+    }
+    .trace {
+      margin-top: 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .trace-row {
+      display: grid;
+      grid-template-columns: 18px 1fr auto;
+      gap: 9px;
+      align-items: start;
+      font-size: 12px;
+      color: var(--muted);
+    }
+    .dot {
+      width: 10px;
+      height: 10px;
+      margin-top: 4px;
+      border-radius: 50%;
+      background: #9aaabc;
+    }
+    .dot.done { background: var(--green); }
+    .dot.run { background: var(--blue); }
+    .dot.fail { background: var(--red); }
+    .trace-row b { display: block; color: #263445; font-size: 13px; }
+    .outline-list, .slide-list { display: flex; flex-direction: column; gap: 10px; }
+    .outline-item {
+      display: grid;
+      grid-template-columns: 26px 1fr 42px;
+      gap: 10px;
+      align-items: center;
+      padding: 12px;
+      border: 1px solid #e5ebf2;
+      border-radius: 10px;
+      background: #fff;
+    }
+    .num {
+      width: 26px;
+      height: 26px;
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: #edf3f8;
+      color: var(--blue-dark);
+      font-weight: 760;
+      font-size: 12px;
+    }
+    .outline-item b { display: block; font-size: 14px; }
+    .outline-item span { color: var(--muted); font-size: 12px; }
+    .handle { color: #92a1b2; text-align: right; }
+    .template-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+    .template {
+      border: 1px solid #dce5ef;
+      border-radius: 10px;
+      background: #fff;
+      overflow: hidden;
+    }
+    .template.on { border-color: var(--blue); box-shadow: inset 0 0 0 1px var(--blue); }
+    .thumb {
+      height: 76px;
+      background: linear-gradient(135deg, #dce7ef, #f9fbfd);
+      padding: 10px;
+    }
+    .thumb-line {
+      height: 8px;
+      margin-bottom: 7px;
+      border-radius: 999px;
+      background: #8da2b5;
+    }
+    .thumb-line.small { width: 58%; background: #c0ccd8; }
+    .template p { margin: 8px 10px 10px; font-size: 12px; font-weight: 720; }
+    .setting-row, .export-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 0;
+      border-bottom: 1px solid #edf1f5;
+      font-size: 13px;
+    }
+    .setting-row:last-child, .export-row:last-child { border-bottom: 0; }
+    .switch {
+      width: 40px;
+      height: 22px;
+      border-radius: 999px;
+      background: var(--blue);
+      position: relative;
+    }
+    .switch:after {
+      content: "";
+      position: absolute;
+      right: 3px;
+      top: 3px;
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      background: #fff;
+    }
+    .slide-card {
+      display: grid;
+      grid-template-columns: 82px 1fr;
+      gap: 12px;
+      padding: 10px;
+      border: 1px solid #e4ebf2;
+      border-radius: 10px;
+      background: #fff;
+    }
+    .mini-slide {
+      width: 82px;
+      height: 46px;
+      border-radius: 6px;
+      background: #e8eef5;
+      border: 1px solid #d3deea;
+      padding: 8px;
+    }
+    .mini-slide i {
+      display: block;
+      height: 5px;
+      margin-bottom: 5px;
+      border-radius: 999px;
+      background: #667e95;
+    }
+    .mini-slide em {
+      display: block;
+      width: 68%;
+      height: 4px;
+      border-radius: 999px;
+      background: #bdcad6;
+    }
+    .slide-card b { display: block; font-size: 13px; }
+    .slide-card span { display: block; margin-top: 4px; color: var(--muted); font-size: 11px; }
+    .preview {
+      height: 188px;
+      padding: 18px;
+      border-radius: 12px;
+      background: #dfe8f1;
+      border: 1px solid #ccd8e5;
+    }
+    .preview .title {
+      width: 74%;
+      height: 18px;
+      border-radius: 999px;
+      background: var(--blue-dark);
+    }
+    .preview .copy {
+      width: 88%;
+      height: 9px;
+      margin-top: 18px;
+      border-radius: 999px;
+      background: #8297aa;
+    }
+    .preview .copy.short { width: 62%; margin-top: 9px; }
+    .edit-panel {
+      margin-top: 14px;
+      display: grid;
+      grid-template-columns: 92px 1fr;
+      gap: 12px;
+    }
+    .side-tabs {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .side-tab {
+      padding: 10px 8px;
+      border-radius: 8px;
+      background: #edf3f8;
+      color: var(--blue-dark);
+      font-size: 12px;
+      font-weight: 720;
+    }
+    .side-tab.muted {
+      background: transparent;
+      color: var(--muted);
+      border: 1px solid #e4ebf2;
+    }
+    .success {
+      margin-top: 28px;
+      text-align: center;
+    }
+    .success-icon {
+      width: 58px;
+      height: 58px;
+      margin: 0 auto 14px;
+      border-radius: 18px;
+      background: #dff1e9;
+      position: relative;
+    }
+    .success-icon:after {
+      content: "";
+      position: absolute;
+      left: 19px;
+      top: 18px;
+      width: 18px;
+      height: 10px;
+      border-left: 3px solid var(--green);
+      border-bottom: 3px solid var(--green);
+      transform: rotate(-45deg);
+    }
+    .file-card {
+      margin-top: 18px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 14px;
+      border: 1px solid #e4ebf2;
+      border-radius: 10px;
+      background: #fff;
+    }
+    .file-type {
+      width: 42px;
+      height: 42px;
+      border-radius: 9px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: #edf3f8;
+      color: var(--blue-dark);
+      font-weight: 800;
+      font-size: 13px;
+    }
+    .file-card b { display: block; font-size: 14px; }
+    .file-card span { color: var(--muted); font-size: 12px; }
+    .warn {
+      margin-top: 14px;
+      padding: 12px;
+      border-radius: 10px;
+      background: #fff7ed;
+      color: #8a5a1f;
+      font-size: 12px;
+      line-height: 1.55;
+    }
+    .empty {
+      margin-top: 90px;
+      padding: 24px 18px;
+      text-align: center;
+      background: #fff;
+      border: 1px solid #e4ebf2;
+      border-radius: 12px;
+    }
+    .empty h2 { font-size: 20px; }
+    .empty p {
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.6;
+    }
+    @media (max-width: 1180px) {
+      .screens { grid-template-columns: repeat(2, minmax(330px, 1fr)); }
+    }
+    @media (max-width: 760px) {
+      .board { padding: 20px 12px 32px; }
+      .board-head { display: block; }
+      .legend { margin-top: 14px; flex-wrap: wrap; white-space: normal; }
+      .screens { grid-template-columns: 1fr; }
+      .phone { width: 100%; max-width: 390px; margin: 0 auto; }
+    }
+  </style>
+</head>
+<body>
+  <main class="board">
+    <header class="board-head">
+      <div>
+        <h1>AI创作 / PPT生成完整流程设计板</h1>
+        <p>目标：让学生从资料上传到可编辑 PPTX/PDF 导出形成闭环。界面使用现有轻量校园风格：浅灰背景、白色表面、低饱和蓝灰强调、清晰任务状态。</p>
+      </div>
+      <div class="legend">
+        <span>390 x 844 小程序视口</span>
+        <span>Presenton 模板渲染</span>
+        <span>API key 与图表工具同链路</span>
+      </div>
+    </header>
+
+    <section class="screens">
+      <div class="screen-wrap">
+        <div class="caption">01 资料上传与主题输入 <small>入口页</small></div>
+        <div class="phone">
+          <div class="nav"><i class="back"></i>PPT生成</div>
+          <div class="content">
+            <div class="stepper"><i class="step on"></i><i class="step"></i><i class="step"></i><i class="step"></i><i class="step"></i></div>
+            <div class="hero">
+              <span class="eyebrow">AI创作 / 复习资料 PPT</span>
+              <h2>把课程资料整理成可编辑演示文稿</h2>
+              <p class="sub">上传 TXT、PDF、Word、PPT 或 Excel，AI 会先生成可修改大纲，再渲染为 PPTX 和 PDF。</p>
+              <div class="upload">
+                <div class="upload-icon"></div>
+                <strong>选择学习资料</strong>
+                <span>最大 25MB，旧版 Office 需服务端转换支持</span>
+              </div>
+            </div>
+            <div class="field">
+              <span class="label">本次主题</span>
+              <div class="textarea">例如：操作系统进程调度复习课件</div>
+            </div>
+            <div class="field">
+              <span class="label">生成偏好</span>
+              <div class="chips"><span class="chip on">复习资料</span><span class="chip on">15 页</span><span class="chip">内容标准</span></div>
+            </div>
+            <div class="btn">生成可编辑大纲</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="screen-wrap">
+        <div class="caption">02 AI 大纲生成进度 <small>模型调用</small></div>
+        <div class="phone">
+          <div class="nav"><i class="back"></i>PPT生成</div>
+          <div class="content">
+            <div class="stepper"><i class="step on"></i><i class="step on"></i><i class="step"></i><i class="step"></i><i class="step"></i></div>
+            <div class="hero">
+              <span class="eyebrow">正在理解资料</span>
+              <h2>先确认内容结构，再开始做页面</h2>
+              <p class="sub">避免直接生成一份无法修改的 PPT。大纲阶段会严格依据上传资料，不补造事实。</p>
+            </div>
+            <div class="progress">
+              <div class="progress-head"><span>AI 正在整理复习大纲</span><span>62%</span></div>
+              <div class="bar"><i></i></div>
+              <div class="trace">
+                <div class="trace-row"><i class="dot done"></i><div><b>读取学习资料</b>已解析 18,420 字</div><span>完成</span></div>
+                <div class="trace-row"><i class="dot run"></i><div><b>ppt_outline_agent</b>生成章节结构和页标题</div><span>运行中</span></div>
+                <div class="trace-row"><i class="dot"></i><div><b>格式校验</b>转换为可编辑大纲项</div><span>等待</span></div>
+              </div>
+            </div>
+            <div class="btn secondary">取消生成</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="screen-wrap">
+        <div class="caption">03 大纲编辑 <small>用户控制内容</small></div>
+        <div class="phone">
+          <div class="nav"><i class="back"></i>编辑大纲</div>
+          <div class="content">
+            <div class="stepper"><i class="step on"></i><i class="step on"></i><i class="step on"></i><i class="step"></i><i class="step"></i></div>
+            <div class="panel">
+              <span class="eyebrow">大纲已生成</span>
+              <h2>确认每一页讲什么</h2>
+              <p class="sub">可以调整顺序、删除不需要的页，或补充老师要求的重点。</p>
+            </div>
+            <div class="panel outline-list">
+              <div class="outline-item"><span class="num">1</span><div><b>封面：进程调度复习</b><span>封面页</span></div><span class="handle">⋮⋮</span></div>
+              <div class="outline-item"><span class="num">2</span><div><b>调度目标与评价指标</b><span>响应时间、吞吐量、公平性</span></div><span class="handle">⋮⋮</span></div>
+              <div class="outline-item"><span class="num">3</span><div><b>FCFS 与 SJF 对比</b><span>适用场景和缺点</span></div><span class="handle">⋮⋮</span></div>
+              <div class="outline-item"><span class="num">4</span><div><b>时间片轮转</b><span>时间片长度影响</span></div><span class="handle">⋮⋮</span></div>
+              <div class="outline-item"><span class="num">5</span><div><b>复习总结</b><span>易错点回顾</span></div><span class="handle">⋮⋮</span></div>
+            </div>
+            <div class="btn-row"><div class="btn secondary">新增一页</div><div class="btn">下一步</div></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="screen-wrap">
+        <div class="caption">04 模板与参数设置 <small>Presenton 思路</small></div>
+        <div class="phone">
+          <div class="nav"><i class="back"></i>页面设置</div>
+          <div class="content">
+            <div class="stepper"><i class="step on"></i><i class="step on"></i><i class="step on"></i><i class="step on"></i><i class="step"></i></div>
+            <div class="panel">
+              <span class="label">选择模板</span>
+              <div class="template-grid">
+                <div class="template on"><div class="thumb"><i class="thumb-line"></i><i class="thumb-line small"></i></div><p>简约通用</p></div>
+                <div class="template"><div class="thumb"><i class="thumb-line"></i><i class="thumb-line small"></i></div><p>课堂复习</p></div>
+                <div class="template"><div class="thumb"><i class="thumb-line"></i><i class="thumb-line small"></i></div><p>汇报展示</p></div>
+                <div class="template"><div class="thumb"><i class="thumb-line"></i><i class="thumb-line small"></i></div><p>重点讲解</p></div>
+              </div>
+            </div>
+            <div class="panel">
+              <div class="setting-row"><span>包含封面</span><i class="switch"></i></div>
+              <div class="setting-row"><span>包含目录</span><i class="switch"></i></div>
+              <div class="setting-row"><span>包含总结页</span><i class="switch"></i></div>
+              <div class="setting-row"><span>配图模式</span><b>占位图，可后续替换</b></div>
+              <div class="setting-row"><span>内容密度</span><b>标准</b></div>
+            </div>
+            <div class="btn">生成逐页内容</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="screen-wrap">
+        <div class="caption">05 逐页内容生成 <small>SSE/轮询</small></div>
+        <div class="phone">
+          <div class="nav"><i class="back"></i>生成页面</div>
+          <div class="content">
+            <div class="hero">
+              <span class="eyebrow">ppt_content_agent</span>
+              <h2>正在逐页写入模板页面</h2>
+              <p class="sub">页面会分批生成，完成后可以逐页检查和修改。</p>
+            </div>
+            <div class="progress">
+              <div class="progress-head"><span>第 8 / 15 页</span><span>54%</span></div>
+              <div class="bar"><i style="width:54%"></i></div>
+              <div class="trace">
+                <div class="trace-row"><i class="dot done"></i><div><b>布局选择</b>已匹配 15 个 Presenton layout</div><span>完成</span></div>
+                <div class="trace-row"><i class="dot run"></i><div><b>并行生成</b>处理中：8、9、10、11 页</div><span>运行中</span></div>
+                <div class="trace-row"><i class="dot"></i><div><b>内容校验</b>验证 UI 树没有改变模板结构</div><span>等待</span></div>
+              </div>
+            </div>
+            <div class="panel slide-list">
+              <div class="slide-card"><div class="mini-slide"><i></i><em></em></div><div><b>01 封面</b><span>已完成</span></div></div>
+              <div class="slide-card"><div class="mini-slide"><i></i><em></em></div><div><b>02 调度目标</b><span>已完成</span></div></div>
+              <div class="slide-card"><div class="mini-slide"><i></i><em></em></div><div><b>08 时间片长度影响</b><span>正在生成</span></div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="screen-wrap">
+        <div class="caption">06 页面预览与轻编辑 <small>生成前校对</small></div>
+        <div class="phone">
+          <div class="nav"><i class="back"></i>检查页面</div>
+          <div class="content">
+            <div class="preview"><div class="title"></div><div class="copy"></div><div class="copy short"></div><div class="copy"></div></div>
+            <div class="edit-panel">
+              <div class="side-tabs"><span class="side-tab">第 1 页</span><span class="side-tab muted">第 2 页</span><span class="side-tab muted">第 3 页</span><span class="side-tab muted">全部</span></div>
+              <div>
+                <div class="field" style="margin-top:0"><span class="label">页面标题</span><div class="input">进程调度复习</div></div>
+                <div class="field"><span class="label">核心要点</span><div class="textarea">调度算法解决 CPU 分配问题<br>重点比较平均等待时间<br>注意饥饿和公平性</div></div>
+                <div class="btn secondary">替换本页图片</div>
+              </div>
+            </div>
+            <div class="btn-row"><div class="btn secondary">返回大纲</div><div class="btn">开始渲染 PPT</div></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="screen-wrap">
+        <div class="caption">07 最终渲染进度 <small>PPTX/PDF/预览图</small></div>
+        <div class="phone">
+          <div class="nav"><i class="back"></i>渲染导出</div>
+          <div class="content">
+            <div class="hero">
+              <span class="eyebrow">Presenton embedded runtime</span>
+              <h2>正在生成可打开文件</h2>
+              <p class="sub">先渲染 HTML 页面，再导出 PDF、预览图和 PPTX。若 PPTX 转换器不可用，会保留 PDF 并说明原因。</p>
+            </div>
+            <div class="progress">
+              <div class="progress-head"><span>正在生成 PDF 和页面预览</span><span>82%</span></div>
+              <div class="bar"><i style="width:82%"></i></div>
+              <div class="trace">
+                <div class="trace-row"><i class="dot done"></i><div><b>整理页面内容</b>已锁定 15 页</div><span>完成</span></div>
+                <div class="trace-row"><i class="dot done"></i><div><b>配图处理</b>占位图与用户图片已写入</div><span>完成</span></div>
+                <div class="trace-row"><i class="dot run"></i><div><b>Chromium 渲染</b>生成 PDF 与 PNG 预览</div><span>运行中</span></div>
+                <div class="trace-row"><i class="dot"></i><div><b>presenton-export</b>转换 PPTX</div><span>等待</span></div>
+              </div>
+            </div>
+            <div class="btn secondary">后台继续生成</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="screen-wrap">
+        <div class="caption">08 结果与导出 <small>文件闭环</small></div>
+        <div class="phone">
+          <div class="nav"><i class="back"></i>生成完成</div>
+          <div class="content">
+            <div class="success">
+              <div class="success-icon"></div>
+              <h2>复习 PPT 已生成</h2>
+              <p class="sub">共 15 页，已生成预览图、PDF 和 PPTX。</p>
+            </div>
+            <div class="file-card"><span class="file-type">PPTX</span><div><b>进程调度复习.pptx</b><span>可使用 PowerPoint 或 WPS 继续编辑</span></div></div>
+            <div class="file-card"><span class="file-type">PDF</span><div><b>进程调度复习.pdf</b><span>适合快速分享和打印</span></div></div>
+            <div class="panel slide-list">
+              <span class="label">页面预览</span>
+              <div class="slide-card"><div class="mini-slide"><i></i><em></em></div><div><b>01 封面</b><span>点击查看大图</span></div></div>
+              <div class="slide-card"><div class="mini-slide"><i></i><em></em></div><div><b>02 调度目标</b><span>点击查看大图</span></div></div>
+            </div>
+            <div class="btn-row"><div class="btn secondary">继续修改</div><div class="btn">打开文件</div></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="screen-wrap">
+        <div class="caption">09 异常与恢复 <small>API key/转换器/网络</small></div>
+        <div class="phone">
+          <div class="nav"><i class="back"></i>PPT生成</div>
+          <div class="content">
+            <div class="empty">
+              <h2>还不能生成 PPT</h2>
+              <p>当前模型配置未测试成功，PPT 生成和思维导图、活动图使用同一套 API key 链路。请先在模型设置里完成测试。</p>
+              <div class="btn">去配置模型</div>
+            </div>
+            <div class="warn">如果仅 PPTX 不可用：保留 PDF 和页面预览，展示转换器错误，不回退到假文件。</div>
+            <div class="panel">
+              <div class="setting-row"><span>大纲失败</span><b>可重试</b></div>
+              <div class="setting-row"><span>逐页生成失败</span><b>保留任务</b></div>
+              <div class="setting-row"><span>导出失败</span><b>返回编辑</b></div>
+              <div class="setting-row"><span>资料过期</span><b>重新上传</b></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+</body>
+</html>
