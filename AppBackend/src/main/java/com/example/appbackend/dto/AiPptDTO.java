@@ -33,8 +33,18 @@ public final class AiPptDTO {
         private String description;
         private String thumbnailUrl;
         private Integer layoutCount;
+        private List<LayoutInfo> layouts;
         @JsonProperty("default")
         private boolean defaultOption;
+    }
+
+    @Data
+    public static class LayoutInfo {
+        private String id;
+        private String description;
+        private List<String> elementTypes;
+        private List<String> slots;
+        private List<String> previewTexts;
     }
 
     @Data

@@ -772,25 +772,37 @@
       <view class="layout-fullscreen__bar">
         <view class="layout-fullscreen__bar-main">
           <text class="layout-fullscreen__title">{{ selectedTemplateName }}</text>
-          <text class="layout-fullscreen__count">{{ activeLayoutIndex + 1 }} / {{ selectedTemplateLayouts.length }}</text>
+          <text class="layout-fullscreen__count">{{ activeLayoutIndex + 1 }} / {{ selectedTemplateLayouts.length }} 页版式</text>
         </view>
         <view class="layout-fullscreen__close" @tap="closeLayoutViewer"><text>×</text></view>
       </view>
-      <swiper class="layout-fullscreen__swiper" vertical :current="activeLayoutIndex" @change="onLayoutSlideChange">
-        <swiper-item v-for="(layout, index) in selectedTemplateLayouts" :key="layout.id || index">
-          <view class="layout-fullscreen__slide" @tap="retryLayoutPreview(index)">
-            <image v-if="layoutPreviewImages[index]" class="layout-fullscreen__image" :src="layoutPreviewImages[index]" mode="aspectFit" />
-            <view v-else class="layout-fullscreen__placeholder">
-              <text v-if="layoutPreviewFailed[`${selectedTemplate?.id}:${index}`]">版式图加载失败，点击重试</text>
-              <text v-else>正在加载版式图…</text>
-              <text class="layout-fullscreen__name">{{ layout?.name }}</text>
-            </view>
+      <scroll-view
+        class="layout-fullscreen__scroll"
+        scroll-y
+        :scroll-top="layoutScrollTop"
+        @scroll="onLayoutStripScroll"
+      >
+        <view
+          v-for="(layout, index) in selectedTemplateLayouts"
+          :id="`layout-item-${index}`"
+          :key="layout.id || index"
+          class="layout-fullscreen__item"
+          @tap="retryLayoutPreview(index)"
+        >
+          <image v-if="layoutPreviewImages[index]" class="layout-fullscreen__image" :src="layoutPreviewImages[index]" mode="widthFix" />
+          <view v-else class="layout-fullscreen__placeholder">
+            <text v-if="layoutPreviewFailed[`${selectedTemplate?.id}:${index}`]">版式图加载失败，点击重试</text>
+            <text v-else>正在加载版式图…</text>
+            <text class="layout-fullscreen__name">{{ layout?.name }}</text>
           </view>
-        </swiper-item>
-      </swiper>
-      <view class="layout-fullscreen__caption">
-        <text class="layout-fullscreen__caption-name">{{ currentLayout?.name }}</text>
-        <text class="layout-fullscreen__caption-hint">上下滑动翻页</text>
+        </view>
+      </scroll-view>
+      <view class="layout-fullscreen__footer">
+        <view class="layout-fullscreen__caption">
+          <text class="layout-fullscreen__caption-name">{{ currentLayout?.name }}</text>
+          <text class="layout-fullscreen__caption-hint">上下滑动浏览全部版式</text>
+        </view>
+        <view class="layout-fullscreen__use" @tap="useTemplateFromViewer"><text>使用该模板</text></view>
       </view>
     </view>
 
@@ -902,6 +914,8 @@ export default {
       templateOptionsLoading: false,
       activeLayoutIndex: 0,
       layoutViewerVisible: false,
+      layoutScrollTop: 0,
+      layoutItemStride: 0,
       layoutPreviewCache: {},
       layoutPreviewPending: {},
       layoutPreviewFailed: {},
@@ -1399,20 +1413,44 @@ export default {
       this.activeLayoutIndex = 0
       this.templateEntryMode = 'detail'
       this.currentStep = this.templateStepIndex
-      this.prewarmLayoutPreviews()
+      this.openLayoutViewer()
     },
-    onLayoutSlideChange(event) {
-      const current = Number(event?.detail?.current || 0)
-      this.activeLayoutIndex = current
-      this.prewarmLayoutPreviews()
+    onLayoutStripScroll(event) {
+      const scrollTop = Number(event?.detail?.scrollTop || 0)
+      const stride = this.layoutItemStride || 300
+      const total = this.selectedTemplateLayouts.length
+      const index = Math.min(total - 1, Math.max(0, Math.round(scrollTop / stride)))
+      if (index !== this.activeLayoutIndex) {
+        this.activeLayoutIndex = index
+        this.prewarmLayoutPreviews()
+      }
+      this.measureLayoutStride()
+    },
+    measureLayoutStride() {
+      if (this.layoutItemStride || !this.layoutViewerVisible) return
+      const query = uni.createSelectorQuery().in(this)
+      query.select('#layout-item-0').boundingClientRect()
+      query.select('#layout-item-1').boundingClientRect()
+      query.exec(rects => {
+        const first = rects && rects[0]
+        const second = rects && rects[1]
+        if (first && second && second.top - first.top > 0) {
+          this.layoutItemStride = second.top - first.top
+        } else if (first && first.height > 0) {
+          this.layoutItemStride = first.height + 8
+        }
+      })
     },
     openLayoutViewer() {
-      if (this.layoutPreviewFailed[`${this.selectedTemplate?.id}:0`]) {
-        this.retryLayoutPreview(0)
-        return
-      }
+      this.layoutScrollTop = 0
+      this.layoutItemStride = 0
       this.layoutViewerVisible = true
       this.prewarmLayoutPreviews()
+      this.$nextTick(() => setTimeout(() => this.measureLayoutStride(), 80))
+    },
+    useTemplateFromViewer() {
+      this.layoutViewerVisible = false
+      this.goNext()
     },
     closeLayoutViewer() {
       this.layoutViewerVisible = false
@@ -1421,8 +1459,12 @@ export default {
       const templateId = this.selectedTemplate?.id
       if (!templateId) return
       const total = this.selectedTemplateLayouts.length
-      const targets = new Set([this.activeLayoutIndex, this.activeLayoutIndex + 1])
-      if (this.activeLayoutIndex === 0) targets.add(2)
+      const targets = new Set([
+        this.activeLayoutIndex - 1,
+        this.activeLayoutIndex,
+        this.activeLayoutIndex + 1,
+        this.activeLayoutIndex + 2
+      ])
       targets.forEach(index => {
         if (index >= 0 && index < total) this.ensureLayoutPreview(templateId, index)
       })
@@ -2697,14 +2739,18 @@ export default {
 .layout-fullscreen__count{display:block;margin-top:5rpx;color:rgba(255,255,255,.65);font-size:19rpx}
 .layout-fullscreen__close{display:flex;width:64rpx;height:64rpx;flex:none;align-items:center;justify-content:center;border-radius:50%;background:rgba(255,255,255,.12)}
 .layout-fullscreen__close text{color:#fff;font-size:40rpx;line-height:1}
-.layout-fullscreen__swiper{flex:1;height:100%}
-.layout-fullscreen__slide{display:flex;align-items:center;justify-content:center;height:100%;padding:0 24rpx;box-sizing:border-box}
-.layout-fullscreen__image{width:100%;height:100%}
-.layout-fullscreen__placeholder{display:flex;align-items:center;justify-content:center;flex-direction:column;gap:12rpx;height:100%;color:#8a97a8;font-size:21rpx}
+.layout-fullscreen__scroll{flex:1;height:100%;overflow:hidden}
+.layout-fullscreen__item{padding:0 16rpx}
+.layout-fullscreen__item+.layout-fullscreen__item{margin-top:12rpx}
+.layout-fullscreen__image{display:block;width:100%;border-radius:8rpx;background:#1a2438}
+.layout-fullscreen__placeholder{display:flex;align-items:center;justify-content:center;flex-direction:column;gap:12rpx;width:100%;aspect-ratio:16/9;border-radius:8rpx;background:#1a2438;color:#8a97a8;font-size:21rpx;box-sizing:border-box}
 .layout-fullscreen__name{color:rgba(255,255,255,.5);font-size:18rpx}
-.layout-fullscreen__caption{display:flex;align-items:center;justify-content:space-between;gap:18rpx;padding:18rpx 28rpx calc(22rpx + env(safe-area-inset-bottom))}
+.layout-fullscreen__footer{display:flex;align-items:center;gap:18rpx;padding:16rpx 24rpx calc(20rpx + env(safe-area-inset-bottom))}
+.layout-fullscreen__caption{min-width:0;flex:1;display:flex;flex-direction:column;gap:4rpx}
 .layout-fullscreen__caption-name{overflow:hidden;color:rgba(255,255,255,.9);font-size:21rpx;font-weight:700;text-overflow:ellipsis;white-space:nowrap}
-.layout-fullscreen__caption-hint{flex:none;color:rgba(255,255,255,.4);font-size:18rpx}
+.layout-fullscreen__caption-hint{color:rgba(255,255,255,.4);font-size:18rpx}
+.layout-fullscreen__use{flex:none;display:flex;align-items:center;justify-content:center;height:76rpx;padding:0 44rpx;border-radius:999rpx;background:#5265f5}
+.layout-fullscreen__use text{color:#fff;font-size:24rpx;font-weight:760}
 .template-layout-preview{position:relative;aspect-ratio:16/9;overflow:hidden;padding:14rpx;border-radius:11rpx;background:#f5f8fb;box-sizing:border-box}
 .template-layout-preview text{display:block;height:6rpx;border-radius:99rpx;background:#526f88}
 .template-layout-preview text+text{margin-top:9rpx;background:#becadb}
