@@ -543,6 +543,14 @@
       </scroll-view>
 
       <view v-if="activeSlide" class="slide-editor">
+        <view v-if="canRetryGeneration" class="retry-render-card">
+          <view>
+            <text class="retry-render-card__title">上次渲染没有完成</text>
+            <text class="retry-render-card__desc">{{ renderFailureMessage }}</text>
+          </view>
+          <button class="retry-render-card__button" :disabled="apiBusy" @tap="retryGenerationTask">{{ apiBusy ? '重试中…' : '重试渲染' }}</button>
+        </view>
+
         <view class="slide-editor__preview" :class="`slide-editor__preview--${pptStyle}`">
           <text class="slide-editor__preview-index">{{ String(activeSlideIndex + 1).padStart(2, '0') }}</text>
           <text class="slide-editor__preview-title">{{ activeSlide.title || '未命名页面' }}</text>
@@ -853,6 +861,7 @@ import {
   getPptOptions,
   getPptTask,
   replacePptSlideImage,
+  retryPptTask,
   streamPptTask,
   uploadPptSourceFile
 } from '@/api/ppt.js'
@@ -1103,6 +1112,12 @@ export default {
     },
     hasFloatingActions() {
       return [1, 2, 3, 4, 5, 7].includes(this.currentStep)
+    },
+    canRetryGeneration() {
+      return Boolean(this.taskId && ['failed', 'cancelled'].includes(String(this.taskResult?.status || '')))
+    },
+    renderFailureMessage() {
+      return this.lastPptError || this.taskResult?.message || '可以保留当前页面内容，重新提交模板渲染。'
     },
     currentOperationBanter() {
       return this.operationBanters[this.operationBanterIndex] || this.operationBanters[0]
@@ -1656,6 +1671,37 @@ export default {
         this.currentStep = 5
         this.progress = 0
         this.handlePptError(error, 'PPT 生成失败')
+      }
+    },
+    async retryGenerationTask() {
+      if (!this.taskId || this.apiBusy) return
+      this.clearTimers()
+      const runId = ++this.generationRunId
+      this.apiBusy = true
+      this.modelConfigError = false
+      this.lastPptError = ''
+      this.currentStep = 6
+      this.progress = 2
+      this.previewImages = {}
+      try {
+        const response = await retryPptTask(this.taskId)
+        const created = this.responseData(response)
+        const nextTaskId = String(created.taskId || '')
+        if (!nextTaskId) throw new Error('服务端未返回重试任务编号')
+        this.taskId = nextTaskId
+        this.taskResult = {
+          ...created,
+          status: created.status || 'queued',
+          message: created.message || 'PPT 重试任务已进入队列'
+        }
+        this.apiBusy = false
+        await this.followGenerationTask(runId)
+      } catch (error) {
+        if (runId !== this.generationRunId) return
+        this.apiBusy = false
+        this.currentStep = 5
+        this.progress = 0
+        this.handlePptError(error, 'PPT 重试失败')
       }
     },
     async followGenerationTask(runId) {
@@ -2445,4 +2491,11 @@ export default {
 .generation-template-card__facts text{flex:none;max-width:170rpx;overflow:hidden;padding:5rpx 9rpx;border-radius:99rpx;background:#eef2f6;color:#526174;font-size:16rpx;text-overflow:ellipsis;white-space:nowrap}
 .result-template-card{margin-top:18rpx;background:#fff}
 .result-template-card__desc{margin-top:7rpx;overflow:hidden;color:#718094;font-size:18rpx;text-overflow:ellipsis;white-space:nowrap}
+.retry-render-card{display:flex;align-items:center;justify-content:space-between;gap:18rpx;margin-bottom:22rpx;padding:18rpx;border:1px solid #ecd8b4;border-radius:16rpx;background:#fff8ed}
+.retry-render-card__title,.retry-render-card__desc{display:block}
+.retry-render-card__title{color:#7b541d;font-size:23rpx;font-weight:780}
+.retry-render-card__desc{display:-webkit-box;margin-top:6rpx;overflow:hidden;color:#9b6b24;font-size:18rpx;line-height:1.45;-webkit-box-orient:vertical;-webkit-line-clamp:2}
+.retry-render-card__button{flex:none;height:58rpx;margin:0;padding:0 18rpx;border:1px solid #d8b06f;border-radius:12rpx;background:#fff;color:#8b5f23;font-size:20rpx;line-height:58rpx}
+.retry-render-card__button::after{border:0}
+.retry-render-card__button[disabled]{opacity:.5}
 </style>

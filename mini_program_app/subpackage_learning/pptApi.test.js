@@ -9,7 +9,7 @@ function loadPptApi(request, streamSse) {
     .replace(/export const /g, 'const ')
     .replace(/export function /g, 'function ')
   return new Function('request', 'streamSse', 'BASE_URL', 'PPT_OPTIONS_BYPASS_CACHE', 'getToken', 'uni', `${source}
-    return { getPptOptions, generatePptOutline, generatePptSlides, createPptTask, getPptTask, streamPptTask }
+    return { getPptOptions, generatePptOutline, generatePptSlides, createPptSlidesTask, createPptTask, getPptTask, retryPptTask, streamPptTask }
   `)(request, streamSse, 'https://example.test', false, () => 'token', {})
 }
 
@@ -23,17 +23,21 @@ test('PPT API maps the confirmed app workflow to authenticated backend routes', 
 
   await api.generatePptOutline({ sourceName: 'a.txt', sourceContent: '资料' })
   await api.generatePptSlides({ outline: { items: [] } })
+  await api.createPptSlidesTask({ outline: { items: [{}, {}] } })
   await api.createPptTask({ slides: [{}, {}] })
   await api.getPptTask('ppt task/1')
+  await api.retryPptTask('ppt task/1')
   api.streamPptTask('ppt task/1', { onEvent() {} })
 
   assert.deepEqual(requests.map(item => [item.method, item.url]), [
     ['POST', '/api/app/ai/ppt/outlines'],
     ['POST', '/api/app/ai/ppt/slides'],
+    ['POST', '/api/app/ai/ppt/slides/tasks'],
     ['POST', '/api/app/ai/ppt/tasks'],
-    ['GET', '/api/app/ai/ppt/tasks/ppt%20task%2F1']
+    ['GET', '/api/app/ai/ppt/tasks/ppt%20task%2F1'],
+    ['POST', '/api/app/ai/ppt/tasks/ppt%20task%2F1/retry']
   ])
-  assert.deepEqual(requests.slice(0, 3).map(item => item.timeout), [300000, 300000, 300000])
+  assert.deepEqual(requests.slice(0, 4).map(item => item.timeout), [300000, 300000, 120000, 300000])
   assert.equal(streams[0][0], '/api/app/ai/ppt/tasks/ppt%20task%2F1/stream')
   assert.equal(streams[0][4], 'GET')
 })

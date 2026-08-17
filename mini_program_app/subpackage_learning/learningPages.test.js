@@ -172,14 +172,16 @@ test('AIPPT uses real outline, slide, task, progress, preview and download APIs'
   const container = source('resourceGenerate/resourceGenerate.vue')
   const page = source('resourceGenerate/AIPresentationFlow.vue')
   for (const name of [
-    'generatePptOutline', 'generatePptSlides', 'createPptTask', 'streamPptTask',
-    'getPptTask', 'downloadPptPreview', 'downloadPptTaskFile'
+    'generatePptOutline', 'generatePptSlides', 'createPptSlidesTask', 'createPptTask', 'streamPptTask',
+    'getPptTask', 'retryPptTask', 'downloadPptPreview', 'downloadPptTaskFile'
   ]) {
     assert.match(page, new RegExp(`\\b${name}\\b`))
   }
   assert.doesNotMatch(page, /startMockGeneration|前端演示暂不提供真实文件/)
   assert.match(page, /exportFormats:\s*\['pptx', 'pdf'\]/)
   assert.match(page, /fallback[\s\S]*pollGenerationTask|pollGenerationTask/)
+  assert.match(page, /retryGenerationTask/)
+  assert.match(page, /重试渲染/)
   assert.match(container, /if \(this\.isPresentationMode\) return[\s\S]*uni\.getStorageSync\(WORKFLOW_STORAGE_KEY\)/)
   assert.match(container, /for \(let index = 0; index < 2; index \+= 1\)[\s\S]*decodeURIComponent\(decoded\)/)
 })
