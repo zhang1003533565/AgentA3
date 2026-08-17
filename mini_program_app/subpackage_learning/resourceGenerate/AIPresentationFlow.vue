@@ -12,30 +12,36 @@
       </view>
     </view>
 
-    <scroll-view class="step-scroll" scroll-x :show-scrollbar="false">
-      <view class="stepper">
-        <view class="stepper__track">
-          <view class="stepper__track-value" :style="{ width: stepperProgress }"></view>
-        </view>
-        <view
-          v-for="item in stepMeta"
-          :key="item.id"
-          class="stepper__item"
-          :class="{ 'stepper__item--active': currentStep === item.id, 'stepper__item--done': currentStep > item.id }"
-        >
-          <view class="stepper__marker">
-            <view class="stepper__number">
-              <text v-if="currentStep <= item.id">{{ item.id }}</text>
-              <text v-else class="stepper__check">✓</text>
+    <view class="stepper-card">
+      <view class="stepper-card__head">
+        <text>PPT 生成流程</text>
+        <text>{{ currentStep }} / {{ stepMeta.length }}</text>
+      </view>
+      <scroll-view class="step-scroll" scroll-x :show-scrollbar="false">
+        <view class="stepper">
+          <view class="stepper__track">
+            <view class="stepper__track-value" :style="{ width: stepperProgress }"></view>
+          </view>
+          <view
+            v-for="item in stepMeta"
+            :key="item.id"
+            class="stepper__item"
+            :class="{ 'stepper__item--active': currentStep === item.id, 'stepper__item--done': currentStep > item.id }"
+          >
+            <view class="stepper__marker">
+              <view class="stepper__number">
+                <text v-if="currentStep <= item.id">{{ item.id }}</text>
+                <text v-else class="stepper__check">✓</text>
+              </view>
+            </view>
+            <view class="stepper__copy">
+              <text class="stepper__label">{{ item.shortTitle }}</text>
+              <text class="stepper__state">{{ stepStateLabel(item) }}</text>
             </view>
           </view>
-          <view class="stepper__copy">
-            <text class="stepper__label">{{ item.shortTitle }}</text>
-            <text class="stepper__state">{{ stepStateLabel(item) }}</text>
-          </view>
         </view>
-      </view>
-    </scroll-view>
+      </scroll-view>
+    </view>
 
     <view v-if="modelConfigError" class="recover-card recover-card--warning">
       <view>
@@ -2515,18 +2521,22 @@ export default {
 .retry-render-card__button{flex:none;height:58rpx;margin:0;padding:0 18rpx;border:1px solid #d8b06f;border-radius:12rpx;background:#fff;color:#8b5f23;font-size:20rpx;line-height:58rpx}
 .retry-render-card__button::after{border:0}
 .retry-render-card__button[disabled]{opacity:.5}
-.step-scroll{margin-bottom:26rpx}
-.stepper{position:relative;min-width:980rpx;padding:8rpx 6rpx 14rpx}
-.stepper__track{position:absolute;left:68rpx;right:68rpx;top:32rpx;height:6rpx;overflow:hidden;border-radius:99rpx;background:#dfe5ee}
+.stepper-card{margin-bottom:26rpx;padding:22rpx 22rpx 18rpx;border:1px solid #e2e8f0;border-radius:18rpx;background:#fff;box-shadow:0 8rpx 24rpx rgba(30,50,90,.04)}
+.stepper-card__head{display:flex;align-items:center;justify-content:space-between;margin-bottom:10rpx}
+.stepper-card__head text:first-child{color:#172033;font-size:24rpx;font-weight:780}
+.stepper-card__head text:last-child{color:#5265f5;font-size:20rpx;font-weight:760}
+.step-scroll{width:100%;white-space:nowrap}
+.stepper{position:relative;display:inline-flex;min-width:1220rpx;padding:10rpx 0 12rpx;box-sizing:border-box}
+.stepper__track{position:absolute;left:66rpx;right:66rpx;top:34rpx;height:7rpx;overflow:hidden;border-radius:99rpx;background:#dfe5ee}
 .stepper__track-value{height:100%;border-radius:inherit;background:#5265f5;transition:width .25s ease}
-.stepper__item{z-index:1;min-width:122rpx;align-items:center}
+.stepper__item{z-index:1;min-width:152rpx;align-items:center}
 .stepper__item:not(:last-child)::after{display:none}
-.stepper__marker{display:flex;height:58rpx;align-items:flex-start;justify-content:center}
-.stepper__number{width:52rpx;height:52rpx;border:2rpx solid #d7dfeb;background:#f8fafc;color:#9aa5b6;font-size:22rpx;box-shadow:0 0 0 8rpx #f6f8fc}
+.stepper__marker{display:flex;height:64rpx;align-items:flex-start;justify-content:center}
+.stepper__number{width:52rpx;height:52rpx;border:2rpx solid #d7dfeb;background:#f8fafc;color:#96a1b2;font-size:22rpx;box-shadow:0 0 0 9rpx #fff}
 .stepper__item--done .stepper__number{border-color:#5265f5;background:#5265f5;color:#fff;box-shadow:0 0 0 8rpx #eef1ff}
-.stepper__item--active .stepper__number{width:58rpx;height:58rpx;border-color:#5265f5;background:#fff;color:#5265f5;box-shadow:0 0 0 8rpx #eef1ff,0 10rpx 24rpx rgba(78,97,246,.16)}
+.stepper__item--active .stepper__number{width:60rpx;height:60rpx;border:3rpx solid #5265f5;background:#eef1ff;color:#5265f5;box-shadow:0 0 0 9rpx #fff,0 10rpx 24rpx rgba(78,97,246,.16)}
 .stepper__copy{display:flex;align-items:center;flex-direction:column;gap:5rpx;text-align:center}
-.stepper__label{max-width:132rpx;margin-top:0;overflow:hidden;color:#8b95a7;font-size:20rpx;text-overflow:ellipsis;white-space:nowrap}
+.stepper__label{width:140rpx;margin-top:0;color:#8b95a7;font-size:20rpx;white-space:nowrap}
 .stepper__state{color:#b3bac8;font-size:16rpx;line-height:1}
 .stepper__item--done .stepper__label,.stepper__item--active .stepper__label{color:#4055e8;font-weight:780}
 .stepper__item--active .stepper__state{color:#5265f5;font-weight:700}

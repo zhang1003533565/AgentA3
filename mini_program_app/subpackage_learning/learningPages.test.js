@@ -219,6 +219,16 @@ test('AIPPT upload preview expands on demand and keeps next action floating at t
   assert.match(page, /@keyframes banter-in/)
 })
 
+test('AIPPT stepper follows the approved flow-card design', () => {
+  const page = source('resourceGenerate/AIPresentationFlow.vue')
+  assert.match(page, /stepper-card/)
+  assert.match(page, /PPT 生成流程/)
+  assert.match(page, /\{\{ currentStep \}\} \/ \{\{ stepMeta\.length \}\}/)
+  assert.match(page, /stepper__track-value/)
+  assert.match(page, /stepStateLabel\(item\)/)
+  assert.match(page, /return '进行中'/)
+})
+
 test('course resources never display review success when grounding still says model-only', async () => {
   const { learningResourceReviewStatus } = await sourceModule('learningView.js')
   assert.equal(learningResourceReviewStatus({
