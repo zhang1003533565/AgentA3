@@ -5,7 +5,7 @@ from copy import deepcopy
 import pytest
 from fastapi import HTTPException
 
-from app.ppt_generation.service import PptGenerationService, _outline_items
+from app.ppt_generation.service import PptGenerationService, _merge_content_into_layout, _outline_items
 from app.ppt_generation.template_catalog import EmbeddedTemplateCatalog
 
 
@@ -91,6 +91,41 @@ def test_outline_provider_failure_returns_actionable_gateway_error(monkeypatch):
     assert "PPT 大纲模型调用失败" in error.value.detail
     assert "secret" not in error.value.detail
     assert "http://model.test" not in error.value.detail
+
+
+def test_component_content_merge_respects_presenton_text_constraints():
+    layout = {
+        "components": [{
+            "type": "text",
+            "name": "headline",
+            "text": "旧标题",
+            "max_length": 12,
+            "runs": [{"text": "旧"}, {"text": "残留"}],
+        }, {
+            "type": "table",
+            "name": "table",
+            "max_children": 2,
+            "columns": ["旧列"],
+            "rows": [["旧值"]],
+        }]
+    }
+
+    merged = _merge_content_into_layout(layout, {
+        "headline": "这是一个非常非常长的标题，应该被压缩到模板允许范围内。",
+        "table": {
+            "columns": ["第一列", "第二列", "第三列"],
+            "rows": [["第一行第一列", "第一行第二列", "第一行第三列"], ["第二行第一列", "第二行第二列"], ["第三行"]],
+        },
+    })
+
+    headline = merged["components"][0]
+    assert len(headline["text"]) <= 12
+    assert headline["runs"][0]["text"] == headline["text"]
+    assert headline["runs"][1]["text"] == ""
+    table = merged["components"][1]
+    assert table["columns"] == ["第一列", "第二列"]
+    assert len(table["rows"]) == 2
+    assert all(len(row) <= 2 for row in table["rows"])
 
 
 def test_slides_keep_presenton_ui_when_structure_agent_breaks_contract(monkeypatch):

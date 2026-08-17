@@ -1007,20 +1007,25 @@ def _merge_content_into_layout(layout: Mapping[str, Any], component_content: Map
         if name and name in component_content:
             content = component_content[name]
             if isinstance(content, str):
-                if isinstance(node.get("runs"), list) and node["runs"]:
-                    node["runs"][0]["text"] = content
-                else:
-                    node["text"] = content
+                _set_text_node_content(node, content)
             elif isinstance(content, dict):
                 node_type = str(node.get("type") or "")
-                if node_type == "table":
+                if node_type == "text":
+                    _set_text_node_content(
+                        node,
+                        content.get("text") or content.get("value") or content.get("content") or "",
+                    )
+                elif node_type == "table":
                     if "columns" in content:
-                        node["columns"] = content["columns"]
+                        node["columns"] = _compact_table_values(content["columns"], node.get("max_children"))
                     if "rows" in content:
-                        node["rows"] = content["rows"]
+                        node["rows"] = [
+                            _compact_table_values(row, node.get("max_children"))
+                            for row in _compact_table_values(content["rows"], node.get("max_children"))
+                        ]
                 elif node_type == "chart":
                     if "categories" in content:
-                        node["categories"] = content["categories"]
+                        node["categories"] = _compact_table_values(content["categories"], node.get("max_children"))
                     if "series" in content:
                         node["series"] = content["series"]
                 else:
@@ -1035,6 +1040,54 @@ def _merge_content_into_layout(layout: Mapping[str, Any], component_content: Map
         if key in result:
             _merge(result[key])
     return result
+
+
+def _set_text_node_content(node: Dict[str, Any], content: Any) -> None:
+    text = _compact_text(str(content or ""), node.get("max_length"))
+    node["text"] = text
+    runs = node.get("runs")
+    if isinstance(runs, list) and runs:
+        normalized_runs: List[Dict[str, Any]] = []
+        for index, run in enumerate(runs):
+            next_run = dict(run) if isinstance(run, Mapping) else {}
+            next_run["text"] = text if index == 0 else ""
+            normalized_runs.append(next_run)
+        node["runs"] = normalized_runs
+
+
+def _compact_text(value: str, max_length: Any = None) -> str:
+    text = re.sub(r"[ \t]+", " ", str(value or "").replace("\r", "\n")).strip()
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    try:
+        limit = int(max_length or 0)
+    except (TypeError, ValueError):
+        limit = 0
+    if limit <= 0 or len(text) <= limit:
+        return text
+    candidate = text[:limit].rstrip()
+    sentence_end = max(candidate.rfind("。"), candidate.rfind("！"), candidate.rfind("？"), candidate.rfind("."), candidate.rfind(";"), candidate.rfind("；"))
+    if sentence_end >= max(8, int(limit * 0.55)):
+        return candidate[:sentence_end + 1].rstrip()
+    punctuation = max(candidate.rfind("，"), candidate.rfind(","), candidate.rfind("、"), candidate.rfind(" "))
+    if punctuation >= max(8, int(limit * 0.55)):
+        return candidate[:punctuation].rstrip()
+    if limit <= 1:
+        return candidate[:limit]
+    return f"{candidate[:limit - 1].rstrip()}…"
+
+
+def _compact_table_values(values: Any, max_children: Any = None) -> List[Any]:
+    if not isinstance(values, list):
+        return []
+    try:
+        limit = int(max_children or 0)
+    except (TypeError, ValueError):
+        limit = 0
+    rows = values[:limit] if limit > 0 else values
+    return [
+        _compact_text(item, 80) if isinstance(item, str) else item
+        for item in rows
+    ]
 
 
 _EMPTY_SLIDE_UI: Dict[str, Any] = {
