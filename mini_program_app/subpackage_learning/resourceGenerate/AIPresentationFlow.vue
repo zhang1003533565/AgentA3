@@ -598,6 +598,22 @@
         <text class="progress-hero__message">{{ progressMessage }}</text>
       </view>
 
+      <view class="generation-template-card">
+        <view class="generation-template-card__preview">
+          <image v-if="selectedTemplate && selectedTemplate.thumbnailUrl" :src="selectedTemplate.thumbnailUrl" mode="aspectFill" />
+          <text v-else>{{ selectedTemplateName.slice(0, 1) }}</text>
+        </view>
+        <view class="generation-template-card__body">
+          <text class="generation-template-card__label">模板渲染中</text>
+          <text class="generation-template-card__name">{{ selectedTemplateName }}</text>
+          <view class="generation-template-card__facts">
+            <text>{{ pageCount }} 页</text>
+            <text>{{ selectedTemplateLayoutCount }} 种版式</text>
+            <text>{{ selectedImageModeLabel }}</text>
+          </view>
+        </view>
+      </view>
+
       <view class="generation-list">
         <view v-for="(item, index) in generationSteps" :key="item.id" class="generation-item">
           <view class="generation-item__rail">
@@ -644,6 +660,17 @@
           <view><text>{{ resultName }}</text><text>复习资料 · {{ pageCount }} 页</text></view>
         </view>
         <view class="result-summary__meta"><text>生成完成</text><text>刚刚</text></view>
+      </view>
+      <view class="result-template-card">
+        <view class="result-template-card__preview">
+          <image v-if="selectedTemplate && selectedTemplate.thumbnailUrl" :src="selectedTemplate.thumbnailUrl" mode="aspectFill" />
+          <text v-else>{{ selectedTemplateName.slice(0, 1) }}</text>
+        </view>
+        <view class="result-template-card__body">
+          <text class="result-template-card__label">已使用模板</text>
+          <text class="result-template-card__name">{{ selectedTemplateName }}</text>
+          <text class="result-template-card__desc">{{ selectedTemplateCategoryLabel }} · {{ selectedTemplateLayoutCount }} 种版式 · {{ availableExportFormats.length }} 种可导出格式</text>
+        </view>
       </view>
       <view v-if="generationWarnings.length" class="generation-warning">
         <text>{{ generationWarnings[0] }}</text>
@@ -2407,4 +2434,15 @@ export default {
 .template-match-preview__canvas--cover text:first-child{width:70%;height:6rpx}
 .template-match-preview__canvas--focus{border-left:4rpx solid #5265f5;background:#f8f9ff}
 .template-match-preview__canvas--visual::after{position:absolute;right:8rpx;bottom:8rpx;width:22rpx;height:18rpx;border-radius:5rpx;background:#d9e4ef;content:''}
+.generation-template-card,.result-template-card{display:flex;align-items:center;gap:15rpx;margin-top:24rpx;padding:16rpx;border:1px solid #dfe7ef;border-radius:17rpx;background:#f8fafc}
+.generation-template-card__preview,.result-template-card__preview{display:flex;width:104rpx;height:58rpx;flex:none;align-items:center;justify-content:center;overflow:hidden;border:1px solid #d6e0ea;border-radius:11rpx;background:#fff;color:#5265f5;font-size:28rpx;font-weight:820}
+.generation-template-card__preview image,.result-template-card__preview image{display:block;width:100%;height:100%}
+.generation-template-card__body,.result-template-card__body{min-width:0;flex:1}
+.generation-template-card__label,.generation-template-card__name,.result-template-card__label,.result-template-card__name,.result-template-card__desc{display:block}
+.generation-template-card__label,.result-template-card__label{color:#718094;font-size:17rpx}
+.generation-template-card__name,.result-template-card__name{margin-top:4rpx;overflow:hidden;color:#172033;font-size:23rpx;font-weight:820;text-overflow:ellipsis;white-space:nowrap}
+.generation-template-card__facts{display:flex;gap:8rpx;margin-top:8rpx;overflow:hidden}
+.generation-template-card__facts text{flex:none;max-width:170rpx;overflow:hidden;padding:5rpx 9rpx;border-radius:99rpx;background:#eef2f6;color:#526174;font-size:16rpx;text-overflow:ellipsis;white-space:nowrap}
+.result-template-card{margin-top:18rpx;background:#fff}
+.result-template-card__desc{margin-top:7rpx;overflow:hidden;color:#718094;font-size:18rpx;text-overflow:ellipsis;white-space:nowrap}
 </style>
