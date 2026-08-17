@@ -7,7 +7,7 @@ from app.observability.langfuse import provider_cache_key
 from app.model_providers.deepseek import DeepSeekProvider
 from app.model_providers.qwen import QwenProvider
 from app.model_providers.qwen.provider import QWEN_PROVIDER_ALIASES
-from app.model_providers.runtime_config import require_active_llm_config
+from app.model_providers.runtime_config import get_active_llm_timeout_seconds, require_active_llm_config
 from app.model_providers.volcengine import VolcengineProvider
 from app.model_providers.volcengine.provider import VOLCENGINE_PROVIDER_ALIASES
 from app.model_providers.xfyun import XfyunProvider
@@ -37,7 +37,7 @@ def get_chat_model_provider() -> ChatModelProvider:
     except RuntimeError as exc:
         raise HTTPException(status_code=500, detail=str(exc))
 
-    cache_key = (config.cache_key(), provider_cache_key())
+    cache_key = (config.cache_key(), provider_cache_key(), get_active_llm_timeout_seconds())
     if cache_key in _provider_cache:
         return _provider_cache[cache_key]
 

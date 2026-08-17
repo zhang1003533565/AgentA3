@@ -25,6 +25,11 @@ public class AppMessage {
 
     public static final String MODULE_LOST_FOUND = "LOST_FOUND";
     public static final String MODULE_EXAM = "EXAM";
+    public static final String MODULE_FORUM = "FORUM";
+
+    public static final String EVENT_POST_LIKE = "POST_LIKE";
+
+    public static final String SOURCE_TYPE_POST = "POST";
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)

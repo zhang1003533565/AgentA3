@@ -1,12 +1,6 @@
 <template>
   <view class="page">
-    <nav-bar :title="mindmap.title || 'AI 思维导图'" :showBack="true" :border="false" :fixed="true" :placeholder="true">
-      <template #right>
-        <view class="nav-delete-action" @tap="deleteCurrentMindmap">
-          <image class="nav-delete-icon" src="/static/icons/diagram/trash-2-lucide.svg" mode="aspectFit" />
-        </view>
-      </template>
-    </nav-bar>
+    <nav-bar :title="mindmap.title || 'AI 思维导图'" :showBack="true" :border="false" :fixed="true" :placeholder="true" />
 
     <view class="canvas-wrapper">
       <scroll-view
@@ -909,7 +903,7 @@ onUnmounted(() => {
 .mind-node--root {
   border: 0;
   border-radius: 28px;
-  background: #1E293B;
+  background: #243047;
   box-shadow: 0 12rpx 36rpx rgba(30, 41, 59, 0.25);
   padding: 0 32rpx;
 }
@@ -929,6 +923,15 @@ onUnmounted(() => {
   box-shadow: 0 6rpx 20rpx rgba(0, 0, 0, 0.12);
   padding: 0 24rpx;
 }
+
+/* 结果画布：降低彩色节点的噪声，让内容成为视觉重点 */
+.page { background: #F6F7FB; }
+.canvas-wrapper, .canvas { background: #F6F7FB; }
+.mind-node--root { box-shadow: 0 8rpx 24rpx rgba(36, 48, 71, 0.18); }
+.mind-node--branch { box-shadow: 0 5rpx 16rpx rgba(24, 32, 51, 0.09); }
+.expand-controls { filter: drop-shadow(0 4rpx 12rpx rgba(24, 32, 51, 0.08)); }
+.canvas-wrapper, .canvas { background: #F6F7FB; }
+.canvas-content { padding: 28rpx 24rpx 200rpx; }
 
 .mind-node--branch .mind-node__label {
   color: #FFFFFF;
@@ -1124,4 +1127,24 @@ onUnmounted(() => {
 
 /* 底部操作栏样式已抽到 subpackage_ai/components/AiResultBar.vue
    这里不再写底部栏 CSS，由组件提供 */
+/* 统一结果页操作区：展开/收起放到底部，避免遮挡导图 */
+.expand-controls {
+  top: auto;
+  left: 50%;
+  right: auto;
+  bottom: 176rpx;
+  flex-direction: row;
+  gap: 12rpx;
+  padding: 10rpx;
+  background: rgba(255, 255, 255, 0.96);
+  border: 1rpx solid #E6E8F1;
+  border-radius: 22rpx;
+  box-shadow: 0 10rpx 28rpx rgba(20, 28, 48, 0.08);
+  transform: translateX(-50%);
+}
+
+.expand-card { padding: 8rpx 14rpx; border: 0; border-radius: 16rpx; box-shadow: none; flex-shrink: 0; white-space: nowrap; }
+.expand-icon-circle { width: 38rpx; height: 38rpx; background: #EEF4FC; }
+.expand-triangle-char, .expand-triangle { color: #123E6D; }
+.expand-card-text { color: #203452; font-size: 24rpx; white-space: nowrap; display: block; }
 </style>

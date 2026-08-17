@@ -56,6 +56,20 @@ class EmbeddedTemplateCatalog:
             raise ValueError(f"PPT 模板 {template_id} 格式无效")
         return deepcopy(payload)
 
+    def get_layout(self, template_id: str, layout_id: str) -> Dict[str, Any]:
+        """Return the original Presenton layout JSON without flattening it.
+
+        The content model receives this exact UI tree and must return it back
+        with only user-visible values changed. Keeping the full tree here avoids
+        rebuilding nested groups in the application renderer.
+        """
+        payload = self.load(template_id)
+        wanted = str(layout_id or "").strip()
+        for layout in payload.get("layouts") or []:
+            if isinstance(layout, dict) and str(layout.get("id") or "") == wanted:
+                return deepcopy(layout)
+        raise KeyError(f"Presenton layout not found: {layout_id}")
+
     def layout_summaries(self, template_id: str) -> List[Dict[str, Any]]:
         payload = self.load(template_id)
         summaries: List[Dict[str, Any]] = []

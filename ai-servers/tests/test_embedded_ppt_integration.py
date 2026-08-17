@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from copy import deepcopy
 
 import pytest
 from pptx import Presentation
@@ -69,11 +70,20 @@ def test_source_parser_supports_txt_and_pptx(tmp_path):
 ])
 def test_presenton_html_renderer_creates_pdf_and_previews(monkeypatch, tmp_path, template_id):
     monkeypatch.setenv("AI_EXPORT_ROOT", str(tmp_path / "exports"))
+    catalog = EmbeddedTemplateCatalog()
+    layouts = catalog.load(template_id)["layouts"]
     slides = [
         {"type": "cover", "title": "数据结构复习", "content": ["期末核心知识梳理"]},
         {"type": "content", "title": "栈", "content": ["后进先出", "入栈与出栈", "典型应用"]},
         {"type": "content", "title": "队列", "content": ["先进先出", "顺序队列", "循环队列", "链式队列"]},
     ]
+    for index, slide in enumerate(slides):
+        layout = layouts[index % len(layouts)]
+        slide.update({
+            "index": index + 1,
+            "templateLayoutId": layout["id"],
+            "ui": {"components": deepcopy(layout["components"]), "background": "#FFFFFF"},
+        })
 
     attachment, path, previews, pptx_attachment = render_presenton_html(
         slides,

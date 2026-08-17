@@ -318,11 +318,11 @@
 
         <view class="edit-field">
           <view class="edit-field__label"><text>页面标题</text><text>{{ activeSlide.title.length }}/80</text></view>
-          <input v-model="activeSlide.title" :maxlength="80" placeholder="请输入页面标题" />
+          <input v-model="activeSlide.title" :maxlength="80" placeholder="请输入页面标题" @input="applyManualTextOverride" />
         </view>
         <view class="edit-field">
           <view class="edit-field__label"><text>页面内容</text><text>支持修改单页内容</text></view>
-          <textarea v-model="activeSlide.content" :maxlength="1200" auto-height placeholder="请输入本页需要展示的知识点和说明" />
+          <textarea v-model="activeSlide.content" :maxlength="1200" auto-height placeholder="请输入本页需要展示的知识点和说明" @input="applyManualTextOverride" />
         </view>
         <view class="prompt-field prompt-field--shared">
           <view class="prompt-field__head">
@@ -532,11 +532,11 @@
 import {
   cancelPptTask,
   createPptTask,
+  createPptSlidesTask,
   downloadPptPreview,
   downloadPptTaskFile,
   downloadPptTemplateThumbnail,
   generatePptOutline,
-  generatePptSlides,
   getPptOptions,
   getPptTask,
   replacePptSlideImage,
@@ -595,7 +595,10 @@ export default {
       progress: 0,
       generationTimer: null,
       generationStream: null,
+      slideGenerationTaskId: '',
+      slideGenerationStream: null,
       generationRunId: 0,
+      slideGenerationRunId: 0,
       taskId: '',
       taskResult: null,
       previewImages: {},
@@ -1013,6 +1016,7 @@ export default {
         this.currentStep = 3
         return
       }
+      const runId = ++this.slideGenerationRunId
       this.apiBusy = true
       this.startOperationFeedback('slides')
       try {
@@ -1021,15 +1025,19 @@ export default {
           title: this.outlineName || this.resultName,
           items: outlines.map(item => ({ ...item }))
         }
-        const response = await generatePptSlides({
+        const response = await createPptSlidesTask({
           outline,
           sourceContent: this.fileContent,
           sourceFileId: this.sourceFileId,
           settings: this.buildSettings(),
           sharedPrompt: this.sharedPrompt
         })
-        this.updateOperationFeedback(92, '正在校验并转换页面格式', '即将进入逐页编辑')
-        const result = this.responseData(response)
+        const created = this.responseData(response)
+        this.slideGenerationTaskId = String(created.taskId || '')
+        if (!this.slideGenerationTaskId) throw new Error('服务端未返回逐页生成任务编号')
+        await this.followSlideGenerationTask(runId)
+        if (runId !== this.slideGenerationRunId) return
+        const result = this.responseData(await getPptTask(this.slideGenerationTaskId))
         this.generationWarnings = Array.isArray(result.warnings) ? result.warnings : []
         const slides = Array.isArray(result.slides) ? result.slides : []
         if (result.presentationId) {
@@ -1056,6 +1064,54 @@ export default {
       } finally {
         this.apiBusy = false
         this.stopOperationFeedback()
+      }
+    },
+    async followSlideGenerationTask(runId) {
+      try {
+        this.slideGenerationStream = streamPptTask(this.slideGenerationTaskId, {
+          onEvent: (eventName, payload) => this.applySlideGenerationSnapshot(payload, runId),
+          onDone: payload => this.applySlideGenerationSnapshot(payload, runId),
+          onError: payload => this.applySlideGenerationSnapshot(payload, runId)
+        })
+        await this.slideGenerationStream
+      } catch (error) {
+        if (runId !== this.slideGenerationRunId) return
+        await this.pollSlideGenerationTask(runId)
+      } finally {
+        this.slideGenerationStream = null
+      }
+    },
+    async pollSlideGenerationTask(runId) {
+      for (let attempt = 0; attempt < 7200 && runId === this.slideGenerationRunId; attempt += 1) {
+        const response = await getPptTask(this.slideGenerationTaskId)
+        const task = this.responseData(response)
+        this.applySlideGenerationSnapshot(task, runId)
+        if (['completed', 'failed', 'cancelled'].includes(String(task.status || ''))) return
+        await new Promise(resolve => setTimeout(resolve, 1000))
+      }
+      if (runId === this.slideGenerationRunId) throw new Error('逐页生成等待超时，可稍后重新进入查看')
+    },
+    applySlideGenerationSnapshot(task, runId) {
+      if (!task || runId !== this.slideGenerationRunId) return
+      const total = Number(task.totalSlides || 0)
+      const completed = Number(task.completedSlides || 0)
+      const remaining = Number(task.remainingSlides ?? Math.max(0, total - completed))
+      const current = Number(task.currentSlide || 0)
+      const progress = Number(task.progress || 0)
+      this.updateOperationFeedback(
+        Math.max(0, Math.min(99, progress)),
+        task.message || (current ? `正在生成第 ${current} / ${total} 页` : '正在准备逐页生成'),
+        total ? `已完成 ${completed} 页，剩余 ${remaining} 页${current ? `，当前处理第 ${current} 页` : ''}` : '正在排队'
+      )
+      if (task.status === 'failed') {
+        throw new Error(task.error?.message || task.message || '逐页内容生成失败')
+      }
+      if (task.status === 'cancelled') {
+        this.apiBusy = false
+        throw new Error('逐页内容生成已取消')
+      }
+      if (task.status === 'completed') {
+        this.updateOperationFeedback(100, '逐页内容生成完成', `共完成 ${total} 页`)
       }
     },
     async startGeneration() {
@@ -1165,8 +1221,14 @@ export default {
           await cancelPptTask(this.taskId)
         } catch (error) {}
       }
+      if (this.slideGenerationTaskId) {
+        try {
+          await cancelPptTask(this.slideGenerationTaskId)
+        } catch (error) {}
+      }
       this.clearTimers()
       this.generationRunId += 1
+      this.slideGenerationRunId += 1
       this.progress = 0
       this.currentStep = 5
     },
@@ -1275,6 +1337,54 @@ export default {
         uni.showToast({ title: this.errorMessage(error, '文件下载失败'), icon: 'none' })
       } finally {
         this.exportPreparing = false
+      }
+    },
+    applyManualTextOverride() {
+      // Manual editing updates only existing text runs; the Presenton tree,
+      // geometry, styles, SVGs and assets remain untouched.
+      const slide = this.activeSlide
+      const ui = slide?.ui
+      if (!ui || typeof ui !== 'object') return
+
+      const textNodes = []
+      const visit = value => {
+        if (Array.isArray(value)) {
+          value.forEach(visit)
+          return
+        }
+        if (!value || typeof value !== 'object') return
+        if (value.type === 'text' && Array.isArray(value.runs)) textNodes.push(value)
+        Object.keys(value).forEach(key => {
+          if (key !== 'runs') visit(value[key])
+        })
+      }
+      visit(ui)
+      if (!textNodes.length) return
+
+      const setText = (node, text) => {
+        const next = String(text || '')
+        node.text = next
+        node.runs = node.runs.map((run, index) => ({
+          ...(run && typeof run === 'object' ? run : {}),
+          text: index === 0 ? next : ''
+        }))
+      }
+      const titleNode = textNodes.find(node => {
+        const name = String(node.name || '').toLowerCase()
+        return /(headline|heading|title)/.test(name)
+          && !/(item|card|feature|metric|label|number|page|footer|badge|caption)/.test(name)
+      })
+      if (titleNode) setText(titleNode, slide.title)
+
+      const bodyNodes = textNodes.filter(node => {
+        const name = String(node.name || '').toLowerCase()
+        return /(body|paragraph|description|supporting|summary|copy|intro|detail)/.test(name)
+          && !/(footer|page|label|number|caption)/.test(name)
+      })
+      if (bodyNodes.length) {
+        const lines = String(slide.content || '').split(/\r?\n/).map(line => line.trim()).filter(Boolean)
+        if (bodyNodes.length === 1) setText(bodyNodes[0], lines.join('\n'))
+        else bodyNodes.slice(0, lines.length).forEach((node, index) => setText(node, lines[index]))
       }
     },
     openHistory(tab) {
@@ -1393,6 +1503,8 @@ export default {
       }, 900)
     },
     updateOperationFeedback(progress, message, detail) {
+      if (this.operationFeedbackTimer) clearInterval(this.operationFeedbackTimer)
+      this.operationFeedbackTimer = null
       this.operationFeedback = { active: true, progress, message, detail }
     },
     stopOperationFeedback() {
@@ -1414,6 +1526,8 @@ export default {
       this.stopOperationFeedback()
       if (this.generationStream?.abort) this.generationStream.abort('ppt_generation_cancelled')
       this.generationStream = null
+      if (this.slideGenerationStream?.abort) this.slideGenerationStream.abort('ppt_slide_generation_cancelled')
+      this.slideGenerationStream = null
       if (this.generationTimer) {
         clearInterval(this.generationTimer)
         clearTimeout(this.generationTimer)

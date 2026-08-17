@@ -178,4 +178,10 @@ onMounted(() => {
   height: 34rpx;
   margin-bottom: 6rpx;
 }
+/* 结果预览保持轻量画布与明确的操作底栏 */
+.page { background: #F6F7FB; }
+.nav-bar { border-bottom-color: #E8EAF0; }
+.preview-area { padding: 28rpx; background: #F6F7FB; }
+.generated-image { border-radius: 20rpx; background: #FFFFFF; box-shadow: 0 8rpx 28rpx rgba(24, 32, 51, 0.06); }
+.bottom-bar { height: 112rpx; border-top-color: #E8EAF0; }
 </style>

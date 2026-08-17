@@ -1,18 +1,13 @@
 <template>
   <view class="architecture-page">
-    <nav-bar title="AI 架构图" :showBack="true" :border="false">
-      <template #right>
-        <view class="history-action" @click="openHistory" aria-label="历史记录">
-          <image class="history-icon" src="/static/icons/diagram/history.svg" mode="aspectFit" />
-        </view>
-      </template>
-    </nav-bar>
+    <nav-bar title="AI 架构图" :showBack="true" :border="false" />
 
     <scroll-view scroll-y class="architecture-scroll" :show-scrollbar="false">
       <view class="page-shell">
         <section class="content-card input-card">
           <view class="card-title-row input-title-row">
-            <view class="input-title">
+          <view class="input-title">
+              <view class="inline-history-action" @tap="openHistory"><text>历史记录</text></view>
               <view class="title-dot"></view>
               <text>描述您的架构需求</text>
             </view>
@@ -685,6 +680,9 @@ function formatTime(value) {
   padding: 20rpx 24rpx calc(168rpx + env(safe-area-inset-bottom));
   box-sizing: border-box;
 }
+
+.history-action { display: none; }
+.relation-radio { display: none; }
 
 .content-card,
 .file-status-card {
@@ -1466,4 +1464,5 @@ function formatTime(value) {
   width: 31rpx;
   height: 31rpx;
 }
+.inline-history-action { min-width: 112rpx; height: 42rpx; padding: 0 12rpx; display: inline-flex; align-items: center; justify-content: center; margin-right: 10rpx; color: #123E6D; background: #EEF4FC; border: 1rpx solid #C9D9EC; border-radius: 14rpx; box-sizing: border-box; font-size: 23rpx; font-weight: 700; white-space: nowrap; }
 </style>

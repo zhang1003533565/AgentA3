@@ -22,10 +22,11 @@ def render_presenton_html(
     title: str,
     settings: Mapping[str, Any],
 ) -> Tuple[dict[str, Any], Path, list[dict[str, Any]], dict[str, Any] | None]:
-    """Render slides with Presenton's original JSON-to-HTML renderer.
+    """Render complete Presenton UI JSON with the original JSON-to-HTML path.
 
-    This intentionally has no python-pptx fallback.  The HTML/SVG/CSS output
-    is rendered by Chromium, which is the same visual path used by Presenton.
+    The Python layer only stages files and invokes the vendored Node runtime;
+    it does not choose layouts, inject text, or rebuild component trees. This
+    intentionally has no python-pptx fallback.
     """
     template_id = str(settings.get("templateId") or "general").strip().lower()
     template_path = (_TEMPLATES / template_id / "template.json").resolve()
