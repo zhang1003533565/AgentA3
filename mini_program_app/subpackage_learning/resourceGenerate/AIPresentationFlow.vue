@@ -776,6 +776,7 @@
         <view class="layout-fullscreen__close" @tap="closeLayoutViewer"><text>×</text></view>
       </view>
       <scroll-view
+        v-show="layoutViewerReady"
         class="layout-fullscreen__scroll"
         scroll-y
         :scroll-top="layoutScrollTop"
@@ -796,7 +797,12 @@
           </view>
         </view>
       </scroll-view>
-      <view class="layout-fullscreen__footer">
+      <view v-if="!layoutViewerReady" class="layout-fullscreen__loading">
+        <view class="layout-fullscreen__loading-spinner"></view>
+        <text class="layout-fullscreen__loading-text">正在加载模板版式 {{ layoutLoadedCount }} / {{ selectedTemplateLayouts.length }}</text>
+        <text class="layout-fullscreen__loading-hint">加载完成后即可浏览</text>
+      </view>
+      <view v-if="layoutViewerReady" class="layout-fullscreen__footer">
         <view class="layout-fullscreen__use" @tap="useTemplateFromViewer"><text>使用该模板</text></view>
       </view>
     </view>
@@ -909,6 +915,8 @@ export default {
       templateOptionsLoading: false,
       activeLayoutIndex: 0,
       layoutViewerVisible: false,
+      layoutViewerReady: false,
+      layoutLoadedCount: 0,
       layoutScrollTop: 0,
       layoutItemStride: 0,
       layoutPreviewCache: {},
@@ -1439,22 +1447,40 @@ export default {
       this.layoutScrollTop = 0
       this.layoutItemStride = 0
       this.layoutViewerVisible = true
-      // 打开即一次性加载该模板的全部版式图，不按滚动分批；
+      // 只加载用户点开的这一个模板：全部版式图加载完（loading 门）才放行浏览；
       // 小程序 downloadFile 有并发上限，用小并发队列避免请求被吞
       const templateId = this.selectedTemplate?.id
       const total = this.selectedTemplateLayouts.length
-      if (templateId && total) {
-        const concurrency = Math.min(6, total)
-        let cursor = 0
-        const worker = async () => {
-          while (cursor < total) {
-            const index = cursor++
+      this.layoutLoadedCount = 0
+      const cache = (templateId && this.layoutPreviewCache[templateId]) || {}
+      const cachedCount = this.selectedTemplateLayouts.filter((layout, index) => cache[index]).length
+      if (!templateId || !total || cachedCount >= total) {
+        this.layoutViewerReady = true
+        this.$nextTick(() => setTimeout(() => this.measureLayoutStride(), 80))
+        return
+      }
+      this.layoutViewerReady = false
+      this.layoutLoadedCount = cachedCount
+      const finishOne = () => {
+        this.layoutLoadedCount += 1
+        if (this.layoutLoadedCount >= total) {
+          this.layoutViewerReady = true
+          this.$nextTick(() => setTimeout(() => this.measureLayoutStride(), 80))
+        }
+      }
+      const concurrency = Math.min(6, total)
+      let cursor = 0
+      const worker = async () => {
+        while (cursor < total) {
+          const index = cursor++
+          try {
             await this.ensureLayoutPreview(templateId, index)
+          } finally {
+            finishOne()
           }
         }
-        for (let i = 0; i < concurrency; i += 1) worker()
       }
-      this.$nextTick(() => setTimeout(() => this.measureLayoutStride(), 80))
+      for (let i = 0; i < concurrency; i += 1) worker()
     },
     useTemplateFromViewer() {
       this.layoutViewerVisible = false
@@ -2727,19 +2753,24 @@ export default {
 .layout-cover__desc{display:block;margin-top:5rpx;color:#667386;font-size:19rpx}
 .layout-cover__action{flex:none;padding:12rpx 22rpx;border-radius:999rpx;background:#5265f5}
 .layout-cover__action text{color:#fff;font-size:20rpx;font-weight:720}
-.layout-fullscreen{position:fixed;z-index:1400;inset:0;display:flex;flex-direction:column;background:#0e1524}
+.layout-fullscreen{position:fixed;z-index:1400;inset:0;display:flex;flex-direction:column;background:#eceff3}
 .layout-fullscreen__bar{display:flex;align-items:center;justify-content:space-between;gap:18rpx;padding:calc(20rpx + env(safe-area-inset-top)) 24rpx 20rpx}
 .layout-fullscreen__bar-main{min-width:0;flex:1}
-.layout-fullscreen__title{display:block;overflow:hidden;color:#fff;font-size:27rpx;font-weight:800;text-overflow:ellipsis;white-space:nowrap}
-.layout-fullscreen__count{display:block;margin-top:5rpx;color:rgba(255,255,255,.65);font-size:19rpx}
-.layout-fullscreen__close{display:flex;width:64rpx;height:64rpx;flex:none;align-items:center;justify-content:center;border-radius:50%;background:rgba(255,255,255,.12)}
-.layout-fullscreen__close text{color:#fff;font-size:40rpx;line-height:1}
+.layout-fullscreen__title{display:block;overflow:hidden;color:#172033;font-size:27rpx;font-weight:800;text-overflow:ellipsis;white-space:nowrap}
+.layout-fullscreen__count{display:block;margin-top:5rpx;color:#667386;font-size:19rpx}
+.layout-fullscreen__close{display:flex;width:64rpx;height:64rpx;flex:none;align-items:center;justify-content:center;border-radius:50%;background:rgba(23,32,51,.08)}
+.layout-fullscreen__close text{color:#172033;font-size:40rpx;line-height:1}
 .layout-fullscreen__scroll{flex:1;height:100%;overflow:hidden}
 .layout-fullscreen__item{padding:0 16rpx}
 .layout-fullscreen__item+.layout-fullscreen__item{margin-top:12rpx}
-.layout-fullscreen__image{display:block;width:100%;border-radius:8rpx;background:#1a2438}
-.layout-fullscreen__placeholder{display:flex;align-items:center;justify-content:center;flex-direction:column;gap:12rpx;width:100%;aspect-ratio:16/9;border-radius:8rpx;background:#1a2438;color:#8a97a8;font-size:21rpx;box-sizing:border-box}
-.layout-fullscreen__name{color:rgba(255,255,255,.5);font-size:18rpx}
+.layout-fullscreen__image{display:block;width:100%;border-radius:8rpx;background:#fff}
+.layout-fullscreen__placeholder{display:flex;align-items:center;justify-content:center;flex-direction:column;gap:12rpx;width:100%;aspect-ratio:16/9;border-radius:8rpx;background:#dfe5ec;color:#667386;font-size:21rpx;box-sizing:border-box}
+.layout-fullscreen__name{color:#8a97a8;font-size:18rpx}
+.layout-fullscreen__loading{flex:1;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:18rpx}
+.layout-fullscreen__loading-spinner{width:64rpx;height:64rpx;border:6rpx solid #d5dce5;border-top-color:#5265f5;border-radius:50%;animation:layout-loading-spin .8s linear infinite}
+.layout-fullscreen__loading-text{color:#172033;font-size:23rpx;font-weight:720}
+.layout-fullscreen__loading-hint{color:#8a97a8;font-size:19rpx}
+@keyframes layout-loading-spin{to{transform:rotate(360deg)}}
 .layout-fullscreen__footer{display:flex;align-items:center;justify-content:center;padding:16rpx 24rpx calc(20rpx + env(safe-area-inset-bottom));background:transparent}
 .layout-fullscreen__use{flex:none;display:flex;align-items:center;justify-content:center;height:76rpx;padding:0 44rpx;border-radius:999rpx;background:#5265f5}
 .layout-fullscreen__use text{color:#fff;font-size:24rpx;font-weight:760}
