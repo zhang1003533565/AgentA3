@@ -14,17 +14,25 @@
 
     <scroll-view class="step-scroll" scroll-x :show-scrollbar="false">
       <view class="stepper">
+        <view class="stepper__track">
+          <view class="stepper__track-value" :style="{ width: stepperProgress }"></view>
+        </view>
         <view
           v-for="item in stepMeta"
           :key="item.id"
           class="stepper__item"
           :class="{ 'stepper__item--active': currentStep === item.id, 'stepper__item--done': currentStep > item.id }"
         >
-          <view class="stepper__number">
-            <text v-if="currentStep <= item.id">{{ item.id }}</text>
-            <text v-else class="stepper__check">✓</text>
+          <view class="stepper__marker">
+            <view class="stepper__number">
+              <text v-if="currentStep <= item.id">{{ item.id }}</text>
+              <text v-else class="stepper__check">✓</text>
+            </view>
           </view>
-          <text class="stepper__label">{{ item.shortTitle }}</text>
+          <view class="stepper__copy">
+            <text class="stepper__label">{{ item.shortTitle }}</text>
+            <text class="stepper__state">{{ stepStateLabel(item) }}</text>
+          </view>
         </view>
       </view>
     </scroll-view>
@@ -1018,6 +1026,10 @@ export default {
     selectedScene() {
       return this.pptScenes[this.selectedSceneIndex] || this.pptScenes[0]
     },
+    stepperProgress() {
+      const total = Math.max(1, this.stepMeta.length - 1)
+      return `${Math.max(0, Math.min(100, ((this.currentStep - 1) / total) * 100))}%`
+    },
     templateCatalogLoading() {
       return this.templateOptionsLoading && !this.pptStyles.length
     },
@@ -1257,6 +1269,11 @@ export default {
     selectScene(event) {
       const selected = this.pptScenes[Number(event?.detail?.value || 0)]
       if (selected) this.scene = selected.value
+    },
+    stepStateLabel(item) {
+      if (this.currentStep > item.id) return '已完成'
+      if (this.currentStep === item.id) return '进行中'
+      return '待处理'
     },
     templateCategoryOf(template) {
       const id = String(template?.id || '').toLowerCase()
@@ -2498,4 +2515,20 @@ export default {
 .retry-render-card__button{flex:none;height:58rpx;margin:0;padding:0 18rpx;border:1px solid #d8b06f;border-radius:12rpx;background:#fff;color:#8b5f23;font-size:20rpx;line-height:58rpx}
 .retry-render-card__button::after{border:0}
 .retry-render-card__button[disabled]{opacity:.5}
+.step-scroll{margin-bottom:26rpx}
+.stepper{position:relative;min-width:980rpx;padding:8rpx 6rpx 14rpx}
+.stepper__track{position:absolute;left:68rpx;right:68rpx;top:32rpx;height:6rpx;overflow:hidden;border-radius:99rpx;background:#dfe5ee}
+.stepper__track-value{height:100%;border-radius:inherit;background:#5265f5;transition:width .25s ease}
+.stepper__item{z-index:1;min-width:122rpx;align-items:center}
+.stepper__item:not(:last-child)::after{display:none}
+.stepper__marker{display:flex;height:58rpx;align-items:flex-start;justify-content:center}
+.stepper__number{width:52rpx;height:52rpx;border:2rpx solid #d7dfeb;background:#f8fafc;color:#9aa5b6;font-size:22rpx;box-shadow:0 0 0 8rpx #f6f8fc}
+.stepper__item--done .stepper__number{border-color:#5265f5;background:#5265f5;color:#fff;box-shadow:0 0 0 8rpx #eef1ff}
+.stepper__item--active .stepper__number{width:58rpx;height:58rpx;border-color:#5265f5;background:#fff;color:#5265f5;box-shadow:0 0 0 8rpx #eef1ff,0 10rpx 24rpx rgba(78,97,246,.16)}
+.stepper__copy{display:flex;align-items:center;flex-direction:column;gap:5rpx;text-align:center}
+.stepper__label{max-width:132rpx;margin-top:0;overflow:hidden;color:#8b95a7;font-size:20rpx;text-overflow:ellipsis;white-space:nowrap}
+.stepper__state{color:#b3bac8;font-size:16rpx;line-height:1}
+.stepper__item--done .stepper__label,.stepper__item--active .stepper__label{color:#4055e8;font-weight:780}
+.stepper__item--active .stepper__state{color:#5265f5;font-weight:700}
+.stepper__item--done .stepper__state{color:#718094}
 </style>
