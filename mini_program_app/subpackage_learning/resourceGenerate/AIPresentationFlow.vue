@@ -326,6 +326,31 @@
         <text class="scene-summary__value">{{ selectedScene.label }}</text>
       </view>
 
+      <view v-if="selectedTemplate" class="template-usage-card">
+        <view class="template-usage-card__main">
+          <view class="template-usage-card__preview">
+            <image v-if="selectedTemplate.thumbnailUrl" :src="selectedTemplate.thumbnailUrl" mode="aspectFill" />
+            <text v-else>{{ selectedTemplateName.slice(0, 1) }}</text>
+          </view>
+          <view class="template-usage-card__copy">
+            <text class="template-usage-card__label">当前模板</text>
+            <text class="template-usage-card__name">{{ selectedTemplateName }}</text>
+            <text class="template-usage-card__desc">{{ selectedTemplateDescription }}</text>
+          </view>
+        </view>
+        <view class="template-usage-card__metrics">
+          <view><text>{{ selectedTemplateLayoutCount }}</text><text>可用版式</text></view>
+          <view><text>{{ pageCount }}</text><text>预计页数</text></view>
+          <view><text>{{ selectedTemplateCategoryLabel }}</text><text>模板分类</text></view>
+        </view>
+        <view class="template-usage-plan">
+          <view v-for="item in templateUsageItems" :key="item.label" class="template-usage-plan__item" :class="{ 'template-usage-plan__item--muted': !item.enabled }">
+            <text>{{ item.label }}</text>
+            <text>{{ item.enabled ? '使用' : '不使用' }}</text>
+          </view>
+        </view>
+      </view>
+
       <view class="settings-section">
         <view class="settings-section__head">
           <text class="settings-section__title">预计页数</text>
@@ -349,6 +374,8 @@
           <view><text>内容</text><text>{{ currentContentLevel.name }}</text></view>
           <view><text>配图</text><text>{{ selectedImageModeLabel }}</text></view>
           <view><text>资料</text><text>{{ sourceFileId ? '服务端解析' : '本地文本' }}</text></view>
+          <view><text>版式库</text><text>{{ selectedTemplateLayoutCount }} 种</text></view>
+          <view><text>模板类型</text><text>{{ selectedTemplateCategoryLabel }}</text></view>
         </view>
       </view>
 
@@ -399,6 +426,20 @@
         <view v-if="pptStyles.length && !templateExpanded" class="template-scroll-hint" @tap="templateExpanded = true">
           <text>左右滑动查看更多模板</text>
           <text>展开全部 ›</text>
+        </view>
+        <view v-if="selectedTemplateLayouts.length" class="template-match-preview">
+          <view class="template-match-preview__head">
+            <text>版式匹配范围</text>
+            <text>{{ selectedTemplateLayouts.length }} 类页面</text>
+          </view>
+          <view class="template-match-preview__grid">
+            <view v-for="layout in selectedTemplateLayouts.slice(0, 4)" :key="layout.id" class="template-match-preview__item">
+              <view class="template-match-preview__canvas" :class="`template-match-preview__canvas--${layout.type}`">
+                <text></text><text></text><text></text>
+              </view>
+              <text>{{ layout.name }}</text>
+            </view>
+          </view>
         </view>
       </view>
 
@@ -985,6 +1026,14 @@ export default {
       ]
       if (!total) return baseLayouts
       return baseLayouts.slice(0, Math.min(baseLayouts.length, Math.max(4, total)))
+    },
+    templateUsageItems() {
+      return [
+        { label: '封面页', enabled: this.settings.includeCover },
+        { label: '目录页', enabled: this.settings.includeCatalog },
+        { label: '章节页', enabled: this.settings.includeSection },
+        { label: '总结页', enabled: this.settings.includeSummary }
+      ]
     },
     selectedImageModeLabel() {
       const mode = this.imageModes.find(item => item.id === this.settings.imageMode)
@@ -2325,4 +2374,37 @@ export default {
 .selected-template-strip__name{margin-top:4rpx;overflow:hidden;color:#172033;font-size:23rpx;font-weight:800;text-overflow:ellipsis;white-space:nowrap}
 .selected-template-strip__actions{display:flex;flex:none;gap:16rpx;color:#5265f5;font-size:20rpx;font-weight:720}
 .product-hero--compact{margin-bottom:24rpx}
+.template-usage-card{margin-top:22rpx;padding:18rpx;border:1px solid #dfe7ef;border-radius:18rpx;background:#f8fafc}
+.template-usage-card__main{display:flex;align-items:flex-start;gap:16rpx}
+.template-usage-card__preview{display:flex;width:150rpx;height:84rpx;flex:none;align-items:center;justify-content:center;overflow:hidden;border:1px solid #d6e0ea;border-radius:12rpx;background:#fff;color:#5265f5;font-size:32rpx;font-weight:820}
+.template-usage-card__preview image{display:block;width:100%;height:100%}
+.template-usage-card__copy{min-width:0;flex:1}
+.template-usage-card__label,.template-usage-card__name,.template-usage-card__desc{display:block}
+.template-usage-card__label{color:#718094;font-size:17rpx}
+.template-usage-card__name{margin-top:4rpx;overflow:hidden;color:#172033;font-size:25rpx;font-weight:820;text-overflow:ellipsis;white-space:nowrap}
+.template-usage-card__desc{display:-webkit-box;margin-top:7rpx;overflow:hidden;color:#667386;font-size:18rpx;line-height:1.42;-webkit-box-orient:vertical;-webkit-line-clamp:2}
+.template-usage-card__metrics{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10rpx;margin-top:16rpx}
+.template-usage-card__metrics view{padding:12rpx 8rpx;border:1px solid #e4ebf2;border-radius:12rpx;background:#fff;text-align:center}
+.template-usage-card__metrics text{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.template-usage-card__metrics text:first-child{color:#172033;font-size:23rpx;font-weight:820}
+.template-usage-card__metrics text:last-child{margin-top:4rpx;color:#718094;font-size:16rpx}
+.template-usage-plan{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8rpx;margin-top:14rpx}
+.template-usage-plan__item{padding:10rpx 6rpx;border-radius:11rpx;background:#eef1ff;text-align:center}
+.template-usage-plan__item--muted{background:#edf1f5}
+.template-usage-plan__item text{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.template-usage-plan__item text:first-child{color:#4a586b;font-size:16rpx}
+.template-usage-plan__item text:last-child{margin-top:4rpx;color:#5265f5;font-size:17rpx;font-weight:760}
+.template-usage-plan__item--muted text:last-child{color:#8994a6}
+.template-match-preview{margin-top:18rpx;padding:16rpx;border:1px solid #e1e8ef;border-radius:15rpx;background:#f8fafc}
+.template-match-preview__head{display:flex;align-items:center;justify-content:space-between;color:#26384a;font-size:22rpx;font-weight:760}
+.template-match-preview__head text:last-child{color:#718094;font-size:17rpx;font-weight:500}
+.template-match-preview__grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:9rpx;margin-top:14rpx}
+.template-match-preview__item>text{display:block;margin-top:7rpx;overflow:hidden;color:#4a586b;font-size:16rpx;text-align:center;text-overflow:ellipsis;white-space:nowrap}
+.template-match-preview__canvas{position:relative;aspect-ratio:16/9;overflow:hidden;padding:8rpx;border-radius:8rpx;background:#fff;box-sizing:border-box}
+.template-match-preview__canvas text{display:block;height:4rpx;border-radius:99rpx;background:#526f88}
+.template-match-preview__canvas text+text{margin-top:6rpx;background:#becadb}
+.template-match-preview__canvas--cover{display:flex;justify-content:center;flex-direction:column;background:#edf2f7}
+.template-match-preview__canvas--cover text:first-child{width:70%;height:6rpx}
+.template-match-preview__canvas--focus{border-left:4rpx solid #5265f5;background:#f8f9ff}
+.template-match-preview__canvas--visual::after{position:absolute;right:8rpx;bottom:8rpx;width:22rpx;height:18rpx;border-radius:5rpx;background:#d9e4ef;content:''}
 </style>
