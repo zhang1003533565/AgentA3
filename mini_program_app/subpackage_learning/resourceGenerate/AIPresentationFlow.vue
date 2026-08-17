@@ -124,26 +124,21 @@
       </view>
 
       <view v-else-if="isTemplateStep && templateEntryMode === 'detail'" class="template-detail-entry">
-        <view class="layout-viewer">
-          <swiper class="layout-viewer__swiper" :current="activeLayoutIndex" @change="onLayoutSlideChange">
-            <swiper-item v-for="(layout, index) in selectedTemplateLayouts" :key="layout.id || index">
-              <view class="layout-viewer__slide" @tap="retryLayoutPreview(index)">
-                <image v-if="layoutPreviewImages[index]" class="layout-viewer__image" :src="layoutPreviewImages[index]" mode="aspectFit" />
-                <view v-else class="layout-viewer__placeholder">
-                  <text v-if="layoutPreviewFailed[`${selectedTemplate?.id}:${index}`]">版式图加载失败，点击重试</text>
-                  <text v-else>正在加载版式图…</text>
-                </view>
-              </view>
-            </swiper-item>
-          </swiper>
-          <view class="layout-viewer__pager">
-            <text>{{ activeLayoutIndex + 1 }} / {{ selectedTemplateLayouts.length }}</text>
+        <view class="layout-cover" @tap="openLayoutViewer">
+          <view class="layout-cover__stage">
+            <image v-if="layoutPreviewImages[0]" class="layout-cover__image" :src="layoutPreviewImages[0]" mode="aspectFit" />
+            <view v-else class="layout-cover__placeholder">
+              <text v-if="layoutPreviewFailed[`${selectedTemplate?.id}:0`]">版式图加载失败，点击重试</text>
+              <text v-else>正在加载版式图…</text>
+            </view>
           </view>
-        </view>
-
-        <view class="layout-caption">
-          <text class="layout-caption__name">{{ currentLayout?.name || '版式预览' }}</text>
-          <text class="layout-caption__desc">{{ currentLayout?.desc || '左右滑动，像翻 PPT 一样查看该模板的每一页' }}</text>
+          <view class="layout-cover__bar">
+            <view class="layout-cover__hint">
+              <text class="layout-cover__title">{{ selectedTemplateName }}</text>
+              <text class="layout-cover__desc">共 {{ selectedTemplateLayouts.length }} 页版式 · 点击全屏逐页翻看</text>
+            </view>
+            <view class="layout-cover__action"><text>全屏预览</text></view>
+          </view>
         </view>
 
         <view class="template-detail-card">
@@ -335,6 +330,9 @@
           <view><text>{{ pageCount }}</text><text>预计页数</text></view>
           <view><text>{{ selectedTemplateCategoryLabel }}</text><text>模板分类</text></view>
         </view>
+        <view class="template-usage-card__actions">
+          <text @tap="showTemplateLibrary">更换模板</text>
+        </view>
         <view class="template-usage-layouts">
           <view v-for="layout in selectedTemplateLayouts.slice(0, 4)" :key="layout.id" class="template-usage-layout">
             <view class="template-layout-preview" :class="`template-layout-preview--${layout.type}`">
@@ -382,70 +380,6 @@
           <view><text>资料</text><text>{{ sourceFileId ? '服务端解析' : '本地文本' }}</text></view>
           <view><text>版式库</text><text>{{ selectedTemplateLayoutCount }} 种</text></view>
           <view><text>模板类型</text><text>{{ selectedTemplateCategoryLabel }}</text></view>
-        </view>
-      </view>
-
-      <view class="settings-section">
-        <view class="template-section-head">
-          <view>
-            <text class="settings-section__title">PPT 模板</text>
-            <text v-if="selectedTemplate" class="template-section-head__selected">已选择：{{ selectedTemplate.name }}</text>
-          </view>
-          <view v-if="pptStyles.length" class="template-section-head__action" @tap="templateExpanded = !templateExpanded">
-            <text>{{ pptStyles.length }} 套</text>
-            <text>{{ templateExpanded ? '收起' : '展开全部' }}</text>
-          </view>
-        </view>
-        <scroll-view
-          v-if="pptStyles.length"
-          class="style-scroll"
-          :class="{ 'style-scroll--expanded': templateExpanded }"
-          :scroll-x="!templateExpanded"
-          :show-scrollbar="false"
-        >
-          <view class="style-list">
-            <view
-              v-for="style in pptStyles"
-              :key="style.id"
-              class="style-card"
-              :class="{ 'style-card--selected': pptStyle === style.id }"
-              @tap="pptStyle = style.id"
-            >
-              <image v-if="style.thumbnailUrl" class="style-card__preview style-card__preview-image" :src="style.thumbnailUrl" mode="aspectFill" />
-              <view v-else class="style-card__preview" :class="`style-card__preview--${style.id}`">
-                <view class="mini-slide__title"></view>
-                <view class="mini-slide__line mini-slide__line--long"></view>
-                <view class="mini-slide__line"></view>
-                <view class="mini-slide__shape"></view>
-              </view>
-              <text class="style-card__name">{{ style.name }}</text>
-              <text class="style-card__desc">{{ style.description }}</text>
-              <text v-if="style.layoutCount" class="style-card__layouts">{{ style.layoutCount }} 种页面布局</text>
-              <view v-if="pptStyle === style.id" class="style-card__check">✓</view>
-            </view>
-          </view>
-        </scroll-view>
-        <view v-if="!pptStyles.length" class="template-empty">
-          <text>{{ templateOptionsLoading ? '正在加载模板…' : '模板加载失败，请检查 PPT 服务' }}</text>
-          <text v-if="!templateOptionsLoading" class="template-empty__retry" @tap="loadPptScenes(true)">重新加载</text>
-        </view>
-        <view v-if="pptStyles.length && !templateExpanded" class="template-scroll-hint" @tap="templateExpanded = true">
-          <text>左右滑动查看更多模板</text>
-          <text>展开全部 ›</text>
-        </view>
-        <view v-if="selectedTemplateLayouts.length" class="template-match-preview">
-          <view class="template-match-preview__head">
-            <text>版式匹配范围</text>
-            <text>{{ selectedTemplateLayouts.length }} 类页面</text>
-          </view>
-          <view class="template-match-preview__grid">
-            <view v-for="layout in selectedTemplateLayouts.slice(0, 4)" :key="layout.id" class="template-match-preview__item">
-              <view class="template-match-preview__canvas" :class="`template-match-preview__canvas--${layout.type}`">
-                <text></text><text></text><text></text>
-              </view>
-              <text>{{ layout.name }}</text>
-            </view>
-          </view>
         </view>
       </view>
 
@@ -834,6 +768,32 @@
       <text class="operation-banter__status">请求仍在处理中，请不要关闭或刷新页面</text>
     </view>
 
+    <view v-if="layoutViewerVisible" class="layout-fullscreen">
+      <view class="layout-fullscreen__bar">
+        <view class="layout-fullscreen__bar-main">
+          <text class="layout-fullscreen__title">{{ selectedTemplateName }}</text>
+          <text class="layout-fullscreen__count">{{ activeLayoutIndex + 1 }} / {{ selectedTemplateLayouts.length }}</text>
+        </view>
+        <view class="layout-fullscreen__close" @tap="closeLayoutViewer"><text>×</text></view>
+      </view>
+      <swiper class="layout-fullscreen__swiper" vertical :current="activeLayoutIndex" @change="onLayoutSlideChange">
+        <swiper-item v-for="(layout, index) in selectedTemplateLayouts" :key="layout.id || index">
+          <view class="layout-fullscreen__slide" @tap="retryLayoutPreview(index)">
+            <image v-if="layoutPreviewImages[index]" class="layout-fullscreen__image" :src="layoutPreviewImages[index]" mode="aspectFit" />
+            <view v-else class="layout-fullscreen__placeholder">
+              <text v-if="layoutPreviewFailed[`${selectedTemplate?.id}:${index}`]">版式图加载失败，点击重试</text>
+              <text v-else>正在加载版式图…</text>
+              <text class="layout-fullscreen__name">{{ layout?.name }}</text>
+            </view>
+          </view>
+        </swiper-item>
+      </swiper>
+      <view class="layout-fullscreen__caption">
+        <text class="layout-fullscreen__caption-name">{{ currentLayout?.name }}</text>
+        <text class="layout-fullscreen__caption-hint">上下滑动翻页</text>
+      </view>
+    </view>
+
     <view v-if="historyOpen" class="history-mask" @tap="historyOpen = false">
       <view class="history-drawer" @tap.stop>
         <view class="history-drawer__head">
@@ -939,9 +899,9 @@ export default {
         { id: 'study', name: '课堂复习' },
         { id: 'report', name: '汇报展示' }
       ],
-      templateExpanded: false,
       templateOptionsLoading: false,
       activeLayoutIndex: 0,
+      layoutViewerVisible: false,
       layoutPreviewCache: {},
       layoutPreviewPending: {},
       layoutPreviewFailed: {},
@@ -1445,6 +1405,17 @@ export default {
       const current = Number(event?.detail?.current || 0)
       this.activeLayoutIndex = current
       this.prewarmLayoutPreviews()
+    },
+    openLayoutViewer() {
+      if (this.layoutPreviewFailed[`${this.selectedTemplate?.id}:0`]) {
+        this.retryLayoutPreview(0)
+        return
+      }
+      this.layoutViewerVisible = true
+      this.prewarmLayoutPreviews()
+    },
+    closeLayoutViewer() {
+      this.layoutViewerVisible = false
     },
     prewarmLayoutPreviews() {
       const templateId = this.selectedTemplate?.id
@@ -2709,16 +2680,31 @@ export default {
 .template-detail-card__stats text{display:block}
 .template-detail-card__stats text:first-child{overflow:hidden;color:#172033;font-size:26rpx;font-weight:820;text-overflow:ellipsis;white-space:nowrap}
 .template-detail-card__stats text:last-child{margin-top:5rpx;color:#718094;font-size:17rpx}
-.layout-viewer{position:relative;overflow:hidden;border:1px solid #d8e1ec;border-radius:16rpx;background:#fff}
-.layout-viewer__swiper{height:424rpx}
-.layout-viewer__slide{display:flex;align-items:center;justify-content:center;height:424rpx;background:#fff}
-.layout-viewer__image{width:100%;height:100%}
-.layout-viewer__placeholder{display:flex;align-items:center;justify-content:center;height:100%;color:#8a97a8;font-size:21rpx}
-.layout-viewer__pager{position:absolute;right:14rpx;bottom:14rpx;padding:6rpx 16rpx;border-radius:999rpx;background:rgba(23,32,51,.55)}
-.layout-viewer__pager text{color:#fff;font-size:18rpx;font-weight:700}
-.layout-caption{display:flex;flex-direction:column;margin-top:18rpx}
-.layout-caption__name{color:#172033;font-size:26rpx;font-weight:800}
-.layout-caption__desc{margin-top:6rpx;color:#667386;font-size:20rpx;line-height:1.5}
+.layout-cover{overflow:hidden;border:1px solid #d8e1ec;border-radius:16rpx;background:#fff}
+.layout-cover__stage{display:flex;align-items:center;justify-content:center;aspect-ratio:16/9;background:#f5f8fb}
+.layout-cover__image{width:100%;height:100%}
+.layout-cover__placeholder{display:flex;align-items:center;justify-content:center;height:100%;color:#8a97a8;font-size:21rpx}
+.layout-cover__bar{display:flex;align-items:center;justify-content:space-between;gap:16rpx;padding:16rpx 18rpx;border-top:1px solid #e7edf4}
+.layout-cover__hint{min-width:0;flex:1}
+.layout-cover__title{display:block;overflow:hidden;color:#172033;font-size:25rpx;font-weight:800;text-overflow:ellipsis;white-space:nowrap}
+.layout-cover__desc{display:block;margin-top:5rpx;color:#667386;font-size:19rpx}
+.layout-cover__action{flex:none;padding:12rpx 22rpx;border-radius:999rpx;background:#5265f5}
+.layout-cover__action text{color:#fff;font-size:20rpx;font-weight:720}
+.layout-fullscreen{position:fixed;z-index:1400;inset:0;display:flex;flex-direction:column;background:#0e1524}
+.layout-fullscreen__bar{display:flex;align-items:center;justify-content:space-between;gap:18rpx;padding:calc(20rpx + env(safe-area-inset-top)) 24rpx 20rpx}
+.layout-fullscreen__bar-main{min-width:0;flex:1}
+.layout-fullscreen__title{display:block;overflow:hidden;color:#fff;font-size:27rpx;font-weight:800;text-overflow:ellipsis;white-space:nowrap}
+.layout-fullscreen__count{display:block;margin-top:5rpx;color:rgba(255,255,255,.65);font-size:19rpx}
+.layout-fullscreen__close{display:flex;width:64rpx;height:64rpx;flex:none;align-items:center;justify-content:center;border-radius:50%;background:rgba(255,255,255,.12)}
+.layout-fullscreen__close text{color:#fff;font-size:40rpx;line-height:1}
+.layout-fullscreen__swiper{flex:1;height:100%}
+.layout-fullscreen__slide{display:flex;align-items:center;justify-content:center;height:100%;padding:0 24rpx;box-sizing:border-box}
+.layout-fullscreen__image{width:100%;height:100%}
+.layout-fullscreen__placeholder{display:flex;align-items:center;justify-content:center;flex-direction:column;gap:12rpx;height:100%;color:#8a97a8;font-size:21rpx}
+.layout-fullscreen__name{color:rgba(255,255,255,.5);font-size:18rpx}
+.layout-fullscreen__caption{display:flex;align-items:center;justify-content:space-between;gap:18rpx;padding:18rpx 28rpx calc(22rpx + env(safe-area-inset-bottom))}
+.layout-fullscreen__caption-name{overflow:hidden;color:rgba(255,255,255,.9);font-size:21rpx;font-weight:700;text-overflow:ellipsis;white-space:nowrap}
+.layout-fullscreen__caption-hint{flex:none;color:rgba(255,255,255,.4);font-size:18rpx}
 .template-layout-preview{position:relative;aspect-ratio:16/9;overflow:hidden;padding:14rpx;border-radius:11rpx;background:#f5f8fb;box-sizing:border-box}
 .template-layout-preview text{display:block;height:6rpx;border-radius:99rpx;background:#526f88}
 .template-layout-preview text+text{margin-top:9rpx;background:#becadb}
@@ -2764,6 +2750,8 @@ export default {
 .template-usage-card__metrics text{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .template-usage-card__metrics text:first-child{color:#172033;font-size:23rpx;font-weight:820}
 .template-usage-card__metrics text:last-child{margin-top:4rpx;color:#718094;font-size:16rpx}
+.template-usage-card__actions{display:flex;justify-content:flex-end;margin-top:14rpx}
+.template-usage-card__actions text{display:flex;height:46rpx;align-items:center;padding:0 16rpx;border:1px solid #d7def4;border-radius:12rpx;background:#fff;color:#5265f5;font-size:18rpx;font-weight:720}
 .template-usage-layouts{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12rpx;margin-top:16rpx}
 .template-usage-layout{padding:12rpx;border:1px solid #e1e8ef;border-radius:13rpx;background:#fff;box-sizing:border-box}
 .template-usage-layout>text{display:block;margin-top:9rpx;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}

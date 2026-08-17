@@ -4,8 +4,8 @@ import { getToken } from '@/utils/storage.js'
 import { streamSse } from './ai.js'
 
 const base = '/api/app/ai/ppt'
-const PPT_OPTIONS_CACHE_KEY = 'aiPptOptions:v6'
-const PPT_OPTIONS_LEGACY_CACHE_KEYS = ['aiPptOptions:v1', 'aiPptOptions:v2', 'aiPptOptions:v3', 'aiPptOptions:v4', 'aiPptOptions:v5']
+const PPT_OPTIONS_CACHE_KEY = 'aiPptOptions:v7'
+const PPT_OPTIONS_LEGACY_CACHE_KEYS = ['aiPptOptions:v1', 'aiPptOptions:v2', 'aiPptOptions:v3', 'aiPptOptions:v4', 'aiPptOptions:v5', 'aiPptOptions:v6']
 const DEFAULT_OPTIONS_CACHE_TTL = 24 * 60 * 60 * 1000
 const PPT_GENERATION_TIMEOUT = 5 * 60 * 1000
 let pptOptionsRequest = null
@@ -51,8 +51,11 @@ function readPptOptionsCache() {
     const cached = uni.getStorageSync(PPT_OPTIONS_CACHE_KEY)
     if (!cached || Number(cached.expiresAt || 0) <= Date.now()) return null
     const hasScenes = Array.isArray(cached.data?.scenes) && cached.data.scenes.length
-    const hasTemplates = Array.isArray(cached.data?.templates) && cached.data.templates.length
-    return hasScenes && hasTemplates ? cached.data : null
+    const templates = cached.data?.templates
+    const hasTemplates = Array.isArray(templates) && templates.length
+    // layouts 缺失的旧缓存会让模板详情掉进 6 张占位兜底，必须强制刷新
+    const hasLayouts = hasTemplates && templates.every(item => Array.isArray(item?.layouts) && item.layouts.length)
+    return hasScenes && hasTemplates && hasLayouts ? cached.data : null
   } catch (error) {
     return null
   }
