@@ -546,6 +546,24 @@ export const getBreadcrumbByPath = (path) => {
     ]
   }
 
+  if (/^\/facility\/teaching\/[^/]+$/.test(normalizedPath)) {
+    return [
+      '校园设施',
+      { label: '教学楼设置', path: '/facility/teaching' },
+      { label: '教学楼详情' },
+    ]
+  }
+
+  const teachingFloorMatch = normalizedPath.match(/^\/facility\/teaching\/([^/]+)\/floors\/[^/]+$/)
+  if (teachingFloorMatch) {
+    return [
+      '校园设施',
+      { label: '教学楼设置', path: '/facility/teaching' },
+      { label: '教学楼详情', path: `/facility/teaching/${teachingFloorMatch[1]}` },
+      { label: '房间管理' },
+    ]
+  }
+
   const indoorMatch = normalizedPath.match(/^\/facility\/canteen\/([^/]+)\/stalls\/indoor$/)
   if (indoorMatch) {
     return [

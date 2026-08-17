@@ -6,7 +6,7 @@ services:
     image: docker.m.daocloud.io/library/adminer:latest
     restart: always
     ports:
-      - "${ADMINER_PORT:-7070}:8080"
+      - "${BIND_ADDRESS:-127.0.0.1}:${ADMINER_PORT:-7070}:8080"
 
   mysql:
     container_name: smart-campus-mysql
@@ -19,7 +19,7 @@ services:
       - --character-set-server=${MYSQL_CHARSET:-utf8mb4}
       - --collation-server=${MYSQL_COLLATION:-utf8mb4_unicode_ci}
     ports:
-      - "3306:3306"
+      - "${BIND_ADDRESS:-127.0.0.1}:${MYSQL_HOST_PORT:-3307}:3306"
     volumes:
       - ./.data:/var/lib/mysql
     healthcheck:
@@ -33,7 +33,7 @@ services:
     image: docker.m.daocloud.io/library/redis:7-alpine
     restart: always
     ports:
-      - "6379:6379"
+      - "${BIND_ADDRESS:-127.0.0.1}:6379:6379"
     volumes:
       - ./.redis-data:/data
     command: ["redis-server", "--appendonly", "yes"]
@@ -53,8 +53,8 @@ services:
       NEO4J_server_memory_heap_max__size: ${NEO4J_HEAP_MAX:-512m}
       NEO4J_server_memory_pagecache_size: ${NEO4J_PAGECACHE:-512m}
     ports:
-      - "${NEO4J_HTTP_PORT:-7474}:7474"
-      - "${NEO4J_BOLT_PORT:-7687}:7687"
+      - "${BIND_ADDRESS:-127.0.0.1}:${NEO4J_HTTP_PORT:-7474}:7474"
+      - "${BIND_ADDRESS:-127.0.0.1}:${NEO4J_BOLT_PORT:-7687}:7687"
     volumes:
       - ./.neo4j-data:/data
     healthcheck:
@@ -79,6 +79,7 @@ services:
     environment:
       TZ: Asia/Shanghai
       SERVER_PORT: 8080
+      SERVER_ADDRESS: 0.0.0.0
       SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/${MYSQL_DATABASE:-smart-campus}?useUnicode=true&characterEncoding=UTF-8&serverTimezone=Asia/Shanghai
       SPRING_DATASOURCE_USERNAME: root
       SPRING_DATASOURCE_PASSWORD: ${MYSQL_ROOT_PASSWORD:-123456}
@@ -102,4 +103,4 @@ services:
     depends_on:
       - backend
     ports:
-      - "${WEB_PORT:-80}:80"
+      - "${BIND_ADDRESS:-127.0.0.1}:${WEB_PORT:-80}:80"

@@ -58,8 +58,16 @@ $MysqlCollation = if ($env:MYSQL_COLLATION) { $env:MYSQL_COLLATION } else { "utf
 $MysqlWaitSeconds = if ($env:MYSQL_WAIT_SECONDS) { [int]$env:MYSQL_WAIT_SECONDS } else { 90 }
 $AdminerPort = if ($env:ADMINER_PORT) { [int]$env:ADMINER_PORT } else { 0 }
 $BackendPort = if ($env:SERVER_PORT) { [int]$env:SERVER_PORT } else { 8080 }
+if (-not $env:SERVER_ADDRESS) {
+    $env:SERVER_ADDRESS = "127.0.0.1"
+}
 # Host port mapped from container's 3306 (see docker-compose.yml). Defaults to 3307.
 $MysqlHostPort = if ($env:MYSQL_HOST_PORT) { [int]$env:MYSQL_HOST_PORT } else { 3307 }
+$Neo4jEnabled = if ($env:NEO4J_ENABLED) {
+    @("1", "true", "yes", "on") -contains $env:NEO4J_ENABLED.ToLowerInvariant()
+} else {
+    $false
+}
 $DataSqlPath = Join-Path $PSScriptRoot "src\main\resources\data.sql"
 $ImportDataSql = $false
 if ($env:IMPORT_DATA_SQL) {
@@ -67,6 +75,37 @@ if ($env:IMPORT_DATA_SQL) {
 }
 
 Set-Location $PSScriptRoot
+
+function Add-ProcessPath {
+    param([string]$Path)
+
+    if (-not (Test-Path $Path)) {
+        return
+    }
+
+    $existingPaths = @($env:Path -split ";" | Where-Object { $_ })
+    if (-not ($existingPaths | Where-Object { $_.TrimEnd("\") -ieq $Path.TrimEnd("\") })) {
+        $env:Path = "$Path;$env:Path"
+    }
+}
+
+function Initialize-LocalToolchain {
+    $javaHome = "D:\DevTools\Java\temurin-21"
+    $mavenHome = "D:\DevTools\Maven\apache-maven-3.9.16\maven-mvnd-1.0.6-windows-amd64\mvn"
+    $dockerBin = "D:\DevTools\Docker\resources\bin"
+
+    if (Test-Path (Join-Path $javaHome "bin\java.exe")) {
+        $env:JAVA_HOME = $javaHome
+        Add-ProcessPath (Join-Path $javaHome "bin")
+    }
+
+    if (Test-Path (Join-Path $mavenHome "bin\mvn.cmd")) {
+        $env:MAVEN_HOME = $mavenHome
+        Add-ProcessPath (Join-Path $mavenHome "bin")
+    }
+
+    Add-ProcessPath $dockerBin
+}
 
 function Initialize-ConsoleEncoding {
     $utf8 = New-Object System.Text.UTF8Encoding($false)
@@ -319,12 +358,17 @@ function Start-Backend {
 }
 
 Initialize-ConsoleEncoding
+Initialize-LocalToolchain
 Initialize-Compose
 Start-DockerDesktop
 Set-AdminerPort
 
 Write-Log "Starting Docker services..."
-Invoke-Compose up -d
+$composeServices = @("mysql", "redis", "adminer")
+if ($Neo4jEnabled) {
+    $composeServices += "neo4j"
+}
+Invoke-Compose up -d @composeServices
 if ($LASTEXITCODE -ne 0) {
     Stop-WithError "Failed to start Docker services."
 }
