@@ -229,13 +229,6 @@
           </view>
         </view>
 
-        <view class="capability-strip">
-          <view v-for="item in capabilityCards" :key="item.title" class="capability-card">
-            <text class="capability-card__title">{{ item.title }}</text>
-            <text class="capability-card__desc">{{ item.desc }}</text>
-          </view>
-        </view>
-
         <view v-if="fileInfo && fileContent" class="preview-card">
           <view class="preview-card__head">
             <text class="preview-card__title">资料预览</text>
@@ -1036,11 +1029,6 @@ export default {
       outlineModes: [
         { id: 'ai_outline', name: 'AI 生成复习大纲', description: 'AI 分析资料内容，重新整理知识结构，生成适合复习的 PPT 大纲。', fit: '适合内容零散或没有明确结构的资料' },
         { id: 'original_outline', name: '使用原内容作为大纲', description: '按照上传资料原有的内容顺序和标题层级生成 PPT。', fit: '适合已经整理好大纲的资料' }
-      ],
-      capabilityCards: [
-        { title: '资料解析', desc: 'TXT 直读，Office 与 PDF 走服务端解析' },
-        { title: '模板渲染', desc: '使用内置 Presenton 模板输出页面' },
-        { title: '可导出', desc: '生成 PPTX、PDF 和页面预览' }
       ],
       pptStyles: [],
       contentLevels: [
@@ -2475,11 +2463,6 @@ export default {
 .recover-card__desc{margin-top:7rpx;color:#9b6b24;font-size:19rpx;line-height:1.45}
 .recover-card__button{flex:none;height:58rpx;margin:0;padding:0 18rpx;border:1px solid #d8b06f;border-radius:12rpx;background:#fff;color:#8b5f23;font-size:20rpx;line-height:58rpx}
 .recover-card__button::after{border:0}
-.capability-strip{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12rpx;margin-top:24rpx}
-.capability-card{min-height:112rpx;padding:16rpx 14rpx;border:1px solid #e1e8ef;border-radius:15rpx;background:#f8fafc;box-sizing:border-box}
-.capability-card__title,.capability-card__desc{display:block}
-.capability-card__title{color:#314b63;font-size:21rpx;font-weight:760}
-.capability-card__desc{margin-top:8rpx;color:#718094;font-size:17rpx;line-height:1.42}
 .source-input-card{overflow:hidden;border:1px solid #dce2ec;border-radius:16rpx;background:#fff}
 .source-input-card__head{display:flex;align-items:center;justify-content:space-between;gap:16rpx;padding:16rpx 18rpx;border-bottom:1px solid #edf1f5;background:#f8fafc}
 .source-input-card__status{display:flex;min-width:0;align-items:center;gap:14rpx}
