@@ -41,3 +41,5 @@ Thumbs.db
 logs/
 AppBackend/logs/
 .reasonix/
+.downloads/
+.codex-*.log

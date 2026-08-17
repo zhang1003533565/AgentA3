@@ -336,6 +336,8 @@ public class MapPlaceServiceImpl implements MapPlaceService {
             place.setName(name);
         }
         if (request.getDescription() != null) place.setDescription(request.getDescription().trim());
+        if (request.getUsagePurpose() != null) place.setUsagePurpose(request.getUsagePurpose().trim());
+        if (request.getUsageStatus() != null) place.setUsageStatus(request.getUsageStatus().trim());
         if (creating || request.getStatus() != null) {
             String status = normalizeOptional(request.getStatus());
             place.setStatus(status == null ? "ENABLED" : status);
@@ -405,6 +407,8 @@ public class MapPlaceServiceImpl implements MapPlaceService {
         if (includeDetails) {
             response.setDescription(place.getDescription());
         }
+        response.setUsagePurpose(place.getUsagePurpose());
+        response.setUsageStatus(place.getUsageStatus());
         response.setStatus(place.getStatus());
         response.setLongitude(place.getLongitude());
         response.setLatitude(place.getLatitude());
