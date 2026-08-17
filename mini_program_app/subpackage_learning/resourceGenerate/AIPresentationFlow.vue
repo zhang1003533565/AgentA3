@@ -302,7 +302,10 @@
           </view>
           <view class="outline-item__meta">
             <picker :range="outlineLevelLabels" :value="outlineLevelIndex(item.level)" @change="updateOutlineItemLevel(index, $event)">
-              <view class="outline-level-picker">{{ outlineLevelLabel(item.level) }}⌄</view>
+              <view class="outline-level-picker">
+                <text>{{ outlineLevelLabel(item.level) }}</text>
+                <text class="outline-level-picker__chevron"></text>
+              </view>
             </picker>
             <view class="outline-item__actions">
               <text v-if="index > 0" @tap="moveOutlineItem(index, -1)">上移</text>
@@ -2469,10 +2472,10 @@ export default {
 .outline-toolbar-actions{display:flex;flex:none;align-items:center;gap:10rpx}
 .outline-page-count{display:flex;height:48rpx;align-items:center;padding:0 15rpx;border-radius:999rpx;background:#eef0ff;color:#5062e8;font-size:18rpx;font-weight:800}
 .outline-history-button{display:flex;height:48rpx;align-items:center;padding:0 17rpx;border:1px solid #d7def4;border-radius:12rpx;color:#5062e9;font-size:20rpx;font-weight:720}
-.outline-name-field{display:flex;align-items:center;gap:16rpx;margin-top:20rpx;padding:16rpx 18rpx;border:1px solid #dfe6ef;border-radius:15rpx;background:#f9fbfe}
-.outline-name-field>text{flex:none;color:#506074;font-size:21rpx;font-weight:760}
+.outline-name-field{display:flex;align-items:center;gap:14rpx;margin-top:20rpx;padding:12rpx;border:1px solid #dfe6ef;border-radius:15rpx;background:#fff}
+.outline-name-field>text{display:flex;height:58rpx;flex:none;align-items:center;padding:0 18rpx;border-radius:12rpx;background:#eef2f7;color:#44556b;font-size:21rpx;font-weight:780}
 .outline-name-field input,.outline-item input,.edit-field input,.edit-field textarea,.prompt-field textarea{width:100%;border:1px solid #dfe4ed;border-radius:13rpx;background:#fff;box-sizing:border-box}
-.outline-name-field input{min-width:0;height:58rpx;padding:0;border:0;background:transparent;font-size:23rpx}
+.outline-name-field input{min-width:0;height:58rpx;padding:0 18rpx;border:1px solid #dfe6ef;background:#f9fbfe;font-size:23rpx}
 .outline-list{margin-top:20rpx}
 .outline-item{padding:18rpx;border:1px solid #e2e6ee;border-radius:16rpx;background:#fafbfe}
 .outline-item+.outline-item{margin-top:13rpx}
@@ -2480,7 +2483,8 @@ export default {
 .outline-item__head{display:flex;align-items:center;gap:14rpx}
 .outline-item input{height:63rpx;padding:0 15rpx;font-size:22rpx}
 .outline-item__meta{display:flex;align-items:center;justify-content:space-between;gap:16rpx;margin-top:14rpx;padding-left:53rpx}
-.outline-level-picker{display:flex;height:40rpx;align-items:center;padding:0 18rpx;border-radius:999rpx;background:#eef2f7;color:#526176;font-size:18rpx;font-weight:760}
+.outline-level-picker{display:flex;height:40rpx;align-items:center;justify-content:center;gap:8rpx;padding:0 17rpx;border-radius:999rpx;background:#eef2f7;color:#526176;font-size:18rpx;font-weight:760;line-height:40rpx}
+.outline-level-picker__chevron{display:block;width:9rpx;height:9rpx;margin-top:-3rpx;border-right:2rpx solid #526176;border-bottom:2rpx solid #526176;transform:rotate(45deg)}
 .outline-item__actions{display:flex;align-items:center;justify-content:flex-end;gap:22rpx}
 .outline-item__actions text{color:#6675e9;font-size:19rpx;font-weight:720;line-height:40rpx}
 .outline-item__actions .outline-item__delete{color:#9aa3b3}

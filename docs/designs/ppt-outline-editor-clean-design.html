@@ -18,9 +18,9 @@
     .toolbar-actions{display:flex;align-items:center;gap:8px}
     .count{padding:6px 9px;border-radius:999px;background:#eef1ff;color:#5062e9;font-size:12px;font-weight:800}
     .history{height:34px;padding:0 12px;border:1px solid #d7def4;border-radius:10px;background:#fff;color:#5062e9;font-size:13px;font-weight:700}
-    .name{display:flex;align-items:center;gap:10px;margin-top:14px;padding:11px 12px;border:1px solid #dfe6ef;border-radius:12px;background:#f9fbfe}
-    .name span{flex:none;color:#506074;font-size:13px;font-weight:750}
-    .name div{min-width:0;flex:1;color:#07152a;font-size:15px}
+    .name{display:flex;align-items:center;gap:8px;margin-top:14px;padding:8px;border:1px solid #dfe6ef;border-radius:12px;background:#fff}
+    .name span{display:flex;height:34px;align-items:center;padding:0 10px;border-radius:9px;background:#eef2f7;color:#44556b;font-size:13px;font-weight:750}
+    .name div{min-width:0;flex:1;height:34px;padding:0 10px;border:1px solid #dfe6ef;border-radius:9px;background:#f9fbfe;color:#07152a;font-size:15px;line-height:34px}
     .list{margin-top:14px}
     .item{padding:12px;border:1px solid #e1e7f0;border-radius:13px;background:#fbfcff}
     .item+.item{margin-top:10px}
@@ -28,7 +28,8 @@
     .order{display:flex;width:28px;height:28px;align-items:center;justify-content:center;border-radius:9px;background:#eef0ff;color:#5062e8;font-size:13px;font-weight:800}
     .input{min-width:0;flex:1;height:38px;padding:0 10px;border:1px solid #dfe5ee;border-radius:10px;background:#fff;font-size:15px;line-height:38px}
     .meta{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:10px;padding-left:38px}
-    .level{padding:5px 10px;border-radius:999px;background:#eef2f7;color:#526176;font-size:12px;font-weight:750}
+    .level{display:flex;align-items:center;gap:5px;padding:5px 10px;border-radius:999px;background:#eef2f7;color:#526176;font-size:12px;font-weight:750}
+    .level i{display:block;width:5px;height:5px;margin-top:-2px;border-right:1px solid #526176;border-bottom:1px solid #526176;transform:rotate(45deg)}
     .actions{display:flex;align-items:center;gap:14px;color:#6573e8;font-size:12px;font-weight:700}
     .actions span:last-child{color:#9aa3b3}
     .add{height:42px;margin-top:12px;border:1px dashed #bfcae8;border-radius:11px;background:#f9faff;color:#5264eb;text-align:center;line-height:42px;font-size:14px;font-weight:750}
@@ -58,15 +59,15 @@
         <div class="list">
           <div class="item">
             <div class="item-head"><div class="order">1</div><div class="input">离散数学实验二：集合运算与操作</div></div>
-            <div class="meta"><div class="level">章节 ▾</div><div class="actions"><span>下移</span><span>删除</span></div></div>
+            <div class="meta"><div class="level">章节 <i></i></div><div class="actions"><span>下移</span><span>删除</span></div></div>
           </div>
           <div class="item">
             <div class="item-head"><div class="order">2</div><div class="input">目录</div></div>
-            <div class="meta"><div class="level">小节 ▾</div><div class="actions"><span>上移</span><span>下移</span><span>删除</span></div></div>
+            <div class="meta"><div class="level">小节 <i></i></div><div class="actions"><span>上移</span><span>下移</span><span>删除</span></div></div>
           </div>
           <div class="item">
             <div class="item-head"><div class="order">3</div><div class="input">实验背景与目的</div></div>
-            <div class="meta"><div class="level">章节 ▾</div><div class="actions"><span>上移</span><span>下移</span><span>删除</span></div></div>
+            <div class="meta"><div class="level">章节 <i></i></div><div class="actions"><span>上移</span><span>下移</span><span>删除</span></div></div>
           </div>
         </div>
         <div class="add">+ 添加页面</div>
