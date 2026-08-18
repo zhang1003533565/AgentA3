@@ -46,6 +46,12 @@ _FIELD = re.compile(r"^-\s*([^：:]+)[：:]\s*(.*)$")
 logger = logging.getLogger(__name__)
 PPT_PAGE_LLM_TIMEOUT_SECONDS = max(60, int(os.getenv("PPT_PAGE_LLM_TIMEOUT_SECONDS") or 300))
 PPT_CONTENT_BATCH_SIZE = max(1, min(5, int(os.getenv("PPT_CONTENT_BATCH_SIZE") or 3)))
+# 内容批次并发数：推理模型单次调用慢，适度并发可显著缩短总时长
+PPT_CONTENT_MAX_WORKERS = max(1, min(4, int(os.getenv("PPT_CONTENT_MAX_WORKERS") or 3)))
+# 大纲单次调用可携带的资料字符上限（资料通过 user_input 传递，绕过 evidence 的 1200 字符截断）
+PPT_OUTLINE_SOURCE_MAX_CHARS = max(2_000, int(os.getenv("PPT_OUTLINE_SOURCE_MAX_CHARS") or 24_000))
+# 内容批次单页资料切片字符上限：大纲要点已浓缩信息，切片只需补充细节
+PPT_BATCH_SOURCE_MAX_CHARS = max(2_000, int(os.getenv("PPT_BATCH_SOURCE_MAX_CHARS") or 12_000))
 PPT_LLM_MAX_RETRIES = max(0, min(5, int(os.getenv("PPT_LLM_MAX_RETRIES") or 3)))
 PPT_LLM_RETRY_BASE_DELAY = max(0.5, float(os.getenv("PPT_LLM_RETRY_BASE_DELAY") or 1.0))
 
@@ -194,8 +200,11 @@ class PptGenerationService:
             "audience": "学生复习",
             "slide_count": int(request.get("pageCount") or 15),
             "constraints": "严格依据上传资料，不得补造事实；输出结构化 PPT 大纲。",
+            # 资料放 user_input 而非 evidence：normalize_evidence 会把
+            # evidence content 截断到 1200 字符，导致大纲只能看到资料开头。
+            "material": source[:PPT_OUTLINE_SOURCE_MAX_CHARS],
         }, ensure_ascii=False)
-        evidence = [{"id": "uploaded-material", "source": request.get("sourceName"), "content": source[:60_000]}]
+        evidence = []
         timeout_token = set_active_llm_timeout(PPT_PAGE_LLM_TIMEOUT_SECONDS)
         token = set_active_llm_config(llm_config)
         try:
@@ -261,6 +270,17 @@ class PptGenerationService:
         token = set_active_llm_config(llm_config)
         try:
             try:
+                if progress_callback:
+                    # 版式匹配是一次较慢的 LLM 调用，先回报阶段避免前端长时间无反馈
+                    progress_callback({
+                        "stage": "structuring",
+                        "progress": 6,
+                        "totalSlides": len(items),
+                        "completedSlides": 0,
+                        "remainingSlides": len(items),
+                        "processingSlides": [],
+                        "message": "正在为每页匹配模板版式",
+                    })
                 structure_answer = _retry_llm_call(
                     lambda: run_specialist_agent("ppt_structure_agent", structure_prompt, [])
                 )
@@ -538,9 +558,16 @@ class PptGenerationService:
                 })
             first, last = indices[0] + 1, indices[-1] + 1
             count = len(indices)
+            batch_source = _source_segment(
+                source, indices[0], total, max_chars=PPT_BATCH_SOURCE_MAX_CHARS
+            )
             payload = {
                 "title": str(outline.get("title") or "复习资料 PPT"),
-                "outline": items,
+                # 全量大纲瘦身成标题行：批次上下文只需脉络，细节在 currentSlides
+                "outline": [
+                    {"index": i + 1, "title": str(items[i].get("title") or ""), "type": str(items[i].get("type") or "")}
+                    for i in range(total) if isinstance(items[i], Mapping)
+                ],
                 "currentSlides": [items[i] for i in indices],
                 "settings": dict(settings),
                 "templateId": template_id,
@@ -553,21 +580,19 @@ class PptGenerationService:
                     "图表用 {categories:[...], series:[...]}）。"
                 ),
                 "sharedPrompt": shared_prompt,
-                "sourceMaterial": _source_segment(source, indices[0], total),
+                "sourceMaterial": batch_source,
             }
 
             def _call() -> str:
                 timeout_token = set_active_llm_timeout(PPT_PAGE_LLM_TIMEOUT_SECONDS)
                 content_token = set_active_llm_config(llm_config)
-                batch_source = _source_segment(source, indices[0], total)
                 try:
+                    # 资料已通过 payload.sourceMaterial 全量进入 user_input；
+                    # 不再放 evidence（会被截断到 1200 字符，纯浪费 token）
                     return run_specialist_agent(
                         "ppt_content_agent",
                         json.dumps(payload, ensure_ascii=False),
-                        (
-                            [{"id": "uploaded-material", "source": "学习资料", "content": batch_source}]
-                            if source else []
-                        ),
+                        [],
                     )
                 finally:
                     reset_active_llm_config(content_token)
@@ -590,10 +615,24 @@ class PptGenerationService:
         def report(current: Optional[int] = None) -> None:
             if not progress_callback:
                 return
+            processing = sorted(
+                i + 1
+                for batch_idx in active_batches
+                for i in batches[batch_idx]
+            )
             next_slide = current or min(
                 (i for i in range(total) if i not in results),
                 default=min(completed + 1, total),
             )
+            # 有批次在处理时展示页范围（并发批次跨多页），
+            # 避免第一批完成前长时间停在"第 1 页"的观感
+            if processing:
+                span = f"第 {processing[0]}-{processing[-1]} 页" if len(processing) > 1 else f"第 {processing[0]} 页"
+                message = f"正在生成 {span} / 共 {total} 页（已完成 {completed}）"
+            elif next_slide < total:
+                message = f"正在生成第 {next_slide + 1} / {total} 页"
+            else:
+                message = "正在生成页面内容"
             progress_callback({
                 "stage": "writing",
                 "progress": 10 + int(completed * 80 / max(1, total)),
@@ -602,19 +641,11 @@ class PptGenerationService:
                 "totalSlides": total,
                 "completedSlides": completed,
                 "remainingSlides": total - completed,
-                "processingSlides": sorted(
-                    i + 1
-                    for batch_idx in active_batches
-                    for i in batches[batch_idx]
-                ),
-                "message": (
-                    f"正在生成第 {next_slide + 1} / {total} 页"
-                    if next_slide < total
-                    else "正在生成页面内容"
-                ),
+                "processingSlides": processing,
+                "message": message,
             })
 
-        max_workers = min(2, max(1, len(batches)))
+        max_workers = min(PPT_CONTENT_MAX_WORKERS, max(1, len(batches)))
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             future_to_batch: Dict[Any, int] = {}
             for batch_idx in range(min(max_workers, len(batches))):
@@ -1032,7 +1063,18 @@ def _sanitize_content_payload(
         component_content = item.pop("componentContent", None)
         outline_item = current_slides[index] if current_slides and index < len(current_slides) else {}
         if isinstance(component_content, dict) and component_content:
-            item["ui"] = _merge_content_into_layout(layout, component_content)
+            merged = _merge_content_into_layout(layout, component_content)
+            matched = int(merged.pop("_matchedComponents", 0) or 0)
+            if matched > 0:
+                item["ui"] = merged
+            else:
+                # 键名全部未命中组件：按缺失处理，避免清空占位后输出"空模板"
+                logger.warning(
+                    "PPT slide %d componentContent matched no component, filling from outline",
+                    index + 1,
+                )
+                item["ui"] = _fill_layout_with_slide_text(layout, item, outline_item)
+                item["_contentFallback"] = True
         else:
             # componentContent 缺失时绝不输出模板原件：
             # 用大纲标题/要点按字号角色填充版式文本组件
@@ -1127,6 +1169,8 @@ def _merge_content_into_layout(layout: Mapping[str, Any], component_content: Map
         )
     else:
         _clear_template_placeholder_text(result, matched_names)
+    # 匹配计数标记：调用方据此判断键名是否全部未命中（需回退大纲填充）
+    result["_matchedComponents"] = len(matched_names)
     return result
 
 

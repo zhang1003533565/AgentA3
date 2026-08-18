@@ -26,27 +26,25 @@ Rules:
 """.strip()
 
 PRESENTON_CONTENT_RULES = """
-Generate the selected slide's content strictly from the supplied source and outline.
+Generate the selected slides' content strictly from the supplied source and outline.
 
-The response must include a complete `ui` object copied from the supplied
-Presenton layout JSON. The UI tree, component order, names, coordinates, sizes,
-fonts, colors, SVG paths, image references, and nesting are immutable. Change only
-audience-visible text runs and the data fields of table/chart components. Do not
-return a simplified slot map and do not invent a new layout.
+The server owns the layout: it copies the Presenton layout JSON (component tree,
+coordinates, fonts, colors, assets) and fills in your content. Therefore NEVER
+return a `ui` object, layout JSON, coordinates, or style values. Return only the
+flat `componentContent` mapping per slide, keyed by the exact component `name`
+from `selectedLayouts[].componentSchema`:
+- text components: a string with the audience-visible text for that slot
+  - headline/heading/title slots: one concise conclusion
+  - body/paragraph/description slots: short audience-facing explanation
+  - item_title/item_body/feature slots: repeated card content, one entry per slot
+- table components: `{"columns": [...], "rows": [[...], ...]}`
+- chart components: `{"categories": [...], "series": [{"name": "...", "values": [...]}]}`
 
-For text components, replace the existing `runs[].text` or `text` value with:
-- headline/heading/title: a concise slide conclusion
-- body/paragraph/description/copy: short audience-facing explanation
-- item_title/item_body/feature_title/feature_description: repeated card content
-- text-list: the requested number of concise list entries
-For data components use the existing Presenton shape:
-- table: `columns` and `rows`
-- chart: `categories` and `series` with numeric `values`
-
-Do not invent numbers, images, sources, or examples. Keep template image paths
-unchanged; image decisions belong in `visualPrompt` and are applied by the task
-worker after the UI JSON is validated. Do not emit layout metadata, prompt text,
-or speaker instructions as slide content. Rephrase instead of clipping sentences.
+Every text-bearing component in the schema should receive content; omit only
+image/decoration components. Respect each component's max_length/max_children
+constraints by rephrasing, never by truncating mid-sentence. Do not invent
+numbers, images, sources, or examples; image intent belongs in `visualPrompt`.
+Do not emit layout metadata, prompt text, or speaker instructions as content.
 Keep each slide centered on one conclusion.
 """.strip()
 
