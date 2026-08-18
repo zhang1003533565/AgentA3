@@ -34,5 +34,9 @@ export function resolveAiToolDestination(tool = {}) {
   if (['活动图', '架构图', '流程图'].includes(name)) return conversationRoute(tool)
   if (name === 'PDF转Word') return '/subpackage_ai/documentConvertDetail/documentConvertDetail?convertType=pdf_to_docx'
   if (name === 'PPT转Word') return '/subpackage_ai/documentConvertDetail/documentConvertDetail?convertType=ppt_to_docx'
+  if (name === 'PDF转PPT') return '/subpackage_ai/documentConvertDetail/documentConvertDetail?convertType=pdf_to_ppt'
+  if (name === 'PPT转PDF') return '/subpackage_ai/documentConvertDetail/documentConvertDetail?convertType=ppt_to_pdf'
+  if (name === 'Word转PDF') return '/subpackage_ai/documentConvertDetail/documentConvertDetail?convertType=docx_to_pdf'
+  if (name === 'Word转PPT') return '/subpackage_ai/documentConvertDetail/documentConvertDetail?convertType=docx_to_ppt'
   return conversationRoute(tool)
 }

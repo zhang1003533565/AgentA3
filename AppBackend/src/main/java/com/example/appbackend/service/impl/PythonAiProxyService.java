@@ -416,6 +416,10 @@ public class PythonAiProxyService {
     }
 
     public Object convertPdf(MultipartFile file, String targetFormat, String authorization) {
+        return convertPdf(file, targetFormat, authorization, "image");
+    }
+
+    public Object convertPdf(MultipartFile file, String targetFormat, String authorization, String convertMode) {
         validateAuthorization(authorization);
         if (file == null || file.isEmpty()) {
             throw new BusinessException(Result.ERROR_CODE, "PDF 文件不能为空");
@@ -427,11 +431,11 @@ public class PythonAiProxyService {
         String token = normalizeBearerToken(authorization);
         Long userId = extractUserId(token);
         try {
-            Map<String, Object> payload = Map.of(
-                    "fileName", filename,
-                    "targetFormat", targetFormat == null ? "" : targetFormat,
-                    "contentBase64", Base64.getEncoder().encodeToString(file.getBytes())
-            );
+            Map<String, Object> payload = new HashMap<>();
+            payload.put("fileName", filename);
+            payload.put("targetFormat", targetFormat == null ? "" : targetFormat);
+            payload.put("contentBase64", Base64.getEncoder().encodeToString(file.getBytes()));
+            payload.put("convertMode", StringUtils.hasText(convertMode) ? convertMode : "image");
             return buildFileResponseWebClient()
                     .post()
                     .uri(buildUri("/internal/rag/pdf/convert"))
@@ -450,6 +454,10 @@ public class PythonAiProxyService {
     }
 
     public Object convertPpt(MultipartFile file, String authorization) {
+        return convertPpt(file, authorization, "reflow");
+    }
+
+    public Object convertPpt(MultipartFile file, String authorization, String convertMode) {
         validateAuthorization(authorization);
         if (file == null || file.isEmpty()) {
             throw new BusinessException(Result.ERROR_CODE, "PPTX 文件不能为空");
@@ -461,10 +469,10 @@ public class PythonAiProxyService {
         String token = normalizeBearerToken(authorization);
         Long userId = extractUserId(token);
         try {
-            Map<String, Object> payload = Map.of(
-                    "fileName", filename,
-                    "contentBase64", Base64.getEncoder().encodeToString(file.getBytes())
-            );
+            Map<String, Object> payload = new HashMap<>();
+            payload.put("fileName", filename);
+            payload.put("contentBase64", Base64.getEncoder().encodeToString(file.getBytes()));
+            payload.put("convertMode", StringUtils.hasText(convertMode) ? convertMode : "reflow");
             return buildFileResponseWebClient()
                     .post()
                     .uri(buildUri("/internal/rag/ppt/convert"))
@@ -480,6 +488,130 @@ public class PythonAiProxyService {
         } catch (Exception e) {
             throw new BusinessException(Result.ERROR_CODE, "Python AI 服务调用失败: " + e.getMessage());
         }
+    }
+
+    /**
+     * PPT/PPTX 转 PDF：转发到 Python /internal/rag/ppt/to-pdf。
+     */
+    public Object convertPptToPdf(MultipartFile file, String authorization) {
+        validateAuthorization(authorization);
+        if (file == null || file.isEmpty()) {
+            throw new BusinessException(Result.ERROR_CODE, "PPT 文件不能为空");
+        }
+        String filename = StringUtils.hasText(file.getOriginalFilename()) ? file.getOriginalFilename() : "presentation.pptx";
+        String lower = filename.toLowerCase();
+        if (!lower.endsWith(".ppt") && !lower.endsWith(".pptx")) {
+            throw new BusinessException(Result.ERROR_CODE, "仅支持上传 PPT/PPTX 文件");
+        }
+        String token = normalizeBearerToken(authorization);
+        Long userId = extractUserId(token);
+        try {
+            Map<String, Object> payload = Map.of(
+                    "fileName", filename,
+                    "contentBase64", Base64.getEncoder().encodeToString(file.getBytes())
+            );
+            return buildFileResponseWebClient()
+                    .post()
+                    .uri(buildUri("/internal/rag/ppt/to-pdf"))
+                    .headers(headers -> applyPythonAuthHeaders(headers, authorization, userId))
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .bodyValue(payload)
+                    .retrieve()
+                    .bodyToMono(Object.class)
+                    .timeout(Duration.ofSeconds(timeoutSeconds))
+                    .block();
+        } catch (WebClientResponseException e) {
+            throw new BusinessException(Result.ERROR_CODE, "Python AI 服务调用失败: " + extractRemoteMessage(e));
+        } catch (Exception e) {
+            throw new BusinessException(Result.ERROR_CODE, "Python AI 服务调用失败: " + e.getMessage());
+        }
+    }
+
+    /**
+     * DOCX 转 PDF：转发到 Python /internal/rag/docx/to-pdf。
+     */
+    public Object convertDocxToPdf(MultipartFile file, String authorization) {
+        validateAuthorization(authorization);
+        if (file == null || file.isEmpty()) {
+            throw new BusinessException(Result.ERROR_CODE, "DOCX 文件不能为空");
+        }
+        String filename = StringUtils.hasText(file.getOriginalFilename()) ? file.getOriginalFilename() : "document.docx";
+        if (!filename.toLowerCase().endsWith(".docx")) {
+            throw new BusinessException(Result.ERROR_CODE, "仅支持上传 DOCX 文件");
+        }
+        String token = normalizeBearerToken(authorization);
+        Long userId = extractUserId(token);
+        try {
+            Map<String, Object> payload = Map.of(
+                    "fileName", filename,
+                    "contentBase64", Base64.getEncoder().encodeToString(file.getBytes())
+            );
+            return buildFileResponseWebClient()
+                    .post()
+                    .uri(buildUri("/internal/rag/docx/to-pdf"))
+                    .headers(headers -> applyPythonAuthHeaders(headers, authorization, userId))
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .bodyValue(payload)
+                    .retrieve()
+                    .bodyToMono(Object.class)
+                    .timeout(Duration.ofSeconds(timeoutSeconds))
+                    .block();
+        } catch (WebClientResponseException e) {
+            throw new BusinessException(Result.ERROR_CODE, "Python AI 服务调用失败: " + extractRemoteMessage(e));
+        } catch (Exception e) {
+            throw new BusinessException(Result.ERROR_CODE, "Python AI 服务调用失败: " + e.getMessage());
+        }
+    }
+
+    /**
+     * DOCX 转 PPT：转发到 Python /internal/rag/docx/to-ppt。
+     */
+    public Object convertDocxToPpt(MultipartFile file, String authorization) {
+        return convertDocxToPpt(file, authorization, "smart");
+    }
+
+    public Object convertDocxToPpt(MultipartFile file, String authorization, String convertMode) {
+        validateAuthorization(authorization);
+        if (file == null || file.isEmpty()) {
+            throw new BusinessException(Result.ERROR_CODE, "DOCX 文件不能为空");
+        }
+        String filename = StringUtils.hasText(file.getOriginalFilename()) ? file.getOriginalFilename() : "document.docx";
+        if (!filename.toLowerCase().endsWith(".docx")) {
+            throw new BusinessException(Result.ERROR_CODE, "仅支持上传 DOCX 文件");
+        }
+        String token = normalizeBearerToken(authorization);
+        Long userId = extractUserId(token);
+        try {
+            Map<String, Object> payload = new HashMap<>();
+            payload.put("fileName", filename);
+            payload.put("contentBase64", Base64.getEncoder().encodeToString(file.getBytes()));
+            payload.put("convertMode", StringUtils.hasText(convertMode) ? convertMode : "smart");
+            return buildFileResponseWebClient()
+                    .post()
+                    .uri(buildUri("/internal/rag/docx/to-ppt"))
+                    .headers(headers -> applyPythonAuthHeaders(headers, authorization, userId))
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .bodyValue(payload)
+                    .retrieve()
+                    .bodyToMono(Object.class)
+                    .timeout(Duration.ofSeconds(timeoutSeconds))
+                    .block();
+        } catch (WebClientResponseException e) {
+            throw new BusinessException(Result.ERROR_CODE, "Python AI 服务调用失败: " + extractRemoteMessage(e));
+        } catch (Exception e) {
+            throw new BusinessException(Result.ERROR_CODE, "Python AI 服务调用失败: " + e.getMessage());
+        }
+    }
+
+    /**
+     * PDF 转 PPTX：复用 PDF 转换代理，目标格式固定为 pptx。
+     */
+    public Object convertPdfToPpt(MultipartFile file, String authorization) {
+        return convertPdfToPpt(file, authorization, "image");
+    }
+
+    public Object convertPdfToPpt(MultipartFile file, String authorization, String convertMode) {
+        return convertPdf(file, "pptx", authorization, convertMode);
     }
 
     public Object getTextToSqlSchema(String authorization) {
