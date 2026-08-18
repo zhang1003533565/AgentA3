@@ -26,7 +26,10 @@ test('learning package registers student learning pages without disturbing exist
     'learningPath/learningPath',
     'recommendations/recommendations',
     'knowledgeGraph/knowledgeGraph',
-    'campusCourseDetail/campusCourseDetail'
+    'campusCourseList/campusCourseList',
+    'campusCourseDetail/campusCourseDetail',
+    'chapterLearn/chapterLearn',
+    'myCourses/myCourses'
   ])
 
   assert.deepEqual(config.preloadRule['pages/index/index'].packages.slice(0, 14), [
@@ -213,12 +216,12 @@ test('AIPPT exposes the backend template catalog and sends the selected template
   assert.match(page, /uploadStepIndex/)
   assert.match(page, /this\.templateFirstEnabled[\s\S]*this\.templateEntryMode = 'upload'[\s\S]*this\.currentStep = this\.uploadStepIndex/)
   assert.match(page, /!this\.templateFirstEnabled[\s\S]*this\.templateEntryMode = 'library'[\s\S]*this\.currentStep = this\.templateStepIndex/)
-  assert.match(page, /template-library-card__tags/)
+  assert.doesNotMatch(page, /template-library-card__tags/)
   assert.match(page, /layout-cover__desc/)
   assert.match(page, /layout-fullscreen__scroll"[\s\S]*?scroll-y/)
   assert.match(page, /onLayoutStripScroll/)
   assert.match(page, /useTemplateFromViewer/)
-  assert.match(page, /layout\.previewItems/)
+  assert.doesNotMatch(page, /layout\.previewItems/)
   assert.match(page, /normalizeTemplateLayout/)
   assert.match(page, /templateNextLabel/)
   assert.match(page, /templateDetailActionLabel/)
@@ -265,8 +268,8 @@ test('AIPPT upload and manual input come before template selection and keep acti
   assert.match(page, /正在校验并转换大纲格式/)
   assert.match(page, /operation-feedback__track/)
   assert.doesNotMatch(page, /<view class="upload-preference-card">/)
-  assert.match(page, /<text class="settings-section__title">预计页数<\/text>/)
-  assert.match(page, /settings-section__title settings-section__title--block">内容详细程度/)
+  assert.doesNotMatch(page, /<text class="settings-section__title">预计页数<\/text>/)
+  assert.doesNotMatch(page, /settings-section__title settings-section__title--block">内容详细程度/)
   assert.match(page, /配图生成方式/)
   assert.match(page, /outline-mode-inline/)
   assert.match(page, /outline-mode-chip/)
@@ -287,17 +290,17 @@ test('AIPPT upload and manual input come before template selection and keep acti
   assert.doesNotMatch(page, /outline-design-hero/)
   assert.doesNotMatch(page, /outline-item__level-row/)
   assert.doesNotMatch(page, /outline-level--active/)
-  assert.match(page, /template-usage-layouts/)
-  assert.match(page, /generation-focus-card/)
+  assert.doesNotMatch(page, /template-usage-layouts/)
+  assert.doesNotMatch(page, /generation-focus-card/)
   assert.match(page, /slide-layout-lock-row/)
-  assert.match(page, /render-runtime-card/)
+  assert.doesNotMatch(page, /render-runtime-card/)
   assert.match(page, /operationFeedback\.progress < 88/)
   assert.doesNotMatch(page, /ppt-flow--operation-busy/)
   assert.match(page, /\.operation-feedback\{margin-top:20rpx;padding:22rpx/)
-  assert.match(page, /程序员的头发正在替你加班/)
-  assert.match(page, /请求仍在处理中，请不要关闭或刷新页面/)
-  assert.match(page, /feedbackTicks % 3 === 0/)
-  assert.match(page, /@keyframes banter-in/)
+  assert.doesNotMatch(page, /程序员的头发正在替你加班/)
+  assert.doesNotMatch(page, /请求仍在处理中，请不要关闭或刷新页面/)
+  assert.doesNotMatch(page, /feedbackTicks % 3 === 0/)
+  assert.doesNotMatch(page, /@keyframes banter-in/)
 })
 
 test('AIPPT stepper follows the approved flow-card design', () => {
