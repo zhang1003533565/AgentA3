@@ -1015,6 +1015,33 @@
       }
     },
     {
+      "id": "opencode",
+      "name": "OpenCode",
+      "aliases": [
+        "opencode",
+        "openai_compatible",
+        "openai-compatible"
+      ],
+      "baseUrl": "https://opencode.ai/zen/go/v1",
+      "website": "https://opencode.ai",
+      "capabilities": {
+        "text": {
+          "label": "语言模型",
+          "status": "implemented",
+          "models": [
+            {
+              "id": "mimo-v2.5",
+              "features": [
+                "text_generation",
+                "deep_thinking",
+                "streaming"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
       "id": "deepseek",
       "name": "DeepSeek",
       "aliases": [
