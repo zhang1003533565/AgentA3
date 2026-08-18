@@ -75,7 +75,9 @@ def render_presenton_html(
         render_env = os.environ.copy()
         chromium_path = _detect_chromium_path()
         if chromium_path:
-            render_env.setdefault("CHROMIUM_PATH", chromium_path)
+            # 显式覆盖而非 setdefault：外部残留的空串 CHROMIUM_PATH 会让
+            # render.mjs 拿到空 executablePath，无法稳定定位 Chromium
+            render_env["CHROMIUM_PATH"] = chromium_path
             logger.info("Presenton render using Chromium: %s", chromium_path)
         completed = subprocess.run(
             ["node", str(_RUNTIME / "src" / "render.mjs"), str(input_path)],
@@ -87,6 +89,14 @@ def render_presenton_html(
             timeout=int(os.getenv("PPT_PRESENTON_RENDER_TIMEOUT_SECONDS", "300")),
         )
         result = json.loads(completed.stdout.strip().splitlines()[-1])
+    except subprocess.CalledProcessError as exc:
+        # render.mjs 顶层 catch 会把结构化错误打到 stderr；拼进异常信息，
+        # 排障不再只有 "returned non-zero exit status 1"
+        detail = str(exc.stderr or "").strip().splitlines()[-400:]
+        raise RuntimeError(
+            f"Presenton Chromium render failed (exit={exc.returncode}): "
+            f"{' | '.join(detail) or exc}"
+        ) from exc
     except (OSError, subprocess.SubprocessError, ValueError) as exc:
         raise RuntimeError(f"Presenton Chromium render failed: {exc}") from exc
     finally:
