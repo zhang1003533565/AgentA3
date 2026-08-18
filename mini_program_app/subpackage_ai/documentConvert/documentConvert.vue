@@ -25,9 +25,6 @@
             <text class="type-name">{{ item.label }}</text>
             <text class="type-desc">{{ item.desc }}</text>
           </view>
-          <view class="type-tag" v-if="!item.enabled">
-            <text class="type-tag-text">即将上线</text>
-          </view>
         </view>
       </view>
     </view>
@@ -39,12 +36,12 @@ import { ref } from 'vue'
 import NavBar from '@/components/nav-bar/nav-bar.vue'
 
 const types = ref([
-  { convertType: 'pdf_to_docx', label: 'PDF → DOCX', desc: 'PDF 转 Word 文档', iconText: 'DOCX', color: '#5C7A99', lightColor: 'rgba(92, 122, 153, 0.10)', enabled: true },
-  { convertType: 'ppt_to_docx', label: 'PPT → DOCX', desc: 'PPT 转 Word 文档', iconText: 'DOCX', color: '#6B9B7A', lightColor: 'rgba(107, 155, 122, 0.12)', enabled: true },
-  { convertType: 'docx_to_pdf', label: 'DOCX → PDF', desc: 'Word 转 PDF 文档', iconText: 'PDF', color: '#B89B7A', lightColor: 'rgba(184, 155, 122, 0.12)', enabled: false },
-  { convertType: 'pdf_to_ppt', label: 'PDF → PPT', desc: 'PDF 转 PPT 演示文稿', iconText: 'PPT', color: '#8B7AB8', lightColor: 'rgba(139, 122, 184, 0.12)', enabled: false },
-  { convertType: 'ppt_to_pdf', label: 'PPT → PDF', desc: 'PPT 转 PDF 文档', iconText: 'PDF', color: '#7A9BB8', lightColor: 'rgba(122, 155, 184, 0.12)', enabled: false },
-  { convertType: 'docx_to_ppt', label: 'DOCX → PPT', desc: 'Word 转 PPT 演示文稿', iconText: 'PPT', color: '#A67B7B', lightColor: 'rgba(166, 123, 123, 0.12)', enabled: false }
+  { convertType: 'pdf_to_docx', label: 'PDF → Word', desc: 'PDF 转 Word 文档', iconText: 'Word', color: '#5C7A99', lightColor: 'rgba(92, 122, 153, 0.10)', enabled: true },
+  { convertType: 'ppt_to_docx', label: 'PPT → Word', desc: 'PPT 转 Word 文档', iconText: 'Word', color: '#6B9B7A', lightColor: 'rgba(107, 155, 122, 0.12)', enabled: true },
+  { convertType: 'docx_to_pdf', label: 'Word → PDF', desc: 'Word 转 PDF 文档', iconText: 'PDF', color: '#B89B7A', lightColor: 'rgba(184, 155, 122, 0.12)', enabled: true },
+  { convertType: 'pdf_to_ppt', label: 'PDF → PPT', desc: 'PDF 转 PPT 演示文稿', iconText: 'PPT', color: '#8B7AB8', lightColor: 'rgba(139, 122, 184, 0.12)', enabled: true },
+  { convertType: 'ppt_to_pdf', label: 'PPT → PDF', desc: 'PPT 转 PDF 文档', iconText: 'PDF', color: '#7A9BB8', lightColor: 'rgba(122, 155, 184, 0.12)', enabled: true },
+  { convertType: 'docx_to_ppt', label: 'Word → PPT', desc: 'Word 转 PPT 演示文稿', iconText: 'PPT', color: '#A67B7B', lightColor: 'rgba(166, 123, 123, 0.12)', enabled: true }
 ])
 
 const openType = (item) => {

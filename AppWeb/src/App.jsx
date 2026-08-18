@@ -31,6 +31,7 @@ import StallManage from './pages/StallManage/StallManage'
 import StallIndoorManage from './pages/StallManage/StallIndoorManage'
 import MarkerManage from './pages/facility/MarkerManage/MarkerManage'
 import FacilityPlaceManage from './pages/facility/FacilityPlaceManage/FacilityPlaceManage'
+import TeachingBuildingManage from './pages/facility/TeachingBuildingManage/TeachingBuildingManage'
 import CampusCourseManage from './pages/learning/CampusCourseManage'
 import DiscountActivityManage from './pages/discount/ActivityManage'
 import DiscountMerchantManage from './pages/discount/MerchantManage'
@@ -66,7 +67,9 @@ function App() {
           <Route path="/home" element={<Home />} />
           <Route path="/facility/canteen" element={<FacilityPlaceManage sceneType="CANTEEN" />} />
           <Route path="/facility/sports" element={<FacilityPlaceManage sceneType="SPORTS" />} />
-          <Route path="/facility/teaching" element={<FacilityPlaceManage sceneType="TEACHING" />} />
+          <Route path="/facility/teaching" element={<TeachingBuildingManage />} />
+          <Route path="/facility/teaching/:buildingId" element={<TeachingBuildingManage />} />
+          <Route path="/facility/teaching/:buildingId/floors/:floorId" element={<TeachingBuildingManage />} />
           <Route path="/facility/dormitory" element={<FacilityPlaceManage sceneType="DORMITORY" />} />
           <Route path="/facility/canteen/:canteenId/stalls" element={<StallManage />} />
           <Route path="/facility/canteen/:canteenId/stalls/indoor" element={<StallIndoorManage />} />

@@ -69,28 +69,28 @@
 			</view>
 
 			<!-- AI 会议纪要：预约（待开始）会议不展示 -->
-			<view v-if="status !== 'idle'" class="entry-card" :class="{ disabled: !hasResults && status !== 'ended' }" @click="onAiCardClick">
+			<view v-if="status !== 'idle'" class="entry-card" @click="onAiCardClick">
 				<view class="entry-icon entry-icon--ai">
 					<image class="entry-icon__img" src="@/static/icons/line/sparkles.svg" mode="aspectFit" />
 				</view>
 				<view class="entry-content">
-					<text class="entry-title">AI 会议纪要</text>
-					<text class="entry-subtitle">{{ aiSubtitle }}</text>
+					<text class="entry-title">AI会议纪要</text>
+					<text class="entry-subtitle">查看 AI 整理的会议纪要</text>
 				</view>
-				<view class="entry-status" :class="{ 'entry-status--ready': hasResults }">
-					<text>{{ hasResults ? '已生成' : '未生成' }}</text>
+				<view class="entry-status" :class="{ 'entry-status--ready': aiMinutesStatus === 'generated', 'entry-status--pending': aiMinutesStatus === 'generating' }">
+					<text>{{ aiMinutesStatusText }}</text>
 				</view>
 				<text class="entry-arrow">></text>
 			</view>
 
-			<!-- AI 结果展开区 -->
-			<view v-if="showAiResults && results.length" class="expand-panel">
-				<view v-for="item in results" :key="item.id" class="result-block">
+			<!-- AI 会议纪要展开区：仅展示 Agent 2 (meeting_summary_agent) 的结果 -->
+			<view v-if="showAiResults && aiMinutesResult" class="expand-panel">
+				<view class="result-block">
 					<view class="block-meta">
-						<text class="result-tag">{{ agentLabel(item.agentName) }}</text>
-						<text class="block-time">{{ formatDateTime(item.createTime) }}</text>
+						<text class="result-tag">会议纪要</text>
+						<text class="block-time">{{ formatDateTime(aiMinutesResult.createTime) }}</text>
 					</view>
-					<text class="block-text">{{ item.answer }}</text>
+					<text class="block-text">{{ aiMinutesResult.answer }}</text>
 				</view>
 			</view>
 
@@ -101,10 +101,10 @@
 				</view>
 				<view class="entry-content">
 					<text class="entry-title">会议记录</text>
-					<text class="entry-subtitle">{{ recordSubtitle }}</text>
+					<text class="entry-subtitle">查看会议转写与聊天记录</text>
 				</view>
 				<view class="entry-status" :class="{ 'entry-status--ready': hasRecords }">
-					<text>{{ hasRecords ? '已生成' : '未生成' }}</text>
+					<text>已生成</text>
 				</view>
 				<text class="entry-arrow">></text>
 			</view>
@@ -127,7 +127,7 @@
 
 <script>
 import NavBar from '@/components/nav-bar/nav-bar.vue'
-import { deleteMeeting as deleteMeetingApi, getMeetingDetail, organizeMeeting as organizeMeetingApi } from '@/api/ai.js'
+import { deleteMeeting as deleteMeetingApi, getMeetingDetail } from '@/api/ai.js'
 
 export default {
 	components: { NavBar },
@@ -183,13 +183,20 @@ export default {
 		hasRecords() {
 			return this.records.length > 0
 		},
-		aiSubtitle() {
-			if (this.hasResults) return '查看 AI 生成的会议总结'
-			return this.status === 'ended' ? '结束会议后自动生成，也可手动整理' : '会议结束后可生成 AI 纪要'
+		/** Agent 2 (meeting_summary_agent) 的结果，从 results 数组中筛选 */
+		aiMinutesResult() {
+			if (!Array.isArray(this.results) || this.results.length === 0) return null
+			return this.results.find(item => item && item.agentName === 'meeting_summary_agent') || null
 		},
-		recordSubtitle() {
-			if (this.hasRecords) return '查看会议转写与记录'
-			return '暂无会议记录'
+		/** AI 会议纪要状态：已生成 / 生成中 / 未生成 */
+		aiMinutesStatus() {
+			if (this.aiMinutesResult) return 'generated'
+			if (this.status === 'ended') return 'generating'
+			return 'empty'
+		},
+		aiMinutesStatusText() {
+			const map = { generated: '已生成', generating: '生成中', empty: '未生成' }
+			return map[this.aiMinutesStatus] || '未生成'
 		}
 	},
 	onLoad(options) {
@@ -230,30 +237,12 @@ export default {
 			})
 		},
 		onAiCardClick() {
-			if (!this.hasResults && this.status !== 'ended') return
-			if (this.hasResults) {
-				this.showAiResults = !this.showAiResults
-			} else {
-				this.organizeNow()
-			}
+			// 只查询展示 Agent 2 结果，不触发 POST /ai-minutes
+			this.showAiResults = !this.showAiResults
 		},
 		onRecordCardClick() {
 			if (!this.hasRecords) return
 			this.showRecords = !this.showRecords
-		},
-		async organizeNow() {
-			if (!this.sessionId || this.organizing) return
-			this.organizing = true
-			try {
-				const res = await organizeMeetingApi(this.sessionId)
-				this.applyDetail(res?.data || {})
-				this.showAiResults = true
-				uni.showToast({ title: '会议整理完成', icon: 'none' })
-			} catch (error) {
-				uni.showToast({ title: '整理失败，请检查模型配置', icon: 'none' })
-			} finally {
-				this.organizing = false
-			}
 		},
 		deleteCurrentMeeting() {
 			if (!this.sessionId) return
@@ -690,6 +679,11 @@ $card-radius: 24rpx;
 	&--ready {
 		background: #DCFCE7;
 		color: #16A34A;
+	}
+
+	&--pending {
+		background: #FEF3C7;
+		color: #D97706;
 	}
 }
 

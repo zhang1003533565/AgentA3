@@ -42,7 +42,7 @@ from app.learning_workflow import (
     export_learning_resources,
     run_learning_workflow,
 )
-from app.rag.document_conversion import PdfConversionError, PptConversionError, convert_pdf, convert_ppt_to_docx, export_generated_answer, materialize_generated_image_answer
+from app.rag.document_conversion import DocxConversionError, PdfConversionError, PptConversionError, convert_docx_to_pdf, convert_docx_to_ppt, convert_pdf, convert_ppt_to_docx, convert_ppt_to_pdf, export_generated_answer, materialize_generated_image_answer
 from app.rag.document_conversion.generated_exporter import GeneratedExportAccessError, open_generated_export
 from app.rag.structured.text_to_sql import TextToSqlService
 from app.services.assistant_resource_builder import (
@@ -369,11 +369,19 @@ class PdfConvertRequest(BaseModel):
     fileName: str = Field(min_length=1, max_length=255)
     contentBase64: str = Field(min_length=1)
     targetFormat: str = Field(min_length=1, max_length=16)
+    convertMode: str = Field(default="image", max_length=16)
 
 
 class PptConvertRequest(BaseModel):
     fileName: str = Field(min_length=1, max_length=255)
     contentBase64: str = Field(min_length=1)
+    convertMode: str = Field(default="reflow", max_length=16)
+
+
+class DocxConvertRequest(BaseModel):
+    fileName: str = Field(min_length=1, max_length=255)
+    contentBase64: str = Field(min_length=1)
+    convertMode: str = Field(default="smart", max_length=16)
 
 
 class AgentExampleInputUpdateRequest(BaseModel):
@@ -3564,7 +3572,7 @@ def convert_pdf_document(
         len(pdf_bytes),
     )
     try:
-        result = convert_pdf(pdf_bytes, filename, request.targetFormat)
+        result = convert_pdf(pdf_bytes, filename, request.targetFormat, request.convertMode)
         logger.info(
             "pdf convert success filename=%s output=%s content_length=%s images=%s",
             filename,
@@ -3594,7 +3602,7 @@ def convert_ppt_document(
         raise HTTPException(status_code=400, detail="PPTX Base64 内容无效") from exc
     logger.info("ppt convert request filename=%s size=%s", filename, len(ppt_bytes))
     try:
-        result = convert_ppt_to_docx(ppt_bytes, filename)
+        result = convert_ppt_to_docx(ppt_bytes, filename, request.convertMode)
         logger.info(
             "ppt convert success filename=%s output=%s content_length=%s images=%s slides=%s",
             filename,
@@ -3606,6 +3614,97 @@ def convert_ppt_document(
         return result
     except PptConversionError as exc:
         logger.warning("ppt convert failed filename=%s reason=%s", filename, exc)
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+
+@router.post("/ppt/to-pdf")
+def convert_ppt_to_pdf_document(
+    request: PptConvertRequest,
+    authorization: Optional[str] = Header(default=None, alias="Authorization"),
+) -> Dict[str, Any]:
+    _require_authorization(authorization)
+    filename = request.fileName or "presentation.pptx"
+    lower_name = filename.lower()
+    if not lower_name.endswith(".ppt") and not lower_name.endswith(".pptx"):
+        raise HTTPException(status_code=400, detail="仅支持上传 PPT/PPTX 文件")
+    try:
+        import base64
+        ppt_bytes = base64.b64decode(request.contentBase64, validate=True)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="PPT Base64 内容无效") from exc
+    logger.info("ppt to pdf request filename=%s size=%s", filename, len(ppt_bytes))
+    try:
+        result = convert_ppt_to_pdf(ppt_bytes, filename)
+        logger.info(
+            "ppt to pdf success filename=%s output=%s content_length=%s pages=%s",
+            filename,
+            result.get("fileName"),
+            result.get("contentLength"),
+            result.get("pageCount"),
+        )
+        return result
+    except PptConversionError as exc:
+        logger.warning("ppt to pdf failed filename=%s reason=%s", filename, exc)
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+
+@router.post("/docx/to-pdf")
+def convert_docx_to_pdf_document(
+    request: DocxConvertRequest,
+    authorization: Optional[str] = Header(default=None, alias="Authorization"),
+) -> Dict[str, Any]:
+    _require_authorization(authorization)
+    filename = request.fileName or "document.docx"
+    if not filename.lower().endswith(".docx"):
+        raise HTTPException(status_code=400, detail="仅支持上传 DOCX 文件")
+    try:
+        import base64
+        docx_bytes = base64.b64decode(request.contentBase64, validate=True)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="DOCX Base64 内容无效") from exc
+    logger.info("docx to pdf request filename=%s size=%s", filename, len(docx_bytes))
+    try:
+        result = convert_docx_to_pdf(docx_bytes, filename)
+        logger.info(
+            "docx to pdf success filename=%s output=%s content_length=%s pages=%s",
+            filename,
+            result.get("fileName"),
+            result.get("contentLength"),
+            result.get("pageCount"),
+        )
+        return result
+    except DocxConversionError as exc:
+        logger.warning("docx to pdf failed filename=%s reason=%s", filename, exc)
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+
+@router.post("/docx/to-ppt")
+def convert_docx_to_ppt_document(
+    request: DocxConvertRequest,
+    authorization: Optional[str] = Header(default=None, alias="Authorization"),
+) -> Dict[str, Any]:
+    _require_authorization(authorization)
+    filename = request.fileName or "document.docx"
+    if not filename.lower().endswith(".docx"):
+        raise HTTPException(status_code=400, detail="仅支持上传 DOCX 文件")
+    try:
+        import base64
+        docx_bytes = base64.b64decode(request.contentBase64, validate=True)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="DOCX Base64 内容无效") from exc
+    logger.info("docx to ppt request filename=%s size=%s", filename, len(docx_bytes))
+    try:
+        result = convert_docx_to_ppt(docx_bytes, filename, request.convertMode)
+        logger.info(
+            "docx to ppt success filename=%s output=%s content_length=%s pages=%s",
+            filename,
+            result.get("fileName"),
+            result.get("contentLength"),
+            result.get("pageCount"),
+        )
+        return result
+    except (DocxConversionError, PdfConversionError) as exc:
+        logger.warning("docx to ppt failed filename=%s reason=%s", filename, exc)
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 
 

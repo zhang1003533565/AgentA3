@@ -15,7 +15,7 @@ function Layout() {
   const hidePageHeading = location.pathname !== '/home'
 
   return (
-    <div className={`layout ${mobileOpen ? 'sidebar-open' : ''}`}>
+    <div className={`layout notranslate ${mobileOpen ? 'sidebar-open' : ''}`} translate="no">
       <NavBar mobileOpen={mobileOpen} onClose={() => setMobileOpen(false)} />
       <div className="layout-body">
         <header className="layout-topbar">
