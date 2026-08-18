@@ -13,7 +13,7 @@ from app.rag.document_conversion import generated_exporter
 
 logger = logging.getLogger(__name__)
 
-_ROOTS = Path(__file__).resolve().parents[2]
+_ROOT = Path(__file__).resolve().parents[2]
 _RUNTIME = _ROOT / "presenton_runtime"
 _SCRIPT = _RUNTIME / "src" / "render.mjs"
 _TEMPLATES = Path(__file__).resolve().parent / "assets" / "templates"
@@ -32,9 +32,11 @@ def _detect_chromium_path() -> str | None:
         reverse=True,
     )
     for d in chromium_dirs:
-        chrome_exe = d / "chrome-win" / "chrome.exe"
-        if chrome_exe.is_file():
-            return str(chrome_exe)
+        # Playwright 旧版装到 chrome-win，新版(1.5x+)装到 chrome-win64，两者都探测
+        for sub in ("chrome-win64", "chrome-win"):
+            chrome_exe = d / sub / "chrome.exe"
+            if chrome_exe.is_file():
+                return str(chrome_exe)
     return None
 
 

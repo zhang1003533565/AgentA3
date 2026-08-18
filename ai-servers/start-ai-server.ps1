@@ -71,8 +71,12 @@ function Start-AiServer {
         $chromiumDirs = Get-ChildItem -Path $playwrightRoot -Directory -Filter "chromium-*" -ErrorAction SilentlyContinue `
             | Sort-Object Name -Descending
         foreach ($dir in $chromiumDirs) {
-            $chromeExe = Join-Path $dir.FullName "chrome-win\chrome.exe"
-            if (Test-Path $chromeExe) {
+            # Playwright 旧版装到 chrome-win，新版(1.5x+)装到 chrome-win64，两者都探测
+            $chromeExe = @(
+                (Join-Path $dir.FullName "chrome-win64\chrome.exe"),
+                (Join-Path $dir.FullName "chrome-win\chrome.exe")
+            ) | Where-Object { Test-Path $_ } | Select-Object -First 1
+            if ($chromeExe) {
                 $env:CHROMIUM_PATH = $chromeExe
                 Write-Log "Using Chromium: $chromeExe"
                 break
