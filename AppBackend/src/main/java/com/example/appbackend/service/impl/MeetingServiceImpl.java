@@ -26,6 +26,8 @@ import com.example.appbackend.repository.UserRepository;
 import com.example.appbackend.service.LlmService;
 import com.example.appbackend.service.MeetingService;
 import com.example.appbackend.service.UserProfileService;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.Page;
@@ -93,6 +95,7 @@ public class MeetingServiceImpl implements MeetingService {
     private final SystemConfigTestLogRepository systemConfigTestLogRepository;
     private final LlmService llmService;
     private final UserProfileService userProfileService;
+    private final ObjectMapper objectMapper;
 
     public MeetingServiceImpl(MeetingSessionRepository sessionRepository,
                               MeetingCommentRepository commentRepository,
@@ -103,7 +106,8 @@ public class MeetingServiceImpl implements MeetingService {
                               SystemConfigRepository systemConfigRepository,
                               SystemConfigTestLogRepository systemConfigTestLogRepository,
                               LlmService llmService,
-                              UserProfileService userProfileService) {
+                              UserProfileService userProfileService,
+                              ObjectMapper objectMapper) {
         this.sessionRepository = sessionRepository;
         this.commentRepository = commentRepository;
         this.participantRepository = participantRepository;
@@ -114,6 +118,7 @@ public class MeetingServiceImpl implements MeetingService {
         this.systemConfigTestLogRepository = systemConfigTestLogRepository;
         this.llmService = llmService;
         this.userProfileService = userProfileService;
+        this.objectMapper = objectMapper;
     }
 
     @Override
@@ -473,6 +478,7 @@ public class MeetingServiceImpl implements MeetingService {
         chatRequest.setAgentName(agentName);
         chatRequest.setLlmModel(resolveMeetingLlmModel(request.getLlmModel()));
         chatRequest.setInput(truncate(buildAgentInput(session, content), LLM_INPUT_LIMIT));
+        chatRequest.setAttachments(new ArrayList<>());
 
         MeetingAgentResult result = runAndSaveAgent(session, chatRequest, authorization);
 
@@ -499,6 +505,7 @@ public class MeetingServiceImpl implements MeetingService {
         chatRequest.setAgentName(agentName);
         chatRequest.setLlmModel(resolveMeetingLlmModel(request.getLlmModel()));
         chatRequest.setInput(truncate(buildAgentInput(session, content), LLM_INPUT_LIMIT));
+        chatRequest.setAttachments(new ArrayList<>());
 
         MeetingDTO.RunAgentResponse response = new MeetingDTO.RunAgentResponse();
         response.setSessionId(session.getSessionId());
@@ -534,12 +541,73 @@ public class MeetingServiceImpl implements MeetingService {
     }
 
     private void organizeMeetingResults(MeetingSession session, String authorization, boolean failFast) {
+        // Agent 2: 会后任务分工智能体 - 使用独立的 aiMinutesAnalysis() 方法
+        try {
+            log.info("[Agent2] start analysis sessionId={}", session.getSessionId());
+            // 调用步骤一实现的方法，读取完整会议数据（转写 + 弹幕 + 参会人）
+            MeetingDTO.AIMinutesResult minutesResult = aiMinutesAnalysis(session.getUserId(), session.getSessionId(), authorization);
+            
+            if (minutesResult == null) {
+                log.warn("[Agent2] minutes result is null, skip saving sessionId={}", session.getSessionId());
+                // 继续执行其他 Agent
+            } else {
+                // 打印解析结果统计
+                int summaryLen = StringUtils.hasText(minutesResult.getSummary()) ? minutesResult.getSummary().length() : 0;
+                int decisionsCount = minutesResult.getDecisions() != null ? minutesResult.getDecisions().size() : 0;
+                int tasksCount = minutesResult.getTasks() != null ? minutesResult.getTasks().size() : 0;
+                int todosCount = minutesResult.getTodos() != null ? minutesResult.getTodos().size() : 0;
+                int pendingCount = minutesResult.getPendingItems() != null ? minutesResult.getPendingItems().size() : 0;
+                log.info("[Agent2] parsed summary length={} decisions={} tasks={} todos={} pendingItems={} sessionId={}",
+                        summaryLen, decisionsCount, tasksCount, todosCount, pendingCount, session.getSessionId());
+
+                // 空结果保护：至少一个字段有效才保存
+                boolean hasValidContent = summaryLen > 0 || decisionsCount > 0 || tasksCount > 0 || todosCount > 0 || pendingCount > 0;
+                
+                if (hasValidContent) {
+                    // 序列化完整 AIMinutesResult 为 JSON 保存
+                    String answerJson;
+                    try {
+                        answerJson = objectMapper.writeValueAsString(minutesResult);
+                        log.info("[Agent2] saving meeting_summary_agent result sessionId={}", session.getSessionId());
+                    } catch (JsonProcessingException jpe) {
+                        // JSON 序列化失败时回退为 summary 原文
+                        answerJson = StringUtils.hasText(minutesResult.getSummary()) ? minutesResult.getSummary() : minutesResult.toString();
+                        log.warn("[Agent2] JSON serialization failed, fallback to plain text sessionId={}", session.getSessionId());
+                    }
+                    MeetingAgentResult agentResult = new MeetingAgentResult();
+                    agentResult.setMeetingSessionId(session.getId());
+                    agentResult.setAgentName("meeting_summary_agent");
+                    agentResult.setAnswerType("json");
+                    agentResult.setAnswer(answerJson);
+                    resultRepository.save(agentResult);
+                    log.info("[Agent2] saved result successfully sessionId={}", session.getSessionId());
+                } else {
+                    log.warn("[Agent2] all fields empty, skip saving sessionId={}", session.getSessionId());
+                }
+            }
+        } catch (BusinessException e) {
+            if (failFast || e.getCode() < Result.ERROR_CODE) {
+                throw e;
+            }
+            log.warn("[Agent2] analysis failed sessionId={}: {}", session.getSessionId(), e.getMessage());
+            return;
+        } catch (Exception e) {
+            log.error("[Agent2] analysis error sessionId={}", session.getSessionId(), e);
+            return;
+        }
+            
+        // 其他 Agent: 保持原有逻辑
         String content = allMeetingContent(session.getId());
         if (!StringUtils.hasText(content)) {
-            log.info("skip post meeting organization sessionId={} because records are empty", session.getSessionId());
+            log.info("skip post meeting organization for other agents sessionId={} because records are empty", session.getSessionId());
             return;
         }
         for (String agentName : POST_MEETING_AGENT_ORDER) {
+            // 跳过 meeting_summary_agent（已经在上面执行过了）
+            if ("meeting_summary_agent".equals(agentName)) {
+                continue;
+            }
+                
             if (resultRepository.existsByMeetingSessionIdAndAgentName(session.getId(), agentName)) {
                 continue;
             }
@@ -549,6 +617,7 @@ public class MeetingServiceImpl implements MeetingService {
                 chatRequest.setAgentName(agentName);
                 chatRequest.setLlmModel(resolveMeetingLlmModel(null));
                 chatRequest.setInput(truncate(buildPostMeetingAgentInput(session, content, agentName), LLM_INPUT_LIMIT));
+                chatRequest.setAttachments(new ArrayList<>());
                 runAndSaveAgent(session, chatRequest, authorization);
             } catch (BusinessException error) {
                 if (failFast || error.getCode() < Result.ERROR_CODE) {
@@ -558,7 +627,7 @@ public class MeetingServiceImpl implements MeetingService {
                 return;
             } catch (Exception error) {
                 if (failFast) {
-                    throw new BusinessException(Result.ERROR_CODE, "会议整理失败: " + error.getMessage());
+                    throw new BusinessException(Result.ERROR_CODE, "会议整理失败：" + error.getMessage());
                 }
                 log.warn("post meeting agent failed sessionId={} agentName={}: {}", session.getSessionId(), agentName, error.getMessage());
                 return;
@@ -1202,6 +1271,341 @@ public class MeetingServiceImpl implements MeetingService {
             case MeetingSession.STATUS_ENDED -> "已结束";
             default -> "待开始";
         };
+    }
+
+    @Override
+    public MeetingDTO.AIMinutesResult aiMinutesAnalysis(Long userId, String sessionId, String authorization) {
+        // 验证会议可访问性
+        MeetingSession session = findAccessibleSession(userId, sessionId);
+        
+        // 构建完整会议内容：包括记录、评论、参会人信息
+        String meetingContent = buildAiMinutesInput(session);
+        if (!StringUtils.hasText(meetingContent)) {
+            throw new BusinessException(Result.BAD_REQUEST_CODE, "会议记录为空，无法生成 AI 会议纪要");
+        }
+        
+        // 调用 Agent 2 (meeting_summary_agent)
+        LlmChatRequest chatRequest = new LlmChatRequest();
+        chatRequest.setSessionId(session.getSessionId() + "-ai-minutes");
+        chatRequest.setAgentName("meeting_summary_agent");
+        chatRequest.setLlmModel(resolveMeetingLlmModel(null));
+        chatRequest.setInput(truncate(meetingContent, LLM_INPUT_LIMIT));
+        chatRequest.setAttachments(new ArrayList<>());
+        
+        try {
+            LlmChatResponse chatResponse = llmService.chat(chatRequest, authorization);
+            String aiAnswer = StringUtils.hasText(chatResponse.getAnswer()) ? chatResponse.getAnswer() : "";
+            log.info("[Agent2] AI response received, answer length={} sessionId={}", aiAnswer.length(), session.getSessionId());
+            if (!StringUtils.hasText(aiAnswer)) {
+                log.warn("[Agent2] empty AI response sessionId={}", session.getSessionId());
+            }
+            
+            // 解析结构化结果（从 Markdown 提取）
+            MeetingDTO.AIMinutesResult result = parseStructuredMinutes(aiAnswer);
+            return result;
+        } catch (BusinessException e) {
+            if (e.getCode() < Result.ERROR_CODE) {
+                throw e;
+            }
+            log.warn("ai minutes analysis failed sessionId={}: {}", session.getSessionId(), e.getMessage());
+            throw new BusinessException(Result.ERROR_CODE, "AI 会议纪要生成失败：" + e.getMessage());
+        } catch (Exception e) {
+            log.error("ai minutes analysis error sessionId={}", session.getSessionId(), e);
+            throw new BusinessException(Result.ERROR_CODE, "AI 会议纪要生成异常：" + e.getMessage());
+        }
+    }
+
+    /**
+     * 构建 Agent 2 专用输入：整合真实会议记录、弹幕/聊天、参会人信息
+     */
+    private String buildAiMinutesInput(MeetingSession session) {
+        StringBuilder input = new StringBuilder();
+        
+        // 1. 会议基本信息
+        input.append("会议主题：").append(session.getTitle()).append("\n");
+        input.append("会议状态：").append(statusLabel(session.getStatus())).append("\n");
+        
+        // 2. 参会人信息
+        List<String> participantNames = participantRepository.findByMeetingSessionIdOrderBySortOrderAscIdAsc(session.getId()).stream()
+                .map(MeetingParticipant::getName)
+                .toList();
+        input.append("参会成员：").append(participantNames.isEmpty() ? "未填写" : String.join("、", participantNames)).append("\n\n");
+        
+        // 3. 会议记录（实时转写优先）
+        List<MeetingRecord> records = recordRepository.findByMeetingSessionIdOrderByCreateTimeAscIdAsc(session.getId());
+        if (!records.isEmpty()) {
+            input.append("=== 会议记录 ===\n");
+            for (MeetingRecord record : records) {
+                input.append("[来源：")
+                        .append(StringUtils.hasText(record.getSource()) ? record.getSource() : MeetingRecord.SOURCE_MANUAL)
+                        .append("] [时间：")
+                        .append(record.getCreateTime())
+                        .append("]\n")
+                        .append(record.getContent())
+                        .append("\n---\n");
+            }
+            input.append("\n");
+        }
+        
+        // 4. 弹幕/聊天记录
+        List<MeetingComment> comments = commentRepository.findByMeetingSessionIdOrderByCreateTimeAscIdAsc(session.getId());
+        if (!comments.isEmpty()) {
+            input.append("=== 弹幕/聊天 ===\n");
+            for (MeetingComment comment : comments) {
+                String sender = StringUtils.hasText(comment.getSenderName()) ? comment.getSenderName() : "未知";
+                input.append("[发言者：")
+                        .append(sender)
+                        .append("] [时间：")
+                        .append(comment.getCreateTime())
+                        .append("]\n")
+                        .append(comment.getContent())
+                        .append("\n---\n");
+            }
+            input.append("\n");
+        }
+        
+        return input.toString();
+    }
+
+    /**
+     * 从 Agent 2 返回的 Markdown 中提取结构化结果
+     * 兼容多种标题格式，并提供兜底逻辑
+     */
+    private MeetingDTO.AIMinutesResult parseStructuredMinutes(String markdown) {
+        MeetingDTO.AIMinutesResult result = new MeetingDTO.AIMinutesResult();
+        if (!StringUtils.hasText(markdown)) {
+            log.warn("[Agent2] empty markdown input, parse skipped");
+            return result;
+        }
+        
+        String[] lines = markdown.split("\n");
+        String currentSection = "";  // track current section
+        
+        for (String line : lines) {
+            String trimmed = line.trim();
+            
+            // 识别章节标题（兼容 ## 和 ### 前缀）
+            String detectedSection = detectSection(trimmed);
+            if (detectedSection != null) {
+                currentSection = detectedSection;
+                continue;
+            }
+            
+            if (trimmed.isEmpty()) continue;
+            
+            // 根据当前章节分类提取内容
+            switch (currentSection) {
+                case "summary":
+                    appendSummary(result, trimmed);
+                    break;
+                case "decisions":
+                    appendDecision(result, trimmed);
+                    break;
+                case "tasks":
+                    appendTask(result, trimmed);
+                    break;
+                case "todos":
+                    appendTodo(result, trimmed);
+                    break;
+                case "pending":
+                    appendPending(result, trimmed);
+                    break;
+                default:
+                    // 不属于任何已知章节的文本暂不处理
+                    break;
+            }
+        }
+        
+        // 兜底逻辑：如果 summary 为空，尝试从整段 Markdown 提取
+        if (!StringUtils.hasText(result.getSummary())) {
+            String fallback = extractFallbackSummary(markdown);
+            if (StringUtils.hasText(fallback)) {
+                result.setSummary(fallback);
+                log.info("[Agent2] summary extracted via fallback logic");
+            } else {
+                // 最终兜底：使用整个 AI 回答作为 summary
+                result.setSummary(markdown.trim());
+                log.info("[Agent2] summary fallback to entire markdown");
+            }
+        }
+        
+        return result;
+    }
+
+    /**
+     * 识别章节标题，兼容 ## 和 ### 前缀
+     */
+    private String detectSection(String line) {
+        if (!line.startsWith("#")) return null;
+        String lower = line.toLowerCase();
+        if (line.contains("会议概览") || line.contains("会议总结") || line.contains("总结") || line.contains("概览")) {
+            return "summary";
+        }
+        if (line.contains("核心观点") || line.contains("主要结论") || line.contains("关键决策") || line.contains("决策")) {
+            return "decisions";
+        }
+        if (line.contains("任务分工") || line.contains("任务分配") || line.contains("分工")) {
+            return "tasks";
+        }
+        if (line.contains("后续计划") || line.contains("待办") || line.contains("行动计划")) {
+            return "todos";
+        }
+        if (line.contains("待确认") || line.contains("遗留问题") || line.contains("未确定")) {
+            return "pending";
+        }
+        return null;
+    }
+
+    private void appendSummary(MeetingDTO.AIMinutesResult result, String line) {
+        // 跳过表格行和列表标记
+        String cleaned = cleanLine(line);
+        if (StringUtils.hasText(cleaned)) {
+            String existing = result.getSummary();
+            result.setSummary(StringUtils.hasText(existing) ? existing + "\n" + cleaned : cleaned);
+        }
+    }
+
+    private void appendDecision(MeetingDTO.AIMinutesResult result, String line) {
+        String cleaned = cleanLine(line);
+        if (StringUtils.hasText(cleaned) && !isTableHeader(cleaned) && !isTableSeparator(cleaned)) {
+            result.getDecisions().add(cleaned);
+        }
+    }
+
+    private void appendTask(MeetingDTO.AIMinutesResult result, String line) {
+        // 任务分工通常是表格行：| 负责人 | 任务 | 交付物 | 截止时间 | 备注 |
+        if (isTableSeparator(line) || isTableHeader(line)) return;
+        
+        if (line.contains("|")) {
+            // 解析表格行
+            String[] parts = line.split("\\|", -1);
+            List<String> fields = new ArrayList<>();
+            for (String part : parts) {
+                String cleaned = part.trim();
+                if (!cleaned.isEmpty() && !cleaned.equals("-")) {
+                    fields.add(cleaned);
+                }
+            }
+            if (fields.size() >= 2) {
+                MeetingDTO.TaskItem task = new MeetingDTO.TaskItem();
+                // 尝试识别负责人和任务
+                // 格式可能是：负责人 | 任务 | ... 或 任务 | 负责人 | ...
+                String firstField = fields.get(0);
+                String secondField = fields.get(1);
+                // 如果第一个字段看起来像人名（短、不含动词）则作为负责人
+                if (looksLikePersonName(firstField)) {
+                    task.setAssignee(firstField);
+                    task.setTask(secondField);
+                } else {
+                    task.setTask(firstField);
+                    if (fields.size() >= 3 && looksLikePersonName(secondField)) {
+                        task.setAssignee(secondField);
+                    }
+                }
+                // 尝试提取截止时间
+                for (String field : fields) {
+                    if (looksLikeDeadline(field)) {
+                        task.setDeadline(field);
+                        break;
+                    }
+                }
+                task.setStatus("待完成");
+                if (StringUtils.hasText(task.getTask())) {
+                    result.getTasks().add(task);
+                }
+            }
+        } else {
+            // 非表格行，直接作为任务描述
+            String cleaned = cleanLine(line);
+            if (StringUtils.hasText(cleaned)) {
+                MeetingDTO.TaskItem task = new MeetingDTO.TaskItem();
+                task.setTask(cleaned);
+                task.setAssignee("未明确");
+                task.setDeadline("未明确");
+                task.setStatus("待完成");
+                result.getTasks().add(task);
+            }
+        }
+    }
+
+    private void appendTodo(MeetingDTO.AIMinutesResult result, String line) {
+        String cleaned = cleanLine(line);
+        if (StringUtils.hasText(cleaned) && !isTableHeader(cleaned) && !isTableSeparator(cleaned)) {
+            result.getTodos().add(cleaned);
+        }
+    }
+
+    private void appendPending(MeetingDTO.AIMinutesResult result, String line) {
+        String cleaned = cleanLine(line);
+        if (StringUtils.hasText(cleaned) && !isTableHeader(cleaned) && !isTableSeparator(cleaned)) {
+            result.getPendingItems().add(cleaned);
+        }
+    }
+
+    /**
+     * 清理行文本：去掉列表标记、多余空格
+     */
+    private String cleanLine(String line) {
+        if (!StringUtils.hasText(line)) return "";
+        String cleaned = line.trim();
+        // 去掉开头的列表标记：1. 2. - * •
+        cleaned = cleaned.replaceFirst("^\\d+\\.\\s*", "");
+        cleaned = cleaned.replaceFirst("^[-*•]\\s*", "");
+        // 去掉开头的 -  前缀
+        cleaned = cleaned.replaceFirst("^-\\s+", "");
+        return cleaned.trim();
+    }
+
+    private boolean isTableHeader(String line) {
+        return line.contains("负责人") && (line.contains("任务") || line.contains("交付物"))
+            || (line.contains("结论") && line.contains("依据"));
+    }
+
+    private boolean isTableSeparator(String line) {
+        return line.matches("^\\|?[-:|\s]+\\|?$");
+    }
+
+    private boolean looksLikePersonName(String text) {
+        if (!StringUtils.hasText(text)) return false;
+        String trimmed = text.trim();
+        // 中文人名通常 2-4 个字，不含动词/介词
+        if (trimmed.length() >= 2 && trimmed.length() <= 4 && !trimmed.contains("任务") && !trimmed.contains("时间")) {
+            // 检查不包含常见动词
+            return !trimmed.contains("完成") && !trimmed.contains("负责") && !trimmed.contains("整理")
+                && !trimmed.contains("修改") && !trimmed.contains("确认") && !trimmed.contains("未明确");
+        }
+        // 也可能是 “李四负责” 这样
+        return false;
+    }
+
+    private boolean looksLikeDeadline(String text) {
+        if (!StringUtils.hasText(text)) return false;
+        String trimmed = text.trim();
+        return trimmed.contains("周") || trimmed.contains("月") || trimmed.contains("日")
+            || trimmed.contains("号") || trimmed.matches(".*\\d{4}-\\d{2}-\\d{2}.*")
+            || trimmed.matches(".*\\d{1,2}/\\d{1,2}.*");
+    }
+
+    /**
+     * 兜底提取：从整段 Markdown 中尝试提取第一段有效文本作为 summary
+     */
+    private String extractFallbackSummary(String markdown) {
+        String[] lines = markdown.split("\n");
+        StringBuilder sb = new StringBuilder();
+        for (String line : lines) {
+            String trimmed = line.trim();
+            if (trimmed.isEmpty()) {
+                if (sb.length() > 0) break;  // 遇到空行结束第一段
+                continue;
+            }
+            // 跳过标题行和表格分隔行
+            if (trimmed.startsWith("#") || isTableSeparator(trimmed)) continue;
+            String cleaned = cleanLine(trimmed);
+            if (StringUtils.hasText(cleaned)) {
+                sb.append(cleaned).append("\n");
+            }
+        }
+        return sb.toString().trim();
     }
 
     private String truncate(String value, int maxLength) {

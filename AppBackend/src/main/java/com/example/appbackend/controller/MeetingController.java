@@ -186,6 +186,17 @@ public class MeetingController {
         ));
     }
 
+    @PostMapping("/{sessionId}/ai-minutes")
+    @Operation(summary = "会后任务分工 AI 分析", description = "根据完整会议记录、弹幕/聊天和参会人信息，执行会后任务分工智能体分析")
+    public Result<MeetingDTO.AIMinutesResult> aiMinutes(@PathVariable String sessionId,
+                                                        HttpServletRequest httpRequest) {
+        return Result.success(meetingService.aiMinutesAnalysis(
+                currentUserId(httpRequest),
+                sessionId,
+                httpRequest.getHeader("Authorization")
+        ));
+    }
+
     private Long currentUserId(HttpServletRequest request) {
         Object userId = request.getAttribute("userId");
         if (userId == null) {
