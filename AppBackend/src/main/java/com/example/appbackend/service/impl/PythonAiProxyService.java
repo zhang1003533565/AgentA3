@@ -8,6 +8,7 @@ import com.example.appbackend.repository.SystemConfigRepository;
 import com.example.appbackend.service.SystemConfigService;
 import com.example.appbackend.service.LangfuseConfigService;
 import com.example.appbackend.util.JwtUtil;
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -705,13 +706,14 @@ public class PythonAiProxyService {
         CompletableFuture.runAsync(() -> {
             try {
                 log.info("start python stream relay path={}", path);
+                Object normalizedRequest = normalizePythonRequest(request);
                 webClientBuilder.build()
                         .post()
                         .uri(buildUri(path))
                         .headers(headers -> applyPythonHeaders(headers, authorization, userId, requestedModel))
                         .accept(MediaType.TEXT_EVENT_STREAM)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .bodyValue(request)
+                        .bodyValue(normalizedRequest)
                         .retrieve()
                         .bodyToFlux(new ParameterizedTypeReference<ServerSentEvent<String>>() {})
                         .timeout(Duration.ofSeconds(timeoutSeconds))
@@ -721,12 +723,19 @@ public class PythonAiProxyService {
                 emitter.complete();
             } catch (Exception e) {
                 log.error("python stream relay failed path={} errorType={}", path, e.getClass().getSimpleName());
-                Map<String, Object> failure = new LinkedHashMap<>();
-                failure.put("message", "Python AI 流式服务暂时不可用，请稍后再试。");
+                // Send error as JSON string to avoid Content-Type conflict
+                String errorMsg;
+                try {
+                    errorMsg = objectMapper.writeValueAsString(Map.of(
+                        "message", "Python AI 流式服务暂时不可用，请稍后再试。"
+                    ));
+                } catch (JsonProcessingException jsonEx) {
+                    errorMsg = "{\"message\":\"Python AI 流式服务暂时不可用，请稍后再试。\"}";
+                }
                 boolean relay = eventHandler == null;
                 if (eventHandler != null) {
                     try {
-                        relay = eventHandler.handle("error", failure);
+                        relay = eventHandler.handle("error", Map.of("message", "Python AI 流式服务暂时不可用，请稍后再试。"));
                     } catch (Exception handlerError) {
                         log.error("python stream failure handler rejected errorType={}",
                                 handlerError.getClass().getSimpleName());
@@ -735,13 +744,11 @@ public class PythonAiProxyService {
                 }
                 if (relay) {
                     try {
-                        emitter.send(SseEmitter.event()
-                                .name("error")
-                                .data(failure, MediaType.APPLICATION_JSON));
+                        emitter.send(SseEmitter.event().name("error").data(errorMsg));
                     } catch (Exception ignored) {
                     }
                 }
-                emitter.completeWithError(e);
+                emitter.complete();
             }
         });
         return emitter;
@@ -756,13 +763,15 @@ public class PythonAiProxyService {
         if (eventHandler != null && !eventHandler.handle(eventName, payload)) {
             return;
         }
-
+    
         log.info("relay sse event event={}", eventName);
-
+    
         try {
-            emitter.send(SseEmitter.event().name(eventName).data(payload, MediaType.APPLICATION_JSON));
+            // Convert payload to JSON string for proper SSE formatting
+            String jsonPayload = objectMapper.writeValueAsString(payload);
+            emitter.send(SseEmitter.event().name(eventName).data(jsonPayload));
         } catch (Exception e) {
-            throw new RuntimeException("SSE 事件透传失败: " + e.getMessage(), e);
+            throw new RuntimeException("SSE 事件透传失败：" + e.getMessage(), e);
         }
     }
 
@@ -1001,6 +1010,28 @@ public class PythonAiProxyService {
             current = current.getCause();
         }
         return false;
+    }
+
+    private Object normalizePythonRequest(Object request) {
+        if (request == null) {
+            return request;
+        }
+        try {
+            Map<String, Object> map = objectMapper.convertValue(request, new com.fasterxml.jackson.core.type.TypeReference<>() {});
+            if (map == null) {
+                return request;
+            }
+            List<String> listFields = List.of("imageUrls", "images", "imageDataUrls", "attachments");
+            for (String field : listFields) {
+                if (!map.containsKey(field) || map.get(field) == null) {
+                    map.put(field, List.of());
+                }
+            }
+            return map;
+        } catch (Exception e) {
+            log.warn("normalize python request failed, use original request", e);
+            return request;
+        }
     }
 
     private void applyPythonHeaders(HttpHeaders headers, String authorization, Long userId, String requestedModel) {

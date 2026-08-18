@@ -25,7 +25,7 @@
 					<view v-else class="ai-summary-canvas-list">
 						<view v-for="item in aiSummaryItems" :key="item.id" class="ai-summary-canvas-item">
 							<view class="ai-summary-canvas-meta">
-								<text>AI 总结</text>
+								<text>会议重点</text>
 								<text>{{ item.time }}</text>
 							</view>
 							<text class="ai-summary-canvas-text">{{ item.text }}</text>
@@ -205,7 +205,7 @@
 				<view v-else-if="agentEnabled" class="ai-summary-stream">
 					<view v-for="item in aiSummaryItems" :key="item.id" class="ai-summary-card">
 						<view class="ai-summary-meta">
-							<text>AI 总结</text>
+							<text>会议重点</text>
 							<text>{{ item.time }}</text>
 						</view>
 						<text class="ai-summary-text">{{ item.text }}</text>
@@ -471,13 +471,13 @@ export default {
 			return pages.length ? pages : [[]]
 		},
 		livePanelTitle() {
-			return this.agentEnabled ? 'AI 实时总结流' : '语音识别弹幕'
+			return this.agentEnabled ? 'AI 实时摘要' : '语音识别弹幕'
 		},
 		livePanelStatus() {
 			return this.agentEnabled ? this.aiSummaryStatusText : this.asrStatusText
 		},
 		livePanelEmptyText() {
-			return this.agentEnabled ? '开启后会根据实时识别内容生成滚动会议总结' : '识别到发言后，会在这里显示每位成员说的话'
+			return this.agentEnabled ? '开启后会根据实时转写内容，持续提炼当前会议讨论的核心重点' : '识别到发言后，会在这里显示每位成员说的话'
 		},
 		subtitleLines() {
 			return this.asrItems.filter(item => item.isFinal).slice(-3)
@@ -1084,7 +1084,8 @@ export default {
 			}
 			this.persistSubtitleRecords()
 			if (this.agentEnabled) {
-				this.scheduleAiSummary()
+				// 每次 final 转写新增后，延迟 3 秒触发实时重点提炼，防抖避免每句话都调用 LLM
+				this.scheduleAiSummary(3000)
 			}
 		},
 		toggleAgentSummary(event) {
@@ -1095,11 +1096,11 @@ export default {
 			this.memberPageIndex = 0
 			if (shouldClosePanel) this.closePanel()
 			if (this.agentEnabled) {
-				this.aiSummaryStatusText = this.hasSummarySourceText() ? '准备总结' : '等待发言'
+				this.aiSummaryStatusText = this.hasSummarySourceText() ? '准备提炼重点' : '等待发言'
 				this.scheduleAiSummary(0)
 			} else {
 				this.clearAiSummaryTimer()
-				this.aiSummaryStatusText = '等待发言'
+				this.aiSummaryStatusText = '已关闭'
 			}
 		},
 		scheduleAiSummary(delay = 0) {
@@ -1135,10 +1136,10 @@ export default {
 			}
 			this.aiSummaryRunning = true
 			this.aiSummaryPending = false
-			this.aiSummaryStatusText = '智能体总结中'
+			this.aiSummaryStatusText = '正在提炼会议重点'
 			this.lastSummaryInput = content
 			this.lastSummaryErrorInput = ''
-			const streamItem = this.createAiSummaryItem('正在生成总结...')
+			const streamItem = this.createAiSummaryItem('正在提炼会议重点...')
 			let streamText = ''
 			let streamError = ''
 			try {
@@ -1167,10 +1168,10 @@ export default {
 					throw new Error(streamError)
 				}
 				if (streamText.trim()) {
-					this.aiSummaryStatusText = '总结已更新'
+					this.aiSummaryStatusText = '重点已更新'
 				} else {
 					this.aiSummaryStatusText = '智能体未返回内容'
-					this.updateAiSummaryItem(streamItem.id, '已尝试调用会议总结智能体，但本次没有返回可用总结。请继续发言后我会再次尝试。')
+					this.updateAiSummaryItem(streamItem.id, '已尝试提炼会议重点，但本次没有返回可用内容。请继续发言后我会再次尝试。')
 				}
 			} catch (error) {
 				this.aiSummaryStatusText = '智能体暂不可用'
@@ -1190,15 +1191,28 @@ export default {
 			}
 		},
 		buildSummaryInput() {
-			const liveLines = this.asrItems
-				.filter(item => !item.isFinal)
-				.filter(item => item.text && item.text.trim())
-				.map(item => `${item.speaker}：${item.text.trim()}`)
-			const transcript = [...this.meetingTranscriptLines, ...liveLines].slice(-40).join('\n')
+			// 只使用 isFinal 的转写记录（已确认说完的内容）作为会中实时重点的数据源
+			const transcript = this.meetingTranscriptLines.slice(-40).join('\n')
 			if (!transcript.trim()) return ''
 			const input = [
 				`会议主题：${this.title}`,
-				'请根据以下实时转写生成一段不超过120字的阶段性会议总结，包含已讨论内容、最新进展和待跟进事项；不要输出未在转写中出现的事实。',
+				'你是会中实时重点智能体，请根据下方实时转写内容，提炼当前会议讨论的核心重点。',
+				'',
+				'输出要求：',
+				'- 不要逐句重复字幕，要进行压缩和提炼',
+				'- 只输出转写中真实出现的信息，不要臆造结论',
+				'- 按以下三个板块输出（如某板块无内容则省略该板块）：',
+				'',
+				'**会议重点**',
+				'• 当前正在讨论的核心问题',
+				'• 重要观点、关键事实、重要数据',
+				'',
+				'**讨论进展**',
+				'• 当前讨论了什么、已形成哪些共识、哪些问题尚未解决',
+				'',
+				'**重要事项**',
+				'• 重要决定、需要后续确认的问题、明确提出的关键待办',
+				'',
 				'实时转写：',
 				transcript
 			].join('\n')
