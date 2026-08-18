@@ -47,6 +47,7 @@ public class PythonAiProxyService {
     private static final String AGENT_MODEL_BINDING_PREFIX = "ai.agent-bindings.";
     private static final String AGENT_ENABLED_PREFIX = "ai.agent-enabled.";
     private static final String TOOL_ENABLED_PREFIX = "ai.tool-enabled.";
+    private static final String TOOL_BOUND_PREFIX = "ai.tool-bound.";
     private static final String LEGACY_TEXT_CONFIG_PREFIX = "ai.service.text";
     private static final Pattern SAFE_SSE_EVENT_NAME = Pattern.compile("[A-Za-z][A-Za-z0-9_-]{0,39}");
 
@@ -1121,6 +1122,7 @@ public class PythonAiProxyService {
         metadata.put("agentToggles", loadAgentToggles());
         metadata.put("agentModelConfigs", loadAgentModelConfigs());
         metadata.put("toolToggles", loadToolToggles());
+        metadata.put("toolBoundAgents", loadToolBoundAgents());
         copy.put("metadata", metadata);
         return copy;
     }
@@ -1281,6 +1283,22 @@ public class PythonAiProxyService {
                 });
         toggles.put(DEFAULT_AGENT_NAME, true);
         return toggles;
+    }
+
+    private Map<String, String> loadToolBoundAgents() {
+        Map<String, String> bound = new HashMap<>();
+        systemConfigRepository.findByConfigKeyStartingWithAndStatus(TOOL_BOUND_PREFIX, 1)
+                .forEach(config -> {
+                    String key = config.getConfigKey();
+                    if (!StringUtils.hasText(key) || key.length() <= TOOL_BOUND_PREFIX.length()) {
+                        return;
+                    }
+                    String toolName = key.substring(TOOL_BOUND_PREFIX.length()).trim();
+                    if (StringUtils.hasText(toolName)) {
+                        bound.put(toolName, String.valueOf(config.getConfigValue() == null ? "" : config.getConfigValue()).trim());
+                    }
+                });
+        return bound;
     }
 
     private Map<String, Boolean> loadToolToggles() {

@@ -2,6 +2,8 @@ export const AI_MODEL_CONFIG_PATTERN = /^ai\.service\.(text|vision|image|video|a
 export const AGENT_MODEL_BINDING_PATTERN = /^ai\.agent-bindings\.([A-Za-z0-9_-]+)\.model$/
 export const AGENT_ENABLED_CONFIG_PREFIX = 'ai.agent-enabled.'
 export const TOOL_ENABLED_CONFIG_PREFIX = 'ai.tool-enabled.'
+export const TOOL_BOUND_CONFIG_PREFIX = 'ai.tool-bound.'
+export const TOOL_BOUND_UNBOUND_MARKER = '-'
 export const QUESTION_GENERATION_AGENT_PREFIX = 'ai.question-generation.agent.'
 export const AI_TESTED_MODEL_PREFIXES_KEY = 'ai_tested_model_prefixes_v1'
 export const AI_TESTED_MODEL_IDS_KEY = 'ai_tested_model_ids_v1'
@@ -133,6 +135,19 @@ export const buildToolToggles = (configRows = []) => {
     }
   })
   return toggles
+}
+
+export const buildToolBindings = (configRows = []) => {
+  const bindings = {}
+  configRows.forEach((item) => {
+    const key = String(item.configKey || '')
+    if (!key.startsWith(TOOL_BOUND_CONFIG_PREFIX) || Number(item.status) === 0) return
+    const toolName = key.slice(TOOL_BOUND_CONFIG_PREFIX.length).trim()
+    if (!toolName) return
+    const value = String(item.configValue ?? '').trim()
+    bindings[toolName] = value === TOOL_BOUND_UNBOUND_MARKER ? '' : value
+  })
+  return bindings
 }
 
 export const getAgentRequiredModelModalities = (agent) => {

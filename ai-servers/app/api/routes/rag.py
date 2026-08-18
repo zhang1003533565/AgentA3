@@ -132,6 +132,8 @@ VISUAL_GENERATION_TOOLS = [
 VISUAL_GENERATION_TOOL_NAMES = frozenset(VISUAL_GENERATION_TOOL_CONFIG)
 IMAGE_RECOGNITION_TOOL_NAME = "recognize_image_tool"
 IMAGE_RECOGNITION_AGENT_NAME = "vision_agent"
+FILE_CONTENT_PLANNER_AGENT_NAME = "file_content_planner_agent"
+TOOL_BOUND_UNBOUND_MARKER = "-"
 IMAGE_RECOGNITION_TOOL = {
     "name": IMAGE_RECOGNITION_TOOL_NAME,
     "zhName": "图片识别工具",
@@ -195,6 +197,7 @@ GENERATED_CONTENT_TOOLS = [
         "trigger": "专业智能体返回 markdown/question_bank/mermaid，或用户要求 md/Markdown 文件版。",
         "outputs": ["md"],
         "status": "implemented",
+        "boundAgent": FILE_CONTENT_PLANNER_AGENT_NAME,
     },
     {
         "name": "docx_export_tool",
@@ -205,6 +208,7 @@ GENERATED_CONTENT_TOOLS = [
         "trigger": "用户要求 Word/DOCX/文档版/文件版，或内容适合沉淀为资料。",
         "outputs": ["docx"],
         "status": "implemented",
+        "boundAgent": FILE_CONTENT_PLANNER_AGENT_NAME,
     },
     {
         "name": "excel_export_tool",
@@ -215,6 +219,7 @@ GENERATED_CONTENT_TOOLS = [
         "trigger": "题库 JSON、知识清单、用户要求 Excel/表格。",
         "outputs": ["xlsx"],
         "status": "implemented",
+        "boundAgent": FILE_CONTENT_PLANNER_AGENT_NAME,
     },
     {
         "name": "pptx_export_tool",
@@ -1927,14 +1932,71 @@ def _tool_toggles_from_request(request: RagQueryRequest) -> Dict[str, Any]:
     return toggles if isinstance(toggles, dict) else {}
 
 
+def _default_tool_bound_agent(tool_name: str) -> str:
+    """工具元数据里的默认绑定智能体(请求未配置时使用)。"""
+    for tool in GENERATED_CONTENT_TOOLS:
+        if tool.get("name") == tool_name:
+            return str(tool.get("boundAgent") or "").strip()
+    for tool in LEADER_CALLABLE_TOOLS:
+        if tool.get("name") == tool_name:
+            return str(tool.get("boundAgent") or "").strip()
+    return ""
+
+
+def _resolve_tool_bound_agent(request: RagQueryRequest, tool_name: str) -> str:
+    """解析工具当前绑定的智能体:请求配置优先,未配置时回退元数据默认值;
+    '-' 或空值表示暂不绑定。"""
+    metadata = request.metadata if isinstance(request.metadata, dict) else {}
+    return _metadata_resolve_tool_bound_agent(metadata, tool_name)
+
+
+def _metadata_resolve_tool_bound_agent(metadata: Dict[str, Any], tool_name: str) -> str:
+    """metadata 版:解析工具当前绑定的智能体(配置优先,回退元数据默认值)。"""
+    normalized = str(tool_name or "").strip()
+    configured = metadata.get("toolBoundAgents") if isinstance(metadata, dict) else None
+    if isinstance(configured, dict) and normalized in configured:
+        value = str(configured.get(normalized) or "").strip()
+        return "" if value in ("", TOOL_BOUND_UNBOUND_MARKER) else value
+    return _default_tool_bound_agent(normalized)
+
+
+def _is_tool_agent_available(request: RagQueryRequest, bound_agent: str) -> bool:
+    """绑定智能体被显式关闭时,工具视为不可用。
+
+    只检查 agentToggles 的显式开关,不检查模型是否就绪:内部智能体
+    (如 file_content_planner_agent)的模型配置会回退到 leader_agent,
+    若检查模型就绪会误伤正常可用的工具。
+    """
+    metadata = request.metadata if isinstance(request.metadata, dict) else {}
+    return _metadata_tool_agent_available(metadata, bound_agent)
+
+
+def _metadata_tool_agent_available(metadata: Dict[str, Any], bound_agent: str) -> bool:
+    """metadata 版:绑定智能体被显式关闭时,工具视为不可用。"""
+    if not bound_agent or bound_agent == "leader_agent":
+        return True
+    toggles = metadata.get("agentToggles") if isinstance(metadata, dict) else None
+    if not isinstance(toggles, dict):
+        return True
+    value = toggles.get(normalize_agent_name(bound_agent))
+    if value is None:
+        return True
+    return _parse_agent_enabled_value(value)
+
+
 def _is_tool_enabled(request: RagQueryRequest, tool_name: str) -> bool:
     normalized = str(tool_name or "").strip()
     if not normalized:
         return True
     toggles = _tool_toggles_from_request(request)
     if normalized not in toggles:
-        return True
-    return _parse_agent_enabled_value(toggles.get(normalized))
+        enabled = True
+    else:
+        enabled = _parse_agent_enabled_value(toggles.get(normalized))
+    if not enabled:
+        return False
+    # 工具开关跟随绑定智能体的启用状态:绑定智能体被关闭时,工具也不可用
+    return _is_tool_agent_available(request, _resolve_tool_bound_agent(request, normalized))
 
 
 def _require_tool_enabled(request: RagQueryRequest, tool_name: str) -> None:
@@ -3182,8 +3244,16 @@ def _file_format_follow_up_actions(answer_type: str, metadata: Dict[str, Any], a
 def _metadata_tool_enabled(metadata: Dict[str, Any], tool_name: str) -> bool:
     toggles = metadata.get("toolToggles") if isinstance(metadata, dict) else None
     if not isinstance(toggles, dict) or tool_name not in toggles:
-        return True
-    return _parse_agent_enabled_value(toggles.get(tool_name))
+        enabled = True
+    else:
+        enabled = _parse_agent_enabled_value(toggles.get(tool_name))
+    if not enabled:
+        return False
+    # 与 _is_tool_enabled 保持一致的绑定联动:绑定智能体被关闭时,工具不可用
+    return _metadata_tool_agent_available(
+        metadata,
+        _metadata_resolve_tool_bound_agent(metadata, tool_name),
+    )
 
 
 def _follow_up_action(label: str, prompt: str, output_type: str, style: str) -> Dict[str, Any]:
