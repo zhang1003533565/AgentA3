@@ -15,4 +15,6 @@ public interface MindMapService {
     List<MindMapDTO.HistoryItem> history(Long userId);
 
     MindMapDTO.GenerateResponse detail(Long userId, String id);
+
+    void delete(Long userId, String id);
 }

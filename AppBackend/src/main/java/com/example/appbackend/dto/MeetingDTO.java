@@ -28,6 +28,8 @@ public class MeetingDTO {
 
         private LocalDateTime scheduledStartTime;
 
+        private Integer expectedDurationMinutes;
+
         @Size(max = 20, message = "参会成员最多20人")
         private List<@Size(max = 80, message = "成员名称最多80字符") String> participants = new ArrayList<>();
 
@@ -53,8 +55,18 @@ public class MeetingDTO {
 
         private LocalDateTime scheduledStartTime;
 
+        private Integer expectedDurationMinutes;
+
         @Size(max = 20, message = "参会成员最多20人")
         private List<@Size(max = 80, message = "成员名称最多80字符") String> participants = new ArrayList<>();
+    }
+
+    @Data
+    @Schema(description = "转交主持人请求")
+    public static class TransferHostRequest {
+        @NotBlank(message = "新主持人姓名不能为空")
+        @Size(max = 80, message = "成员名称最多80字符")
+        private String newHostName;
     }
 
     @Data
@@ -118,8 +130,19 @@ public class MeetingDTO {
     public static class SessionDetail {
         private SessionItem session;
         private List<String> participants = new ArrayList<>();
+        private List<ParticipantRecordItem> participantRecords = new ArrayList<>();
         private List<RecordItem> records = new ArrayList<>();
         private List<AgentResultItem> results = new ArrayList<>();
+    }
+
+    @Data
+    @Schema(description = "参会记录项")
+    public static class ParticipantRecordItem {
+        private String name;
+        private String status;
+        private String joinTime;
+        private String leaveTime;
+        private Long duration;
     }
 
     @Data
@@ -150,5 +173,58 @@ public class MeetingDTO {
         private String answer;
         private String errorMessage;
         private SessionDetail detail;
+    }
+
+    @Data
+    @Schema(description = "发表评论请求")
+    public static class CommentRequest {
+        @NotBlank(message = "评论内容不能为空")
+        @Size(max = 1000, message = "评论内容最多1000字符")
+        private String content;
+    }
+
+    @Data
+    @Schema(description = "评论项")
+    public static class CommentItem {
+        private Long id;
+        private Long senderId;
+        private String senderName;
+        private String content;
+        private LocalDateTime createTime;
+    }
+
+    @Data
+    @Schema(description = "AI 会议纪要结果")
+    public static class AIMinutesResult {
+        @Schema(description = "会议总结")
+        private String summary;
+
+        @Schema(description = "关键决策列表")
+        private List<String> decisions = new ArrayList<>();
+
+        @Schema(description = "任务分工列表")
+        private List<TaskItem> tasks = new ArrayList<>();
+
+        @Schema(description = "待办事项列表")
+        private List<String> todos = new ArrayList<>();
+
+        @Schema(description = "待确认事项列表")
+        private List<String> pendingItems = new ArrayList<>();
+    }
+
+    @Data
+    @Schema(description = "任务项")
+    public static class TaskItem {
+        @Schema(description = "任务描述")
+        private String task;
+
+        @Schema(description = "负责人")
+        private String assignee;
+
+        @Schema(description = "截止时间")
+        private String deadline;
+
+        @Schema(description = "状态")
+        private String status;
     }
 }

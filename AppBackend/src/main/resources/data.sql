@@ -1241,14 +1241,17 @@ INSERT INTO activity_notice (id, activity_id, title, content, publisher_id, publ
 -- 论坛话题（forum_post.topic_id 外键依赖；与小程序分类/发帖选项 id 对齐）
 -- =============================================
 INSERT IGNORE INTO forum_topic (id, topic_name, post_count, is_hot, status, create_time) VALUES
-(1, '校园生活', 0, 1, 'ACTIVE', NOW()),
-(2, '学习交流', 0, 1, 'ACTIVE', NOW()),
-(3, '求职招聘', 0, 1, 'ACTIVE', NOW()),
-(4, '二手交易', 0, 1, 'ACTIVE', NOW()),
-(5, '情感树洞', 0, 1, 'ACTIVE', NOW()),
-(6, '美食探店', 0, 1, 'ACTIVE', NOW()),
-(7, '求助问答', 0, 0, 'ACTIVE', NOW()),
-(8, '失物招领', 0, 0, 'ACTIVE', NOW())
+(1, '热门', 0, 1, 'ACTIVE', NOW()),
+(2, '最新', 0, 0, 'ACTIVE', NOW()),
+(3, '📢公告', 0, 0, 'ACTIVE', NOW()),
+(4, '💰集市', 0, 1, 'ACTIVE', NOW()),
+(5, '😊求助', 0, 0, 'ACTIVE', NOW()),
+(6, '🔑失物', 0, 0, 'ACTIVE', NOW()),
+(7, '💕表白', 0, 0, 'ACTIVE', NOW()),
+(8, '🍟美食', 0, 1, 'ACTIVE', NOW()),
+(9, '🤝搭子', 0, 0, 'ACTIVE', NOW()),
+(10, '📚学习资料', 0, 0, 'ACTIVE', NOW()),
+(11, '🌸影忆青春', 0, 0, 'ACTIVE', NOW())
 ON DUPLICATE KEY UPDATE topic_name = VALUES(topic_name), status = 'ACTIVE';
 
 CREATE TABLE IF NOT EXISTS forum_follow (
@@ -1554,6 +1557,16 @@ CREATE TABLE IF NOT EXISTS system_config (
     create_time DATETIME COMMENT '创建时间',
     update_time DATETIME COMMENT '更新时间'
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='系统配置表';
+
+CREATE TABLE IF NOT EXISTS langfuse_config (
+    id BIGINT PRIMARY KEY COMMENT '固定为 1 的 Langfuse 配置记录',
+    enabled TINYINT NOT NULL DEFAULT 0 COMMENT '是否启用 Langfuse 观测',
+    base_url VARCHAR(500) NULL COMMENT 'Langfuse 服务地址',
+    public_key TEXT NULL COMMENT '加密保存的 Langfuse Public Key',
+    secret_key TEXT NULL COMMENT '加密保存的 Langfuse Secret Key',
+    create_time DATETIME NULL COMMENT '创建时间',
+    update_time DATETIME NULL COMMENT '更新时间'
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Langfuse AI 观测配置';
 
 DELETE FROM system_config WHERE config_key IN (
   'ai.provider', 'ai.base-url', 'ai.api-key', 'ai.model',

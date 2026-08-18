@@ -1,9 +1,17 @@
+import json
 import time
+from copy import deepcopy
 
 import pytest
 from fastapi import HTTPException
 
 from app.ppt_generation.service import PptGenerationService, _outline_items
+from app.ppt_generation.template_catalog import EmbeddedTemplateCatalog
+
+
+def _sample_ui(layout_id="title_intro"):
+    layout = EmbeddedTemplateCatalog().get_layout("general", layout_id)
+    return {"components": deepcopy(layout["components"]), "background": "#FFFFFF"}
 
 
 def test_outline_markdown_is_exposed_as_editable_items():
@@ -30,17 +38,17 @@ def test_outline_markdown_is_exposed_as_editable_items():
     }]
 
 
-def test_task_is_owner_scoped_and_creates_real_pptx(tmp_path, monkeypatch):
+def test_task_is_owner_scoped_and_creates_real_preview(tmp_path, monkeypatch):
     monkeypatch.setenv("AI_EXPORT_ROOT", str(tmp_path))
     service = PptGenerationService()
     created = service.create_task("42", {
         "sourceName": "数据结构复习.txt",
         "outline": {"title": "数据结构复习"},
         "slides": [
-            {"title": "栈", "content": ["后进先出"]},
-            {"title": "队列", "content": ["先进先出"]},
+            {"title": "栈", "content": ["后进先出"], "templateLayoutId": "title_intro", "ui": _sample_ui()},
+            {"title": "队列", "content": ["先进先出"], "templateLayoutId": "title_intro", "ui": _sample_ui()},
         ],
-        "exportFormats": ["pptx"],
+        "exportFormats": ["pdf"],
     }, llm_config=None)
 
     task_id = created["taskId"]
@@ -51,10 +59,11 @@ def test_task_is_owner_scoped_and_creates_real_pptx(tmp_path, monkeypatch):
         time.sleep(0.03)
 
     assert task["status"] == "completed", task.get("error")
-    assert task["attachments"][0]["type"] == "pptx"
-    export = service.open_artifact("42", task_id, "pptx")
+    assert task["attachments"][0]["type"] == "pdf"
+    assert task["previews"]
+    export = service.open_artifact("42", task_id, "pdf")
     try:
-        assert export.stream.read(2) == b"PK"
+        assert export.stream.read(4) == b"%PDF"
     finally:
         export.stream.close()
 
@@ -84,14 +93,29 @@ def test_outline_provider_failure_returns_actionable_gateway_error(monkeypatch):
     assert "http://model.test" not in error.value.detail
 
 
-def test_slides_fall_back_to_outline_when_layout_agent_breaks_contract(monkeypatch):
+def test_slides_keep_presenton_ui_when_structure_agent_breaks_contract(monkeypatch):
     service = PptGenerationService()
+    def fake_runner(agent_name, input_text, *args, **kwargs):
+        if agent_name == "ppt_structure_agent":
+            raise HTTPException(status_code=502, detail="ppt_structure_agent 未返回有效 JSON")
+        request = json.loads(input_text)
+        slides = []
+        for selected in request["selectedLayouts"]:
+            layout = selected["layout"]
+            slides.append({
+                "index": selected["slideIndex"],
+                "type": "content",
+                "title": "测试页",
+                "content": ["测试内容"],
+                "objective": "测试目标",
+                "visualPrompt": "",
+                "speakerNote": "",
+                "ui": {"components": deepcopy(layout["components"]), "background": "#FFFFFF"},
+            })
+        return json.dumps({"slides": slides}, ensure_ascii=False)
     monkeypatch.setattr(
         "app.ppt_generation.service.run_specialist_agent",
-        lambda *args, **kwargs: (_ for _ in ()).throw(HTTPException(
-            status_code=502,
-            detail="ppt_layout_agent 返回内容不符合约定格式，且自动规范化失败",
-        )),
+        fake_runner,
     )
 
     result = service.generate_slides({
@@ -116,5 +140,5 @@ def test_slides_fall_back_to_outline_when_layout_agent_breaks_contract(monkeypat
     }, llm_config=None)
 
     assert [slide["title"] for slide in result["slides"]] == ["数据结构概述", "线性表"]
-    assert all(slide["layout"] != "content_default" for slide in result["slides"])
+    assert all(slide["ui"].get("components") for slide in result["slides"])
     assert result["layoutMarkdown"].startswith("## PPT 布局方案")

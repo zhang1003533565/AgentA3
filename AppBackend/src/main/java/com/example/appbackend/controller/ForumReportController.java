@@ -50,8 +50,7 @@ public class ForumReportController {
         return Result.success("举报已提交", forumReportService.createReport(createRequest, reporterId));
     }
 
-    @Operation(summary = "获取举报列表", description = "管理员分页查看举报列表，支持按状态和目标类型筛选")
-    @ApiResponses(value = {
+    @Operation(summary = "获取举报列表", description = "管理员分页查看举报列表，支持按状态和目标类型筛选")    @ApiResponses(value = {
             @ApiResponse(responseCode = "200", description = "获取成功"),
             @ApiResponse(responseCode = "401", description = "未登录"),
             @ApiResponse(responseCode = "403", description = "无权限")
@@ -66,9 +65,25 @@ public class ForumReportController {
             @Parameter(description = "处理状态：0-待处理，1-已处理，2-已驳回", example = "0")
             @RequestParam(required = false) Integer status,
             @Parameter(description = "举报目标类型：1-帖子，2-评论", example = "1")
-            @RequestParam(required = false) Integer targetType) {
+            @RequestParam(required = false) Integer targetType,
+            @Parameter(description = "关键词：匹配举报人、原因或描述", example = "广告")
+            @RequestParam(required = false) String keyword) {
         checkAdminRole(request);
-        return Result.success(forumReportService.getReports(page, size, status, targetType));
+        return Result.success(forumReportService.getReports(page, size, status, targetType, keyword));
+    }
+
+    @Operation(summary = "批量删除举报", description = "管理员批量删除举报记录及其审计日志")
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "删除成功"),
+            @ApiResponse(responseCode = "403", description = "无权限")
+    })
+    @DeleteMapping("/batch")
+    public Result<Void> deleteReports(
+            HttpServletRequest request,
+            @RequestBody List<Long> ids) {
+        checkAdminRole(request);
+        forumReportService.deleteReports(ids);
+        return Result.success("删除成功", null);
     }
 
     @Operation(summary = "获取举报详情", description = "管理员查看指定举报详情")
@@ -97,6 +112,23 @@ public class ForumReportController {
         checkAdminRole(request);
         Long handlerId = (Long) request.getAttribute("userId");
         return Result.success(forumReportService.handleReport(id, handleRequest, handlerId));
+    }
+
+    @Operation(summary = "恢复举报为待处理", description = "管理员将已处理/已忽略的举报恢复为待处理状态")
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "恢复成功"),
+            @ApiResponse(responseCode = "400", description = "待处理举报无需恢复"),
+            @ApiResponse(responseCode = "403", description = "无权限"),
+            @ApiResponse(responseCode = "404", description = "举报记录不存在")
+    })
+    @PutMapping("/{id}/reopen")
+    public Result<ForumReportResponse> reopenReport(
+            HttpServletRequest request,
+            @Parameter(description = "举报ID", required = true, example = "1")
+            @PathVariable Long id) {
+        checkAdminRole(request);
+        Long operatorId = (Long) request.getAttribute("userId");
+        return Result.success("恢复成功", forumReportService.reopenReport(id, operatorId));
     }
 
     @Operation(summary = "获取举报统计", description = "管理员查看举报总数、待处理、已处理、已驳回和类型统计")

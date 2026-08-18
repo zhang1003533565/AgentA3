@@ -1,0 +1,166 @@
+/* ========== 校园活动模块统一美化（参考帖子管理页配色） ========== */
+
+/* 顶部统计卡片：马卡龙色 */
+.ac-stat-row {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 14px;
+  margin-bottom: 16px;
+}
+
+.ac-stat-row--4 {
+  grid-template-columns: repeat(4, 1fr);
+}
+
+.ac-stat-row--2 {
+  grid-template-columns: repeat(2, 1fr);
+  max-width: 520px;
+}
+
+.ac-stat-row--3 {
+  grid-template-columns: repeat(3, 1fr);
+}
+
+.ac-stat-card {
+  appearance: none;
+  font: inherit;
+  text-align: left;
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+  padding: 16px 18px;
+  border: none;
+  border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+  cursor: pointer;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.ac-stat-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.12);
+}
+
+.ac-stat-card.active {
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.25), 0 6px 20px rgba(0, 0, 0, 0.1);
+}
+
+.ac-stat-card--static {
+  cursor: default;
+}
+
+.ac-stat-card--static:hover {
+  transform: none;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+}
+
+.ac-stat-card-icon {
+  flex: 0 0 auto;
+  display: flex;
+  font-size: 26px;
+  opacity: 0.85;
+}
+
+.ac-stat-card-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.ac-stat-card-value {
+  font-size: 26px;
+  font-weight: 700;
+  color: #1e293b;
+  line-height: 1.1;
+}
+
+.ac-stat-card-label {
+  font-size: 13px;
+  color: #64748b;
+  margin-top: 4px;
+  white-space: nowrap;
+}
+
+/* 页面标题：白色渐变 + 左侧强调色 */
+.page-header {
+  position: relative;
+  border-radius: 12px;
+  background: linear-gradient(90deg, #ffffff 0%, #f8fafc 100%);
+  border-left: 4px solid #2563eb;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+  overflow: hidden;
+}
+
+/* 搜索栏：柔和浅色卡片 */
+.search-bar {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 16px 20px;
+  box-shadow: none;
+}
+
+/* 表格：白色圆角卡片，表头浅灰蓝 */
+.ant-table-wrapper {
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  background: #ffffff;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+}
+
+.ant-table-thead > tr > th {
+  background: #f8fafc !important;
+  color: #475569 !important;
+  font-weight: 600;
+  border-bottom: 1px solid #e2e8f0 !important;
+}
+
+/* 隐藏表头下方的测量空行 */
+.ant-table-measure-row,
+.ant-table-measure-row > th {
+  visibility: hidden !important;
+  height: 0 !important;
+  padding: 0 !important;
+  border: none !important;
+  background: transparent !important;
+}
+
+.ant-table-tbody > tr > td {
+  color: #334155;
+  border-bottom: 1px solid #eef2f7 !important;
+}
+
+.ant-table-tbody > tr:hover > td {
+  background: #f8fafc !important;
+}
+
+.ant-pagination-item-active {
+  background: #2563eb !important;
+  border-color: #2563eb !important;
+}
+
+.ant-pagination-item-active a {
+  color: #ffffff !important;
+}
+
+/* 响应式 */
+@media (max-width: 1200px) {
+  .ac-stat-row,
+  .ac-stat-row--4,
+  .ac-stat-row--3,
+  .ac-stat-row--2 {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 768px) {
+  .ac-stat-row,
+  .ac-stat-row--4,
+  .ac-stat-row--3,
+  .ac-stat-row--2 {
+    grid-template-columns: 1fr;
+    max-width: none;
+  }
+}

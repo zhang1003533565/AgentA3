@@ -44,7 +44,7 @@
       </view>
 
       <!-- ========== 浮动按钮 ========== -->
-      <view class="floating-actions">
+      <view v-if="false" class="floating-actions top-actions">
         <view
           class="float-btn complete-btn"
           :class="{ active: chapterData.chapter.completed }"
@@ -63,7 +63,7 @@
         <view
           class="float-btn fav-btn"
           :class="{ active: isFavorited }"
-          @tap="isFavorited = !isFavorited"
+          @tap="toggleFavorite"
         >
           <text class="float-icon">{{ isFavorited ? '❤️' : '🤍' }}</text>
           <text class="float-label">收藏</text>
@@ -104,7 +104,7 @@
             <view class="video-player" v-if="activeVideoId === videoMaterial.id">
               <video
                 :id="`video-${videoMaterial.id}`"
-                :src="videoMaterial.fileUrl"
+                :src="videoUrl"
                 :controls="true"
                 :autoplay="false"
                 :show-center-play-btn="true"
@@ -120,7 +120,8 @@
             <view v-else class="video-placeholder" @tap="playVideo(videoMaterial)">
               <view class="player-overlay">
                 <view class="play-btn">
-                  <text class="play-icon">▶</text>
+                  <text v-if="loadingVideoUrl" class="play-icon">⟳</text>
+                  <text v-else class="play-icon">▶</text>
                 </view>
               </view>
             </view>
@@ -214,6 +215,7 @@
               placeholder="记录你的学习笔记..."
               class="note-textarea"
             ></textarea>
+            <view class="note-save-btn" @tap="saveNote">保存笔记</view>
           </view>
         </view>
         <view class="content-card" v-if="savedNotes.length">
@@ -240,6 +242,13 @@
       </view>
 
       <!-- 底部安全距离 -->
+      <view class="floating-actions bottom-actions">
+        <view class="float-btn complete-btn" :class="{ active: chapterData.chapter.completed }" @tap="toggleComplete">
+          <text class="float-icon">{{ chapterData.chapter.completed ? '✓' : '○' }}</text>
+          <text>标记完成</text>
+        </view>
+        <view class="float-btn fav-btn" :class="{ active: isFavorited }" @tap="toggleFavorite"><text class="float-icon">{{ isFavorited ? '♥' : '♡' }}</text><text>收藏</text></view>
+      </view>
       <view class="safe-bottom"></view>
     </view>
   </view>
@@ -250,7 +259,7 @@ import NavBar from '@/components/nav-bar/nav-bar.vue'
 import SafeMarkdown from '@/components/safe-markdown/safe-markdown.vue'
 import {
   getChapterDetail, getCampusCourseDetail, updateCampusChapterProgress,
-  getChapterResources, getWordContent
+  getChapterResources, getWordContent, getMaterialUrl
 } from '@/api/campusCourse.js'
 
 const VIDEO_EXTS = new Set(['mp4', 'mov', 'avi', 'mkv', 'webm', 'flv', 'm3u8'])
@@ -269,9 +278,12 @@ export default {
       chapterId: '',
       chapterData: null,
       chapters: [],
+      courseCoverUrl: '',
       loading: false,
       errorMessage: '',
       activeVideoId: null,
+      videoUrl: '',
+      loadingVideoUrl: false,
       videoCtx: null,
       activeSection: 'content',
       isFavorited: false,
@@ -328,14 +340,27 @@ export default {
       return points
     },
     questions() {
-      return [
+      try {
+        const raw = (this.chapterData?.chapter?.qaJson || '').trim()
+        if (!raw) return []
+        const configured = JSON.parse(raw)
+        const list = Array.isArray(configured) ? configured : [configured]
+        return list.filter(item => item && item.question && item.answer)
+      } catch (e) {
+        const raw = (this.chapterData?.chapter?.qaJson || '').trim()
+        const match = raw.match(/问题\s*[:：]\s*(.+?)[\r\n]+答案\s*[:：]\s*(.+)/s)
+        if (match) return [{ id: 'configured-1', question: match[1].trim(), answer: match[2].trim() }]
+      }
+      return []
+      /* return [
         { id: 1, question: '如何高效完成本章学习？', answer: '建议先浏览知识点，再仔细阅读正文内容，结合实际案例加深理解。' }
-      ]
+      ] */
     }
   },
   onLoad(options) {
     this.courseId = options?.courseId || ''
     this.chapterId = options?.chapterId || ''
+    this.loadSavedNotes()
     this.loadChapter()
   },
   onUnload() {
@@ -345,12 +370,55 @@ export default {
     }
   },
   methods: {
+    loadFavoriteState() {
+      const favorites = uni.getStorageSync('chapter-favorites') || []
+      this.isFavorited = favorites.some(item => String(item.id) === String(this.chapterId))
+    },
+    toggleFavorite() {
+      const key = 'chapter-favorites'
+      const favorites = uni.getStorageSync(key) || []
+      const index = favorites.findIndex(item => String(item.id) === String(this.chapterId))
+      if (index >= 0) {
+        favorites.splice(index, 1)
+        this.isFavorited = false
+      } else {
+        favorites.unshift({
+          id: this.chapterId,
+          courseId: this.courseId,
+          coverUrl: this.courseCoverUrl,
+          chapterNumber: this.chapters.findIndex(item => String(item.id) === String(this.chapterId)) + 1,
+          name: this.chapterData?.chapter?.title || '未命名章节',
+          title: this.chapterData?.chapter?.title || '未命名章节',
+          courseName: this.chapterData?.course?.name || this.chapterData?.courseName || '课程内容',
+        })
+        this.isFavorited = true
+      }
+      uni.setStorageSync(key, favorites)
+      uni.showToast({ title: this.isFavorited ? '已收藏' : '已取消收藏', icon: 'none' })
+    },
+    loadSavedNotes() {
+      const key = `chapter-notes-${this.courseId}-${this.chapterId}`
+      this.savedNotes = uni.getStorageSync(key) || []
+    },
+    saveNote() {
+      const content = (this.noteContent || '').trim()
+      if (!content) {
+        uni.showToast({ title: '请输入笔记内容', icon: 'none' })
+        return
+      }
+      const notes = [{ id: Date.now(), content, time: new Date().toLocaleString() }, ...this.savedNotes]
+      this.savedNotes = notes
+      uni.setStorageSync(`chapter-notes-${this.courseId}-${this.chapterId}`, notes)
+      this.noteContent = ''
+      uni.showToast({ title: '笔记已保存', icon: 'success' })
+    },
     async loadChapter() {
       if (!this.courseId || !this.chapterId) {
         this.errorMessage = '缺少课程或章节编号'
         return
       }
       this.loading = true
+      this.loadFavoriteState()
       this.errorMessage = ''
       try {
         // 1. 先调用资源检查接口，获取 hasVideo/hasWordDocuments/hasAttachments
@@ -373,15 +441,8 @@ export default {
           getCampusCourseDetail(this.courseId)
         ])
         this.chapterData = chapterRes?.data || null
+        this.courseCoverUrl = courseRes?.data?.coverUrl || courseRes?.data?.displayImageUrl || ''
         this.chapters = courseRes?.data?.chapters || []
-
-        // 3. 如果有 Word 文件，初始化默认 Tab 并加载第一页
-        const wordList = this.chapterData?.wordMaterials || []
-        if (wordList.length > 0) {
-          const first = wordList[0]
-          this.activeWordTab = first.id
-          await this.loadWordPage(first.id, 1)
-        }
       } catch (error) {
         this.chapterData = null
         this.chapters = []
@@ -425,45 +486,71 @@ export default {
       this.loadWordPage(this.activeWordTab, info.currentPage + 1)
     },
 
-    playVideo(material) {
-      this.activeVideoId = material.id
-      this.$nextTick(() => {
-        try {
-          this.videoCtx = uni.createVideoContext(`video-${material.id}`, this)
-          this.videoCtx.play()
-        } catch (e) { /* noop */ }
-      })
+    async playVideo(material) {
+      if (this.loadingVideoUrl) return
+      this.loadingVideoUrl = true
+      try {
+        const res = await getMaterialUrl(this.courseId, this.chapterId, material.id)
+        this.videoUrl = res?.data?.fileUrl || ''
+        if (!this.videoUrl) {
+          uni.showToast({ title: '视频地址获取失败', icon: 'none' })
+          return
+        }
+        this.activeVideoId = material.id
+        this.$nextTick(() => {
+          try {
+            this.videoCtx = uni.createVideoContext(`video-${material.id}`, this)
+            this.videoCtx.play()
+          } catch (e) { /* noop */ }
+        })
+      } catch (error) {
+        uni.showToast({ title: error?.msg || error?.message || '视频加载失败', icon: 'none' })
+      } finally {
+        this.loadingVideoUrl = false
+      }
     },
     closeVideo() {
       if (this.videoCtx) { try { this.videoCtx.pause() } catch (e) { /* noop */ } }
       this.activeVideoId = null
+      this.videoUrl = ''
       this.videoCtx = null
     },
     onVideoPlay() {},
     onVideoPause() {},
     onVideoEnded() {},
 
-    openAttachment(material) {
-      const url = material.fileUrl
-      if (!url) return
-      if (IMAGE_EXTS.has((material.fileType || '').toLowerCase())) {
-        const urls = this.attachmentMaterials.filter(m => IMAGE_EXTS.has((m.fileType || '').toLowerCase())).map(m => m.fileUrl)
-        uni.previewImage({ urls, current: urls.indexOf(url) || 0 })
-        return
+    async openAttachment(material) {
+      uni.showLoading({ title: '获取资源...' })
+      try {
+        const res = await getMaterialUrl(this.courseId, this.chapterId, material.id)
+        const url = res?.data?.fileUrl || material.fileUrl // fallback 兼容旧版直接传 URL 的情况
+        uni.hideLoading()
+        if (!url) {
+          uni.showToast({ title: '资源地址获取失败', icon: 'none' })
+          return
+        }
+        if (IMAGE_EXTS.has((material.fileType || '').toLowerCase())) {
+          const urls = this.attachmentMaterials
+            .filter(m => IMAGE_EXTS.has((m.fileType || '').toLowerCase()))
+            .map(m => m.fileUrl || url) // 图片预览暂时仍需 URL
+          uni.previewImage({ urls: urls.length ? urls : [url], current: 0 })
+          return
+        }
+        uni.downloadFile({
+          url,
+          success: (dres) => {
+            if (dres.statusCode >= 200 && dres.statusCode < 300) {
+              uni.openDocument({ filePath: dres.tempFilePath, showMenu: true, fail: () => { uni.setClipboardData({ data: url }); uni.showToast({ title: '已复制链接', icon: 'none' }) } })
+            } else {
+              uni.setClipboardData({ data: url }); uni.showToast({ title: '已复制链接', icon: 'none' })
+            }
+          },
+          fail: () => { uni.setClipboardData({ data: url }); uni.showToast({ title: '已复制链接', icon: 'none' }) }
+        })
+      } catch (error) {
+        uni.hideLoading()
+        uni.showToast({ title: error?.msg || error?.message || '加载失败', icon: 'none' })
       }
-      uni.showLoading({ title: '打开中...' })
-      uni.downloadFile({
-        url,
-        success: (res) => {
-          uni.hideLoading()
-          if (res.statusCode >= 200 && res.statusCode < 300) {
-            uni.openDocument({ filePath: res.tempFilePath, showMenu: true, fail: () => { uni.setClipboardData({ data: url }); uni.showToast({ title: '已复制链接', icon: 'none' }) } })
-          } else {
-            uni.setClipboardData({ data: url }); uni.showToast({ title: '已复制链接', icon: 'none' })
-          }
-        },
-        fail: () => { uni.hideLoading(); uni.setClipboardData({ data: url }); uni.showToast({ title: '已复制链接', icon: 'none' }) }
-      })
     },
 
     async toggleComplete() {
@@ -495,6 +582,7 @@ export default {
       this.closeVideo()
       this.activeSection = 'content'
       this.activeVideoId = null
+      this.videoUrl = ''
       this.wordContentMap = {}
       this.activeWordTab = null
       this.wordPageMap = {}
@@ -760,52 +848,66 @@ export default {
 
 /* ====== 浮动按钮 ====== */
 .floating-actions {
-  position: fixed;
-  right: 20rpx;
-  bottom: 100rpx;
+  position: static;
+  width: auto;
+  margin: 20rpx 24rpx;
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
+  justify-content: space-between;
   gap: 16rpx;
-  z-index: 99;
+}
+
+.top-actions {
+  display: none;
+}
+
+.bottom-actions {
+  margin-top: 24rpx;
+  margin-bottom: 20rpx;
+  padding: 0 20rpx;
+  box-sizing: border-box;
+  gap: 16rpx;
 }
 .float-btn {
   position: relative;
-  width: 72rpx;
-  height: 72rpx;
-  border-radius: 50%;
+  flex: 1;
+  height: 64rpx;
+  border-radius: 16rpx;
   background: #fff;
-  box-shadow: 0 6rpx 22rpx rgba(0,0,0,0.14);
+  border: 1px solid #e5eaf0;
+  box-shadow: none;
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: transform 0.15s;
+  color: #4a90d9;
+  font-size: 26rpx;
+  transition: background 0.15s, border-color 0.15s;
 }
-.float-btn:active { transform: scale(0.92); }
-.float-icon { font-size: 32rpx; color: #4a90d9; line-height: 1; }
+.float-btn:active { background: #f5f7fa; }
+.float-icon { font-size: 24rpx; color: #4a90d9; line-height: 1; margin-right: 6rpx; }
+.bottom-actions .float-icon { font-size: 24rpx; }
 .float-label {
-  position: absolute;
-  right: 84rpx;
-  top: 50%;
-  transform: translateY(-50%);
-  background: rgba(0,0,0,0.78);
-  color: #fff;
+  position: static;
+  transform: none;
+  background: transparent;
+  color: #4a90d9;
   font-size: 22rpx;
-  padding: 8rpx 18rpx;
+  padding: 0;
   border-radius: 20rpx;
   white-space: nowrap;
   pointer-events: none;
   opacity: 0;
 }
 .complete-btn.active {
-  background: linear-gradient(135deg, #4ade80, #22c55e);
-  box-shadow: 0 6rpx 22rpx rgba(34,197,94,0.4);
+  background: #edf4ff;
+  border-color: #86a9e2;
 }
-.complete-btn.active .float-icon { color: #fff; }
+.complete-btn.active .float-icon { color: #4a90d9; }
 .fav-btn.active {
-  background: linear-gradient(135deg, #ff6b9d, #ff4757);
-  box-shadow: 0 6rpx 22rpx rgba(255,71,87,0.4);
+  background: #edf4ff;
+  border-color: #86a9e2;
 }
-.fav-btn.active .float-icon { color: #fff; }
+.fav-btn.active .float-icon { color: #4a90d9; }
 
 /* ====== Tab 栏 ====== */
 .section-tabs {
@@ -926,6 +1028,16 @@ export default {
 /* 笔记 */
 .note-editor {
   padding: 0;
+}
+
+.note-save-btn {
+  margin-top: 16rpx;
+  padding: 16rpx 28rpx;
+  border-radius: 12rpx;
+  background: #4a90d9;
+  color: #fff;
+  text-align: center;
+  font-size: 26rpx;
 }
 .note-textarea {
   width: 100%;

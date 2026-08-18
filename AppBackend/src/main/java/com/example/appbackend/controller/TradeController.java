@@ -75,14 +75,16 @@ public class TradeController {
     }
 
     @GetMapping("/record/list")
-    @Operation(summary = "交易记录列表", description = "获取当前用户参与的交易记录")
+    @Operation(summary = "交易记录列表", description = "获取当前用户参与的交易记录，可通过role参数过滤买家/卖家身份")
     public Result<PageResponse<ChatDTO.TradeRecordVO>> getTradeList(
             @Parameter(description = "当前页码")
             @RequestParam(defaultValue = "1") Integer current,
             @Parameter(description = "每页条数")
             @RequestParam(defaultValue = "20") Integer size,
+            @Parameter(description = "角色筛选：buyer-作为买家，seller-作为卖家，不传-全部")
+            @RequestParam(required = false) String role,
             HttpServletRequest httpRequest) {
-        return Result.success(tradeService.getTradeList(getUserId(httpRequest), current, size));
+        return Result.success(tradeService.getTradeList(getUserId(httpRequest), current, size, role));
     }
 
     @GetMapping("/record/{id}")
@@ -91,5 +93,13 @@ public class TradeController {
             @PathVariable Long id,
             HttpServletRequest httpRequest) {
         return Result.success(tradeService.getTradeRecord(id, getUserId(httpRequest)));
+    }
+
+    @GetMapping("/record/by-item/{itemId}")
+    @Operation(summary = "按商品查询交易记录", description = "根据商品ID和当前用户查询交易记录")
+    public Result<ChatDTO.TradeRecordVO> getTradeRecordByItem(
+            @PathVariable Long itemId,
+            HttpServletRequest httpRequest) {
+        return Result.success(tradeService.getTradeRecordByItem(itemId, getUserId(httpRequest)));
     }
 }

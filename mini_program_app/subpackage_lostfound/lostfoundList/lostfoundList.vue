@@ -40,7 +40,10 @@
             @refresherrefresh="refreshPage"
           >
             <view class="product-grid">
-              <view v-if="filteredItems.length === 0" class="empty-block">
+              <view v-if="pageLoading && filteredItems.length === 0" class="empty-block">
+                <text class="empty-title">加载中…</text>
+              </view>
+              <view v-else-if="filteredItems.length === 0" class="empty-block">
                 <view class="empty-icon"></view>
                 <text class="empty-title">暂无商品</text>
                 <text class="empty-sub">发布第一个闲置吧</text>
@@ -442,7 +445,7 @@ import AiFloatAssistant from '@/components/ai-float-assistant/ai-float-assistant
 import CommonPageHeader from '@/components/common-page-header/common-page-header.vue'
 import MarketBottomBar from '@/components/market-bottom-bar/market-bottom-bar.vue'
 import { getSecondhandItemList } from '@/api/secondhand'
-import { createDefaultMarketFilter, filterMarketItems } from '@/subpackage_lostfound/utils/marketFilter.js'
+import { createDefaultMarketFilter, filterMarketItems, buildItemListParams } from '@/subpackage_lostfound/utils/marketFilter.js'
 import { formatLocationText } from '@/subpackage_lostfound/utils/campusLocation.js'
 import { createMarketCategoryOptions, getMarketCategoryChildren, getMarketCategoryLabel } from '@/subpackage_lostfound/utils/marketCategories.js'
 
@@ -671,6 +674,10 @@ export default {
       const f = this.activeFilterForm
       return this.currentCat !== 'all' || Boolean(f.categoryLevel2Id) || f.priceRange !== 'all' || f.publishTime !== 'all' || f.condition !== 'all' || f.location !== 'all' || Object.keys(f.attributes || {}).length > 0
     },
+    backendQueryKey() {
+      const f = this.activeFilterForm
+      return [this.currentCat, this.sortBy, this.searchKeyword, f.priceRange, f.condition].join('|')
+    },
     searchTransitionStyle() {
       const rect = this.searchTransitionRect
       if (!rect.width || !rect.height) return {}
@@ -783,6 +790,9 @@ export default {
     }
   },
   watch: {
+    backendQueryKey() {
+      this.loadItems({ clear: true })
+    },
     searchKeyword(newVal) {
       if (this.currentSceneTag) {
         const tag = this.sceneTags.find(t => t.key === this.currentSceneTag)
@@ -826,12 +836,15 @@ export default {
       }
     }
   },
+  created() {
+    this._loadSeq = 0
+  },
   async onLoad() {
+    await this.loadItems()
   },
   async onShow() {
     this.searchTransitioning = false
     this.searchTransitionNavigating = false
-    await this.loadItems()
   },
   methods: {
     itemEmoji(id) {
@@ -891,17 +904,28 @@ export default {
         }
       })
     },
-    async loadItems() {
+    async loadItems({ clear = false } = {}) {
+      this.pageLoading = true
+      if (clear) this.items = []
+      const seq = ++this._loadSeq
       try {
-        this.pageLoading = true
-        const res = await getSecondhandItemList({ current: 1, size: 100, sort: 'latest' })
+        const params = buildItemListParams({
+          categoryLevel1Id: this.currentCat,
+          keyword: this.searchKeyword,
+          priceRange: this.activeFilterForm.priceRange,
+          condition: this.activeFilterForm.condition,
+          sort: this.sortBy
+        })
+        const res = await getSecondhandItemList(params)
+        if (seq !== this._loadSeq) return
         const records = Array.isArray(res?.data?.records) ? res.data.records : []
         this.items = records.map(normalizeItem)
       } catch (error) {
         console.error('加载集市列表失败', error)
+        if (seq !== this._loadSeq) return
         this.items = []
       } finally {
-        this.pageLoading = false
+        if (seq === this._loadSeq) this.pageLoading = false
       }
     },
     async refreshPage() {

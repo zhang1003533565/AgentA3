@@ -1,7 +1,17 @@
 <template>
   <view class="page">
     <!-- 顶部（共用 nav-bar） -->
-    <nav-bar :title="navTitle" :subtitle="navSubtitle" :showBack="true" :border="false" />
+    <nav-bar :subtitle="navSubtitle" :showBack="true" :border="false">
+      <template #center>
+        <view class="mindmap-nav-title-wrap">
+          <view class="mindmap-nav-title-row">
+            <text v-if="isCompleted" class="mindmap-nav-done">✓</text>
+            <text v-else class="mindmap-nav-spark">✦</text>
+            <text class="mindmap-nav-title">{{ isCompleted ? '思维导图生成完成' : 'AI正在生成思维导图' }}</text>
+          </view>
+        </view>
+      </template>
+    </nav-bar>
 
     <!-- 画布 -->
     <view v-if="pageState !== 'error'" class="canvas-area" id="canvasArea">
@@ -45,7 +55,6 @@
         </view>
       </view>
       <view class="wait-ring" :class="{ hidden: !showRing }"><i></i><i></i><b></b></view>
-      <view v-if="!isCompleted" class="skip-btn" @tap="skipAnimation">跳过动画 →</view>
     </view>
 
     <!-- 步骤点 -->
@@ -97,11 +106,18 @@ import NavBar from '@/components/nav-bar/nav-bar.vue'
 import { buildMindmapPayload, generateMindmap as requestGenerateMindmap, getMindmapDetail } from '@/api/aiDiagram.js'
 
 const CW = 560, CH = 640, CX = 280, CY = 320
-const BR_X = 140, CH_X = 95
+const BR_X = 140, CH_X = 116
 const BRANCH_COLORS = ['#4D6BFE', '#E05555', '#2DB88A', '#F0A030', '#9B59B6', '#6366F1', '#EC4899', '#14B8A6']
 
 const topicText = ref('')
 const centerTopic = ref('')
+const centerTopicMode = ref('AUTO')
+const depth = ref('auto')
+const structure = ref('知识梳理')
+const detail = ref('standard')
+const sourceText = ref('')
+const sourceFile = ref('')
+const fileId = ref('')
 const resultId = ref('')
 const state = reactive({ resultData: null })
 const isCompleted = ref(false)
@@ -129,7 +145,7 @@ const progressPct = ref(0)
 
 const navTitle = computed(() => {
   if (pageState.value === 'error') return '生成失败'
-  return isCompleted.value ? '思维导图生成完成' : 'AI正在生成思维导图'
+  return isCompleted.value ? '思维导图生成完成' : '✦ AI正在生成思维导图'
 })
 
 const stageStyle = computed(() => ({
@@ -150,6 +166,81 @@ function stepState(i) {
   if (i < stepIndex.value) return 'done'
   if (i === stepIndex.value) return 'active'
   return 'pending'
+}
+
+function setStatus(message) {
+  floatMsg.value = message
+  navSubtitle.value = message
+}
+
+function normalizeStructureMode(value = '') {
+  const text = String(value || '').toLowerCase()
+  if (text.includes('course') || text.includes('课程')) return 'COURSE'
+  if (text.includes('review') || text.includes('exam') || text.includes('复习')) return 'REVIEW'
+  if (text.includes('project') || text.includes('task') || text.includes('项目')) return 'PROJECT'
+  if (text.includes('knowledge') || text.includes('知识')) return 'KNOWLEDGE'
+  if (text.includes('auto') || text.includes('自动')) return 'AUTO'
+  return 'KNOWLEDGE'
+}
+
+function normalizeDetailMode(value = '') {
+  const text = String(value || '').toLowerCase()
+  if (text.includes('simple') || text.includes('简洁')) return 'SIMPLE'
+  if (text.includes('detail') || text.includes('详细') || text.includes('完整')) return 'DETAILED'
+  return 'STANDARD'
+}
+
+function structureProfile() {
+  const data = state.resultData || {}
+  const requested = normalizeStructureMode(data.requestedStructure || structure.value)
+  const resolved = normalizeStructureMode(data.resolvedStructure || (requested === 'AUTO' ? '' : requested))
+  const profiles = {
+    KNOWLEDGE: {
+      label: '知识梳理',
+      branch: '正在整理知识分类…',
+      child: '正在建立概念层级…',
+      optimize: '正在合并重复信息…',
+      layout: '正在优化知识结构…'
+    },
+    COURSE: {
+      label: '课程体系',
+      branch: '正在整理学习内容…',
+      child: '正在划分基础与进阶模块…',
+      optimize: '正在建立课程层级…',
+      layout: '正在优化课程结构…'
+    },
+    REVIEW: {
+      label: '复习提纲',
+      branch: '正在压缩冗余内容…',
+      child: '正在整理重点概念…',
+      optimize: '正在建立复习层级…',
+      layout: '正在优化复习提纲…'
+    },
+    PROJECT: {
+      label: '项目拆解',
+      branch: '正在拆分功能模块…',
+      child: '正在整理任务结构…',
+      optimize: '正在建立项目层级…',
+      layout: '正在优化项目拆解…'
+    }
+  }
+  return profiles[resolved] || profiles.KNOWLEDGE
+}
+
+function detailIntroMessage() {
+  const data = state.resultData || {}
+  const mode = normalizeDetailMode(data.detailLevel || detail.value)
+  if (mode === 'SIMPLE') return '正在提取核心内容并合并次要信息…'
+  if (mode === 'DETAILED') return '正在识别更多重要子概念…'
+  return '正在平衡信息完整性与阅读体验…'
+}
+
+function animationLimits() {
+  const data = state.resultData || {}
+  const mode = normalizeDetailMode(data.detailLevel || detail.value)
+  if (mode === 'SIMPLE') return { branch: 4, child: 3 }
+  if (mode === 'DETAILED') return { branch: 8, child: 5 }
+  return { branch: 6, child: 4 }
 }
 
 // 视图适配
@@ -184,16 +275,17 @@ function clampScale(v) { return Math.max(0.3, Math.min(2, v)) }
 // 布局
 function computeLayout(branches) {
   const branchPos = [], childPos = []
+  const limits = animationLimits()
   const right = [], left = []
   branches.forEach((b, i) => (i % 2 === 0 ? right : left).push(i))
   const place = (idxs, side) => {
-    const n = idxs.length
-    const span = 175
-    const startY = CY - span * (n - 1) / 2
-    idxs.forEach((bi, k) => {
-      const bx = CX + side * BR_X, by = startY + k * span
-      branchPos[bi] = { x: bx, y: by, side }
-      const kids = (branches[bi].children || []).slice(0, 4)
+      const n = idxs.length
+      const span = 175
+      const startY = CY - span * (n - 1) / 2
+      idxs.forEach((bi, k) => {
+        const bx = CX + side * BR_X, by = startY + k * span
+        branchPos[bi] = { x: bx, y: by, side }
+      const kids = (branches[bi].children || []).slice(0, limits.child)
       const h = 28, gap = 11
       const totalH = h * kids.length + gap * (kids.length - 1)
       let y0 = by - totalH / 2
@@ -218,7 +310,8 @@ let runToken = null
 const alive = () => runToken && !runToken.cancelled
 
 function totalNodes() {
-  return 1 + realBranches.value.length + realBranches.value.reduce((s, b) => s + Math.min(4, (b.children || []).length), 0)
+  const limits = animationLimits()
+  return 1 + realBranches.value.length + realBranches.value.reduce((s, b) => s + Math.min(limits.child, (b.children || []).length), 0)
 }
 function pushNode(kind, label, color, x, y, fx, fy) {
   revealedNodes.value.push({ key: kind + '-' + revealedNodes.value.length, kind, label, color, x, y, fx, fy })
@@ -235,16 +328,24 @@ async function play() {
   revealedCount.value = 0; progressPct.value = 0
   sweepOn.value = false; settleOn.value = false; smooth.value = false
   showRing.value = true; stepIndex.value = 0
-  floatMsg.value = '正在理解您的主题内容…'; navSubtitle.value = '正在理解您的主题内容…'
+  const isAutoStructure = normalizeStructureMode(structure.value) === 'AUTO'
+  setStatus(isAutoStructure ? '正在分析内容结构…' : '正在理解您的主题内容…')
   measureArea()
   applyView(growthScale(), true)
 
   // 阶段0 等待
   progressPct.value = 20
-  await sleep(1000); if (!alive()) return
-  floatMsg.value = '正在提取核心知识点…'; navSubtitle.value = '正在提取核心知识点…'
+  await sleep(650); if (!alive()) return
+  setStatus(isAutoStructure ? '正在判断最合适的组织方式…' : '正在提取核心知识点…')
   progressPct.value = 28
   await waitForAIData(8000)
+  const profile = structureProfile()
+  if (isAutoStructure) {
+    setStatus(`识别为：${profile.label}`)
+    await sleep(360); if (!alive()) return
+  }
+  setStatus(detailIntroMessage())
+  await sleep(320); if (!alive()) return
   limitBranches()
   Object.assign(bounds, computeBounds())
   applyView(growthScale(), true)
@@ -258,7 +359,7 @@ async function play() {
 
   // 阶段1 分支
   stepIndex.value = 1
-  floatMsg.value = '正在构建知识层级结构…'; navSubtitle.value = '正在构建知识层级结构…'
+  setStatus(profile.branch)
   const layout = computeLayout(realBranches.value)
   for (let i = 0; i < realBranches.value.length; i++) {
     if (!alive()) return
@@ -272,6 +373,7 @@ async function play() {
 
   // 阶段2 子节点
   stepIndex.value = 2
+  setStatus(profile.child)
   for (const c of layout.childPos) {
     if (!alive()) return
     const parent = layout.branchPos[c.bi]
@@ -284,7 +386,7 @@ async function play() {
 
   // 阶段3 优化（高光扫线 + 波浪落定）
   stepIndex.value = 3
-  floatMsg.value = '正在优化节点关系…'; navSubtitle.value = '正在优化节点关系…'
+  setStatus(profile.optimize)
   progressPct.value = 93
   sweepOn.value = true
   await sleep(820); if (!alive()) return
@@ -295,7 +397,7 @@ async function play() {
 
   // 阶段4 布局（平滑适配）
   stepIndex.value = 4
-  floatMsg.value = '正在生成可视化布局…'; navSubtitle.value = '正在生成可视化布局…'
+  setStatus(profile.layout)
   progressPct.value = 97
   smooth.value = true
   applyView(fitScale(), true)
@@ -305,7 +407,8 @@ async function play() {
 }
 
 function limitBranches() {
-  realBranches.value = realBranches.value.slice(0, 6).map(b => ({ name: b.name, children: (b.children || []).slice(0, 4) }))
+  const limits = animationLimits()
+  realBranches.value = realBranches.value.slice(0, limits.branch).map(b => ({ name: b.name, children: (b.children || []).slice(0, limits.child) }))
 }
 
 function goComplete() {
@@ -381,7 +484,7 @@ async function run() {
   revealedCount.value = 0; progressPct.value = 0
   sweepOn.value = false; settleOn.value = false; smooth.value = false
   showRing.value = true; stepIndex.value = 0
-  floatMsg.value = '正在理解您的主题内容…'; navSubtitle.value = '正在理解您的主题内容…'
+  setStatus(normalizeStructureMode(structure.value) === 'AUTO' ? '正在分析内容结构…' : '正在理解您的主题内容…')
   try {
     if (resultId.value) {
       let cached = uni.getStorageSync(`aiMindmapResult:${resultId.value}`)
@@ -391,9 +494,19 @@ async function run() {
       play()
       return
     }
-    const payload = buildMindmapPayload({ topic: topicText.value || centerTopic.value, centerTopic: centerTopic.value })
-    // 先取数据再播放（与 demo 一致：数据就绪才播），并加超时防止请求挂起导致无限等待
-    const result = await withTimeout(requestGenerateMindmap(payload), 20000)
+    const payload = buildMindmapPayload({
+      topic: topicText.value || centerTopic.value,
+      centerTopic: centerTopic.value,
+      centerTopicMode: centerTopicMode.value,
+      depth: depth.value,
+      structure: structure.value,
+      detail: detail.value,
+      sourceText: sourceText.value,
+      sourceFile: sourceFile.value,
+      fileId: fileId.value
+    })
+    // 先取数据再播放；超时统一由 API 层的 120 秒配置控制
+    const result = await requestGenerateMindmap(payload)
     uni.setStorageSync(`aiMindmapResult:${result.id}`, result)
     state.resultData = result
     handleAIData(result)
@@ -414,7 +527,14 @@ function goBack() { clearTimers(); uni.navigateBack() }
 
 onLoad(options => {
   topicText.value = decodeURIComponent(options?.topic || '')
-  centerTopic.value = decodeURIComponent(options?.centerTopic || options?.topic || '')
+  centerTopic.value = decodeURIComponent(options?.centerTopic || '')
+  centerTopicMode.value = decodeURIComponent(options?.centerTopicMode || 'AUTO')
+  depth.value = decodeURIComponent(options?.depth || 'auto')
+  structure.value = decodeURIComponent(options?.structure || '知识梳理')
+  detail.value = decodeURIComponent(options?.detail || 'standard')
+  sourceText.value = decodeURIComponent(options?.sourceText || '')
+  sourceFile.value = decodeURIComponent(options?.sourceFile || '')
+  fileId.value = decodeURIComponent(options?.fileId || '')
   resultId.value = decodeURIComponent(options?.id || '')
   run()
 })
@@ -489,4 +609,37 @@ onUnload(() => clearTimers())
 .error-btn { flex: 1; padding: 26rpx; border-radius: 24rpx; display: flex; align-items: center; justify-content: center; font-size: 28rpx; font-weight: 600; }
 .error-btn--sec { background: #fff; border: 2rpx solid #e2e8ef; }
 .error-btn--pri { background: #7C5FE0; color: #fff; }
+/* 与创作页保持同一套画布、卡片和紫色状态语言 */
+.page { background: #F6F7FB; }
+.timeline-scroll { padding-left: 28rpx; padding-right: 28rpx; }
+.timeline-card { border: 1rpx solid #E8EAF0; border-radius: 24rpx; box-shadow: 0 8rpx 24rpx rgba(24, 32, 51, 0.04); }
+.timeline-row--highlight .timeline-card { border-color: #9B83E8; box-shadow: 0 8rpx 26rpx rgba(124, 95, 224, 0.14); animation: none; }
+.rail-dot--active { background: #7653D6; box-shadow: 0 0 0 6rpx rgba(118, 83, 214, 0.14); animation: none; }
+.card-icon-box--active, .card-icon-box--done, .status-avatar-core { background: #7653D6; box-shadow: none; }
+.status-card { padding-left: 28rpx; padding-right: 28rpx; }
+.status-card-inner { border: 1rpx solid #E8EAF0; border-radius: 24rpx; box-shadow: 0 8rpx 24rpx rgba(24, 32, 51, 0.06); }
+.page { background: #F6F7FB; }
+.canvas-area { background: #F6F7FB; }
+.bottom-step-dot--done, .bottom-step-dot--active, .status-float-dot { background: #123E6D; }
+.status-float { padding: 0 24rpx calc(20rpx + env(safe-area-inset-bottom)); }
+.status-float-inner { border: 1rpx solid #E6E8F1; border-radius: 22rpx; box-shadow: 0 10rpx 28rpx rgba(20, 28, 48, 0.06); }
+.status-float-label, .status-float-pct { color: #123E6D; }
+.status-float-bar { background: #EEF4FC; }
+.status-float-bar-fill { background: #123E6D; }
+.done-btns { gap: 14rpx; padding: 12rpx 24rpx calc(18rpx + env(safe-area-inset-bottom)); background: #FFFFFF; border-top: 1rpx solid #E6E8F1; }
+.done-btn { min-height: 72rpx; padding: 0 10rpx; border-radius: 18rpx; font-size: 24rpx; font-weight: 700; white-space: nowrap; }
+.done-btn text { white-space: nowrap; }
+.done-btn--sec { color: #203452; border-color: #D9E2EE; background: #FFFFFF; }
+.done-btn--pri { background: #123E6D; box-shadow: 0 8rpx 20rpx rgba(18, 62, 109, 0.18); }
+.wait-ring b { background: #123E6D; }
+.wait-ring i { border-color: rgba(18, 62, 109, 0.38); }
+.done-btns { gap: 20rpx; padding: 0 24rpx 32rpx; background: #FFFFFF; }
+.done-btn { height: 88rpx; padding: 0 26rpx; border-radius: 24rpx; box-sizing: border-box; font-size: 28rpx; font-weight: 600; }
+.done-btn--sec { background: #FFFFFF; color: #1A1A2E; border: 2rpx solid #D9E2EE; }
+.done-btn--pri { background: #294574; color: #FFFFFF; border: 0; box-shadow: 0 8rpx 20rpx rgba(18, 62, 109, 0.18); }
+.mindmap-nav-title-wrap { display: flex; align-items: center; justify-content: center; width: 100%; }
+.mindmap-nav-title-row { display: flex; align-items: center; justify-content: center; gap: 8rpx; }
+.mindmap-nav-title { color: #17466F; font-size: 32rpx; line-height: 1.2; font-weight: 700; white-space: nowrap; }
+.mindmap-nav-spark { color: #4D6BFE; font-size: 28rpx; line-height: 1; }
+.mindmap-nav-done { color: #34C759; font-size: 30rpx; line-height: 1; font-weight: 700; }
 </style>

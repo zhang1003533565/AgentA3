@@ -13,6 +13,7 @@ from app.api.routes.videos import router as videos_router
 from app.ppt_generation import router as ppt_generation_router
 from app.rag.document_conversion import EXPORT_ROOT
 from app.security.internal_auth import get_configured_internal_token
+from app.observability.langfuse import flush as flush_langfuse
 from app.services.memory_store import memory_store
 from app.utils.logger import init_logging
 
@@ -28,6 +29,11 @@ app.include_router(rag_router)
 app.include_router(rag_export_router)
 app.include_router(videos_router)
 app.include_router(ppt_generation_router)
+
+
+@app.on_event("shutdown")
+def flush_observability() -> None:
+    flush_langfuse()
 
 
 def _is_export_capability_route(method: str, path: str, raw_path: bytes = b"") -> bool:

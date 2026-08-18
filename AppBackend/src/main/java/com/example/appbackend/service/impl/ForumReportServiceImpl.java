@@ -66,14 +66,15 @@ public class ForumReportServiceImpl implements ForumReportService {
 
     @Override
     @Transactional(readOnly = true)
-    public PageResponse<ForumReportResponse> getReports(Integer page, Integer size, Integer status, Integer targetType) {
+    public PageResponse<ForumReportResponse> getReports(Integer page, Integer size, Integer status, Integer targetType, String keyword) {
         validateStatus(status);
         validateTargetType(targetType);
 
         int safePage = page == null || page < 1 ? 1 : page;
         int safeSize = size == null || size < 1 ? 10 : size;
+        String safeKeyword = (keyword == null || keyword.isBlank()) ? null : keyword.trim();
         PageRequest pageRequest = PageRequest.of(safePage - 1, safeSize, Sort.by(Sort.Direction.DESC, "createTime"));
-        Page<ForumReport> reportPage = reportRepository.findReports(status, targetType, pageRequest);
+        Page<ForumReport> reportPage = reportRepository.findReports(status, targetType, safeKeyword, pageRequest);
         List<ForumReportResponse> records = reportPage.getContent().stream()
                 .map(this::toResponse)
                 .collect(Collectors.toList());
@@ -139,6 +140,24 @@ public class ForumReportServiceImpl implements ForumReportService {
     }
 
     @Override
+    public ForumReportResponse reopenReport(Long id, Long operatorId) {
+        ForumReport report = reportRepository.findById(id)
+                .orElseThrow(() -> new BusinessException(404, "举报记录不存在"));
+        if (report.getStatus() == null || report.getStatus() == STATUS_PENDING) {
+            throw new BusinessException(400, "待处理举报无需恢复");
+        }
+        report.setStatus(STATUS_PENDING);
+        report.setHandleAction(null);
+        report.setHandleBy(null);
+        report.setHandleTime(null);
+        report.setHandleResult(null);
+        ForumReport saved = reportRepository.save(report);
+        saveAuditLog(saved, "REOPEN", operatorId, "恢复为待处理");
+        log.info("Forum report reopened. reportId={}, operatorId={}", saved.getId(), operatorId);
+        return toResponse(saved);
+    }
+
+    @Override
     @Transactional(readOnly = true)
     public ForumReportStatisticsResponse getStatistics() {
         return new ForumReportStatisticsResponse(
@@ -159,6 +178,16 @@ public class ForumReportServiceImpl implements ForumReportService {
         return auditLogRepository.findByReportIdOrderByCreateTimeDesc(reportId).stream()
                 .map(this::toAuditLogResponse)
                 .collect(Collectors.toList());
+    }
+
+    @Override
+    public void deleteReports(List<Long> ids) {
+        if (ids == null || ids.isEmpty()) {
+            return;
+        }
+        // 先删审计日志，再删举报记录（外键关联）
+        auditLogRepository.deleteByReportIds(ids);
+        reportRepository.deleteByIds(ids);
     }
 
     private void validateTargetAvailable(Integer targetType, Long targetId) {
@@ -291,6 +320,7 @@ public class ForumReportServiceImpl implements ForumReportService {
 
     private void fillPostTarget(ForumPost post, ForumReportResponse response) {
         response.setTargetTitle(post.getTitle());
+        response.setTargetContent(post.getContent());
         response.setTargetAuthorId(post.getUserId());
         response.setTargetAuthor(resolveUserName(post.getUserId()));
     }
@@ -298,6 +328,7 @@ public class ForumReportServiceImpl implements ForumReportService {
     private void fillCommentTarget(ForumComment comment, ForumReportResponse response) {
         String content = comment.getContent();
         response.setTargetTitle(content != null && content.length() > 50 ? content.substring(0, 50) + "..." : content);
+        response.setTargetContent(content);
         response.setTargetAuthorId(comment.getUserId());
         response.setTargetAuthor(resolveUserName(comment.getUserId()));
     }

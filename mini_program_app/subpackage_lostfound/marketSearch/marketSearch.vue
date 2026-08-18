@@ -160,7 +160,7 @@
 import CommonPageHeader from '@/components/common-page-header/common-page-header.vue'
 import MarketProductGrid from '@/components/market-product-grid/market-product-grid.vue'
 import { getSecondhandItemList } from '@/api/secondhand'
-import { createDefaultMarketFilter, filterMarketItems } from '@/subpackage_lostfound/utils/marketFilter.js'
+import { createDefaultMarketFilter, filterMarketItems, buildItemListParams } from '@/subpackage_lostfound/utils/marketFilter.js'
 import { MARKET_CATEGORIES } from '@/subpackage_lostfound/utils/marketCategories.js'
 import { normalizeSecondhandItem } from '@/subpackage_lostfound/utils/secondhandItem.js'
 
@@ -239,6 +239,9 @@ export default {
     categoryLevel2Options() {
       const current = this.categories.find((item) => item.id === this.selectedCategoryLevel1Id)
       return current?.children?.length ? [{ id: '', name: '全部' }, ...current.children] : []
+    },
+    backendQueryKey() {
+      return [this.activeKeyword, this.selectedCategoryLevel1Id, this.selectedPriceRange].join('|')
     }
   },
   onLoad(options = {}) {
@@ -246,10 +249,17 @@ export default {
     this.fromRoute = this.safeDecode(options.fromRoute)
     this.searchPlaceholder = this.safeDecode(options.placeholder) || '搜索'
     this.loadHistory()
-    this.loadItems()
     if (options.keyword) {
       this.keyword = decodeURIComponent(options.keyword)
       this.submitSearch()
+    }
+  },
+  created() {
+    this._loadSeq = 0
+  },
+  watch: {
+    backendQueryKey() {
+      if (this.hasSearched) this.loadItems({ clear: true })
     }
   },
   onBackPress() {
@@ -261,17 +271,27 @@ export default {
     return true
   },
   methods: {
-    async loadItems() {
+    async loadItems({ clear = false } = {}) {
       this.loading = true
+      if (clear) this.items = []
+      const seq = ++this._loadSeq
       try {
-        const res = await getSecondhandItemList({ current: 1, size: 100, sort: 'latest' })
+        const params = buildItemListParams({
+          keyword: this.activeKeyword,
+          categoryLevel1Id: this.selectedCategoryLevel1Id,
+          priceRange: this.selectedPriceRange,
+          sort: 'latest'
+        })
+        const res = await getSecondhandItemList(params)
+        if (seq !== this._loadSeq) return
         const records = Array.isArray(res?.data?.records) ? res.data.records : []
         this.items = records.map(normalizeSecondhandItem)
       } catch (error) {
         console.error('加载搜索商品失败', error)
+        if (seq !== this._loadSeq) return
         this.items = []
       } finally {
-        this.loading = false
+        if (seq === this._loadSeq) this.loading = false
       }
     },
     async refreshPage() {
@@ -279,8 +299,8 @@ export default {
       this.refreshing = true
       try {
         this.loadHistory()
-        await this.loadItems()
         if (this.hasSearched) {
+          await this.loadItems()
           this.categoryFilterExpanded = false
         }
         uni.showToast({ title: '已刷新', icon: 'none', duration: 900 })

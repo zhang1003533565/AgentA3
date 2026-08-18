@@ -19,6 +19,12 @@ public interface SecondhandItemRepository extends JpaRepository<SecondhandItem, 
 
     Page<SecondhandItem> findByUserIdAndStatus(Long userId, Integer status, Pageable pageable);
 
+    Page<SecondhandItem> findByUserIdAndStatusIn(Long userId, List<Integer> statuses, Pageable pageable);
+
+    Page<SecondhandItem> findByUserIdAndTradeType(Long userId, String tradeType, Pageable pageable);
+
+    Page<SecondhandItem> findByUserIdAndStatusAndTradeType(Long userId, Integer status, String tradeType, Pageable pageable);
+
     @Query("SELECT s FROM SecondhandItem s WHERE s.status = 2 " +
            "AND (:categoryId IS NULL OR s.categoryId = :categoryId) " +
            "AND (:keyword IS NULL OR s.title LIKE CONCAT('%', :keyword, '%')) " +

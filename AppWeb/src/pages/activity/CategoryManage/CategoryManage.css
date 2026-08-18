@@ -84,8 +84,8 @@
 }
 
 .status-tag.active {
-  background-color: #e6f7ff;
-  color: #1890ff;
+  background-color: #eff6ff;
+  color: #2563eb;
 }
 
 .status-tag.inactive {
@@ -99,5 +99,69 @@
     flex-direction: column;
     gap: 16px;
     align-items: stretch;
+  }
+}
+
+/* 状态统计卡片 */
+.activity-stats {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+}
+
+.activity-stats .stat-item {
+  appearance: none;
+  font: inherit;
+  text-align: left;
+  background: #fff;
+  border-radius: 8px;
+  padding: 12px 28px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  border: 1px solid #e2e8f0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 128px;
+  justify-content: center;
+}
+
+.activity-stats .stat-item:hover {
+  border-color: #1677ff;
+  box-shadow: 0 2px 8px rgba(22, 119, 255, 0.1);
+}
+
+.activity-stats .stat-item.active {
+  border-color: #1677ff;
+  background: #fff;
+  box-shadow: 0 0 0 1px rgba(22, 119, 255, 0.08);
+}
+
+.activity-stats .stat-item.active .stat-label,
+.activity-stats .stat-item.active .stat-number {
+  color: #1677ff;
+}
+
+.activity-stats .stat-number {
+  font-size: 16px;
+  font-weight: 700;
+  color: inherit;
+  line-height: 1;
+}
+
+.activity-stats .stat-label {
+  font-size: 16px;
+  color: inherit;
+}
+
+@media (max-width: 768px) {
+  .activity-stats {
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .activity-stats .stat-item {
+    justify-content: space-between;
   }
 }

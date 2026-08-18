@@ -1,1913 +1,1320 @@
 <template>
-
   <view class="forum-container">
-
     <view class="page-fixed-header">
-
       <nav-bar title="校园论坛" :showBack="true" />
-
       <!-- 顶部搜索栏 + 个人主页入口 -->
-
       <view class="search-bar">
-
         <view class="search-input">
-
           <text class="search-icon">🔍</text>
-
           <input 
-
             type="text" 
-
             v-model="searchKeyword" 
-
             placeholder="搜索帖子、话题..."
-
             @confirm="handleSearch"
-
           />
-
         </view>
-
         <view class="header-avatar-wrap" @click="goToUserProfile">
-
           <image class="header-avatar" :src="currentUserAvatar || '/static/logo.png'" mode="aspectFill" />
-
         </view>
-
+        <view class="bell-icon-wrap" @click="goToMessageList">
+          <image class="bell-icon" src="/static/icons/line/bell.svg" mode="aspectFit" />
+        </view>
       </view>
-
-
 
       <!-- 分类 Tab：与「校园活动」一致的样式 -->
-
       <view class="nav-secondary-wrap">
-
         <view class="category-container">
-
           <scroll-view class="category-scroll" scroll-x :show-scrollbar="false">
-
             <view class="category-list">
-
               <view
-
                 v-for="(item, index) in topics"
-
                 :key="index"
-
                 class="category-item"
-
                 :class="{ active: currentTopic === item.id }"
-
                 @click="selectTopic(item.id)"
-
               >
-
                 <text class="category-text">{{ item.name }}</text>
-
                 <view class="active-line" v-if="currentTopic === item.id"></view>
-
               </view>
-
             </view>
-
           </scroll-view>
-
         </view>
-
       </view>
-
     </view>
 
-
-
-    <!-- 帖子列表 -->
-
-    <scroll-view 
-
-      class="post-list" 
-
-      scroll-y 
-
-      @scrolltolower="loadMore"
-
-      refresher-enabled
-
-      :refresher-triggered="isRefreshing"
-
-      @refresherrefresh="onRefresh"
-
-    >
-
-      <!-- 全部：按时间排序显示所有帖子 -->
-
-      <view v-if="currentTopic === 0" class="all-posts">
-
-        <view 
-
-          v-for="(item, index) in sortedPosts" 
-
-          :key="index"
-
-          class="post-item"
-
-          @click="goToDetail(item.id)"
-
+    <!-- 帖子列表（swiper 多面板，支持左右滑动切换话题） -->
+    <swiper class="post-swiper" :current="currentTopicIndex" @change="onSwiperChange">
+      <swiper-item v-for="(topic, index) in topics" :key="topic.id" class="post-swiper-item">
+        <scroll-view 
+          class="post-list" 
+          scroll-y 
+          @scrolltolower="loadMore(topic.id)"
+          :refresher-enabled="currentTopicIndex === index"
+          :refresher-triggered="isRefreshing"
+          @refresherrefresh="onRefresh"
         >
-
-          <!-- 用户信息 -->
-
-          <view class="post-header">
-
-            <image class="user-avatar" :src="item.avatar || '/static/logo.png'" mode="aspectFill" @click.stop="goToUserProfile(item)" />
-
-            <view class="user-info">
-
-              <text class="user-name">{{ item.userName }}</text>
-
-              <text class="post-time">{{ item.createTime }}</text>
-
+          <!-- 该话题的帖子列表 -->
+          <view 
+            v-for="(item, idx) in getTopicPosts(topic.id)" 
+            :key="idx"
+            class="post-item"
+            @click="goToDetail(item.id)"
+          >
+            <!-- 用户信息 -->
+            <view class="post-header">
+              <image class="user-avatar" :src="item.avatar || '/static/logo.png'" mode="aspectFill" @click.stop="goToUserProfile(item)" />
+              <view class="user-info">
+                <text class="user-name">{{ item.userName }}</text>
+                <text class="post-time">{{ item.createTime }}</text>
+              </view>
             </view>
 
+            <!-- 帖子内容 -->
+            <view class="post-content">
+              <text class="post-title" v-if="item.title">{{ item.title }}</text>
+              <text class="post-text">{{ item.content }}</text>
+              <view class="post-images" v-if="item.images && item.images.length">
+                <image 
+                  v-for="(img, imgIndex) in item.images.slice(0, 3)" 
+                  :key="imgIndex"
+                  class="post-image"
+                  :src="img"
+                  mode="aspectFill"
+                />
+              </view>
+            </view>
+
+            <!-- 互动数据 -->
+            <view class="post-footer">
+              <view class="action-item" @click.stop="toggleLike(item)">
+                <image
+                  class="action-icon-img"
+                  :src="item.isLiked ? '/static/icons/line/thumb-up-filled.svg' : '/static/icons/line/thumb-up.svg'"
+                  mode="aspectFit"
+                />
+                <text class="action-count">{{ item.likeCount || 0 }}</text>
+              </view>
+              <view class="action-item">
+                <text class="action-icon">💬</text>
+                <text class="action-count">{{ item.commentCount || 0 }}</text>
+              </view>
+              <view class="action-item view-count">
+                <text class="action-icon">👁️</text>
+                <text class="action-count">{{ item.viewCount || 0 }}</text>
+              </view>
+            </view>
           </view>
 
-
-
-          <!-- 帖子内容 -->
-
-          <view class="post-content">
-
-            <text class="post-title" v-if="item.title">{{ item.title }}</text>
-
-            <text class="post-text">{{ item.content }}</text>
-
-            <view class="post-images" v-if="item.images && item.images.length">
-
-              <image 
-
-                v-for="(img, imgIndex) in item.images.slice(0, 3)" 
-
-                :key="imgIndex"
-
-                class="post-image"
-
-                :src="img"
-
-                mode="aspectFill"
-
-              />
-
+          <!-- 加载更多 / 空状态 -->
+          <view class="load-more">
+            <view v-if="isTopicLoading(topic.id)" class="loading-indicator">
+              <view class="loading-spinner" />
+              <text>正在刷新...</text>
             </view>
-
+            <text v-else-if="isTopicNoMore(topic.id)">没有更多了</text>
+            <text v-else-if="!getTopicPosts(topic.id).length">暂无帖子，快来发布第一篇吧~</text>
           </view>
-
-
-
-          <!-- 互动数据 -->
-
-          <view class="post-footer">
-
-            <view class="action-item" @click.stop="toggleLike(item)">
-
-              <text class="action-icon">{{ item.isLiked ? '❤️' : '🤍' }}</text>
-
-              <text class="action-count">{{ item.likeCount || 0 }}</text>
-
-            </view>
-
-            <view class="action-item">
-
-              <text class="action-icon">💬</text>
-
-              <text class="action-count">{{ item.commentCount || 0 }}</text>
-
-            </view>
-
-            <view class="action-item view-count">
-
-              <text class="action-icon">👁️</text>
-
-              <text class="action-count">{{ item.viewCount || 0 }}</text>
-
-            </view>
-
-          </view>
-
-        </view>
-
-      </view>
-
-      
-
-      <!-- 选中具体分类时，显示该分类的所有帖子（也按时间排序） -->
-
-      <view v-else>
-
-        <view 
-
-          v-for="(item, index) in sortedPosts" 
-
-          :key="index"
-
-          class="post-item"
-
-          @click="goToDetail(item.id)"
-
-        >
-
-          <!-- 用户信息 -->
-
-          <view class="post-header">
-
-            <image class="user-avatar" :src="item.avatar || '/static/logo.png'" mode="aspectFill" @click.stop="goToUserProfile(item)" />
-
-            <view class="user-info">
-
-              <text class="user-name">{{ item.userName }}</text>
-
-              <text class="post-time">{{ item.createTime }}</text>
-
-            </view>
-
-          </view>
-
-
-
-          <!-- 帖子内容 -->
-
-          <view class="post-content">
-
-            <text class="post-title" v-if="item.title">{{ item.title }}</text>
-
-            <text class="post-text">{{ item.content }}</text>
-
-            <view class="post-images" v-if="item.images && item.images.length">
-
-              <image 
-
-                v-for="(img, imgIndex) in item.images.slice(0, 3)" 
-
-                :key="imgIndex"
-
-                class="post-image"
-
-                :src="img"
-
-                mode="aspectFill"
-
-              />
-
-            </view>
-
-          </view>
-
-
-
-          <!-- 互动数据 -->
-
-          <view class="post-footer">
-
-            <view class="action-item" @click.stop="toggleLike(item)">
-
-              <text class="action-icon">{{ item.isLiked ? '❤️' : '🤍' }}</text>
-
-              <text class="action-count">{{ item.likeCount || 0 }}</text>
-
-            </view>
-
-            <view class="action-item">
-
-              <text class="action-icon">💬</text>
-
-              <text class="action-count">{{ item.commentCount || 0 }}</text>
-
-            </view>
-
-            <view class="action-item view-count">
-
-              <text class="action-icon">👁️</text>
-
-              <text class="action-count">{{ item.viewCount || 0 }}</text>
-
-            </view>
-
-          </view>
-
-        </view>
-
-      </view>
-
-
-
-      <!-- 加载更多 -->
-
-      <view class="load-more">
-
-        <text v-if="loading">加载中...</text>
-
-        <text v-else-if="noMore">没有更多了</text>
-
-        <text v-else-if="postList.length === 0 && currentTopic !== 0">暂无帖子，快来发布第一篇吧~</text>
-
-      </view>
-
           <!-- 底部留白 -->
-
-      <view class="post-list-bottom-pad" />
-
-    </scroll-view>
-
-
+          <view class="post-list-bottom-pad" />
+        </scroll-view>
+      </swiper-item>
+    </swiper>
 
     <!-- 底部悬浮发帖按钮 -->
-
     <view class="fab-publish-btn" v-if="!showPublishModal" @click="openPublishModal">
-
       <text class="fab-publish-icon">+</text>
-
     </view>
-
-
 
     <!-- 发帖弹窗 -->
-
     <view class="publish-modal-mask" v-if="showPublishModal" @click="closePublishModal" @touchmove.stop.prevent>
-
       <view 
-
         class="publish-modal-content" 
-
         :class="{ 'publish-modal-show': publishModalAnimating }"
-
         @click.stop
-
       >
-
         <!-- 这里嵌入发帖页面的内容 -->
-
         <view class="modal-header">
-
           <view class="modal-close" @click="closePublishModal">
-
             <view class="close-chevron" />
-
           </view>
-
           <text class="modal-title">发帖</text>
-
-          <view class="modal-placeholder"></view>
-
+          <view class="modal-draft-entry" @click="openDraftPanel">
+            <text>草稿箱{{ draftList.length ? `(${draftList.length})` : '' }}</text>
+          </view>
         </view>
-
         
-
         <scroll-view class="modal-body" scroll-y>
-
           <post-editor :form="publishForm" :topics="publishTopics" />
-
         </scroll-view>
 
-
-
         <!-- 底部操作栏 -->
-
         <view class="modal-footer">
-
           <view class="draft-btn" @click="saveDraft">
-
             <text>存草稿</text>
-
           </view>
-
           <view class="publish-btn" :class="{ disabled: !canPublish }" @click="publishPost">
-
             <text>发布</text>
-
           </view>
-
         </view>
-
       </view>
-
     </view>
 
+    <!-- 草稿箱弹窗 -->
+    <view class="draft-modal-mask" v-if="showDraftPanel" @click="closeDraftPanel" @touchmove.stop.prevent>
+      <view class="draft-modal-content" @click.stop>
+        <view class="draft-modal-header">
+          <text class="draft-modal-title">草稿箱</text>
+          <view class="draft-modal-close" @click="closeDraftPanel">
+            <text>×</text>
+          </view>
+        </view>
+        <scroll-view class="draft-modal-body" scroll-y>
+          <view v-if="draftList.length" class="draft-list">
+            <view
+              v-for="item in draftList"
+              :key="item.id"
+              class="draft-item"
+              @click="restoreDraft(item)"
+            >
+              <view class="draft-item-info">
+                <text class="draft-item-title">{{ item.title || '无标题' }}</text>
+                <text class="draft-item-content">{{ item.content }}</text>
+                <view class="draft-item-meta">
+                  <text>{{ item.updateTime }}</text>
+                  <text v-if="item.images && item.images.length">{{ item.images.length }} 张图</text>
+                </view>
+              </view>
+              <view class="draft-item-delete" @click.stop="deleteDraft(item.id)">
+                <text>删除</text>
+              </view>
+            </view>
+          </view>
+          <view v-else class="draft-empty">
+            <text>暂无草稿</text>
+          </view>
+        </scroll-view>
+      </view>
+    </view>
     <ai-float-assistant />
-
   </view>
-
 </template>
 
-
-
 <script>
-
 import AiFloatAssistant from '@/components/ai-float-assistant/ai-float-assistant.vue'
-
 import NavBar from '@/components/nav-bar/nav-bar.vue'
-
 import PostEditor from '@/subpackage_forum/components/post-editor/post-editor.vue'
-
 import {
-
   getPostList,
-
+  getRecommendedPosts,
   getHotTopics,
-
   getTopicList,
-
   publishPost,
-
   parseImageList,
-
   togglePostLike
-
 } from '@/api/forum.js'
-
 import { getUserInfo } from '@/utils/storage.js'
 
-
-
 export default {
-
   components: { AiFloatAssistant, NavBar, PostEditor },
-
   data() {
-
     return {
-
       currentUserAvatar: '',
-
       currentUserId: '',
-
       currentUserName: '',
-
       currentTopic: 0,
-
       topics: [
-
         { id: 0, name: '全部' },
-
         { id: 1, name: '热门' },
-
         { id: 2, name: '最新' },
-
         { id: 3, name: '📢公告' },
-
         { id: 4, name: '💰集市' },
-
         { id: 5, name: '😊求助' },
-
         { id: 6, name: '🔑失物' },
-
         { id: 7, name: '💕表白' },
-
         { id: 8, name: '🍟美食' },
-
         { id: 9, name: '🤝搭子' },
-
         { id: 10, name: '📚学习资料' },
-
         { id: 11, name: '🌸影忆青春' }
-
       ],
-
-      postList: [],
-
+      currentTopic: 0,
+      currentTopicIndex: 0,
+      // 按话题分组的分页状态：topicId -> { list, page, pageSize, loading, noMore }
+      topicState: {},
       page: 1,
-
-      pageSize: 10,
-
+      pageSize: 4,
       loading: false,
-
       noMore: false,
-
       isRefreshing: false,
-
       // 发帖弹窗相关
-
       showPublishModal: false,
-
       publishModalAnimating: false,
-
       publishForm: {
-
         title: '',
-
         content: '',
-
         images: [],
-
         topicId: null,
-
         isAnonymous: false
-
       },
-
-      publishTopics: [
-        { id: 1, name: '公告', icon: '📢' },
-        { id: 2, name: '集市', icon: '🛒' },
-        { id: 3, name: '求助', icon: '😊' },
-        { id: 4, name: '失物', icon: '🔑' },
-        { id: 5, name: '表白', icon: '💕' },
-        { id: 6, name: '美食', icon: '🍟' },
-        { id: 7, name: '搭子', icon: '🤝' },
-        { id: 8, name: '学习资料', icon: '📚' },
-        { id: 9, name: '影忆青春', icon: '🌸' }
-      ],
-
+      publishTopics: [],
       hotTopics: [],
-
-      showHotTopics: true
-
+      showHotTopics: true,
+      // 草稿相关
+      showDraftPanel: false,
+      draftList: [],
+      DRAFT_KEY: 'forum_drafts'
     }
-
   },
-
   computed: {
-
-    // 按时间排序的帖子（时间晚的在上面）
-
-    sortedPosts() {
-
-      return [...this.postList].sort((a, b) => {
-
-        return new Date(b.createTime) - new Date(a.createTime)
-
-      })
-
-    },
-
     canPublish() {
-
       return this.publishForm.content.trim().length >= 10
-
     }
-
   },
-
   onBackPress() {
-
     if (!this.showPublishModal) return false
-
     this.closePublishModal()
-
     return true
-
   },
-
   async onLoad() {
-
     this.loadCurrentUser()
-
     await this.loadTopics()
-
     await this.loadHotTopicList()
-
-    this.loadPostList()
-
+    // 初始只加载当前话题（全部），其余面板懒加载
+    this.loadPostList(0)
   },
-
+  onShow() {
+    // 从帖子详情返回时静默刷新当前话题，保证删除/举报后的列表状态一致
+    const state = this.getTopicState(this.currentTopic)
+    if (state.list.length > 0 && !state.loading) {
+      state.page = 1
+      state.noMore = false
+      this.loadPostList(this.currentTopic)
+    }
+  },
   methods: {
-
     loadCurrentUser() {
-
       const userInfo = getUserInfo()
-
       const seed = userInfo?.username || 'forum-user'
-
       this.currentUserId = userInfo?.id || userInfo?.userId || ''
-
       this.currentUserName = userInfo?.username || userInfo?.realName || ''
-
       this.currentUserAvatar = userInfo?.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(seed)}`
-
+      // 草稿按用户隔离：key 带上当前用户 id，避免不同账号看到彼此的草稿
+      this.DRAFT_KEY = `forum_drafts_${this.currentUserId || 'anonymous'}`
     },
-
     async loadTopics() {
-
-      // 使用本地定义的静态分类，不从API获取
-
-      this.publishTopics = [
-        { id: 1, name: '公告', icon: '📢' },
-        { id: 2, name: '集市', icon: '🛒' },
-        { id: 3, name: '求助', icon: '😊' },
-        { id: 4, name: '失物', icon: '🔑' },
-        { id: 5, name: '表白', icon: '💕' },
-        { id: 6, name: '美食', icon: '🍟' },
-        { id: 7, name: '搭子', icon: '🤝' },
-        { id: 8, name: '学习资料', icon: '📚' },
-        { id: 9, name: '影忆青春', icon: '🌸' }
-      ]
-    },
-
-    async loadHotTopicList() {
-
+      // 从后端动态加载「启用中」的话题,后台禁用的板块不会出现在标题栏与发帖列表
       try {
-
-        const res = await getHotTopics({ limit: 8 })
-
-        this.hotTopics = (res?.data || []).map((item) => ({
-
+        const res = await getTopicList({ pageNum: 1, pageSize: 100, status: 'ACTIVE' })
+        const items = (res?.data?.records || []).map((item) => ({
           id: item.id,
-
-          name: item.topicName || '未命名话题',
-
-          heat: item.postCount || 0
-
+          name: item.topicName || '未命名话题'
         }))
-
+        this.topics = [{ id: 0, name: '全部' }, ...items]
+        // 发帖可选话题:排除「热门/最新」两个虚拟板块(id=1/2)
+        this.publishTopics = items.filter((t) => t.id !== 1 && t.id !== 2)
       } catch (error) {
-
+        // 接口失败时回退到静态分类,保证页面可用
+        this.publishTopics = [
+          { id: 3, name: '📢公告' },
+          { id: 4, name: '💰集市' },
+          { id: 5, name: '😊求助' },
+          { id: 6, name: '🔑失物' },
+          { id: 7, name: '💕表白' },
+          { id: 8, name: '🍟美食' },
+          { id: 9, name: '🤝搭子' },
+          { id: 10, name: '📚学习资料' },
+          { id: 11, name: '🌸影忆青春' }
+        ]
+        this.topics = [
+          { id: 0, name: '全部' },
+          { id: 1, name: '热门' },
+          { id: 2, name: '最新' },
+          ...this.publishTopics
+        ]
+      }
+    },
+    async loadHotTopicList() {
+      try {
+        const res = await getHotTopics({ limit: 8 })
+        this.hotTopics = (res?.data || []).map((item) => ({
+          id: item.id,
+          name: item.topicName || '未命名话题',
+          heat: item.postCount || 0
+        }))
+      } catch (error) {
         this.hotTopics = []
-
       }
-
     },
-
-    async loadPostList() {
-
-      if (this.loading || this.noMore) return
-
-      this.loading = true
-
-      try {
-
-        const params = {
-
-          pageNum: this.page,
-
-          pageSize: this.pageSize
-
+    // 获取指定话题的分页状态（懒初始化）
+    getTopicState(topicId) {
+      if (!this.topicState[topicId]) {
+        this.topicState[topicId] = {
+          list: [],
+          page: 1,
+          loading: false,
+          noMore: false,
+          loaded: false
         }
-
-        if (this.currentTopic !== 0) params.topicId = this.currentTopic
-
-        if (this.searchKeyword && this.searchKeyword.trim()) params.keyword = this.searchKeyword.trim()
-
-        const res = await getPostList(params)
-
-        const data = res?.data || {}
-
-        const posts = data.records || []
-
-        const formattedPosts = posts.map(this.formatPostItem)
-
-        this.postList = this.page === 1 ? formattedPosts : [...this.postList, ...formattedPosts]
-
-        const total = Number(data.total || 0)
-
-        this.noMore = this.postList.length >= total || formattedPosts.length < this.pageSize
-
-      } catch (error) {
-
-        if (this.page === 1) this.postList = []
-
-      } finally {
-
-        this.loading = false
-
-        this.isRefreshing = false
-
       }
-
+      return this.topicState[topicId]
     },
-
-    formatPostItem(post) {
-
-      return {
-
-        id: post.id,
-
-        userId: post.userId,
-
-        userName: post.username || '匿名用户',
-
-        avatar: post.avatar || '/static/logo.png',
-
-        title: post.title || '',
-
-        content: post.content || '',
-
-        images: parseImageList(post.images),
-
-        topicName: post.topicName || '',
-
-        topicId: post.topicId || 0,
-
-        likeCount: post.likeCount || 0,
-
-        commentCount: post.commentCount || 0,
-
-        viewCount: post.viewCount || 0,
-
-        isLiked: !!post.isLiked,
-
-        createTime: this.formatDateTime(post.createTime)
-
-      }
-
+    getTopicPosts(topicId) {
+      return this.getTopicState(topicId).list
     },
-
-    formatDateTime(value) {
-
-      if (!value) return '刚刚'
-
-      return String(value).replace('T', ' ').slice(0, 16)
-
+    isTopicLoading(topicId) {
+      return this.getTopicState(topicId).loading
     },
-
-    handleSearch() {
-
-      this.page = 1
-
-      this.noMore = false
-
-      this.loadPostList()
-
+    isTopicNoMore(topicId) {
+      return this.getTopicState(topicId).noMore
     },
-
-    selectTopic(topicId) {
-
-      this.currentTopic = topicId
-
-      this.page = 1
-
-      this.noMore = false
-
-      this.loadPostList()
-
-    },
-
-    loadMore() {
-
-      if (!this.loading && !this.noMore) {
-
-        this.page++
-
-        this.loadPostList()
-
-      }
-
-    },
-
-    onRefresh() {
-
-      this.isRefreshing = true
-
-      this.page = 1
-
-      this.noMore = false
-
-      this.loadHotTopicList()
-
-      this.loadPostList()
-
-    },
-
-    goToDetail(id) {
-
-      uni.navigateTo({
-
-        url: `/subpackage_forum/postDetail/postDetail?id=${id}`
-
-      })
-
-    },
-
-    goToUserProfile(item) {
-
-      const userId = item?.userId || item?.id || this.currentUserId
-
-      const userName = item?.userName || this.currentUserName || ''
-
-      const avatar = item?.avatar || this.currentUserAvatar || ''
-
-      uni.navigateTo({
-
-        url: `/subpackage_forum/userProfile/userProfile?id=${encodeURIComponent(userId)}&name=${encodeURIComponent(userName)}&avatar=${encodeURIComponent(avatar)}`
-
-      })
-
-    },
-
-    async toggleLike(item) {
-
+    async loadPostList(topicId) {
+      const state = this.getTopicState(topicId)
+      if (state.loading || state.noMore) return
+      state.loading = true
+      const startTime = Date.now()
       try {
-
-        const res = await togglePostLike(item.id)
-
-        item.isLiked = !!res?.data?.liked
-
-        item.likeCount = Number(res?.data?.likeCount ?? item.likeCount)
-
-      } catch (error) {}
-
+        const params = {
+          pageNum: state.page,
+          pageSize: this.pageSize
+        }
+        // id=1 热门 / id=2 最新 → 走系统自动收录标准接口
+        let res
+        if (topicId === 1) {
+          res = await getRecommendedPosts('hot', params)
+        } else if (topicId === 2) {
+          res = await getRecommendedPosts('latest', params)
+        } else {
+          if (topicId !== 0) params.topicId = topicId
+          if (this.searchKeyword && this.searchKeyword.trim()) params.keyword = this.searchKeyword.trim()
+          res = await getPostList(params)
+        }
+        // 保证加载提示至少可见一小段时间，避免一闪而过
+        const elapsed = Date.now() - startTime
+        if (elapsed < 600) {
+          await new Promise((resolve) => setTimeout(resolve, 600 - elapsed))
+        }
+        const data = res?.data || {}
+        const posts = data.records || []
+        const formattedPosts = posts.map(this.formatPostItem)
+        state.list = state.page === 1 ? formattedPosts : [...state.list, ...formattedPosts]
+        const total = Number(data.total || 0)
+        state.noMore = state.list.length >= total || formattedPosts.length < this.pageSize
+        state.loaded = true
+      } catch (error) {
+        if (state.page === 1) state.list = []
+      } finally {
+        state.loading = false
+        this.isRefreshing = false
+      }
     },
-
-    openPublishModal() {
-
-      if (this.showPublishModal) return
-
-      this.showPublishModal = true
-
-      this.$nextTick(() => {
-
-        setTimeout(() => {
-
-          if (this.showPublishModal) this.publishModalAnimating = true
-
-        }, 0)
-
+    formatPostItem(post) {
+      return {
+        id: post.id,
+        userId: post.userId,
+        userName: post.username || '匿名用户',
+        avatar: post.avatar || '/static/logo.png',
+        title: post.title || '',
+        content: post.content || '',
+        images: parseImageList(post.images),
+        topicName: post.topicName || '',
+        topicId: post.topicId || 0,
+        likeCount: post.likeCount || 0,
+        commentCount: post.commentCount || 0,
+        viewCount: post.viewCount || 0,
+        isLiked: !!post.isLiked,
+        createTime: this.formatDateTime(post.createTime)
+      }
+    },
+    formatDateTime(value) {
+      if (!value) return '刚刚'
+      return String(value).replace('T', ' ').slice(0, 16)
+    },
+    handleSearch() {
+      // 搜索时刷新所有话题面板
+      Object.keys(this.topicState).forEach((key) => {
+        const state = this.topicState[key]
+        state.page = 1
+        state.noMore = false
+        state.loaded = false
       })
-
+      const state = this.getTopicState(this.currentTopic)
+      state.list = []
+      this.loadPostList(this.currentTopic)
     },
-
+    // 点击 Tab：切换到对应话题并同步 swiper
+    selectTopic(topicId) {
+      const index = this.topics.findIndex((item) => item.id === topicId)
+      this.currentTopic = topicId
+      this.currentTopicIndex = index >= 0 ? index : 0
+      const state = this.getTopicState(topicId)
+      if (!state.loaded && !state.loading) {
+        this.loadPostList(topicId)
+      }
+    },
+    // swiper 滑动：同步 Tab 高亮，懒加载新面板
+    onSwiperChange(e) {
+      const index = e?.detail?.current
+      if (index === undefined || index === null) return
+      this.currentTopicIndex = index
+      const topic = this.topics[index]
+      if (!topic) return
+      this.currentTopic = topic.id
+      const state = this.getTopicState(topic.id)
+      if (!state.loaded && !state.loading) {
+        this.loadPostList(topic.id)
+      }
+    },
+    loadMore(topicId) {
+      const state = this.getTopicState(topicId)
+      if (!state.loading && !state.noMore) {
+        state.page++
+        this.loadPostList(topicId)
+      }
+    },
+    onRefresh() {
+      if (this.isRefreshing) return
+      this.isRefreshing = true
+      const state = this.getTopicState(this.currentTopic)
+      state.page = 1
+      state.noMore = false
+      state.loaded = false
+      this.loadHotTopicList()
+      this.loadPostList(this.currentTopic)
+    },
+    goToDetail(id) {
+      uni.navigateTo({
+        url: `/subpackage_forum/postDetail/postDetail?id=${id}`
+      })
+    },
+    goToMessageList() {
+      uni.navigateTo({
+        url: `/subpackage_message/messageList/messageList`
+      })
+    },
+    goToUserProfile(item) {
+      const userId = item?.userId || item?.id || this.currentUserId
+      const userName = item?.userName || this.currentUserName || ''
+      const avatar = item?.avatar || this.currentUserAvatar || ''
+      uni.navigateTo({
+        url: `/subpackage_forum/userProfile/userProfile?id=${encodeURIComponent(userId)}&name=${encodeURIComponent(userName)}&avatar=${encodeURIComponent(avatar)}`
+      })
+    },
+    async toggleLike(item) {
+      try {
+        const res = await togglePostLike(item.id)
+        item.isLiked = !!res?.data?.liked
+        item.likeCount = Number(res?.data?.likeCount ?? item.likeCount)
+      } catch (error) {}
+    },
+    openPublishModal() {
+      if (this.showPublishModal) return
+      this.showPublishModal = true
+      this.draftList = this.getDrafts()
+      this.$nextTick(() => {
+        setTimeout(() => {
+          if (this.showPublishModal) this.publishModalAnimating = true
+        }, 0)
+      })
+    },
     closePublishModal() {
-
       if (!this.showPublishModal) return
-
       this.publishModalAnimating = false
-
       setTimeout(() => {
-
         this.showPublishModal = false
-
       }, 250)
-
     },
-
     saveDraft() {
-
-      if (!this.publishForm.content.trim()) {
-
-        uni.showToast({ title: '请输入内容', icon: 'none' })
-
+      if (!this.publishForm.content.trim() && !this.publishForm.title.trim() && !this.publishForm.images.length) {
+        uni.showToast({ title: '内容为空，无需保存', icon: 'none' })
         return
-
       }
-
+      const drafts = this.getDrafts()
+      const draft = {
+        id: Date.now(),
+        title: this.publishForm.title || '',
+        content: this.publishForm.content || '',
+        images: [...(this.publishForm.images || [])],
+        topicId: this.publishForm.topicId || null,
+        updateTime: this.formatDateTime(new Date().toISOString())
+      }
+      drafts.unshift(draft)
+      uni.setStorageSync(this.DRAFT_KEY, drafts)
       uni.showToast({ title: '已保存草稿', icon: 'success' })
-
+      this.closePublishModal()
     },
-
-    async publishPost() {
-
-      if (!this.canPublish) {
-
-        uni.showToast({ title: '内容至少10个字', icon: 'none' })
-
-        return
-
+    getDrafts() {
+      try {
+        return uni.getStorageSync(this.DRAFT_KEY) || []
+      } catch (error) {
+        return []
       }
-
-
+    },
+    openDraftPanel() {
+      this.draftList = this.getDrafts()
+      this.showDraftPanel = true
+    },
+    closeDraftPanel() {
+      this.showDraftPanel = false
+    },
+    restoreDraft(draft) {
+      this.publishForm = {
+        title: draft.title || '',
+        content: draft.content || '',
+        images: [...(draft.images || [])],
+        topicId: draft.topicId || null,
+        isAnonymous: false
+      }
+      this.showDraftPanel = false
+      uni.showToast({ title: '已载入草稿', icon: 'none' })
+    },
+    deleteDraft(draftId) {
+      const drafts = this.getDrafts().filter((item) => item.id !== draftId)
+      uni.setStorageSync(this.DRAFT_KEY, drafts)
+      this.draftList = drafts
+      uni.showToast({ title: '已删除草稿', icon: 'none' })
+    },
+    removePublishedDraft(postData) {
+      const content = (postData?.content || '').trim()
+      const drafts = this.getDrafts().filter((item) => {
+        return (item.content || '').trim() !== content || (item.title || '') !== (postData?.title || '')
+      })
+      uni.setStorageSync(this.DRAFT_KEY, drafts)
+    },
+    async publishPost() {
+      if (!this.canPublish) {
+        uni.showToast({ title: '内容至少10个字', icon: 'none' })
+        return
+      }
 
       uni.showLoading({ title: '发布中...' })
-
       
-
       try {
-
         const postData = {
-
           title: this.publishForm.title,
-
           content: this.publishForm.content,
-
           images: this.publishForm.images,
-
           topicId: this.publishForm.topicId
-
         }
-
         await publishPost(postData)
-
         uni.hideLoading()
-
         uni.showToast({ title: '发布成功', icon: 'success' })
-
+        this.removePublishedDraft(postData)
         this.publishForm = {
-
           title: '',
-
           content: '',
-
           images: [],
-
           topicId: null,
-
           isAnonymous: false
-
         }
-
         setTimeout(() => {
-
           this.closePublishModal()
-
-          this.page = 1
-
-          this.noMore = false
-
+          // 刷新全部与发帖话题的面板
+          Object.keys(this.topicState).forEach((key) => {
+            const state = this.topicState[key]
+            state.page = 1
+            state.noMore = false
+            state.loaded = false
+            state.list = []
+          })
           this.loadHotTopicList()
-
-          this.loadPostList()
-
+          this.loadPostList(0)
+          this.loadPostList(this.currentTopic)
         }, 300)
-
       } catch (error) {
-
         uni.hideLoading()
-
       }
-
     },
-
     toggleHotTopics() {
-
       this.showHotTopics = !this.showHotTopics
-
     },
-
     formatHeat(heat) {
-
       if (heat >= 10000) {
-
         return (heat / 10000).toFixed(1) + 'w'
-
       } else if (heat >= 1000) {
-
         return (heat / 1000).toFixed(1) + 'k'
-
       }
-
       return heat.toString()
-
     },
-
     goToTopicDetail(topicId) {
-
       uni.navigateTo({
-
         url: `/subpackage_forum/topicDetail/topicDetail?topicId=${topicId}`
-
       })
-
     }
-
   }
-
 }
-
 </script>
 
-
-
 <style lang="scss">
-
 .forum-container {
-
   height: 100vh;
-
   display: flex;
-
   flex-direction: column;
-
   background-color: #F7F7F9;
-
   overflow: hidden;
-
 }
-
-
 
 .search-bar {
-
   display: flex;
-
   align-items: center;
-
   padding: 20rpx 30rpx;
-
   background-color: #FFFFFF;
-
   
-
   .search-input {
-
     flex: 1;
-
     display: flex;
-
     align-items: center;
-
     height: 72rpx;
-
     background-color: #F5F5F7;
-
     border-radius: 36rpx;
-
     padding: 0 30rpx;
-
     margin-right: 24rpx;
-
     
-
     .search-icon {
-
       font-size: 28rpx;
-
       margin-right: 16rpx;
-
     }
-
     
-
     input {
-
       flex: 1;
-
       font-size: 28rpx;
-
       color: #333;
-
     }
-
   }
-
   
-
   .header-avatar-wrap {
-
     flex-shrink: 0;
-
     width: 70rpx;
-
     height: 70rpx;
-
     border-radius: 50%;
-
     border: 1rpx solid #E5E7EB;
-
     overflow: hidden;
-
     box-sizing: border-box;
-
   }
-
   
-
   .header-avatar {
-
     width: 100%;
-
     height: 100%;
-
     display: block;
-
   }
-
 }
-
-
 
 .page-fixed-header {
-
   flex-shrink: 0;
-
   z-index: 999;
-
 }
-
-
 
 /* 分类 Tab：对齐「校园活动」的文字 + 下划线风格 */
-
 .nav-secondary-wrap {
-
   display: flex;
-
   align-items: center;
-
   background-color: #FFFFFF;
-
   padding: 0 0 0 30rpx;
-
   margin-bottom: 20rpx;
-
   border-bottom: 1px solid #F2F2F2;
-
 }
-
 .category-container {
-
   flex: 1;
-
   min-width: 0;
-
 }
-
 .category-scroll {
-
   white-space: nowrap;
-
   scrollbar-width: none;
-
   -ms-overflow-style: none;
-
   &::-webkit-scrollbar {
-
     display: none;
-
   }
-
   /* 隐藏滚动指示器 */
-
   ::-webkit-scrollbar {
-
     display: none;
-
     width: 0;
-
     height: 0;
-
     background: transparent;
-
   }
-
 }
-
 .category-list {
-
   display: flex;
-
   align-items: center;
-
   min-height: 80rpx;
-
   gap: 40rpx;
-
 }
-
 .category-item {
-
   position: relative;
-
   display: inline-flex;
-
   align-items: center;
-
   justify-content: center;
-
   padding: 20rpx 0;
-
   flex-shrink: 0;
-
 }
-
 .category-text {
-
   font-size: 26rpx;
-
   font-weight: 400;
-
   color: #8E8E93;
-
   transition: all 0.2s ease;
-
 }
-
 .category-item.active .category-text {
-
   font-weight: 600;
-
   color: #1D1D1F;
-
 }
-
 .active-line {
-
   position: absolute;
-
   bottom: 0;
-
   left: 50%;
-
   transform: translateX(-50%);
-
   width: 32rpx;
-
   height: 4rpx;
-
   background-color: #5C7A99;
-
   border-radius: 2rpx;
-
 }
 
+.post-swiper {
+  flex: 1;
+  height: 0;
+  min-height: 0;
 
+  .post-swiper-item {
+    height: 100%;
+    overflow: hidden;
+  }
+}
 
 .post-list {
-
-  flex: 1;
-
-  height: 0;
-
+  height: 100%;
   padding: 20rpx 20rpx 0;
-
   box-sizing: border-box;
-
   
-
   .post-item {
-
     background-color: #FFFFFF;
-
     border-radius: 16rpx;
-
     padding: 24rpx;
-
     margin-bottom: 28rpx;
-
   }
-
   
-
   .post-list-bottom-pad {
-
     height: 100rpx;
-
     flex-shrink: 0;
-
   }
-
   
-
   .post-header {
-
     display: flex;
-
     align-items: center;
-
     margin-bottom: 20rpx;
-
     
-
     .user-avatar {
-
       width: 72rpx;
-
       height: 72rpx;
-
       border-radius: 50%;
-
       margin-right: 16rpx;
-
     }
-
     
-
     .user-info {
-
       flex: 1;
-
       display: flex;
-
       flex-direction: column;
-
       
-
       .user-name {
-
         font-size: 28rpx;
-
         font-weight: 600;
-
         color: #1D1D1F;
-
       }
-
       
-
       .post-time {
-
         font-size: 22rpx;
-
         color: #8E8E93;
-
         margin-top: 4rpx;
-
       }
-
     }
-
     
-
     .topic-tag {
-
       font-size: 22rpx;
-
       color: #5C7A99;
-
       background-color: rgba(92, 122, 153, 0.1);
-
       padding: 8rpx 16rpx;
-
       border-radius: 20rpx;
-
     }
-
   }
-
   
-
   .post-content {
-
     .post-title {
-
       display: block;
-
       font-size: 32rpx;
-
       font-weight: 600;
-
       color: #1D1D1F;
-
       margin-bottom: 12rpx;
-
       line-height: 1.4;
-
     }
-
     
-
     .post-text {
-
       font-size: 28rpx;
-
       color: #4A4A4A;
-
       line-height: 1.6;
-
       display: -webkit-box;
-
       -webkit-box-orient: vertical;
-
       -webkit-line-clamp: 4;
-
       overflow: hidden;
-
     }
-
     
-
     .post-images {
-
       display: flex;
-
       gap: 12rpx;
-
       margin-top: 16rpx;
-
       
-
       .post-image {
-
         width: 200rpx;
-
         height: 150rpx;
-
         border-radius: 12rpx;
-
         background-color: #F5F5F7;
-
       }
-
     }
-
   }
-
   
-
   .post-footer {
-
     display: flex;
-
     align-items: center;
-
     margin-top: 20rpx;
-
     padding-top: 20rpx;
-
     border-top: 1rpx solid #F0F0F0;
-
     
-
     .action-item {
-
       display: flex;
-
       align-items: center;
-
       margin-right: 48rpx;
-
       
-
       .action-icon {
-
         font-size: 32rpx;
-
         margin-right: 8rpx;
-
       }
 
+      .action-icon-img {
+        width: 36rpx;
+        height: 36rpx;
+        margin-right: 8rpx;
+      }
       
-
       .action-count {
-
         font-size: 24rpx;
-
         color: #8E8E93;
-
       }
-
     }
-
   }
-
   
-
   .load-more {
-
     text-align: center;
-
     padding: 30rpx;
-
     color: #999;
-
     font-size: 26rpx;
 
-  }
+    .loading-indicator {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 12rpx;
 
+      .loading-spinner {
+        width: 28rpx;
+        height: 28rpx;
+        border: 3rpx solid #E5E7EB;
+        border-top-color: #5C7A99;
+        border-radius: 50%;
+        animation: load-more-spin 0.8s linear infinite;
+      }
+    }
+  }
 }
 
-
+@keyframes load-more-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
 
 /* 悬浮发帖按钮 */
-
 .fab-publish-btn {
-
   position: fixed;
-
   right: 30rpx;
-
   bottom: calc(200rpx + constant(safe-area-inset-bottom));
-
   bottom: calc(200rpx + env(safe-area-inset-bottom));
-
   width: 100rpx;
-
   height: 100rpx;
-
   border-radius: 50%;
-
   display: flex;
-
   align-items: center;
-
   justify-content: center;
-
   box-shadow: 0 6rpx 20rpx rgba(0, 122, 255, 0.3);
-
   z-index: 9999;
-
   background: linear-gradient(135deg, #007AFF, #00C6FF);
-
 }
-
-
 
 .fab-publish-icon {
-
   font-size: 56rpx;
-
   font-weight: 300;
-
   color: #FFFFFF;
-
   line-height: 1;
-
 }
-
-
 
 .publish-modal-mask {
-
   position: fixed;
-
   left: 0;
-
   right: 0;
-
   top: 0;
-
   bottom: 0;
-
   background: rgba(0, 0, 0, 0.45);
-
   z-index: 999;
-
 }
-
-
 
 .publish-modal-content {
-
   position: absolute;
-
   left: 0;
-
   right: 0;
-
   bottom: 0;
-
   height: 86vh;
-
   background: #FFFFFF;
-
   border-top-left-radius: 24rpx;
-
   border-top-right-radius: 24rpx;
-
   transform: translateY(100%);
-
   transition: transform 250ms ease;
-
   display: flex;
-
   flex-direction: column;
-
 }
-
-
 
 .publish-modal-show {
-
   transform: translateY(0);
-
 }
-
-
 
 .modal-header {
-
   height: 96rpx;
-
   display: flex;
-
   align-items: center;
-
   justify-content: space-between;
-
   padding: 0 24rpx;
-
   border-bottom: 1rpx solid #F0F0F0;
-
   box-sizing: border-box;
-
   flex-shrink: 0;
-
 }
-
-
 
 .modal-close {
-
   width: 72rpx;
-
   height: 72rpx;
-
   display: flex;
-
   align-items: center;
-
   justify-content: center;
-
 }
-
-
 
 .close-chevron {
-
   width: 18rpx;
-
   height: 18rpx;
-
   border-right: 3rpx solid #111827;
-
   border-bottom: 3rpx solid #111827;
-
   transform: rotate(45deg);
-
   box-sizing: border-box;
-
 }
-
-
 
 .modal-title {
-
   font-size: 30rpx;
-
   font-weight: 600;
-
   color: #1D1D1F;
-
 }
-
-
 
 .modal-placeholder {
-
   width: 72rpx;
-
   height: 72rpx;
-
 }
 
+.modal-draft-entry {
+  min-width: 120rpx;
+  height: 56rpx;
+  padding: 0 16rpx;
+  border-radius: 28rpx;
+  background-color: #F3F4F6;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 
+  text {
+    font-size: 24rpx;
+    color: #5C7A99;
+    font-weight: 500;
+  }
+}
 
 .modal-body {
-
   flex: 1;
-
   padding: 24rpx;
-
   box-sizing: border-box;
-
 }
-
-
 
 .modal-footer {
-
   display: flex;
-
   gap: 16rpx;
-
   padding: 20rpx 24rpx;
-
   padding-bottom: calc(20rpx + constant(safe-area-inset-bottom));
-
   padding-bottom: calc(20rpx + env(safe-area-inset-bottom));
-
   background: #FFFFFF;
-
   border-top: 1rpx solid #F0F0F0;
-
   box-sizing: border-box;
-
   flex-shrink: 0;
-
 }
-
-
 
 .draft-btn,
-
 .publish-btn {
-
   flex: 1;
-
   height: 80rpx;
-
   border-radius: 16rpx;
-
   display: flex;
-
   align-items: center;
-
   justify-content: center;
-
   font-size: 28rpx;
-
 }
-
-
 
 .draft-btn {
-
   background: #F3F4F6;
-
   color: #111827;
-
 }
-
-
 
 .publish-btn {
-
   background: #5C7A99;
-
   color: #FFFFFF;
-
 }
-
-
 
 .publish-btn.disabled {
-
   opacity: 0.5;
-
 }
 
+/* 草稿箱弹窗 */
+.draft-modal-mask {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.5);
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
 
-
-/* 热门话题模块 */
-
-.hot-topics-section {
-
+.draft-modal-content {
+  width: 640rpx;
+  max-height: 70vh;
   background-color: #FFFFFF;
-
-  margin: 20rpx;
-
-  border-radius: 16rpx;
-
-  padding: 24rpx;
-
-  box-shadow: 0 2rpx 12rpx rgba(0, 0, 0, 0.06);
-
-}
-
-
-
-.hot-topics-header {
-
+  border-radius: 24rpx;
   display: flex;
-
-  justify-content: space-between;
-
-  align-items: center;
-
-  margin-bottom: 20rpx;
-
-}
-
-
-
-.hot-topics-title {
-
-  font-size: 32rpx;
-
-  font-weight: 600;
-
-  color: #1D1D1F;
-
-}
-
-
-
-.hot-topics-toggle {
-
-  font-size: 26rpx;
-
-  color: #8E8E93;
-
-}
-
-
-
-.hot-topics-list {
-
-  display: flex;
-
   flex-direction: column;
-
-  gap: 16rpx;
-
+  overflow: hidden;
 }
 
-
-
-.hot-topic-item {
-
+.draft-modal-header {
+  height: 88rpx;
   display: flex;
-
   align-items: center;
-
-  padding: 16rpx 0;
-
-  border-bottom: 1rpx solid #F5F5F7;
-
+  justify-content: space-between;
+  padding: 0 28rpx;
+  border-bottom: 1rpx solid #F0F0F0;
+  flex-shrink: 0;
 }
 
-
-
-.hot-topic-item:last-child {
-
-  border-bottom: none;
-
+.draft-modal-title {
+  font-size: 30rpx;
+  font-weight: 600;
+  color: #1D1D1F;
 }
 
-
-
-.topic-rank {
-
-  width: 48rpx;
-
-  height: 48rpx;
-
-  border-radius: 12rpx;
-
+.draft-modal-close {
+  width: 56rpx;
+  height: 56rpx;
   display: flex;
-
   align-items: center;
-
   justify-content: center;
 
-  font-size: 26rpx;
-
-  font-weight: 600;
-
-  margin-right: 20rpx;
-
-  flex-shrink: 0;
-
+  text {
+    font-size: 40rpx;
+    color: #8E8E93;
+  }
 }
 
+.draft-modal-body {
+  flex: 1;
+  padding: 24rpx;
+  box-sizing: border-box;
+  max-height: 50vh;
+}
 
+.draft-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16rpx;
+}
+
+.draft-item {
+  display: flex;
+  align-items: center;
+  padding: 20rpx;
+  border-radius: 16rpx;
+  background-color: #F8F9FA;
+
+  .draft-item-info {
+    flex: 1;
+    min-width: 0;
+    margin-right: 16rpx;
+  }
+
+  .draft-item-title {
+    display: block;
+    font-size: 28rpx;
+    font-weight: 600;
+    color: #1D1D1F;
+    margin-bottom: 6rpx;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .draft-item-content {
+    display: block;
+    font-size: 24rpx;
+    color: #6B7280;
+    margin-bottom: 8rpx;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .draft-item-meta {
+    display: flex;
+    gap: 20rpx;
+    font-size: 20rpx;
+    color: #9CA3AF;
+  }
+
+  .draft-item-delete {
+    flex-shrink: 0;
+    padding: 12rpx 20rpx;
+    border-radius: 24rpx;
+    background-color: #FEE2E2;
+
+    text {
+      font-size: 24rpx;
+      color: #DC2626;
+    }
+  }
+}
+
+.draft-empty {
+  padding: 100rpx 0;
+  text-align: center;
+
+  text {
+    font-size: 26rpx;
+    color: #9CA3AF;
+  }
+}
+
+/* 热门话题模块 */
+.hot-topics-section {
+  background-color: #FFFFFF;
+  margin: 20rpx;
+  border-radius: 16rpx;
+  padding: 24rpx;
+  box-shadow: 0 2rpx 12rpx rgba(0, 0, 0, 0.06);
+}
+
+.hot-topics-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20rpx;
+}
+
+.hot-topics-title {
+  font-size: 32rpx;
+  font-weight: 600;
+  color: #1D1D1F;
+}
+
+.hot-topics-toggle {
+  font-size: 26rpx;
+  color: #8E8E93;
+}
+
+.hot-topics-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16rpx;
+}
+
+.hot-topic-item {
+  display: flex;
+  align-items: center;
+  padding: 16rpx 0;
+  border-bottom: 1rpx solid #F5F5F7;
+}
+
+.hot-topic-item:last-child {
+  border-bottom: none;
+}
+
+.topic-rank {
+  width: 48rpx;
+  height: 48rpx;
+  border-radius: 12rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 26rpx;
+  font-weight: 600;
+  margin-right: 20rpx;
+  flex-shrink: 0;
+}
 
 /* 热度排名颜色 */
-
 .topic-rank.rank-1 {
-
   background: linear-gradient(135deg, #FFD700, #FFA500);
-
   color: #FFFFFF;
-
 }
-
-
 
 .topic-rank.rank-2 {
-
   background: linear-gradient(135deg, #C0C0C0, #A0A0A0);
-
   color: #FFFFFF;
-
 }
-
-
 
 .topic-rank.rank-3 {
-
   background: linear-gradient(135deg, #CD7F32, #B87333);
-
   color: #FFFFFF;
-
 }
-
-
 
 .topic-rank.rank-4,
-
 .topic-rank.rank-5,
-
 .topic-rank.rank-6,
-
 .topic-rank.rank-7,
-
 .topic-rank.rank-8 {
-
   background-color: #F0F0F0;
-
   color: #666666;
-
 }
-
-
 
 .topic-name {
-
   flex: 1;
-
   font-size: 28rpx;
-
   color: #333333;
-
   font-weight: 500;
-
 }
-
-
 
 .topic-heat {
-
   font-size: 24rpx;
-
   color: #FF6B6B;
-
   font-weight: 500;
-
 }
 
-</style>
+.bell-icon-wrap {
+  flex-shrink: 0;
+  width: 70rpx;
+  height: 70rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: 16rpx;
+}
 
+.bell-icon {
+  width: 44rpx;
+  height: 44rpx;
+  color: #5C7A99;
+}
+</style>

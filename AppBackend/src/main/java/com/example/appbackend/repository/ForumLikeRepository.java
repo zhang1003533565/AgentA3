@@ -32,4 +32,8 @@ public interface ForumLikeRepository extends JpaRepository<ForumLike, Long> {
     @Modifying
     @Query("DELETE FROM ForumLike l WHERE l.targetId = :targetId AND l.targetType = :targetType")
     void deleteByTargetIdAndTargetType(@Param("targetId") Long targetId, @Param("targetType") String targetType);
+
+    @Modifying
+    @Query("DELETE FROM ForumLike l WHERE l.targetId IN :targetIds AND l.targetType = :targetType")
+    void deleteByTargetIdsAndTargetType(@Param("targetIds") List<Long> targetIds, @Param("targetType") String targetType);
 }

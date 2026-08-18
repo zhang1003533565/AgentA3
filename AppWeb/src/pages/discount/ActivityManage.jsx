@@ -17,9 +17,13 @@ import {
   message,
 } from 'antd'
 import {
+  CheckCircleOutlined,
+  ClockCircleOutlined,
   DeleteOutlined,
   EditOutlined,
   EyeOutlined,
+  GiftOutlined,
+  PlayCircleOutlined,
   PlusOutlined,
   SearchOutlined,
   ShopOutlined,
@@ -32,7 +36,7 @@ import {
   createDiscountActivity,
   updateDiscountActivity,
   deleteDiscountActivity,
-  offlineDiscountActivity,
+  endDiscountActivityEarly,
   getDiscountActivityDetail,
 } from '../../api/discount'
 import { getMerchantList } from '../../api/merchant'
@@ -46,7 +50,6 @@ const STATUS_CONFIG = {
   1: { color: 'processing', label: '进行中' },
   2: { color: 'warning', label: '已领完' },
   3: { color: 'default', label: '已结束' },
-  4: { color: 'error', label: '已下架' },
 }
 
 const fmtTime = (t) => (t ? t.replace('T', ' ') + ':00' : t)
@@ -133,13 +136,13 @@ export default function ActivityManage() {
     }
   }
 
-  const handleOffline = async (id) => {
+  const handleEndEarly = async (id) => {
     Modal.confirm({
-      title: '确认下架该活动？',
+      title: '确认提前结束该活动？结束后状态将变为「已领完」',
       onOk: async () => {
         try {
-          await offlineDiscountActivity(id)
-          message.success('活动已下架')
+          await endDiscountActivityEarly(id)
+          message.success('活动已提前结束')
           fetchData()
         } catch {
           message.error('操作失败')
@@ -149,8 +152,8 @@ export default function ActivityManage() {
   }
 
   const activeCount = data.filter((r) => r.status === 1).length
+  const claimedCount = data.filter((r) => r.status === 2).length
   const endedCount = data.filter((r) => r.status === 3).length
-  const offlineCount = data.filter((r) => r.status === 4).length
 
   const columns = [
     {
@@ -169,11 +172,8 @@ export default function ActivityManage() {
       dataIndex: 'title',
       width: 220,
       ellipsis: true,
-      render: (text, record) => (
-        <div>
-          <div className="activity-title">{text}</div>
-          <div className="activity-id">ID: {record.id}</div>
-        </div>
+      render: (text) => (
+        <div className="activity-title">{text}</div>
       ),
     },
     {
@@ -187,8 +187,8 @@ export default function ActivityManage() {
       width: 200,
       render: (_, record) => (
         <div className="time-range">
-          <div>起: {record.startTime ? record.startTime.slice(0, 10) : '-'}</div>
-          <div>止: {record.endTime ? record.endTime.slice(0, 10) : '-'}</div>
+          <div><ClockCircleOutlined style={{ marginRight: 6 }} />{record.startTime ? record.startTime.slice(0, 10) : '-'}</div>
+          <div><ClockCircleOutlined style={{ marginRight: 6 }} />{record.endTime ? record.endTime.slice(0, 10) : '-'}</div>
         </div>
       ),
     },
@@ -196,8 +196,13 @@ export default function ActivityManage() {
       title: '状态',
       dataIndex: 'status',
       width: 100,
-      render: (status) => {
-        const cfg = STATUS_CONFIG[status] || STATUS_CONFIG[3]
+      render: (status, record) => {
+        // 已到结束时间且当前状态不是已结束的，自动显示为已结束
+        const now = new Date()
+        const endTime = record.endTime ? new Date(record.endTime) : null
+        const displayStatus =
+          endTime && endTime < now && [0, 1, 2].includes(status) ? 3 : status
+        const cfg = STATUS_CONFIG[displayStatus] || STATUS_CONFIG[3]
         return <Tag color={cfg.color}>{cfg.label}</Tag>
       },
     },
@@ -229,9 +234,9 @@ export default function ActivityManage() {
               type="text"
               size="small"
               icon={<StopOutlined />}
-              onClick={() => handleOffline(record.id)}
+              onClick={() => handleEndEarly(record.id)}
             >
-              下架
+              提前结束
             </Button>
           ) : (
             <Popconfirm
@@ -294,7 +299,6 @@ export default function ActivityManage() {
               { value: 1, label: '进行中' },
               { value: 2, label: '已领完' },
               { value: 3, label: '已结束' },
-              { value: 4, label: '已下架' },
             ]}
           />
           <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>
@@ -305,20 +309,32 @@ export default function ActivityManage() {
 
       <div className="discount-stats">
         <button type="button" className="stat-item active">
-          <span className="stat-label">活动总数</span>
-          <span className="stat-number">{total}</span>
+          <div className="stat-icon-circle blue"><GiftOutlined /></div>
+          <div className="stat-text-group">
+            <span className="stat-number">{total}</span>
+            <span className="stat-label">活动总数</span>
+          </div>
         </button>
         <button type="button" className="stat-item">
-          <span className="stat-label">进行中</span>
-          <span className="stat-number">{activeCount}</span>
+          <div className="stat-icon-circle green"><PlayCircleOutlined /></div>
+          <div className="stat-text-group">
+            <span className="stat-number">{activeCount}</span>
+            <span className="stat-label">进行中</span>
+          </div>
         </button>
         <button type="button" className="stat-item">
-          <span className="stat-label">已结束</span>
-          <span className="stat-number">{endedCount}</span>
+          <div className="stat-icon-circle purple"><CheckCircleOutlined /></div>
+          <div className="stat-text-group">
+            <span className="stat-number">{claimedCount}</span>
+            <span className="stat-label">已领完</span>
+          </div>
         </button>
         <button type="button" className="stat-item">
-          <span className="stat-label">已下架</span>
-          <span className="stat-number">{offlineCount}</span>
+          <div className="stat-icon-circle slate"><StopOutlined /></div>
+          <div className="stat-text-group">
+            <span className="stat-number">{endedCount}</span>
+            <span className="stat-label">已结束</span>
+          </div>
         </button>
       </div>
 
@@ -439,6 +455,7 @@ function ActivityEditor({ open, record, merchantOptions, defaultMerchantId, savi
       coverImage: cover,
       startTime: record?.startTime?.slice(0, 16) || '',
       endTime: record?.endTime?.slice(0, 16) || '',
+      status: record?.status ?? 1,
     })
     setPreviewUrl(cover)
   }, [record, form, open, defaultMerchantId])
@@ -549,6 +566,16 @@ function ActivityEditor({ open, record, merchantOptions, defaultMerchantId, savi
         </Form.Item>
         <Form.Item name="coverImage" hidden>
           <Input />
+        </Form.Item>
+        <Form.Item label="活动状态" name="status">
+          <Select
+            options={[
+              { value: 0, label: '未开始' },
+              { value: 1, label: '进行中' },
+              { value: 2, label: '已领完' },
+              { value: 3, label: '已结束' },
+            ]}
+          />
         </Form.Item>
         <Form.Item label="活动详细介绍" name="description">
           <Input.TextArea

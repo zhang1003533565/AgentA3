@@ -21,7 +21,7 @@ export async function request({ url, method = 'GET', data, params, headers = {} 
   const target = url.startsWith('http') ? url : `${API_BASE_URL}${url}`
   const requestUrl = new URL(target)
 
-  if (params && method.toUpperCase() === 'GET') {
+  if (params) {
     Object.entries(params).forEach(([key, value]) => {
       if (value !== undefined && value !== null && value !== '') {
         requestUrl.searchParams.set(key, value)

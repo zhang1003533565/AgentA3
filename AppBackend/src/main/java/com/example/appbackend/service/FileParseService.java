@@ -8,4 +8,8 @@ public interface FileParseService {
     String parse(File file);
 
     String parse(MultipartFile file);
+
+    ParsedFileContent parseDetailed(File file);
+
+    ParsedFileContent parseDetailed(MultipartFile file);
 }

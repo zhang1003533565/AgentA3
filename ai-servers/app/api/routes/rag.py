@@ -23,6 +23,7 @@ from app.model_providers.multimodal import (
     collect_request_image_references,
 )
 from app.model_providers.runtime_config import build_llm_runtime_config, reset_active_llm_config, set_active_llm_config
+from app.observability.langfuse import observe_request, settings_from_headers, use_settings
 from app.multi_agents.catalog import (
     LEADER_CALLABLE_AGENT_ORDER,
     get_agent_catalog,
@@ -687,6 +688,10 @@ def run_rag_query(
     x_ai_base_url: Optional[str] = Header(default=None, alias="X-AI-Base-Url"),
     x_ai_api_key: Optional[str] = Header(default=None, alias="X-AI-Api-Key"),
     x_ai_model: Optional[str] = Header(default=None, alias="X-AI-Model"),
+    x_langfuse_enabled: Optional[str] = Header(default=None, alias="X-Langfuse-Enabled"),
+    x_langfuse_base_url: Optional[str] = Header(default=None, alias="X-Langfuse-Base-Url"),
+    x_langfuse_public_key: Optional[str] = Header(default=None, alias="X-Langfuse-Public-Key"),
+    x_langfuse_secret_key: Optional[str] = Header(default=None, alias="X-Langfuse-Secret-Key"),
 ) -> RagQueryResponse:
     request_started_at = time.perf_counter()
     _require_authorization(authorization)
@@ -716,7 +721,17 @@ def run_rag_query(
         model=x_ai_model,
     ))
     try:
-        response = _run_rag_query_core(request, authorization or "")
+        with use_settings(settings_from_headers(x_langfuse_enabled, x_langfuse_base_url, x_langfuse_public_key, x_langfuse_secret_key)):
+            with observe_request(
+                "internal.rag.query",
+                session_id=str((request.metadata or {}).get("sessionId") or "") or None,
+                metadata={
+                    "agentName": request.agentName or "leader_agent",
+                    "ragStrategy": request.ragStrategy or "",
+                    "streaming": False,
+                },
+            ):
+                response = _run_rag_query_core(request, authorization or "")
         finalization_started_at = time.perf_counter()
         response = _finalize_rag_response(request, response)
         finalization_ms = _elapsed_ms(finalization_started_at)
@@ -754,6 +769,10 @@ async def run_rag_query_stream(
     x_ai_api_key: Optional[str] = Header(default=None, alias="X-AI-Api-Key"),
     x_ai_model: Optional[str] = Header(default=None, alias="X-AI-Model"),
     x_user_id: Optional[str] = Header(default=None, alias="X-User-Id"),
+    x_langfuse_enabled: Optional[str] = Header(default=None, alias="X-Langfuse-Enabled"),
+    x_langfuse_base_url: Optional[str] = Header(default=None, alias="X-Langfuse-Base-Url"),
+    x_langfuse_public_key: Optional[str] = Header(default=None, alias="X-Langfuse-Public-Key"),
+    x_langfuse_secret_key: Optional[str] = Header(default=None, alias="X-Langfuse-Secret-Key"),
 ):
     request_started_at = time.perf_counter()
     _require_authorization(authorization)
@@ -768,6 +787,19 @@ async def run_rag_query_stream(
 
     async def event_stream():
         stream_started_at = request_started_at
+        settings_scope = use_settings(settings_from_headers(x_langfuse_enabled, x_langfuse_base_url, x_langfuse_public_key, x_langfuse_secret_key))
+        settings_scope.__enter__()
+        observation_scope = observe_request(
+            "internal.rag.query",
+            session_id=str((request.metadata or {}).get("sessionId") or "") or None,
+            user_id=int(x_user_id) if x_user_id and x_user_id.isdigit() else None,
+            metadata={
+                "agentName": request.agentName or "leader_agent",
+                "ragStrategy": request.ragStrategy or "",
+                "streaming": True,
+            },
+        )
+        observation_scope.__enter__()
         token = set_active_llm_config(llm_config)
         generation_started = False
         plan = None
@@ -921,6 +953,8 @@ async def run_rag_query_stream(
                 yield build_sse("error", _build_stream_error_payload(request, exc, llm_config))
         finally:
             reset_active_llm_config(token)
+            observation_scope.__exit__(None, None, None)
+            settings_scope.__exit__(None, None, None)
 
     return StreamingResponse(
         event_stream(),
@@ -3099,7 +3133,6 @@ def _follow_up_actions_for_output(answer_type: str, metadata: Dict[str, Any], ou
         "meeting_summary_agent",
         "meeting_resource_recommendation_agent",
         "ppt_outline_agent",
-        "ppt_layout_agent",
         "diagram_mind_map_agent",
         "diagram_flowchart_agent",
         "diagram_activity_agent",
@@ -3435,7 +3468,7 @@ def _answer_type_for_agent(agent_name: str) -> str:
         "diagram_architecture_agent": "mermaid_architecture",
         "textbook_knowledge_agent": "markdown",
         "ppt_outline_agent": "ppt_outline",
-        "ppt_layout_agent": "ppt_layout",
+        "ppt_structure_agent": "ppt_structure",
         "ppt_review_agent": "ppt_review",
         "ppt_image_agent": "ppt_image_prompt",
         "ppt_to_docx_agent": "document_conversion",

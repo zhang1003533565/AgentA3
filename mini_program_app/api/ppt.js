@@ -4,7 +4,8 @@ import { getToken } from '@/utils/storage.js'
 import { streamSse } from './ai.js'
 
 const base = '/api/app/ai/ppt'
-const PPT_OPTIONS_CACHE_KEY = 'aiPptOptions:v1'
+const PPT_OPTIONS_CACHE_KEY = 'aiPptOptions:v4'
+const PPT_OPTIONS_LEGACY_CACHE_KEYS = ['aiPptOptions:v1', 'aiPptOptions:v2', 'aiPptOptions:v3']
 const DEFAULT_OPTIONS_CACHE_TTL = 24 * 60 * 60 * 1000
 const PPT_GENERATION_TIMEOUT = 5 * 60 * 1000
 let pptOptionsRequest = null
@@ -14,6 +15,7 @@ export function getPptOptions({ forceRefresh = false } = {}) {
   if (PPT_OPTIONS_BYPASS_CACHE) {
     try {
       uni.removeStorageSync(PPT_OPTIONS_CACHE_KEY)
+      PPT_OPTIONS_LEGACY_CACHE_KEYS.forEach(key => uni.removeStorageSync(key))
     } catch (error) {}
   }
   if (!bypassCache) {
@@ -30,6 +32,7 @@ export function getPptOptions({ forceRefresh = false } = {}) {
       ? (response.data || {})
       : (response || {})
     if (!Array.isArray(data.scenes) || !data.scenes.length) throw new Error('PPT 场景配置为空')
+    if (!Array.isArray(data.templates) || !data.templates.length) throw new Error('PPT 模板配置为空')
     const ttl = Math.max(60000, Number(data.cacheTtlSeconds || 0) * 1000 || DEFAULT_OPTIONS_CACHE_TTL)
     if (!bypassCache) {
       try {
@@ -47,7 +50,9 @@ function readPptOptionsCache() {
   try {
     const cached = uni.getStorageSync(PPT_OPTIONS_CACHE_KEY)
     if (!cached || Number(cached.expiresAt || 0) <= Date.now()) return null
-    return Array.isArray(cached.data?.scenes) && cached.data.scenes.length ? cached.data : null
+    const hasScenes = Array.isArray(cached.data?.scenes) && cached.data.scenes.length
+    const hasTemplates = Array.isArray(cached.data?.templates) && cached.data.templates.length
+    return hasScenes && hasTemplates ? cached.data : null
   } catch (error) {
     return null
   }
@@ -67,6 +72,13 @@ export const generatePptSlides = data => request({
   timeout: PPT_GENERATION_TIMEOUT
 })
 
+export const createPptSlidesTask = data => request({
+  url: `${base}/slides`,
+  method: 'POST',
+  data,
+  timeout: 120000
+})
+
 export const createPptTask = data => request({
   url: `${base}/tasks`,
   method: 'POST',
@@ -79,6 +91,47 @@ export const getPptTask = taskId => request({
   method: 'GET',
   showError: false
 })
+
+export const cancelPptTask = taskId => request({
+  url: `${base}/tasks/${encodeURIComponent(taskId)}/cancel`,
+  method: 'POST',
+  showError: false
+})
+
+export const retryPptTask = taskId => request({
+  url: `${base}/tasks/${encodeURIComponent(taskId)}/retry`,
+  method: 'POST'
+})
+
+export function uploadPptSourceFile(filePath, name = '') {
+  const token = getToken()
+  if (!token) return Promise.reject(new Error('登录状态已失效'))
+  return new Promise((resolve, reject) => {
+    uni.uploadFile({
+      url: `${BASE_URL}${base}/files`,
+      filePath,
+      name: 'file',
+      header: { Authorization: `Bearer ${token}` },
+      formData: name ? { originalName: name } : {},
+      timeout: PPT_GENERATION_TIMEOUT,
+      success: response => {
+        let payload
+        try {
+          payload = typeof response.data === 'string' ? JSON.parse(response.data) : response.data
+        } catch (error) {
+          reject(new Error('PPT 资料上传响应格式无效'))
+          return
+        }
+        if (response.statusCode >= 200 && response.statusCode < 300 && Number(payload?.code ?? 200) === 200) {
+          resolve(payload?.data || payload || {})
+        } else {
+          reject(new Error(payload?.msg || `PPT 资料上传失败: ${response.statusCode || 'unknown'}`))
+        }
+      },
+      fail: reject
+    })
+  })
+}
 
 export const streamPptTask = (taskId, handlers = {}) => streamSse(
   `${base}/tasks/${encodeURIComponent(taskId)}/stream`,
@@ -94,6 +147,33 @@ export function downloadPptTaskFile(taskId, format) {
 
 export function downloadPptPreview(taskId, slideIndex) {
   return downloadOwnedPptResource(`${base}/tasks/${encodeURIComponent(taskId)}/previews/${encodeURIComponent(slideIndex)}`)
+}
+
+export function replacePptSlideImage(taskId, slideIndex, imageBase64, extension = 'png') {
+  const token = getToken()
+  if (!token) return Promise.reject(new Error('未登录'))
+  return new Promise((resolve, reject) => {
+    uni.request({
+      url: `${BASE_URL}${base}/tasks/${encodeURIComponent(taskId)}/slides/${encodeURIComponent(slideIndex)}/image`,
+      method: 'POST',
+      header: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      data: { imageBase64, extension },
+      timeout: 120000,
+      success: response => {
+        const payload = response.data || {}
+        if (response.statusCode >= 200 && response.statusCode < 300 && Number(payload?.code ?? 200) === 200) {
+          resolve(payload?.data || payload || {})
+        } else {
+          reject(new Error(payload?.msg || `图片替换失败: ${response.statusCode || 'unknown'}`))
+        }
+      },
+      fail: reject
+    })
+  })
+}
+
+export function downloadPptTemplateThumbnail(templateId) {
+  return downloadOwnedPptResource(`${base}/templates/${encodeURIComponent(templateId)}/thumbnail`)
 }
 
 function downloadOwnedPptResource(path) {
