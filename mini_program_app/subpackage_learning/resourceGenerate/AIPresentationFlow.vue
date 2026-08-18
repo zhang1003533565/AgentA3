@@ -322,6 +322,7 @@
         </view>
         <view class="template-usage-card__metrics">
           <view><text>{{ selectedTemplateLayoutCount }}</text><text>可用版式</text></view>
+          <view><text>{{ validOutlineItems.length || outlineItems.length }}</text><text>预计页数</text></view>
         </view>
         <view class="template-usage-card__actions">
           <text @tap="showTemplateLibrary">更换模板</text>
@@ -457,7 +458,7 @@
       <view class="bottom-actions">
         <view class="bottom-actions__buttons">
           <button class="secondary-button" @tap="goPrevious">返回设置</button>
-          <button class="primary-button" :disabled="apiBusy" @tap="startGeneration">{{ apiBusy ? '正在创建任务…' : '确认并生成' }}</button>
+          <button class="primary-button" :disabled="apiBusy" @tap="startGeneration">{{ apiBusy ? '正在创建任务…' : editorPrimaryLabel }}</button>
         </view>
       </view>
     </view>
@@ -1131,6 +1132,9 @@ export default {
     },
     downloadFileName() {
       return `${this.resultName}_复习资料PPT.${this.exportFormat}`
+    },
+    editorPrimaryLabel() {
+      return this.canReuseCompletedTask() ? '查看生成结果' : '确认并生成'
     }
   },
   watch: {
@@ -1600,7 +1604,7 @@ export default {
       this.apiBusy = true
       this.modelConfigError = false
       this.lastPptError = ''
-      this.startOperationFeedback('outline')
+      this.startOperationFeedback()
       try {
         const response = await generatePptOutline({
           sourceName: this.fileInfo.name,
@@ -1716,7 +1720,6 @@ export default {
       this.modelConfigError = false
       this.lastPptError = ''
       this.slideGenerationSnapshot = null
-      this.startOperationFeedback('slides')
       try {
         const outline = {
           ...(this.outlineDocument || {}),
@@ -1792,16 +1795,6 @@ export default {
     applySlideGenerationSnapshot(task, runId) {
       if (!task || runId !== this.slideGenerationRunId) return
       this.slideGenerationSnapshot = task
-      const total = Number(task.totalSlides || 0)
-      const completed = Number(task.completedSlides || 0)
-      const remaining = Number(task.remainingSlides ?? Math.max(0, total - completed))
-      const current = Number(task.currentSlide || 0)
-      const progress = Number(task.progress || 0)
-      this.updateOperationFeedback(
-        Math.max(0, Math.min(99, progress)),
-        task.message || (current ? `正在生成第 ${current} / ${total} 页` : '正在准备逐页生成'),
-        total ? `已完成 ${completed} 页，剩余 ${remaining} 页${current ? `，当前处理第 ${current} 页` : ''}` : '正在排队'
-      )
       if (task.status === 'failed') {
         throw new Error(task.error?.message || task.message || '逐页内容生成失败')
       }
@@ -1809,12 +1802,38 @@ export default {
         this.apiBusy = false
         throw new Error('逐页内容生成已取消')
       }
-      if (task.status === 'completed') {
-        this.updateOperationFeedback(100, '逐页内容生成完成', `共完成 ${total} 页`)
+    },
+    buildTaskPayload() {
+      return {
+        sourceName: this.fileInfo?.name || `${this.resultName}.txt`,
+        outline: {
+          ...(this.outlineDocument || {}),
+          title: this.outlineName || this.resultName,
+          items: this.validOutlineItems.map(item => ({ ...item }))
+        },
+        slides: this.slides.map(slide => ({
+          ...slide,
+          content: String(slide.content || '').split(/\r?\n/).map(line => line.trim()).filter(Boolean)
+        })),
+        sharedPrompt: this.sharedPrompt,
+        settings: this.buildSettings(),
+        exportFormats: ['pptx', 'pdf']
       }
+    },
+    canReuseCompletedTask() {
+      if (!this.taskId || String(this.taskResult?.status || '') !== 'completed') return false
+      if (!this.completedTaskFingerprint) return false
+      return JSON.stringify(this.buildTaskPayload()) === this.completedTaskFingerprint
     },
     async startGeneration() {
       if (this.apiBusy || this.slides.length < 2) return
+      // 任务已完成且内容未改：直接回看结果，不重复创建任务
+      if (this.canReuseCompletedTask()) {
+        this.progress = 100
+        this.currentStep = 7
+        this.loadPreviewImages()
+        return
+      }
       this.clearTimers()
       const runId = ++this.generationRunId
       this.apiBusy = true
@@ -1823,23 +1842,12 @@ export default {
       this.currentStep = 6
       this.progress = 2
       this.taskResult = null
+      this.completedTaskFingerprint = ''
       this.previewImages = {}
       try {
-        const response = await createPptTask({
-          sourceName: this.fileInfo?.name || `${this.resultName}.txt`,
-          outline: {
-            ...(this.outlineDocument || {}),
-            title: this.outlineName || this.resultName,
-            items: this.validOutlineItems.map(item => ({ ...item }))
-          },
-          slides: this.slides.map(slide => ({
-            ...slide,
-            content: String(slide.content || '').split(/\r?\n/).map(line => line.trim()).filter(Boolean)
-          })),
-          sharedPrompt: this.sharedPrompt,
-          settings: this.buildSettings(),
-          exportFormats: ['pptx', 'pdf']
-        })
+        const payload = this.buildTaskPayload()
+        this.pendingTaskFingerprint = JSON.stringify(payload)
+        const response = await createPptTask(payload)
         const created = this.responseData(response)
         this.taskId = String(created.taskId || '')
         if (!this.taskId) throw new Error('服务端未返回 PPT 任务编号')
@@ -1914,6 +1922,10 @@ export default {
     applyTaskSnapshot(task, runId) {
       if (!task || runId !== this.generationRunId) return
       this.taskResult = task
+      // 任务完成即固化本次提交内容指纹（含后台完成：用户已提前返回编辑页）
+      if (String(task.status || '') === 'completed' && this.pendingTaskFingerprint) {
+        this.completedTaskFingerprint = this.pendingTaskFingerprint
+      }
       this.progress = Math.max(this.progress, Math.min(100, Number(task.progress || 0)))
       if (task.status === 'failed') {
         const message = task.error?.message || task.message || 'PPT 生成失败'
@@ -2244,21 +2256,14 @@ export default {
         confirmText: '知道了'
       })
     },
-    startOperationFeedback(type) {
+    startOperationFeedback() {
       this.stopOperationFeedback()
-      const phases = type === 'slides'
-        ? [
-            { progress: 10, message: '正在读取大纲与页面设置', detail: '准备页面生成参数' },
-            { progress: 32, message: 'AI 正在组织逐页内容', detail: '根据大纲补充标题与知识点' },
-            { progress: 58, message: '正在匹配页面布局', detail: '为不同内容选择合适版式' },
-            { progress: 78, message: '正在等待页面生成结果', detail: '内容较多时可能需要一些时间' }
-          ]
-        : [
-            { progress: 10, message: '正在读取学习资料', detail: '准备文本与生成参数' },
-            { progress: 30, message: 'AI 正在解析文本结构', detail: '识别主题、章节和核心知识点' },
-            { progress: 56, message: '正在整理复习大纲', detail: '重新组织适合 PPT 的知识结构' },
-            { progress: 78, message: '正在等待大纲生成结果', detail: '资料较长时可能需要一些时间' }
-          ]
+      const phases = [
+        { progress: 10, message: '正在读取学习资料', detail: '准备文本与生成参数' },
+        { progress: 30, message: 'AI 正在解析文本结构', detail: '识别主题、章节和核心知识点' },
+        { progress: 56, message: '正在整理复习大纲', detail: '重新组织适合 PPT 的知识结构' },
+        { progress: 78, message: '正在等待大纲生成结果', detail: '资料较长时可能需要一些时间' }
+      ]
       let phaseIndex = 0
       this.operationFeedback = { active: true, ...phases[phaseIndex] }
       this.operationFeedbackTimer = setInterval(() => {
@@ -2329,6 +2334,10 @@ export default {
 .operation-feedback__track{height:7rpx;margin-top:10rpx;overflow:hidden;border-radius:99rpx;background:#e8ebf3}
 .operation-feedback__value{height:100%;border-radius:inherit;background:#5265f5;transition:width .35s ease}
 .operation-feedback__detail{display:block;margin-top:8rpx;color:#8a94a6;font-size:18rpx}
+.visual-mode-row{margin-top:12rpx;padding-top:18rpx;border-top:1px solid #eef0f4}
+.visual-mode-row .switch-row__title{color:#343d4f;font-size:23rpx}
+.visual-mode-segmented{margin-top:14rpx}
+.visual-mode-row .switch-row__desc{margin-top:10rpx;color:#939bad;font-size:18rpx;line-height:1.5}
 .slide-layout-lock-row{margin-top:20rpx;padding:18rpx;border:1px solid #dfe7ef;border-radius:16rpx;background:#fff}
 .slide-layout-lock-row{display:flex;align-items:center;justify-content:space-between;gap:18rpx}
 .slide-layout-lock-row text{display:block}
