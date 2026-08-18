@@ -25,7 +25,8 @@ class DeepSeekProvider(ChatModelProvider):
             raise RuntimeError(f"缺少 langchain_openai 依赖: {exc}") from exc
 
         runtime_config = resolve_llm_config(config)
-        if runtime_config.normalized_provider() not in {"deepseek", "openai_compatible", "openai-compatible"}:
+        # opencode: OpenCode zen GO 等套餐走 OpenAI 兼容接口，复用本通用客户端
+        if runtime_config.normalized_provider() not in {"deepseek", "openai_compatible", "openai-compatible", "opencode"}:
             raise RuntimeError(f"暂不支持的模型服务商: {runtime_config.provider}")
 
         deepseek_api_key = runtime_config.api_key
