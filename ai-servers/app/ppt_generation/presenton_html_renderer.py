@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import shutil
 import subprocess
@@ -10,11 +11,31 @@ from typing import Any, Mapping, Tuple
 
 from app.rag.document_conversion import generated_exporter
 
+logger = logging.getLogger(__name__)
 
-_ROOT = Path(__file__).resolve().parents[2]
+_ROOTS = Path(__file__).resolve().parents[2]
 _RUNTIME = _ROOT / "presenton_runtime"
 _SCRIPT = _RUNTIME / "src" / "render.mjs"
 _TEMPLATES = Path(__file__).resolve().parent / "assets" / "templates"
+
+
+def _detect_chromium_path() -> str | None:
+    """Auto-detect a Playwright-installed Chromium executable on this machine."""
+    if os.getenv("CHROMIUM_PATH") or os.getenv("PUPPETEER_EXECUTABLE_PATH"):
+        return None
+    playwright_root = Path(os.getenv("LOCALAPPDATA", "")) / "ms-playwright"
+    if not playwright_root.is_dir():
+        return None
+    chromium_dirs = sorted(
+        [d for d in playwright_root.iterdir() if d.is_dir() and d.name.startswith("chromium-")],
+        key=lambda d: d.name,
+        reverse=True,
+    )
+    for d in chromium_dirs:
+        chrome_exe = d / "chrome-win" / "chrome.exe"
+        if chrome_exe.is_file():
+            return str(chrome_exe)
+    return None
 
 
 def render_presenton_html(
@@ -49,12 +70,18 @@ def render_presenton_html(
     }
     input_path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
     try:
+        render_env = os.environ.copy()
+        chromium_path = _detect_chromium_path()
+        if chromium_path:
+            render_env.setdefault("CHROMIUM_PATH", chromium_path)
+            logger.info("Presenton render using Chromium: %s", chromium_path)
         completed = subprocess.run(
             ["node", str(_RUNTIME / "src" / "render.mjs"), str(input_path)],
             cwd=str(_RUNTIME),
             check=True,
             capture_output=True,
             text=True,
+            env=render_env,
             timeout=int(os.getenv("PPT_PRESENTON_RENDER_TIMEOUT_SECONDS", "300")),
         )
         result = json.loads(completed.stdout.strip().splitlines()[-1])
