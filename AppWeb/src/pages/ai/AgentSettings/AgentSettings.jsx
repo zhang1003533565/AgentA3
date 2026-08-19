@@ -7,9 +7,12 @@ import {
   AGENT_ENABLED_CONFIG_PREFIX,
   QUESTION_GENERATION_AGENT_PREFIX,
   QUESTION_TYPE_OPTIONS,
+  TOOL_BOUND_CONFIG_PREFIX,
+  TOOL_BOUND_UNBOUND_MARKER,
   TOOL_ENABLED_CONFIG_PREFIX,
   buildAgentModelBindings,
   buildQuestionGenerationAgentMappings,
+  buildToolBindings,
   buildToolToggles,
   buildLlmModelOptions,
   getAgentModelRequirementText,
@@ -67,6 +70,8 @@ function AgentSettings() {
   const [draftBindings, setDraftBindings] = useState({})
   const [questionAgentMappings, setQuestionAgentMappings] = useState({})
   const [draftQuestionAgentMappings, setDraftQuestionAgentMappings] = useState({})
+  const [toolBindings, setToolBindings] = useState({})
+  const [draftToolBindings, setDraftToolBindings] = useState({})
   const [activeTab, setActiveTab] = useState('overview')
   const [leaderObjectType, setLeaderObjectType] = useState('agents')
   const [leaderAgentFilter, setLeaderAgentFilter] = useState('all')
@@ -82,26 +87,31 @@ function AgentSettings() {
         getSystemConfigList({
           current: 1,
           size: 500,
-          prefixes: 'ai.service.,ai.agent-bindings.,ai.agent-enabled.,ai.tool-enabled.,ai.question-generation.agent.',
+          prefixes: 'ai.service.,ai.agent-bindings.,ai.agent-enabled.,ai.tool-enabled.,ai.tool-bound.,ai.question-generation.agent.',
         }),
       ])
       const configRows = configRes.data?.records || []
       const nextBindings = buildAgentModelBindings(configRows)
       const nextToolToggles = buildToolToggles(configRows)
+      const nextToolBindings = buildToolBindings(configRows)
       const nextQuestionAgentMappings = buildQuestionGenerationAgentMappings(configRows)
       setAgents(agentRes.data?.agents || [])
       setTools((agentRes.data?.generatedTools || []).map((tool) => {
         const hasConfiguredValue = Object.prototype.hasOwnProperty.call(nextToolToggles, tool.name)
+        const hasBoundConfig = Object.prototype.hasOwnProperty.call(nextToolBindings, tool.name)
         return {
           ...tool,
           enabled: hasConfiguredValue ? nextToolToggles[tool.name] : tool.enabled !== false,
+          boundAgent: hasBoundConfig ? nextToolBindings[tool.name] : (tool.boundAgent || ''),
         }
       }))
       setLeaderTools((agentRes.data?.leaderTools || []).map((tool) => {
         const hasConfiguredValue = Object.prototype.hasOwnProperty.call(nextToolToggles, tool.name)
+        const hasBoundConfig = Object.prototype.hasOwnProperty.call(nextToolBindings, tool.name)
         return {
           ...tool,
           enabled: tool.configurable === false ? true : hasConfiguredValue ? nextToolToggles[tool.name] : tool.enabled !== false,
+          boundAgent: hasBoundConfig ? nextToolBindings[tool.name] : (tool.boundAgent || ''),
         }
       }))
       setLlmModelOptions(buildLlmModelOptions(configRows))
@@ -109,6 +119,8 @@ function AgentSettings() {
       setDraftBindings(nextBindings)
       setQuestionAgentMappings(nextQuestionAgentMappings)
       setDraftQuestionAgentMappings(nextQuestionAgentMappings)
+      setToolBindings(nextToolBindings)
+      setDraftToolBindings(nextToolBindings)
     } catch (error) {
       message.error(error.message || '加载智能体设置失败')
     } finally {
@@ -200,6 +212,33 @@ function AgentSettings() {
       setSavingKey('')
     }
   }, [])
+
+  const saveToolBinding = useCallback(async (toolName) => {
+    const value = String(draftToolBindings[toolName] ?? '').trim()
+    setSavingKey(`tool-binding:${toolName}`)
+    try {
+      await upsertSystemConfig({
+        configKey: `${TOOL_BOUND_CONFIG_PREFIX}${toolName}`,
+        configValue: value || TOOL_BOUND_UNBOUND_MARKER,
+        configGroup: 'ai',
+        description: `工具 ${toolName} 绑定智能体`,
+        status: 1,
+        isDefault: 0,
+      })
+      setToolBindings((prev) => ({ ...prev, [toolName]: value }))
+      setTools((prev) => prev.map((item) => (
+        item.name === toolName ? { ...item, boundAgent: value } : item
+      )))
+      setLeaderTools((prev) => prev.map((item) => (
+        item.name === toolName ? { ...item, boundAgent: value } : item
+      )))
+      message.success(value ? `已绑定智能体 ${value}` : '已设置为暂不绑定')
+    } catch (error) {
+      message.error(error.message || '绑定智能体保存失败')
+    } finally {
+      setSavingKey('')
+    }
+  }, [draftToolBindings])
 
   const saveQuestionAgentMapping = useCallback(async (type, label) => {
     const agentName = String(draftQuestionAgentMappings[type] || '').trim()
@@ -330,6 +369,15 @@ function AgentSettings() {
     },
   ], [draftBindings, getModelOptionsForAgent, saveAgentEnabled, saveAgentModelBinding, savingKey])
 
+  const toolBindingOptions = useMemo(() => [
+    { value: '', label: '暂不绑定', agentName: '' },
+    ...agents.map((agent) => ({
+      value: agent.name,
+      label: agent.role || agent.name,
+      agentName: agent.name,
+    })),
+  ], [agents])
+
   const toolColumns = useMemo(() => [
     {
       title: '工具',
@@ -365,8 +413,52 @@ function AgentSettings() {
     {
       title: '绑定智能体',
       dataIndex: 'boundAgent',
-      width: 170,
-      render: (value) => value ? <Tag color="geekblue">{value}</Tag> : '-',
+      width: 330,
+      render: (value, record) => {
+        const current = draftToolBindings[record.name] !== undefined ? draftToolBindings[record.name] : (value || '')
+        const saved = toolBindings[record.name] !== undefined ? toolBindings[record.name] : (value || '')
+        const boundAgentEnabled = current ? agents.find((agent) => agent.name === current)?.enabled !== false : null
+        return (
+          <Space direction="vertical" size={4} style={{ width: '100%' }}>
+            <Space.Compact>
+              <Select
+                value={current}
+                options={toolBindingOptions}
+                placeholder="选择智能体"
+                showSearch
+                filterOption={(input, option) => {
+                  const keyword = String(input || '').trim().toLowerCase()
+                  if (!keyword) return true
+                  return String(option?.label || '').toLowerCase().includes(keyword)
+                    || String(option?.agentName || '').toLowerCase().includes(keyword)
+                }}
+                optionRender={(option) => (
+                  <div>
+                    <div>{option.label}</div>
+                    {option.data.agentName ? (
+                      <div className="agent-settings-binding-option-name">{option.data.agentName}</div>
+                    ) : null}
+                  </div>
+                )}
+                popupMatchSelectWidth={false}
+                style={{ width: 200 }}
+                onChange={(selected) => setDraftToolBindings((prev) => ({ ...prev, [record.name]: selected || '' }))}
+              />
+              <Button
+                icon={<SaveOutlined />}
+                disabled={current === saved}
+                loading={savingKey === `tool-binding:${record.name}`}
+                onClick={() => saveToolBinding(record.name)}
+              >
+                保存
+              </Button>
+            </Space.Compact>
+            {current && boundAgentEnabled === false && (
+              <Tag color="red">绑定智能体已关闭，工具实际不可用</Tag>
+            )}
+          </Space>
+        )
+      },
     },
     {
       title: '触发条件',
@@ -379,7 +471,7 @@ function AgentSettings() {
       dataIndex: 'purpose',
       ellipsis: true,
     },
-  ], [saveToolEnabled, savingKey])
+  ], [saveToolEnabled, saveToolBinding, savingKey, agents, toolBindingOptions, draftToolBindings, toolBindings])
 
   const leaderAgentColumns = useMemo(() => [
     {
@@ -468,8 +560,52 @@ function AgentSettings() {
     {
       title: '绑定智能体',
       dataIndex: 'boundAgent',
-      width: 170,
-      render: (value) => value ? <Tag color="geekblue">{value}</Tag> : '-',
+      width: 330,
+      render: (value, record) => {
+        const current = draftToolBindings[record.name] !== undefined ? draftToolBindings[record.name] : (value || '')
+        const saved = toolBindings[record.name] !== undefined ? toolBindings[record.name] : (value || '')
+        const boundAgentEnabled = current ? agents.find((agent) => agent.name === current)?.enabled !== false : null
+        return (
+          <Space direction="vertical" size={4} style={{ width: '100%' }}>
+            <Space.Compact>
+              <Select
+                value={current}
+                options={toolBindingOptions}
+                placeholder="选择智能体"
+                showSearch
+                filterOption={(input, option) => {
+                  const keyword = String(input || '').trim().toLowerCase()
+                  if (!keyword) return true
+                  return String(option?.label || '').toLowerCase().includes(keyword)
+                    || String(option?.agentName || '').toLowerCase().includes(keyword)
+                }}
+                optionRender={(option) => (
+                  <div>
+                    <div>{option.label}</div>
+                    {option.data.agentName ? (
+                      <div className="agent-settings-binding-option-name">{option.data.agentName}</div>
+                    ) : null}
+                  </div>
+                )}
+                popupMatchSelectWidth={false}
+                style={{ width: 200 }}
+                onChange={(selected) => setDraftToolBindings((prev) => ({ ...prev, [record.name]: selected || '' }))}
+              />
+              <Button
+                icon={<SaveOutlined />}
+                disabled={current === saved}
+                loading={savingKey === `tool-binding:${record.name}`}
+                onClick={() => saveToolBinding(record.name)}
+              >
+                保存
+              </Button>
+            </Space.Compact>
+            {current && boundAgentEnabled === false && (
+              <Tag color="red">绑定智能体已关闭，工具实际不可用</Tag>
+            )}
+          </Space>
+        )
+      },
     },
     {
       title: '触发条件',
@@ -482,7 +618,7 @@ function AgentSettings() {
       dataIndex: 'purpose',
       ellipsis: true,
     },
-  ], [saveToolEnabled, savingKey])
+  ], [saveToolEnabled, saveToolBinding, savingKey, agents, toolBindingOptions, draftToolBindings, toolBindings])
 
   const questionAgentOptions = useMemo(() => agents.map((agent) => ({
     value: agent.name,
@@ -777,7 +913,7 @@ function AgentSettings() {
                     dataSource={leaderObjectType === 'agents' ? filteredLeaderCallableAgents : filteredLeaderTools}
                     pagination={leaderObjectType === 'agents' ? { pageSize: 8 } : false}
                     size="middle"
-                    scroll={{ x: 900 }}
+                    scroll={{ x: 1080 }}
                   />
                 </div>
               ),
@@ -880,7 +1016,7 @@ function AgentSettings() {
                       columns={toolColumns}
                       dataSource={filteredContentTools}
                       pagination={false}
-                      scroll={{ x: 920 }}
+                      scroll={{ x: 1080 }}
                     />
                   ) : (
                     <Empty description="暂无工具配置" />

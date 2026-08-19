@@ -137,4 +137,12 @@ public class ChatDTO {
         private String createTime;
         private Boolean isRead;
     }
+
+    @Data
+    @Schema(description = "消息概览（聚合接口，合并会话列表+未读数）")
+    public static class MessageSummaryVO {
+        private PageResponse<SessionVO> sessions;
+        private Long chatUnreadCount;
+        private Long tradeUnreadCount;
+    }
 }

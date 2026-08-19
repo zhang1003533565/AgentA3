@@ -65,8 +65,7 @@
 <script>
 import CommonPageHeader from '@/components/common-page-header/common-page-header.vue'
 import MarketBottomBar from '@/components/market-bottom-bar/market-bottom-bar.vue'
-import { getChatSessions, getTradeNotificationUnreadCount } from '@/api/secondhand'
-import { getMessageState, refreshMessageState, subscribeMessageStore } from '@/utils/messageStore'
+import { getMessageState, refreshChatListState, subscribeMessageStore } from '@/utils/messageStore'
 import { buildDefaultAvatar, pickOtherAvatar } from '@/subpackage_lostfound/utils/avatar.js'
 
 function normalizeSession(item) {
@@ -104,10 +103,9 @@ export default {
         this.loadSessionsFromStore(state)
       }
     })
-    await this.loadData()
   },
   async onShow() {
-    await refreshMessageState('my-messages-show')
+    await refreshChatListState('my-messages-show')
   },
   onUnload() {
     if (this.unsubscribeMessageStore) {
@@ -116,18 +114,11 @@ export default {
     }
   },
   methods: {
-    async loadData() {
-      await Promise.all([
-        this.loadSessions(),
-        this.loadTradeUnread()
-      ])
-      await refreshMessageState('my-messages-load')
-    },
     async refreshPage() {
       if (this.refreshing) return
       this.refreshing = true
       try {
-        await this.loadData()
+        await refreshChatListState('manual-refresh')
         uni.showToast({ title: '已刷新', icon: 'none', duration: 900 })
       } finally {
         this.refreshing = false
@@ -144,24 +135,6 @@ export default {
     },
     handleChatAvatarError(chat) {
       if (chat) chat.otherAvatar = ''
-    },
-    async loadSessions() {
-      try {
-        const res = await getChatSessions({ current: 1, size: 100 })
-        const records = Array.isArray(res?.data?.records) ? res.data.records : []
-        this.chats = records.map(normalizeSession)
-      } catch (e) {
-        console.error('加载数据失败', e)
-      }
-    },
-    async loadTradeUnread() {
-      try {
-        const res = await getTradeNotificationUnreadCount()
-        this.tradeUnread = Number(res?.data || 0)
-      } catch (e) {
-        console.error('加载交易通知未读失败', e)
-        this.tradeUnread = 0
-      }
     },
     fmt(ts) {
       const d = new Date(String(ts).replace(/-/g, '/'))

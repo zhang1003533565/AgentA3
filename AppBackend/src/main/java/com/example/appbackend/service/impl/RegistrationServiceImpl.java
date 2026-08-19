@@ -76,6 +76,33 @@ public class RegistrationServiceImpl implements RegistrationService {
     }
 
     @Override
+    public Registration adminRegisterActivity(Long activityId, Long userId) {
+        Activity activity = activityRepository.findById(activityId)
+                .orElseThrow(() -> new BusinessException(404, "活动不存在"));
+
+        if (registrationRepository.existsByActivityIdAndUserId(activityId, userId)) {
+            throw new BusinessException(400, "该学生已报名此活动");
+        }
+
+        if (activity.getMaxPeople() > 0 && activity.getCurrentPeople() >= activity.getMaxPeople()) {
+            throw new BusinessException(400, "活动名额已满");
+        }
+
+        Registration registration = new Registration();
+        registration.setActivityId(activityId);
+        registration.setUserId(userId);
+        registration.setStatus("APPROVED");
+        registration.setSignupTime(LocalDateTime.now());
+        registration.setCreditAuditStatus("PENDING");
+        registration.setCreditGranted(false);
+
+        Registration saved = registrationRepository.save(registration);
+        activity.setCurrentPeople(activity.getCurrentPeople() + 1);
+        activityRepository.save(activity);
+        return saved;
+    }
+
+    @Override
     public Registration cancelRegistration(Long registrationId, Long userId) {
         Registration registration = registrationRepository.findById(registrationId)
                 .orElseThrow(() -> new BusinessException(404, "Registration not found"));
@@ -161,6 +188,35 @@ public class RegistrationServiceImpl implements RegistrationService {
                 page,
                 size
         );
+    }
+
+    @Override
+    public PageResponse<RegistrationListItem> getAllRegistrations(Long activityId, String status, String keyword, Integer page, Integer size) {
+        PageRequest pageRequest = PageRequest.of(page - 1, size, Sort.by(Sort.Direction.DESC, "signupTime"));
+        String normalizedKeyword = (keyword == null || keyword.isBlank()) ? null : keyword.trim();
+        Page<Registration> registrationPage = registrationRepository.searchRegistrations(activityId, status, normalizedKeyword, pageRequest);
+
+        List<RegistrationListItem> items = registrationPage.getContent().stream()
+                .map(reg -> {
+                    User user = userRepository.findById(reg.getUserId()).orElse(null);
+                    return new RegistrationListItem(
+                            reg.getId(),
+                            reg.getActivityId(),
+                            reg.getActivity() != null ? reg.getActivity().getTitle() : null,
+                            reg.getUserId(),
+                            user != null ? user.getUsername() : null,
+                            user != null ? user.getRealName() : null,
+                            user != null ? user.getPersonalNumber() : null,
+                            user != null ? user.getPhone() : null,
+                            reg.getStatus(),
+                            reg.getSignupTime(),
+                            reg.getAuditTime(),
+                            reg.getRemark()
+                    );
+                })
+                .collect(Collectors.toList());
+
+        return new PageResponse<>(items, registrationPage.getTotalElements(), page, size);
     }
 
     @Override

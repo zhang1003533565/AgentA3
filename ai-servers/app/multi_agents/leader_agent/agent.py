@@ -601,7 +601,7 @@ class LeaderAgent:
         if any(token in normalized for token in ("ppt审查", "ppt评分", "置信度", "审查ppt", "检查ppt")):
             return LeaderPlan("ppt_review", "ppt_review_agent", False, "", route_reason="命中 PPT 审查/评分意图，分发给 PPT 审查智能体。")
         if any(token in normalized for token in ("ppt布局", "ppt排版", "ppt版式", "排布局", "排版")):
-            return LeaderPlan("ppt_layout", "ppt_layout_agent", False, "", route_reason="命中 PPT 布局/排版意图，分发给 PPT 布局智能体。")
+            return LeaderPlan("ppt_structure", "ppt_structure_agent", False, "", route_reason="命中 PPT 布局/排版意图，分发给 Presenton 结构智能体。")
         if (
             any(token in normalized for token in ("ppt图片", "ppt配图", "ppt插图", "ppt封面", "课件配图"))
             or (

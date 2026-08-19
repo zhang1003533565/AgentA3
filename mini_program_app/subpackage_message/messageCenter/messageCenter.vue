@@ -73,6 +73,35 @@
         </view>
       </view>
 
+      <view v-else-if="activeModule === 'FORUM'" class="category-list">
+        <view
+          v-for="entry in forumEntries"
+          :key="entry.type"
+          class="category-item"
+          @click="openForumCategory(entry)"
+        >
+          <view class="category-icon" :class="entry.iconClass">
+            <image class="category-icon-img" :src="entry.icon" mode="aspectFit" />
+            <view v-if="entry.unreadCount > 0" class="unread-dot"></view>
+          </view>
+          <view class="category-body">
+            <view class="category-row">
+              <text class="category-title">{{ entry.title }}</text>
+              <text class="category-time">{{ entry.timeText }}</text>
+            </view>
+            <text class="category-desc">{{ entry.desc }}</text>
+          </view>
+          <view class="category-right">
+            <text v-if="entry.unreadCount > 0" class="category-count">{{ formatCount(entry.unreadCount) }}</text>
+            <text class="category-arrow">›</text>
+          </view>
+        </view>
+        <view v-if="forumEntries.length === 0" class="empty-state compact-empty">
+          <text class="empty-title">暂无论坛消息</text>
+          <text class="empty-desc">帖子收到评论或点赞后会在这里提醒你</text>
+        </view>
+      </view>
+
       <view v-else class="empty-state">
         <view class="empty-icon"></view>
         <text class="empty-title">暂无{{ activeModuleLabel }}消息</text>
@@ -86,6 +115,8 @@
 import NavBar from '@/components/nav-bar/nav-bar.vue'
 import { getAppMessages, getAppMessageUnreadCount, markAppMessageRead, markAppMessagesReadByCategory } from '@/api/message'
 import { refreshMessageState } from '@/utils/messageStore'
+import { getForumMessageUnread } from '@/api/forum.js'
+import { markForumCategoryRead, isForumCategoryRead } from '@/utils/storage.js'
 
 const LOST_FOUND_TRADE_EVENTS = ['TRADE_INTENT', 'TRADE_CONFIRM', 'TRADE_COMPLETE', 'TRADE_CANCEL']
 
@@ -98,6 +129,9 @@ export default {
       unreadCount: 0,
       examUnreadCount: 0,
       activeModule: 'LOST_FOUND',
+      forumCommentCount: 0,
+      forumLikeCount: 0,
+      forumSystemCount: 0,
       modules: [
         { type: 'LOST_FOUND', label: '旧物交易' },
         { type: 'FORUM', label: '论坛' },
@@ -129,6 +163,40 @@ export default {
     },
     examEntries() {
       return this.examMessages
+    },
+    forumEntries() {
+      return [
+        {
+          type: 'comment',
+          title: '收到的评论',
+          desc: this.forumCommentCount > 0 ? `你有 ${this.forumCommentCount} 条新的评论` : '查看帖子收到的评论与回复',
+          unreadCount: this.forumCommentCount,
+          iconClass: 'forum-comment-icon',
+          icon: '/static/icons/line/message-circle.svg',
+          timeText: '',
+          url: '/subpackage_message/messageCategory/messageCategory?type=comment'
+        },
+        {
+          type: 'like',
+          title: '收到的点赞',
+          desc: this.forumLikeCount > 0 ? `你有 ${this.forumLikeCount} 个新的点赞` : '查看帖子收到的点赞',
+          unreadCount: this.forumLikeCount,
+          iconClass: 'forum-like-icon',
+          icon: '/static/icons/line/thumb-up.svg',
+          timeText: '',
+          url: '/subpackage_message/messageCategory/messageCategory?type=like'
+        },
+        {
+          type: 'system',
+          title: '系统通知',
+          desc: this.forumSystemCount > 0 ? `你有 ${this.forumSystemCount} 条系统通知` : '查看平台维护与公告',
+          unreadCount: this.forumSystemCount,
+          iconClass: 'forum-system-icon',
+          icon: '/static/icons/line/award.svg',
+          timeText: '',
+          url: '/subpackage_message/messageCategory/messageCategory?type=system'
+        }
+      ]
     },
     lostFoundEntries() {
       const chatUnread = this.countUnread(this.chatMessages)
@@ -173,9 +241,11 @@ export default {
   },
   async onLoad() {
     await this.loadMessages()
+    await this.loadForumMessages()
   },
   async onShow() {
     await this.loadMessages()
+    await this.loadForumMessages()
   },
   methods: {
     async loadMessages() {
@@ -198,6 +268,37 @@ export default {
       } catch (e) {
         console.error('加载未读数量失败', e)
       }
+    },
+    // 统计论坛三类消息的未读数（聚合接口一次返回，避免 N+1 查询）
+    async loadForumMessages() {
+      let stats = { comment: 0, like: 0, system: 0 }
+      try {
+        const res = await getForumMessageUnread()
+        stats = {
+          comment: Number(res?.data?.commentCount || 0),
+          like: Number(res?.data?.likeCount || 0),
+          system: Number(res?.data?.systemCount || 0)
+        }
+      } catch (error) {
+        stats = { comment: 0, like: 0, system: 0 }
+      }
+      // 点赞未读数来自后端真实未读消息（已读后归零，新点赞重新出现红点）
+      this.forumLikeCount = stats.like
+      // 评论/系统通知暂无后端消息记录，沿用本地已读标记兼容
+      this.forumCommentCount = isForumCategoryRead('comment') ? 0 : stats.comment
+      this.forumSystemCount = isForumCategoryRead('system') ? 0 : stats.system
+    },
+    openForumCategory(entry) {
+      if (entry.type === 'comment') this.forumCommentCount = 0
+      if (entry.type === 'like') {
+        this.forumLikeCount = 0
+        // 点赞消息基于后端 app_message，标记后端已读，返回后 onShow 重新统计不再显示红点
+        markAppMessagesReadByCategory({ moduleType: 'FORUM', eventTypes: ['POST_LIKE'] }).catch(() => {})
+      }
+      if (entry.type === 'system') this.forumSystemCount = 0
+      // 点击即标记该分类已读：立即持久化，返回后 onShow 统计不再显示红点
+      markForumCategoryRead(entry.type)
+      uni.navigateTo({ url: entry.url })
     },
     async openCategory(entry) {
       if (!entry || entry.disabled) {
@@ -483,6 +584,18 @@ export default {
 
 .exam-icon {
   background: #EEF0FF;
+}
+
+.forum-comment-icon {
+  background: #E8F5E9;
+}
+
+.forum-like-icon {
+  background: #FDE8E8;
+}
+
+.forum-system-icon {
+  background: #EEEEF2;
 }
 
 .unread-dot {

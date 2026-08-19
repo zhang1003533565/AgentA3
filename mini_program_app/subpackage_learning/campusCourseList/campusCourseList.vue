@@ -5,35 +5,88 @@
     <!-- 搜索栏 -->
     <view class="header">
       <view class="search-bar">
-        <text class="search-icon">🔍</text>
-        <input type="text" placeholder="搜索课程名称、老师、关键词" v-model="searchKeyword" />
+        <input
+          type="text"
+          placeholder="搜索课程名称、老师、关键词"
+          placeholder-class="search-placeholder"
+          v-model="searchKeyword"
+        />
       </view>
     </view>
 
     <!-- 课程分类 -->
     <view class="category-section">
-      <view class="section-header">
+      <view class="section-header" @tap="categoryExpanded = !categoryExpanded">
         <view class="section-title">课程分类</view>
+        <view class="category-toggle">
+          <text class="toggle-text">{{ categoryExpanded ? '收起' : '展开' }}</text>
+          <view class="toggle-arrow" :class="{ up: categoryExpanded }"></view>
+        </view>
       </view>
-      <view class="category-grid">
-        <view
-          class="category-item"
-          v-for="category in categories"
-          :key="category.id"
-          :class="{ active: selectedCategory === category.id }"
-          @tap="selectedCategory = category.id"
-        >
-          <view class="category-icon" :style="{ background: category.bg }">
-            <text>{{ category.icon }}</text>
-          </view>
-          <text class="category-name">{{ category.name }}</text>
+
+      <view class="category-content" :class="{ collapsed: !categoryExpanded }">
+        <!-- 第一行：系统课程类型 -->
+        <view v-if="false && builtinCategories.length" class="category-row">
+          <view class="category-row-label">课程类型</view>
+          <scroll-view class="category-row-scroll" scroll-x :show-scrollbar="false">
+            <view class="category-row-list">
+              <view class="category-item" :class="{ active: selectedBuiltinType === '' }" @tap="selectedBuiltinType = ''">
+                <text class="category-name">全部</text>
+              </view>
+              <view
+                class="category-item"
+                v-for="category in builtinCategories"
+                :key="category.typeCode"
+                :class="{ active: selectedBuiltinType === category.typeCode }"
+                @tap="selectedBuiltinType = selectedBuiltinType === category.typeCode ? '' : category.typeCode"
+              >
+                <text class="category-name">{{ category.typeName }}</text>
+              </view>
+            </view>
+          </scroll-view>
+        </view>
+
+        <!-- 第二行：自定义类型 -->
+        <view v-if="customCategories.length" class="category-row category-row-custom">
+          <scroll-view class="category-row-scroll" scroll-x :show-scrollbar="false">
+            <view class="category-row-list">
+              <view class="category-item" :class="{ active: selectedCustomType === '' }" @tap="selectedCustomType = ''">
+                <text class="category-name">全部</text>
+              </view>
+              <view
+                class="category-item"
+                v-for="category in customCategories"
+                :key="category.typeCode"
+                :class="{ active: selectedCustomType === category.typeCode }"
+                @tap="selectCustomType(category.typeCode)"
+              >
+                <text class="category-name">{{ category.typeName }}</text>
+              </view>
+            </view>
+          </scroll-view>
+        </view>
+
+        <view v-if="false" class="category-row level-category-row">
+          <view class="category-row-label">等级</view>
+          <scroll-view class="category-row-scroll" scroll-x :show-scrollbar="false">
+            <view class="category-row-list">
+              <view class="category-item" :class="{ active: selectedLevel === '' }" @tap="selectedLevel = ''">全部</view>
+              <view
+                class="category-item"
+                v-for="level in levels"
+                :key="level"
+                :class="{ active: selectedLevel === level }"
+                @tap="selectedLevel = level"
+              >{{ level }}</view>
+            </view>
+          </scroll-view>
         </view>
       </view>
     </view>
 
     <!-- 筛选区 -->
     <view class="filter-section">
-      <view class="filter-chips">
+      <view v-if="false" class="filter-chips">
         <view
           class="chip"
           :class="{ active: selectedLevel === '' }"
@@ -53,17 +106,17 @@
           <text
             class="sort-option"
             :class="{ active: sortBy === 'hot' }"
-            @tap="sortBy = 'hot'"
+            @tap="selectSort('hot')"
           >热门</text>
           <text
             class="sort-option"
             :class="{ active: sortBy === 'new' }"
-            @tap="sortBy = 'new'"
+            @tap="selectSort('new')"
           >最新</text>
           <text
             class="sort-option"
             :class="{ active: sortBy === 'name' }"
-            @tap="sortBy = 'name'"
+            @tap="selectSort('name')"
           >名称</text>
         </view>
       </view>
@@ -100,16 +153,14 @@
             />
             <text v-else class="course-emoji">{{ getCourseEmoji(course.id) }}</text>
             <view class="course-badge" v-if="isHot(course)">🔥 热门</view>
-          </view>
-          <view class="course-info">
-            <view class="course-title">{{ course.name }}</view>
-            <text class="teacher">{{ course.ownerName || course.bookTitle || '课程管理员' }}</text>
-            <view class="course-tags">
-              <text class="tag level-tag">{{ course.level || '初级' }}</text>
-              <text class="tag duration-tag" v-if="course.chapterCount">{{ course.chapterCount }}章节</text>
             </view>
+            <view class="course-info">
+              <view class="course-title">{{ course.name }}</view>
+            <text class="teacher course-meta-line">
+              {{ course.teacherName || course.ownerName || '暂无教师' }} · {{ course.chapterCount || 0 }}章 · {{ course.examCount ? course.examCount + '场考试' : '无考试' }}
+            </text>
             <view class="course-footer">
-              <text class="students" v-if="course.examCount">{{ course.examCount }}场考试</text>
+              <text class="students"></text>
               <view class="footer-right">
                 <view
                   class="add-btn"
@@ -126,6 +177,8 @@
         <view v-if="filteredCourses.length === 0 && !loading" class="state-box">
           暂无课程
         </view>
+        <view v-if="loadingMore" class="state-box">加载中...</view>
+        <view v-else-if="!hasMore && courses.length > 0 && !loading" class="state-box state-end">— 已加载全部课程 —</view>
       </view>
     </view>
   </view>
@@ -133,7 +186,12 @@
 
 <script>
 import NavBar from '@/components/nav-bar/nav-bar.vue'
-import { getCampusCourses, getMyCourses, enrollCourse, unenrollCourse } from '@/api/campusCourse.js'
+import { getCampusCourses, getCampusCoursesPage, getMyCourses, enrollCourse, unenrollCourse, getCampusCourseTypes } from '@/api/campusCourse.js'
+
+const MAJOR_CATEGORIES = [
+  '哲学类', '经济学类', '法学类', '教育学类', '文学类', '历史学类',
+  '理学类', '工学类', '农学类', '医学类', '管理学类', '艺术学类', '军事学类', '交叉学科类',
+].map(value => ({ typeCode: value, typeName: value, category: 'CUSTOM' }))
 
 const COVER_COLORS = [
   'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
@@ -153,11 +211,18 @@ export default {
     return {
       searchKeyword: '',
       selectedCategory: 0,
+      selectedCustomType: '',
+      selectedBuiltinType: '',
       selectedLevel: '',
       sortBy: 'hot',
+      categoryExpanded: true,
       courses: [],
       myCourseIds: [],
       loading: false,
+      loadingMore: false,
+      page: 1,
+      pageSize: 8,
+      hasMore: true,
       errorMessage: '',
       enrollingId: null,
       categories: [
@@ -168,6 +233,8 @@ export default {
         { id: 4, name: '外语', icon: '🗣️', bg: '#f3e5f5' },
         { id: 5, name: '数据', icon: '📊', bg: '#e8f5e9' }
       ],
+      customCategories: MAJOR_CATEGORIES,
+      builtinCategories: [],
       levels: ['初级', '中级', '高级']
     }
   },
@@ -185,6 +252,12 @@ export default {
       if (this.selectedLevel) {
         list = list.filter(c => (c.level || '初级') === this.selectedLevel)
       }
+      if (this.selectedCustomType) {
+        list = list.filter(c => (c.customCourseTypes || []).includes(this.selectedCustomType))
+      }
+      if (this.selectedBuiltinType) {
+        list = list.filter(c => c.courseType === this.selectedBuiltinType)
+      }
       if (this.sortBy === 'name') {
         list.sort((a, b) => (a.name || '').localeCompare(b.name || ''))
       }
@@ -193,23 +266,54 @@ export default {
   },
   onLoad() {
     this.loadCourses()
+    this.loadCategories()
   },
   onShow() {
     this.loadMyCourseIds()
   },
   methods: {
-    async loadCourses() {
+    async loadCourses(customType = this.selectedCustomType) {
       this.loading = true
       this.errorMessage = ''
+      this.page = 1
       try {
-        const response = await getCampusCourses()
-        this.courses = response?.data || []
+        const response = await getCampusCoursesPage(1, this.pageSize, customType)
+        const data = response?.data || {}
+        this.courses = data.list || []
+        this.hasMore = data.hasMore !== false
         await this.loadMyCourseIds()
       } catch (error) {
         this.courses = []
         this.errorMessage = error?.msg || error?.message || '加载课程失败'
       } finally {
         this.loading = false
+      }
+    },
+    selectSort(sort) {
+      this.sortBy = sort
+      this.loadCourses(this.selectedCustomType)
+    },
+    selectCustomType(typeCode) {
+      this.selectedCustomType = this.selectedCustomType === typeCode ? '' : typeCode
+      this.loadCourses(this.selectedCustomType)
+    },
+    async loadMore() {
+      if (this.loadingMore || !this.hasMore || this.loading) return
+      this.loadingMore = true
+      try {
+        const nextPage = this.page + 1
+        const response = await getCampusCoursesPage(nextPage, this.pageSize, this.selectedCustomType)
+        const data = response?.data || {}
+        const list = data.list || []
+        if (list.length > 0) {
+          this.courses = [...this.courses, ...list]
+          this.page = nextPage
+        }
+        this.hasMore = data.hasMore !== false
+      } catch (error) {
+        uni.showToast({ title: '加载失败', icon: 'none' })
+      } finally {
+        this.loadingMore = false
       }
     },
     async loadMyCourseIds() {
@@ -219,6 +323,29 @@ export default {
         this.myCourseIds = list.map(c => c.id)
       } catch (e) {
         // 静默失败
+      }
+    },
+    async loadCategories() {
+      try {
+        const response = await getCampusCourseTypes()
+        const types = response?.data || []
+        const fixedCodes = new Set(MAJOR_CATEGORIES.map(item => item.typeCode))
+        const extraCategories = types
+          .filter(item => item.category === 'CUSTOM' && !fixedCodes.has(item.typeCode))
+          .map(item => ({ typeCode: item.typeCode, typeName: item.typeName, category: 'CUSTOM' }))
+        this.customCategories = [...MAJOR_CATEGORIES, ...extraCategories]
+        this.builtinCategories = []
+      } catch (e) {
+        this.customCategories = MAJOR_CATEGORIES
+        this.builtinCategories = []
+      }
+      try {
+        const response = await getCampusCourseTypes()
+        const types = response?.data || []
+        this.customCategories = types.filter(t => t.category === 'CUSTOM')
+        this.builtinCategories = types.filter(t => t.category === 'BUILTIN')
+      } catch (e) {
+        // 静默失败，保留空分类
       }
     },
     isEnrolled(courseId) {
@@ -257,6 +384,9 @@ export default {
     isHot(course) {
       return (course.progressPercent || 0) > 80 || (course.examCount || 0) > 3
     }
+  },
+  onReachBottom() {
+    this.loadMore()
   }
 }
 </script>
@@ -266,24 +396,22 @@ export default {
   min-height: 100vh;
   padding-bottom: 80rpx;
   background: #f5f7fa;
+  overflow-x: hidden;
 }
 
 .header {
-  background: linear-gradient(180deg, #4a90d9 0%, #6ba3e8 100%);
-  padding: 30rpx 24rpx 24rpx;
+  background: #fff;
+  padding: 20rpx 24rpx;
+  border-bottom: 1px solid #f0f0f0;
 }
 
 .search-bar {
   display: flex;
   align-items: center;
-  background: #fff;
-  border-radius: 40rpx;
+  background: rgba(0, 0, 0, 0.04);
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  border-radius: 18rpx;
   padding: 18rpx 28rpx;
-  gap: 14rpx;
-}
-
-.search-icon {
-  font-size: 28rpx;
 }
 
 .search-bar input {
@@ -292,6 +420,11 @@ export default {
   flex: 1;
   font-size: 28rpx;
   color: #333;
+  background: transparent;
+}
+
+.search-placeholder {
+  color: #999;
 }
 
 .category-section {
@@ -303,57 +436,141 @@ export default {
   justify-content: space-between;
   align-items: center;
   margin-bottom: 24rpx;
+  min-width: 0;
 }
 
 .section-title {
   font-size: 32rpx;
   font-weight: 700;
   color: #333;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .count {
   font-size: 24rpx;
   color: #999;
+  white-space: nowrap;
+  flex-shrink: 0;
+  margin-left: 16rpx;
 }
 
-.category-grid {
+/* 分类展开/收起切换按钮 */
+.category-toggle {
   display: flex;
-  justify-content: space-between;
-  gap: 8rpx;
+  align-items: center;
+  gap: 10rpx;
+  padding: 10rpx 24rpx;
+  background: #fff;
+  border-radius: 28rpx;
+  font-size: 24rpx;
+  color: #666;
+  transition: opacity 0.2s;
+}
+
+.category-toggle:active {
+  opacity: 0.75;
+}
+
+.toggle-arrow {
+  width: 14rpx;
+  height: 14rpx;
+  border-right: 3rpx solid #999;
+  border-bottom: 3rpx solid #999;
+  transform: rotate(45deg);
+  transition: transform 0.25s;
+  margin-top: -6rpx;
+}
+
+.toggle-arrow.up {
+  transform: rotate(-135deg);
+  margin-top: 6rpx;
+}
+
+/* 分类内容：收起时高度归零并淡出 */
+.category-content {
+  overflow: hidden;
+  max-height: 1200rpx;
+  opacity: 1;
+  transition: max-height 0.3s ease, opacity 0.25s ease;
+}
+
+.category-content.collapsed {
+  max-height: 0;
+  opacity: 0;
+}
+
+/* 分类每行横向滚动容器 */
+.category-row-scroll {
+  white-space: nowrap;
+  width: 100%;
+}
+
+.category-row-list {
+  display: inline-flex;
+  gap: 16rpx;
+  white-space: nowrap;
+  padding-bottom: 4rpx;
+}
+
+.category-hot-list {
+  display: inline-flex;
+  gap: 16rpx;
+  white-space: nowrap;
+  padding-bottom: 4rpx;
+}
+
+.category-row {
+  margin-bottom: 24rpx;
+}
+
+.category-row-custom {
+  padding-top: 42rpx;
+  position: relative;
+}
+
+.category-row-custom::before {
+  content: '专业大类';
+  position: absolute;
+  top: 0;
+  left: 0;
+  color: #999;
+  font-size: 24rpx;
+}
+
+.category-row-label {
+  font-size: 24rpx;
+  color: #999;
+  margin-bottom: 16rpx;
 }
 
 .category-item {
   display: flex;
-  flex-direction: column;
   align-items: center;
-  gap: 12rpx;
-  padding: 12rpx 4rpx;
-  border-radius: 16rpx;
-  transition: background 0.2s;
-  min-width: 100rpx;
+  justify-content: center;
+  width: 180rpx;
+  height: 76rpx;
+  box-sizing: border-box;
+  padding: 0;
+  border-radius: 36rpx;
+  background: #fff;
+  border: 2rpx solid #eef1f5;
+  transition: all 0.2s;
 }
 
 .category-item.active {
-  background: #e8f2fd;
-}
-
-.category-icon {
-  width: 80rpx;
-  height: 80rpx;
-  border-radius: 20rpx;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 36rpx;
+  background: #4a90d9;
+  border-color: #4a90d9;
 }
 
 .category-name {
-  font-size: 22rpx;
+  font-size: 25rpx;
   color: #666;
+  white-space: nowrap;
 }
 
 .category-item.active .category-name {
-  color: #4a90d9;
+  color: #fff;
   font-weight: 600;
 }
 
@@ -362,14 +579,20 @@ export default {
 }
 
 .filter-chips {
-  display: flex;
+  display: none;
   gap: 16rpx;
   margin-bottom: 24rpx;
   flex-wrap: wrap;
 }
 
 .chip {
-  padding: 12rpx 28rpx;
+  width: 180rpx;
+  height: 76rpx;
+  box-sizing: border-box;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   background: #fff;
   border-radius: 40rpx;
   font-size: 26rpx;
@@ -424,7 +647,10 @@ export default {
 }
 
 .course-section {
-  padding: 0 24rpx;
+  width: auto;
+  margin: 0 24rpx;
+  padding: 0;
+  box-sizing: border-box;
 }
 
 .course-grid {
@@ -438,6 +664,8 @@ export default {
   border-radius: 20rpx;
   overflow: hidden;
   display: flex;
+  height: 220rpx;
+  box-sizing: border-box;
   box-shadow: 0 4rpx 24rpx rgba(0, 0, 0, 0.06);
   transition: transform 0.15s;
 }
@@ -447,8 +675,8 @@ export default {
 }
 
 .course-cover {
-  width: 180rpx;
-  min-height: 200rpx;
+  width: 148rpx;
+  height: 220rpx;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -484,10 +712,11 @@ export default {
 
 .course-info {
   flex: 1;
-  padding: 22rpx;
+  min-width: 0;
+  padding: 18rpx 20rpx;
   display: flex;
   flex-direction: column;
-  justify-content: space-between;
+  justify-content: flex-start;
 }
 
 .course-title {
@@ -500,6 +729,7 @@ export default {
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
+  word-break: break-all;
 }
 
 .teacher {
@@ -508,10 +738,32 @@ export default {
   margin-top: 10rpx;
 }
 
+.level-category-row {
+  margin-top: 24rpx;
+}
+
+.level-category-row .category-item {
+  font-size: 25rpx;
+  line-height: 1;
+  color: #666;
+}
+
+.level-category-row .category-item.active {
+  color: #fff;
+  font-weight: 400;
+}
+
+.course-meta-line {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin-top: 14rpx;
+}
+
 .course-tags {
   display: flex;
   gap: 12rpx;
-  margin-top: 14rpx;
+  margin-top: 8rpx;
 }
 
 .tag {
@@ -532,14 +784,18 @@ export default {
 
 .course-footer {
   display: flex;
-  justify-content: space-between;
+  justify-content: flex-end;
   align-items: center;
-  margin-top: 14rpx;
+  margin-top: 8rpx;
 }
 
 .students {
   font-size: 22rpx;
   color: #999;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .footer-right {
@@ -574,6 +830,12 @@ export default {
   text-align: center;
   color: #999;
   font-size: 28rpx;
+}
+
+.state-end {
+  padding: 40rpx 40rpx;
+  font-size: 24rpx;
+  color: #ccc;
 }
 
 .retry-btn {

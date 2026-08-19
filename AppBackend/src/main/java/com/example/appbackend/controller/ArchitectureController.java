@@ -64,10 +64,19 @@ public class ArchitectureController {
     @GetMapping("/{id}")
     @Operation(summary = "查询架构图详情", description = "按记录ID查询完整架构JSON，仅限本人记录")
     public Result<ArchitectureDTO.GenerateResponse> detail(@PathVariable("id") Long id,
-                                                            HttpServletRequest httpRequest) {
+                                                           HttpServletRequest httpRequest) {
         Long userId = currentUserId(httpRequest);
         ArchitectureDTO.GenerateResponse data = architectureService.detail(id, userId);
         return Result.success(data);
+    }
+
+    @DeleteMapping("/{id}")
+    @Operation(summary = "删除架构图记录", description = "按记录ID删除当前用户自己的架构图历史记录")
+    public Result<Void> delete(@PathVariable("id") Long id,
+                               HttpServletRequest httpRequest) {
+        Long userId = currentUserId(httpRequest);
+        architectureService.delete(id, userId);
+        return Result.success();
     }
 
     private Long currentUserId(HttpServletRequest request) {

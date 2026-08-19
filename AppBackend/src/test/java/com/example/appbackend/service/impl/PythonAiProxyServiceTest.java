@@ -5,6 +5,7 @@ import com.example.appbackend.dto.LlmChatResponse;
 import com.example.appbackend.entity.SystemConfig;
 import com.example.appbackend.exception.BusinessException;
 import com.example.appbackend.repository.SystemConfigRepository;
+import com.example.appbackend.service.LangfuseConfigService;
 import com.example.appbackend.service.SystemConfigService;
 import com.example.appbackend.util.JwtUtil;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -29,8 +30,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
+
+import static org.mockito.Mockito.mock;
 
 class PythonAiProxyServiceTest {
 
@@ -613,6 +616,93 @@ class PythonAiProxyServiceTest {
     }
 
     @Test
+    void generateArchitecture_shouldForwardTextAiHeadersWhenAgentBindingMissing() throws Exception {
+        AtomicReference<String> authRef = new AtomicReference<>();
+        AtomicReference<String> userIdRef = new AtomicReference<>();
+        AtomicReference<String> providerRef = new AtomicReference<>();
+        AtomicReference<String> baseUrlRef = new AtomicReference<>();
+        AtomicReference<String> apiKeyRef = new AtomicReference<>();
+        AtomicReference<String> modelRef = new AtomicReference<>();
+        AtomicReference<String> requestBodyRef = new AtomicReference<>();
+
+        server = HttpServer.create(new InetSocketAddress(0), 0);
+        server.createContext("/internal/architecture/generate", exchange -> {
+            authRef.set(exchange.getRequestHeaders().getFirst("Authorization"));
+            userIdRef.set(exchange.getRequestHeaders().getFirst("X-User-Id"));
+            providerRef.set(exchange.getRequestHeaders().getFirst("X-AI-Provider"));
+            baseUrlRef.set(exchange.getRequestHeaders().getFirst("X-AI-Base-Url"));
+            apiKeyRef.set(exchange.getRequestHeaders().getFirst("X-AI-Api-Key"));
+            modelRef.set(exchange.getRequestHeaders().getFirst("X-AI-Model"));
+            requestBodyRef.set(readBody(exchange));
+            writeJson(exchange, 200, "{\"title\":\"测试架构图\",\"nodes\":[],\"edges\":[]}");
+        });
+        server.start();
+
+        SystemConfigService systemConfigService = new NoAgentBindingSystemConfigService();
+        String token = buildJwtToken(3001L);
+        Object response = newService(
+                server.getAddress().getPort(),
+                systemConfigService,
+                newSystemConfigRepository(systemConfigService)
+        ).generateArchitecture(
+                Map.of("description", "校园二手交易系统架构图"),
+                "Bearer " + token
+        );
+
+        Assertions.assertInstanceOf(Map.class, response);
+        Assertions.assertEquals("测试架构图", ((Map<?, ?>) response).get("title"));
+        Assertions.assertEquals("Bearer " + token, authRef.get());
+        Assertions.assertEquals("3001", userIdRef.get());
+        Assertions.assertEquals("deepseek", providerRef.get());
+        Assertions.assertEquals("https://llm.test/v1", baseUrlRef.get());
+        Assertions.assertEquals("test-ai-key", apiKeyRef.get());
+        Assertions.assertEquals("test-model", modelRef.get());
+
+        JsonNode request = new ObjectMapper().readTree(requestBodyRef.get());
+        Assertions.assertEquals("校园二手交易系统架构图", request.path("description").asText());
+    }
+
+    @Test
+    void generatePptOutline_shouldReuseTestedTextModelWhenAgentBindingMissing() throws Exception {
+        AtomicReference<String> providerRef = new AtomicReference<>();
+        AtomicReference<String> baseUrlRef = new AtomicReference<>();
+        AtomicReference<String> apiKeyRef = new AtomicReference<>();
+        AtomicReference<String> modelRef = new AtomicReference<>();
+        AtomicReference<String> requestBodyRef = new AtomicReference<>();
+
+        server = HttpServer.create(new InetSocketAddress(0), 0);
+        server.createContext("/internal/rag/ppt-generation/outlines", exchange -> {
+            providerRef.set(exchange.getRequestHeaders().getFirst("X-AI-Provider"));
+            baseUrlRef.set(exchange.getRequestHeaders().getFirst("X-AI-Base-Url"));
+            apiKeyRef.set(exchange.getRequestHeaders().getFirst("X-AI-Api-Key"));
+            modelRef.set(exchange.getRequestHeaders().getFirst("X-AI-Model"));
+            requestBodyRef.set(readBody(exchange));
+            writeJson(exchange, 200, "{\"title\":\"数据结构复习\",\"items\":[]}");
+        });
+        server.start();
+
+        SystemConfigService systemConfigService = new NoAgentBindingSystemConfigService();
+        Object response = newService(
+                server.getAddress().getPort(),
+                systemConfigService,
+                newSystemConfigRepository(systemConfigService)
+        ).generatePptOutline(
+                Map.of("sourceName", "material.txt", "sourceContent", "栈与队列"),
+                "Bearer " + buildJwtToken(3002L)
+        );
+
+        Assertions.assertInstanceOf(Map.class, response);
+        Assertions.assertEquals("deepseek", providerRef.get());
+        Assertions.assertEquals("https://llm.test/v1", baseUrlRef.get());
+        Assertions.assertEquals("test-ai-key", apiKeyRef.get());
+        Assertions.assertEquals("test-model", modelRef.get());
+
+        JsonNode request = new ObjectMapper().readTree(requestBodyRef.get());
+        Assertions.assertEquals("material.txt", request.path("sourceName").asText());
+        Assertions.assertEquals("栈与队列", request.path("sourceContent").asText());
+    }
+
+    @Test
     void chat_shouldFailFastWhenAiConfigMissing() {
         PythonAiProxyService service = newService(65535, new MissingApiKeySystemConfigService());
         String token = buildJwtToken(1005L);
@@ -658,6 +748,7 @@ class PythonAiProxyServiceTest {
                 jwtUtil,
                 systemConfigService,
                 systemConfigRepository,
+                mock(LangfuseConfigService.class),
                 "http://localhost:" + port,
                 5,
                 300,
@@ -734,6 +825,15 @@ class PythonAiProxyServiceTest {
                                     systemConfig("ai.agent-bindings.leader_agent.model", systemConfigService.getValue("ai.agent-bindings.leader_agent.model", "")),
                                     systemConfig("ai.agent-bindings.ppt_outline_agent.model", systemConfigService.getValue("ai.agent-bindings.ppt_outline_agent.model", "")),
                                     systemConfig("ai.agent-bindings.diagram_flowchart_agent.model", systemConfigService.getValue("ai.agent-bindings.diagram_flowchart_agent.model", ""))
+                            );
+                        }
+                        if ("ai.service.text.".equals(prefix)) {
+                            return List.of(
+                                    systemConfig("ai.service.text.provider", systemConfigService.getValue("ai.service.text.provider", "")),
+                                    systemConfig("ai.service.text.base-url", systemConfigService.getValue("ai.service.text.base-url", "")),
+                                    systemConfig("ai.service.text.api-key", systemConfigService.getValue("ai.service.text.api-key", "")),
+                                    systemConfig("ai.service.text.model", systemConfigService.getValue("ai.service.text.model", "")),
+                                    systemConfig("ai.service.text.tested-fingerprint", systemConfigService.getValue("ai.service.text.tested-fingerprint", ""))
                             );
                         }
                         return List.of();
@@ -884,6 +984,16 @@ class PythonAiProxyServiceTest {
         @Override
         public String getValue(String key, String defaultValue) {
             if ("ai.service.text.api-key".equals(key)) {
+                return "";
+            }
+            return super.getValue(key, defaultValue);
+        }
+    }
+
+    private static final class NoAgentBindingSystemConfigService extends TestSystemConfigService {
+        @Override
+        public String getValue(String key, String defaultValue) {
+            if (key.startsWith("ai.agent-bindings.") && key.endsWith(".model")) {
                 return "";
             }
             return super.getValue(key, defaultValue);

@@ -1,129 +1,117 @@
-/* ===== 话题管理 — 紫色渐变背景 ===== */
+/* ===== 话题管理 ===== */
 .tm-container {
   min-height: calc(100vh - 64px);
-  background: linear-gradient(135deg, #1e1b4b 0%, #312e81 40%, #3730a3 100%);
+  background: #f5f7fa;
   padding: 24px;
   position: relative;
   overflow: hidden;
 }
 
-.tm-bg-orbs {
-  position: absolute;
-  inset: 0;
-  overflow: hidden;
-  pointer-events: none;
-  z-index: 0;
-}
-
-.tm-bg-orbs::before {
-  content: '';
-  position: absolute;
-  width: 700px;
-  height: 700px;
-  border-radius: 50%;
-  background: radial-gradient(circle, rgba(139, 92, 246, 0.12) 0%, transparent 70%);
-  top: -250px;
-  right: -150px;
-}
-
-.tm-bg-orbs::after {
-  content: '';
-  position: absolute;
-  width: 400px;
-  height: 400px;
-  border-radius: 50%;
-  background: radial-gradient(circle, rgba(167, 139, 250, 0.08) 0%, transparent 70%);
-  bottom: -100px;
-  left: -50px;
-}
-
+/* 顶部统计区（白色矩形） */
 .tm-header {
   position: relative;
   z-index: 1;
   display: flex;
   justify-content: flex-end;
-  align-items: flex-start;
-  margin-bottom: 20px;
-  padding: 20px 24px;
-  background: rgba(255, 255, 255, 0.06);
+  align-items: center;
+  margin-bottom: 16px;
+  padding: 18px 24px;
+  background: #fff;
   border-radius: 16px;
-  backdrop-filter: blur(10px);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 2px 10px rgba(15, 23, 42, 0.06);
 }
 
-.tm-header-left h1 {
-  margin: 0 0 4px;
-  font-size: 24px;
-  font-weight: 700;
-  color: #ede9fe;
-  letter-spacing: 0.05em;
-}
-
-.tm-header-desc {
-  margin: 0;
+/* 热门/最新收录标准说明条 */
+.tm-rules-bar {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+  padding: 10px 16px;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-left: 4px solid #1677ff;
+  border-radius: 10px;
   font-size: 13px;
-  color: rgba(221, 214, 254, 0.7);
+  color: #334155;
+}
+
+.tm-rules-label {
+  font-weight: 700;
+  color: #1677ff;
+  white-space: nowrap;
+}
+
+.tm-rules-item {
+  white-space: normal;
+}
+
+.tm-rules-tip {
+  color: #64748b;
+  white-space: normal;
 }
 
 .tm-header-stats {
   display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
+  align-items: center;
+  gap: 28px;
 }
 
-.tm-stat-badge {
-  padding: 4px 14px;
-  border-radius: 20px;
+.tm-header-stat {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  line-height: 1.2;
+}
+
+.tm-header-stat + .tm-header-stat {
+  padding-left: 28px;
+  border-left: 1px solid #eef2f7;
+}
+
+.tm-header-stat-value {
+  font-size: 24px;
+  font-weight: 700;
+  color: #1e293b;
+}
+
+.tm-header-stat-label {
   font-size: 12px;
-  font-weight: 600;
-  border: 1px solid;
+  color: #64748b;
+  margin-top: 2px;
 }
 
-.tm-badge-purple { color: #a78bfa; border-color: rgba(167, 139, 250, 0.3); background: rgba(167, 139, 250, 0.1); }
-.tm-badge-active { color: #4ade80; border-color: rgba(74, 222, 128, 0.3); background: rgba(74, 222, 128, 0.1); }
-.tm-badge-hot { color: #fbbf24; border-color: rgba(251, 191, 36, 0.3); background: rgba(251, 191, 36, 0.1); }
+.tm-header-stat-blue .tm-header-stat-value { color: #1677ff; }
+.tm-header-stat-green .tm-header-stat-value { color: #52c41a; }
+.tm-header-stat-red .tm-header-stat-value { color: #f5222d; }
 
-.tm-stat-row {
-  position: relative;
-  z-index: 1;
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 14px;
-  margin-bottom: 16px;
-}
-
-.tm-stat-card {
-  border: none !important;
-  border-radius: 12px !important;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15) !important;
-  transition: transform 0.2s ease, box-shadow 0.2s ease;
-}
-
-.tm-stat-card:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.2) !important;
-}
-
-.tm-stat-card :global(.ant-card-body) {
-  padding: 16px 18px !important;
+/* 编辑弹窗：热门话题标签靠左、勾选框靠右，同一行 */
+.tm-hot-row {
   display: flex;
   align-items: center;
-  gap: 14px;
+  justify-content: space-between;
+  width: 100%;
 }
 
-.tm-stat-card-icon { font-size: 28px; opacity: 0.8; }
-.tm-stat-card-value { font-size: 28px; font-weight: 700; color: #1e1b4b; line-height: 1; }
-.tm-stat-card-label { font-size: 12px; color: #6b7280; margin-top: 2px; }
+.tm-hot-label {
+  font-size: 14px;
+  color: rgba(0, 0, 0, 0.88);
+  white-space: nowrap;
+}
 
+/* 搜索卡片 */
 .tm-search-card {
   position: relative;
   z-index: 1;
   margin-bottom: 12px;
   padding: 14px 18px;
   border-radius: 12px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  background: rgba(255, 255, 255, 0.04);
-  backdrop-filter: blur(10px);
+  border: 1px solid #e2e8f0;
+  background: #fff;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -144,59 +132,122 @@
   white-space: nowrap;
 }
 
+/* 批量删除栏 */
+.tm-batch-bar {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 18px;
+  margin-bottom: 12px;
+  background: linear-gradient(90deg, rgba(245, 34, 45, 0.12), rgba(245, 34, 45, 0.04));
+  border: 1px solid rgba(245, 34, 45, 0.25);
+  border-radius: 10px;
+}
+
+.tm-batch-count {
+  font-size: 14px;
+  color: #fca5a5;
+}
+
+.tm-batch-count strong {
+  color: #f87171;
+  font-size: 16px;
+}
+
+/* 行悬停完整信息浮层 */
+.tm-row-pop {
+  min-width: 300px;
+  max-width: 400px;
+}
+
+.tm-row-pop-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: #1e293b;
+  margin-bottom: 10px;
+  word-break: break-word;
+}
+
+.tm-row-pop-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+  color: #334155;
+}
+
+.tm-row-pop-meta .tm-row-pop-label {
+  display: inline-block;
+  min-width: 70px;
+  color: #64748b;
+  font-weight: 500;
+}
+
 .tm-table-card {
   position: relative;
   z-index: 1;
   border-radius: 12px !important;
-  border: 1px solid rgba(255, 255, 255, 0.06) !important;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2) !important;
+  border: 1px solid #e2e8f0 !important;
+  box-shadow: none !important;
   overflow: hidden;
 }
 
 .tm-table-card :global(.ant-table-wrapper) { background: transparent; }
-.tm-table-card :global(.ant-table) { background: transparent; color: #e2e8f0; }
+.tm-table-card :global(.ant-table) { background: #fff; color: #334155; }
 
 .tm-table-card :global(.ant-table-thead > tr > th) {
-  background: rgba(49, 46, 129, 0.8) !important;
-  color: #c4b5fd !important;
+  background: #f8fafc !important;
+  color: #475569 !important;
   font-weight: 600;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06) !important;
+  border-bottom: 1px solid #e2e8f0 !important;
 }
 
 .tm-table-card :global(.ant-table-tbody > tr) {
-  background: rgba(30, 27, 75, 0.3);
+  background: #fff;
   transition: background 0.15s ease;
 }
 
 .tm-table-card :global(.ant-table-tbody > tr:hover) {
-  background: rgba(139, 92, 246, 0.08) !important;
+  background: #f8fafc !important;
 }
 
 .tm-table-card :global(.ant-table-tbody > tr > td) {
-  border-bottom: 1px solid rgba(255, 255, 255, 0.04) !important;
-  color: #e2e8f0;
+  border-bottom: 1px solid #eef2f7 !important;
+  color: #334155;
 }
 
-.tm-table-card :global(.ant-pagination) { background: rgba(49, 46, 129, 0.5); }
+.tm-table-card :global(.ant-pagination) { background: #fff; }
 .tm-table-card :global(.ant-pagination-item) {
-  border-color: rgba(255, 255, 255, 0.1);
-  background: rgba(30, 27, 75, 0.4);
+  border-color: #e2e8f0;
+  background: #fff;
 }
 .tm-table-card :global(.ant-pagination-item a) { color: #94a3b8; }
 .tm-table-card :global(.ant-pagination-item-active) {
-  background: #4a7fad !important;
-  border-color: #4a7fad !important;
+  background: #1677ff !important;
+  border-color: #1677ff !important;
 }
 .tm-table-card :global(.ant-pagination-item-active a) { color: #fff !important; }
 .tm-table-card :global(.ant-pagination-prev .ant-pagination-item-link),
 .tm-table-card :global(.ant-pagination-next .ant-pagination-item-link) {
-  background: rgba(30, 27, 75, 0.4);
-  border-color: rgba(255, 255, 255, 0.1);
-  color: #94a3b8;
+  background: #fff;
+  border-color: #e2e8f0;
+  color: #64748b;
 }
 
-@media (max-width: 1200px) { .tm-stat-row { grid-template-columns: repeat(2, 1fr); } }
 @media (max-width: 768px) {
-  .tm-stat-row { grid-template-columns: 1fr; }
-  .tm-header { flex-direction: column; gap: 12px; }
+  .tm-header {
+    flex-direction: column;
+    gap: 12px;
+  }
+  .tm-header-stats {
+    width: 100%;
+    justify-content: flex-start;
+    flex-wrap: wrap;
+    gap: 16px;
+  }
+  .tm-header-stat + .tm-header-stat {
+    padding-left: 16px;
+  }
 }

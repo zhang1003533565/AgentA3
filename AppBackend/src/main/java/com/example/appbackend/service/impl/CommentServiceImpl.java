@@ -2,6 +2,7 @@ package com.example.appbackend.service.impl;
 
 import com.example.appbackend.dto.CommentRequest;
 import com.example.appbackend.dto.CommentResponse;
+import com.example.appbackend.dto.ReceivedCommentResponse;
 import com.example.appbackend.dto.PageResponse;
 import com.example.appbackend.entity.ForumComment;
 import com.example.appbackend.entity.ForumLike;
@@ -67,12 +68,46 @@ public class CommentServiceImpl implements CommentService {
         comment.setParentId(request.getParentId());
         comment.setReplyToId(request.getReplyToId());
         comment.setContent(request.getContent());
+        comment.setImages(serializeImages(request.getImages()));
         comment.setLikeCount(0);
         comment.setStatus(STATUS_NORMAL);
 
         ForumComment saved = commentRepository.save(comment);
         postRepository.incrementCommentCount(request.getPostId());
         return toCommentResponse(saved, new ArrayList<>(), userId);
+    }
+
+    private String serializeImages(List<String> images) {
+        if (images == null || images.isEmpty()) {
+            return null;
+        }
+        return "[" + images.stream()
+                .map(img -> "\"" + img.replace("\"", "\\\"") + "\"")
+                .collect(Collectors.joining(",")) + "]";
+    }
+
+    private List<String> parseImages(String images) {
+        if (images == null || images.isBlank()) {
+            return new ArrayList<>();
+        }
+        String trimmed = images.trim();
+        if (trimmed.startsWith("[")) {
+            trimmed = trimmed.substring(1, trimmed.length() - 1);
+        }
+        if (trimmed.isBlank()) {
+            return new ArrayList<>();
+        }
+        List<String> result = new ArrayList<>();
+        for (String part : trimmed.split(",")) {
+            String item = part.trim();
+            if (item.length() >= 2 && item.startsWith("\"") && item.endsWith("\"")) {
+                item = item.substring(1, item.length() - 1);
+            }
+            if (!item.isEmpty()) {
+                result.add(item);
+            }
+        }
+        return result;
     }
 
     @Override
@@ -119,6 +154,37 @@ public class CommentServiceImpl implements CommentService {
                         comment, childrenMap.getOrDefault(comment.getId(), new ArrayList<>()), currentUserId))
                 .collect(Collectors.toList());
         return new PageResponse<>(items, page.getTotalElements(), safePage, safeSize);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public java.util.List<ReceivedCommentResponse> getReceivedComments(Long userId) {
+        if (userId == null) {
+            return new ArrayList<>();
+        }
+        // 我的已发布帖子
+        List<ForumPost> myPosts = postRepository.findByUserIdAndStatus(
+                userId, POST_STATUS_PUBLISHED, PageRequest.of(0, 1000)).getContent();
+        if (myPosts.isEmpty()) {
+            return new ArrayList<>();
+        }
+        List<Long> postIds = myPosts.stream().map(ForumPost::getId).collect(Collectors.toList());
+        Map<Long, String> postTitleMap = myPosts.stream()
+                .collect(Collectors.toMap(ForumPost::getId, p -> p.getTitle() != null ? p.getTitle() : ""));
+        // 一次性查询：我的帖子下、非我发表的、正常的评论，按时间倒序
+        List<ForumComment> comments = commentRepository.findReceivedByPostIds(postIds, userId, STATUS_NORMAL);
+        return comments.stream().map(comment -> {
+            ReceivedCommentResponse response = new ReceivedCommentResponse();
+            response.setId(comment.getId());
+            response.setPostId(comment.getPostId());
+            response.setPostTitle(postTitleMap.getOrDefault(comment.getPostId(), ""));
+            response.setUserId(comment.getUserId());
+            response.setUsername(resolveUserName(comment.getUserId()));
+            response.setAvatar(userRepository.findById(comment.getUserId()).map(User::getAvatar).orElse(null));
+            response.setContent(comment.getContent());
+            response.setCreateTime(comment.getCreateTime());
+            return response;
+        }).collect(Collectors.toList());
     }
 
     @Override
@@ -185,6 +251,7 @@ public class CommentServiceImpl implements CommentService {
         response.setParentId(comment.getParentId());
         response.setReplyToId(comment.getReplyToId());
         response.setContent(comment.getContent());
+        response.setImages(parseImages(comment.getImages()));
         response.setLikeCount(comment.getLikeCount());
         response.setStatus(comment.getStatus());
         response.setCreateTime(comment.getCreateTime());

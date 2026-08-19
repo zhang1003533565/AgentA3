@@ -4,7 +4,12 @@ from typing import Any, Dict, Iterator, List, Optional
 from fastapi import HTTPException
 
 from app.model_providers.base import ChatModelProvider
-from app.model_providers.runtime_config import LlmRuntimeConfig, resolve_llm_config
+from app.model_providers.runtime_config import (
+    LlmRuntimeConfig,
+    get_active_llm_timeout_seconds,
+    resolve_llm_config,
+)
+from app.observability.langfuse import langchain_callbacks
 from app.utils.logger import get_logger
 from app.utils.prompts import KEYWORD_EXTRACTION_PROMPT, build_search_facts_prompt
 from app.utils.text_utils import normalize_base_url, sanitize_keyword
@@ -20,7 +25,8 @@ class DeepSeekProvider(ChatModelProvider):
             raise RuntimeError(f"缺少 langchain_openai 依赖: {exc}") from exc
 
         runtime_config = resolve_llm_config(config)
-        if runtime_config.normalized_provider() not in {"deepseek", "openai_compatible", "openai-compatible"}:
+        # opencode: OpenCode zen GO 等套餐走 OpenAI 兼容接口，复用本通用客户端
+        if runtime_config.normalized_provider() not in {"deepseek", "openai_compatible", "openai-compatible", "opencode"}:
             raise RuntimeError(f"暂不支持的模型服务商: {runtime_config.provider}")
 
         deepseek_api_key = runtime_config.api_key
@@ -40,8 +46,9 @@ class DeepSeekProvider(ChatModelProvider):
             base_url=normalize_base_url(deepseek_base_url),
             model=deepseek_model,
             temperature=0.2,
-            timeout=60,
+            timeout=get_active_llm_timeout_seconds(),
             max_retries=1,
+            callbacks=langchain_callbacks(),
         )
 
     def complete(self, system_prompt: str, user_prompt: str) -> str:
@@ -51,7 +58,16 @@ class DeepSeekProvider(ChatModelProvider):
             SystemMessage(content=system_prompt),
             HumanMessage(content=user_prompt),
         ])
-        return str(response.content or "").strip()
+        content = str(response.content or "").strip()
+        if not content:
+            reasoning = (
+                response.additional_kwargs.get("reasoning_content")
+                if isinstance(response.additional_kwargs, dict)
+                else None
+            )
+            if reasoning:
+                content = str(reasoning).strip()
+        return content
 
     def stream_complete(self, system_prompt: str, user_prompt: str) -> Iterator[str]:
         from langchain_core.messages import HumanMessage, SystemMessage

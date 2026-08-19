@@ -30,7 +30,10 @@
 		<view class="panel setting-panel">
 			<text class="panel-title">会议设置</text>
 			<view class="field-block">
-				<text class="field-label">会议主题</text>
+				<view class="field-label-wrap">
+					<text class="field-label">会议主题</text>
+					<text class="required-mark">*</text>
+				</view>
 				<view class="input-box">
 					<input v-model="meetingTitle" class="plain-input" placeholder="" />
 					<view class="clear-btn" @click="clearTitle">
@@ -72,16 +75,41 @@ export default {
 		// 麦克风权限预校验
 		async checkMediaPermission() {
 			if(!this.micOn) return true;
+
+			// H5 浏览器环境：使用 navigator.mediaDevices.getUserMedia 申请麦克风权限
+			if (typeof navigator !== 'undefined' && navigator.mediaDevices?.getUserMedia) {
+				try {
+					const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+					stream.getTracks().forEach(track => track.stop())
+					return true
+				} catch (err) {
+					uni.showToast({ title: '未授予麦克风权限，无法开启音频', icon: 'none' })
+					return false
+				}
+			}
+
+			// 浏览器环境但不支持 getUserMedia 时给出友好提示
+			if (typeof window !== 'undefined') {
+				uni.showToast({ title: '当前浏览器不支持麦克风权限申请', icon: 'none' })
+				return false
+			}
+
+			// App 端：保留原有 uni.requestPermission 逻辑
 			try {
-				await uni.requestPermission({scope: 'scope.record'})
-				return true;
-			} catch(err) {
-				uni.showToast({title: '未授予麦克风权限，无法开启音频', icon:'none'})
-				return false;
+				await uni.requestPermission({ scope: 'scope.record' })
+				return true
+			} catch (err) {
+				uni.showToast({ title: '未授予麦克风权限，无法开启音频', icon: 'none' })
+				return false
 			}
 		},
 		async startNow() {
 			if (this.creating) return
+			const title = this.meetingTitle.trim()
+			if (!title) {
+				uni.showToast({ title: '请输入会议主题', icon: 'none' })
+				return
+			}
 			// 先校验权限
 			const hasAuth = await this.checkMediaPermission()
 			if(!hasAuth) return;
@@ -89,7 +117,7 @@ export default {
 			this.creating = true
 			try {
 				const res = await createQuickMeeting({
-					title: this.meetingTitle || '快速会议',
+					title,
 					participants: buildMeetingParticipants()
 				})
 				const session = res?.data?.session || {}
@@ -128,7 +156,9 @@ export default {
 .radio-dot { width: 40rpx; height: 40rpx; border-radius: 50%; border: 3rpx solid #d1d5db; background: transparent; box-sizing: border-box; }
 .chevron { color: #8c969b; font-size: 42rpx; }
 .field-block { padding-bottom: 28rpx; }
-.field-label { display: block; color: #29343a; font-size: 25rpx; margin-bottom: 16rpx; }
+.field-label-wrap { display: flex; align-items: center; gap: 6rpx; margin-bottom: 16rpx; }
+.field-label { color: #29343a; font-size: 25rpx; }
+.required-mark { color: #ff4d4f; font-size: 25rpx; }
 .input-box {
 	height: 88rpx;
 	background: #f7f7f7;

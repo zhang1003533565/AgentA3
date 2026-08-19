@@ -1,3 +1,4 @@
+import json
 import re
 from typing import Any, Dict, List
 
@@ -40,13 +41,68 @@ ppt_outline_agent = PptOutlineAgent()
 
 
 def normalize_ppt_outline_answer(text: str, input_text: str = "") -> str:
-    answer = _clean_transport_noise(text or "")
+    answer = _normalize_field_labels(_clean_transport_noise(text or ""))
+    structured = _structured_outline_to_markdown(answer, input_text)
+    if structured:
+        return structured
     if _is_valid_ppt_outline(answer):
         return answer.strip()
     normalized = _rewrite_ppt_outline(answer, input_text)
     if not _is_valid_ppt_outline(normalized):
         raise HTTPException(status_code=502, detail="ppt_outline_agent 返回内容不符合约定格式，且自动规范化失败")
     return normalized.strip()
+
+
+def _structured_outline_to_markdown(text: str, input_text: str) -> str:
+    cleaned = text.strip()
+    if cleaned.startswith("```"):
+        cleaned = re.sub(r"^```(?:json)?\s*|\s*```$", "", cleaned, flags=re.IGNORECASE | re.DOTALL).strip()
+    if not cleaned.startswith("{"):
+        return ""
+    try:
+        payload = json.loads(cleaned)
+    except json.JSONDecodeError:
+        return ""
+    slides = payload.get("slides") if isinstance(payload, dict) else None
+    if not isinstance(slides, list) or not slides:
+        return ""
+    title = _strip_field_label_prefix(str(payload.get("title") or _match_labeled_value(input_text, ["topic", "主题"]) or "复习资料 PPT").strip())
+    scene = _match_labeled_value(input_text, ["scene_type", "使用场景"]) or "通用"
+    audience = _match_labeled_value(input_text, ["audience", "受众"]) or "学生"
+    lines = [
+        "## PPT 大纲", "", "### 大纲信息",
+        f"- 主题：{_normalize_inline_text(title)}",
+        f"- 使用场景：{_normalize_inline_text(scene)}",
+        f"- 受众：{_normalize_inline_text(audience)}",
+        f"- 建议页数：{len(slides)} 页",
+        f"- 整体目标：围绕 {_normalize_inline_text(title)} 建立清晰、连贯的知识结构。",
+        "- 风格建议：简洁、清晰、适合复习。", "",
+    ]
+    for position, raw in enumerate(slides, start=1):
+        if not isinstance(raw, dict):
+            raw = {}
+        title_value = _strip_field_label_prefix(_normalize_inline_text(str(raw.get("title") or raw.get("页标题") or f"第 {position} 页")))
+        page_type = _normalize_inline_text(str(raw.get("type") or raw.get("页面类型") or ("封面页" if position == 1 else "内容页")))
+        objective = _normalize_inline_text(str(raw.get("objective") or raw.get("本页目标") or "明确本页需要掌握的重点。"))
+        points = raw.get("keyPoints") or raw.get("content") or raw.get("核心内容") or []
+        if isinstance(points, str):
+            points = [line.strip(" -*•") for line in points.splitlines() if line.strip(" -*•")]
+        if not isinstance(points, list):
+            points = [str(points)]
+        points = [str(point).strip() for point in points if str(point).strip()][:6] or ["提炼本页需要掌握的核心要点。"]
+        lines.extend([
+            f"### 第{position}页",
+            f"- 页标题：{title_value}",
+            f"- 页面类型：{page_type}",
+            f"- 本页目标：{objective}",
+            "- 核心内容：",
+            *[f"  - {_normalize_inline_text(point)}" for point in points],
+            f"- 展示建议：{_normalize_inline_text(str(raw.get('displaySuggestion') or raw.get('展示建议') or '突出本页核心信息，控制文字密度。'))}",
+            f"- 素材建议：{_normalize_inline_text(str(raw.get('assetSuggestion') or raw.get('素材建议') or '按内容需要使用模板组件。'))}",
+            "",
+        ])
+    result = "\n".join(lines).strip()
+    return result if _is_valid_ppt_outline(result) else ""
 
 def _clean_transport_noise(text: str) -> str:
     cleaned_lines = []
@@ -55,6 +111,28 @@ def _clean_transport_noise(text: str) -> str:
             continue
         cleaned_lines.append(line.rstrip())
     return "\n".join(cleaned_lines).strip()
+
+
+def _normalize_field_labels(text: str) -> str:
+    """把 `- **页标题**：` 等字段名包裹变体归一化为 `- 页标题：`。
+
+    模型偶发把字段名包进 **、`` 或 __（冒号落在包裹符号外），
+    会导致校验与字段提取正则全部失配，进而触发整页占位兜底，
+    输出"概括本页希望传达的关键信息"之类的空壳大纲。
+    """
+    value = text or ""
+    for field in PPT_OUTLINE_REQUIRED_FIELDS:
+        value = re.sub(
+            rf"(-\s*)[\*`_=]+\s*{re.escape(field)}\s*[\*`_=]+\s*([:：])",
+            rf"\g<1>{field}\g<2>",
+            value,
+        )
+    return value
+
+
+def _strip_field_label_prefix(text: str) -> str:
+    """去掉值内残留的 `- **页标题**：` 之类字段前缀（JSON 值内嵌 markdown 时）。"""
+    return re.sub(r"^-\s*[\*`_]*页标题[\*`_]*\s*[:：]\s*", "", str(text or "").strip())
 
 def _is_valid_ppt_outline(text: str) -> bool:
     normalized = (text or "").strip()
@@ -121,7 +199,14 @@ def _match_labeled_value(text: str, labels: List[str]) -> str:
     for label in labels:
         match = re.search(rf"{re.escape(label)}\s*[:：]\s*([^;\n]+)", text or "", flags=re.IGNORECASE)
         if match:
-            return match.group(1).strip()
+            value = match.group(1).strip()
+            # input_text 常是单行 JSON：值以引号开头时只取到闭合引号，
+            # 避免把同一行后续字段全部吞进值里
+            if value.startswith('"'):
+                end = value.find('"', 1)
+                if end > 0:
+                    value = value[1:end]
+            return value.strip()
     return ""
 
 def _extract_first_page_title(text: str) -> str:
@@ -140,10 +225,14 @@ def _split_ppt_pages(text: str) -> List[tuple[str, str]]:
 def _extract_page_title(block: str, page_no: str) -> str:
     title = _extract_markdown_field(block, ["页标题"])
     if title:
-        return _normalize_inline_text(title)
-    heading_match = re.search(rf"###\s*第\s*{re.escape(page_no)}\s*页[:：]?\s*(.+)", block or "")
+        return _strip_field_label_prefix(_normalize_inline_text(title))
+    # [^\S\n]* 不吃换行：避免把标题行下方的 `- **页标题**：xxx` 整行误当标题
+    heading_match = re.search(
+        rf"###\s*第\s*{re.escape(page_no)}\s*页[^\S\n]*[:：]?[^\S\n]*(.+)",
+        block or "",
+    )
     if heading_match and heading_match.group(1).strip():
-        return _normalize_inline_text(heading_match.group(1))
+        return _strip_field_label_prefix(_normalize_inline_text(heading_match.group(1)))
     return f"第{page_no}页内容"
 
 def _extract_markdown_field(block: str, names: List[str]) -> str:

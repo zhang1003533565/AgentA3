@@ -29,6 +29,26 @@ public class AdminCampusCourseController {
         return Result.success(courseService.adminDetail(courseId));
     }
 
+    @GetMapping("/types")
+    public Result<?> listTypes(HttpServletRequest request) {
+        adminId(request);
+        return Result.success(courseService.listCourseTypes());
+    }
+
+    @PostMapping("/types")
+    public Result<?> createType(@Valid @RequestBody CampusCourseDTO.CourseTypeSaveRequest body,
+                                HttpServletRequest request) {
+        adminId(request);
+        return Result.success("课程类型已创建", courseService.createCourseType(body));
+    }
+
+    @DeleteMapping("/types/{typeCode}")
+    public Result<Void> deleteType(@PathVariable String typeCode, HttpServletRequest request) {
+        adminId(request);
+        courseService.deleteCourseType(typeCode);
+        return Result.success("课程分类已删除", null);
+    }
+
     @PostMapping
     public Result<?> create(@Valid @RequestBody CampusCourseDTO.SaveRequest body,
                             HttpServletRequest request) {

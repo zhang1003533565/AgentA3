@@ -23,6 +23,7 @@ from app.model_providers.multimodal import (
     collect_request_image_references,
 )
 from app.model_providers.runtime_config import build_llm_runtime_config, reset_active_llm_config, set_active_llm_config
+from app.observability.langfuse import observe_request, settings_from_headers, use_settings
 from app.multi_agents.catalog import (
     LEADER_CALLABLE_AGENT_ORDER,
     get_agent_catalog,
@@ -41,7 +42,7 @@ from app.learning_workflow import (
     export_learning_resources,
     run_learning_workflow,
 )
-from app.rag.document_conversion import PdfConversionError, PptConversionError, convert_pdf, convert_ppt_to_docx, export_generated_answer, materialize_generated_image_answer
+from app.rag.document_conversion import DocxConversionError, PdfConversionError, PptConversionError, convert_docx_to_pdf, convert_docx_to_ppt, convert_pdf, convert_ppt_to_docx, convert_ppt_to_pdf, export_generated_answer, materialize_generated_image_answer
 from app.rag.document_conversion.generated_exporter import GeneratedExportAccessError, open_generated_export
 from app.rag.structured.text_to_sql import TextToSqlService
 from app.services.assistant_resource_builder import (
@@ -131,6 +132,8 @@ VISUAL_GENERATION_TOOLS = [
 VISUAL_GENERATION_TOOL_NAMES = frozenset(VISUAL_GENERATION_TOOL_CONFIG)
 IMAGE_RECOGNITION_TOOL_NAME = "recognize_image_tool"
 IMAGE_RECOGNITION_AGENT_NAME = "vision_agent"
+FILE_CONTENT_PLANNER_AGENT_NAME = "file_content_planner_agent"
+TOOL_BOUND_UNBOUND_MARKER = "-"
 IMAGE_RECOGNITION_TOOL = {
     "name": IMAGE_RECOGNITION_TOOL_NAME,
     "zhName": "图片识别工具",
@@ -194,6 +197,7 @@ GENERATED_CONTENT_TOOLS = [
         "trigger": "专业智能体返回 markdown/question_bank/mermaid，或用户要求 md/Markdown 文件版。",
         "outputs": ["md"],
         "status": "implemented",
+        "boundAgent": FILE_CONTENT_PLANNER_AGENT_NAME,
     },
     {
         "name": "docx_export_tool",
@@ -204,6 +208,7 @@ GENERATED_CONTENT_TOOLS = [
         "trigger": "用户要求 Word/DOCX/文档版/文件版，或内容适合沉淀为资料。",
         "outputs": ["docx"],
         "status": "implemented",
+        "boundAgent": FILE_CONTENT_PLANNER_AGENT_NAME,
     },
     {
         "name": "excel_export_tool",
@@ -214,6 +219,7 @@ GENERATED_CONTENT_TOOLS = [
         "trigger": "题库 JSON、知识清单、用户要求 Excel/表格。",
         "outputs": ["xlsx"],
         "status": "implemented",
+        "boundAgent": FILE_CONTENT_PLANNER_AGENT_NAME,
     },
     {
         "name": "pptx_export_tool",
@@ -363,11 +369,19 @@ class PdfConvertRequest(BaseModel):
     fileName: str = Field(min_length=1, max_length=255)
     contentBase64: str = Field(min_length=1)
     targetFormat: str = Field(min_length=1, max_length=16)
+    convertMode: str = Field(default="image", max_length=16)
 
 
 class PptConvertRequest(BaseModel):
     fileName: str = Field(min_length=1, max_length=255)
     contentBase64: str = Field(min_length=1)
+    convertMode: str = Field(default="reflow", max_length=16)
+
+
+class DocxConvertRequest(BaseModel):
+    fileName: str = Field(min_length=1, max_length=255)
+    contentBase64: str = Field(min_length=1)
+    convertMode: str = Field(default="smart", max_length=16)
 
 
 class AgentExampleInputUpdateRequest(BaseModel):
@@ -679,6 +693,10 @@ def run_rag_query(
     x_ai_base_url: Optional[str] = Header(default=None, alias="X-AI-Base-Url"),
     x_ai_api_key: Optional[str] = Header(default=None, alias="X-AI-Api-Key"),
     x_ai_model: Optional[str] = Header(default=None, alias="X-AI-Model"),
+    x_langfuse_enabled: Optional[str] = Header(default=None, alias="X-Langfuse-Enabled"),
+    x_langfuse_base_url: Optional[str] = Header(default=None, alias="X-Langfuse-Base-Url"),
+    x_langfuse_public_key: Optional[str] = Header(default=None, alias="X-Langfuse-Public-Key"),
+    x_langfuse_secret_key: Optional[str] = Header(default=None, alias="X-Langfuse-Secret-Key"),
 ) -> RagQueryResponse:
     request_started_at = time.perf_counter()
     _require_authorization(authorization)
@@ -708,7 +726,17 @@ def run_rag_query(
         model=x_ai_model,
     ))
     try:
-        response = _run_rag_query_core(request, authorization or "")
+        with use_settings(settings_from_headers(x_langfuse_enabled, x_langfuse_base_url, x_langfuse_public_key, x_langfuse_secret_key)):
+            with observe_request(
+                "internal.rag.query",
+                session_id=str((request.metadata or {}).get("sessionId") or "") or None,
+                metadata={
+                    "agentName": request.agentName or "leader_agent",
+                    "ragStrategy": request.ragStrategy or "",
+                    "streaming": False,
+                },
+            ):
+                response = _run_rag_query_core(request, authorization or "")
         finalization_started_at = time.perf_counter()
         response = _finalize_rag_response(request, response)
         finalization_ms = _elapsed_ms(finalization_started_at)
@@ -746,6 +774,10 @@ async def run_rag_query_stream(
     x_ai_api_key: Optional[str] = Header(default=None, alias="X-AI-Api-Key"),
     x_ai_model: Optional[str] = Header(default=None, alias="X-AI-Model"),
     x_user_id: Optional[str] = Header(default=None, alias="X-User-Id"),
+    x_langfuse_enabled: Optional[str] = Header(default=None, alias="X-Langfuse-Enabled"),
+    x_langfuse_base_url: Optional[str] = Header(default=None, alias="X-Langfuse-Base-Url"),
+    x_langfuse_public_key: Optional[str] = Header(default=None, alias="X-Langfuse-Public-Key"),
+    x_langfuse_secret_key: Optional[str] = Header(default=None, alias="X-Langfuse-Secret-Key"),
 ):
     request_started_at = time.perf_counter()
     _require_authorization(authorization)
@@ -760,6 +792,19 @@ async def run_rag_query_stream(
 
     async def event_stream():
         stream_started_at = request_started_at
+        settings_scope = use_settings(settings_from_headers(x_langfuse_enabled, x_langfuse_base_url, x_langfuse_public_key, x_langfuse_secret_key))
+        settings_scope.__enter__()
+        observation_scope = observe_request(
+            "internal.rag.query",
+            session_id=str((request.metadata or {}).get("sessionId") or "") or None,
+            user_id=int(x_user_id) if x_user_id and x_user_id.isdigit() else None,
+            metadata={
+                "agentName": request.agentName or "leader_agent",
+                "ragStrategy": request.ragStrategy or "",
+                "streaming": True,
+            },
+        )
+        observation_scope.__enter__()
         token = set_active_llm_config(llm_config)
         generation_started = False
         plan = None
@@ -913,6 +958,8 @@ async def run_rag_query_stream(
                 yield build_sse("error", _build_stream_error_payload(request, exc, llm_config))
         finally:
             reset_active_llm_config(token)
+            observation_scope.__exit__(None, None, None)
+            settings_scope.__exit__(None, None, None)
 
     return StreamingResponse(
         event_stream(),
@@ -1893,14 +1940,71 @@ def _tool_toggles_from_request(request: RagQueryRequest) -> Dict[str, Any]:
     return toggles if isinstance(toggles, dict) else {}
 
 
+def _default_tool_bound_agent(tool_name: str) -> str:
+    """工具元数据里的默认绑定智能体(请求未配置时使用)。"""
+    for tool in GENERATED_CONTENT_TOOLS:
+        if tool.get("name") == tool_name:
+            return str(tool.get("boundAgent") or "").strip()
+    for tool in LEADER_CALLABLE_TOOLS:
+        if tool.get("name") == tool_name:
+            return str(tool.get("boundAgent") or "").strip()
+    return ""
+
+
+def _resolve_tool_bound_agent(request: RagQueryRequest, tool_name: str) -> str:
+    """解析工具当前绑定的智能体:请求配置优先,未配置时回退元数据默认值;
+    '-' 或空值表示暂不绑定。"""
+    metadata = request.metadata if isinstance(request.metadata, dict) else {}
+    return _metadata_resolve_tool_bound_agent(metadata, tool_name)
+
+
+def _metadata_resolve_tool_bound_agent(metadata: Dict[str, Any], tool_name: str) -> str:
+    """metadata 版:解析工具当前绑定的智能体(配置优先,回退元数据默认值)。"""
+    normalized = str(tool_name or "").strip()
+    configured = metadata.get("toolBoundAgents") if isinstance(metadata, dict) else None
+    if isinstance(configured, dict) and normalized in configured:
+        value = str(configured.get(normalized) or "").strip()
+        return "" if value in ("", TOOL_BOUND_UNBOUND_MARKER) else value
+    return _default_tool_bound_agent(normalized)
+
+
+def _is_tool_agent_available(request: RagQueryRequest, bound_agent: str) -> bool:
+    """绑定智能体被显式关闭时,工具视为不可用。
+
+    只检查 agentToggles 的显式开关,不检查模型是否就绪:内部智能体
+    (如 file_content_planner_agent)的模型配置会回退到 leader_agent,
+    若检查模型就绪会误伤正常可用的工具。
+    """
+    metadata = request.metadata if isinstance(request.metadata, dict) else {}
+    return _metadata_tool_agent_available(metadata, bound_agent)
+
+
+def _metadata_tool_agent_available(metadata: Dict[str, Any], bound_agent: str) -> bool:
+    """metadata 版:绑定智能体被显式关闭时,工具视为不可用。"""
+    if not bound_agent or bound_agent == "leader_agent":
+        return True
+    toggles = metadata.get("agentToggles") if isinstance(metadata, dict) else None
+    if not isinstance(toggles, dict):
+        return True
+    value = toggles.get(normalize_agent_name(bound_agent))
+    if value is None:
+        return True
+    return _parse_agent_enabled_value(value)
+
+
 def _is_tool_enabled(request: RagQueryRequest, tool_name: str) -> bool:
     normalized = str(tool_name or "").strip()
     if not normalized:
         return True
     toggles = _tool_toggles_from_request(request)
     if normalized not in toggles:
-        return True
-    return _parse_agent_enabled_value(toggles.get(normalized))
+        enabled = True
+    else:
+        enabled = _parse_agent_enabled_value(toggles.get(normalized))
+    if not enabled:
+        return False
+    # 工具开关跟随绑定智能体的启用状态:绑定智能体被关闭时,工具也不可用
+    return _is_tool_agent_available(request, _resolve_tool_bound_agent(request, normalized))
 
 
 def _require_tool_enabled(request: RagQueryRequest, tool_name: str) -> None:
@@ -3091,7 +3195,6 @@ def _follow_up_actions_for_output(answer_type: str, metadata: Dict[str, Any], ou
         "meeting_summary_agent",
         "meeting_resource_recommendation_agent",
         "ppt_outline_agent",
-        "ppt_layout_agent",
         "diagram_mind_map_agent",
         "diagram_flowchart_agent",
         "diagram_activity_agent",
@@ -3149,8 +3252,16 @@ def _file_format_follow_up_actions(answer_type: str, metadata: Dict[str, Any], a
 def _metadata_tool_enabled(metadata: Dict[str, Any], tool_name: str) -> bool:
     toggles = metadata.get("toolToggles") if isinstance(metadata, dict) else None
     if not isinstance(toggles, dict) or tool_name not in toggles:
-        return True
-    return _parse_agent_enabled_value(toggles.get(tool_name))
+        enabled = True
+    else:
+        enabled = _parse_agent_enabled_value(toggles.get(tool_name))
+    if not enabled:
+        return False
+    # 与 _is_tool_enabled 保持一致的绑定联动:绑定智能体被关闭时,工具不可用
+    return _metadata_tool_agent_available(
+        metadata,
+        _metadata_resolve_tool_bound_agent(metadata, tool_name),
+    )
 
 
 def _follow_up_action(label: str, prompt: str, output_type: str, style: str) -> Dict[str, Any]:
@@ -3427,7 +3538,7 @@ def _answer_type_for_agent(agent_name: str) -> str:
         "diagram_architecture_agent": "mermaid_architecture",
         "textbook_knowledge_agent": "markdown",
         "ppt_outline_agent": "ppt_outline",
-        "ppt_layout_agent": "ppt_layout",
+        "ppt_structure_agent": "ppt_structure",
         "ppt_review_agent": "ppt_review",
         "ppt_image_agent": "ppt_image_prompt",
         "ppt_to_docx_agent": "document_conversion",
@@ -3461,7 +3572,7 @@ def convert_pdf_document(
         len(pdf_bytes),
     )
     try:
-        result = convert_pdf(pdf_bytes, filename, request.targetFormat)
+        result = convert_pdf(pdf_bytes, filename, request.targetFormat, request.convertMode)
         logger.info(
             "pdf convert success filename=%s output=%s content_length=%s images=%s",
             filename,
@@ -3491,7 +3602,7 @@ def convert_ppt_document(
         raise HTTPException(status_code=400, detail="PPTX Base64 内容无效") from exc
     logger.info("ppt convert request filename=%s size=%s", filename, len(ppt_bytes))
     try:
-        result = convert_ppt_to_docx(ppt_bytes, filename)
+        result = convert_ppt_to_docx(ppt_bytes, filename, request.convertMode)
         logger.info(
             "ppt convert success filename=%s output=%s content_length=%s images=%s slides=%s",
             filename,
@@ -3503,6 +3614,97 @@ def convert_ppt_document(
         return result
     except PptConversionError as exc:
         logger.warning("ppt convert failed filename=%s reason=%s", filename, exc)
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+
+@router.post("/ppt/to-pdf")
+def convert_ppt_to_pdf_document(
+    request: PptConvertRequest,
+    authorization: Optional[str] = Header(default=None, alias="Authorization"),
+) -> Dict[str, Any]:
+    _require_authorization(authorization)
+    filename = request.fileName or "presentation.pptx"
+    lower_name = filename.lower()
+    if not lower_name.endswith(".ppt") and not lower_name.endswith(".pptx"):
+        raise HTTPException(status_code=400, detail="仅支持上传 PPT/PPTX 文件")
+    try:
+        import base64
+        ppt_bytes = base64.b64decode(request.contentBase64, validate=True)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="PPT Base64 内容无效") from exc
+    logger.info("ppt to pdf request filename=%s size=%s", filename, len(ppt_bytes))
+    try:
+        result = convert_ppt_to_pdf(ppt_bytes, filename)
+        logger.info(
+            "ppt to pdf success filename=%s output=%s content_length=%s pages=%s",
+            filename,
+            result.get("fileName"),
+            result.get("contentLength"),
+            result.get("pageCount"),
+        )
+        return result
+    except PptConversionError as exc:
+        logger.warning("ppt to pdf failed filename=%s reason=%s", filename, exc)
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+
+@router.post("/docx/to-pdf")
+def convert_docx_to_pdf_document(
+    request: DocxConvertRequest,
+    authorization: Optional[str] = Header(default=None, alias="Authorization"),
+) -> Dict[str, Any]:
+    _require_authorization(authorization)
+    filename = request.fileName or "document.docx"
+    if not filename.lower().endswith(".docx"):
+        raise HTTPException(status_code=400, detail="仅支持上传 DOCX 文件")
+    try:
+        import base64
+        docx_bytes = base64.b64decode(request.contentBase64, validate=True)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="DOCX Base64 内容无效") from exc
+    logger.info("docx to pdf request filename=%s size=%s", filename, len(docx_bytes))
+    try:
+        result = convert_docx_to_pdf(docx_bytes, filename)
+        logger.info(
+            "docx to pdf success filename=%s output=%s content_length=%s pages=%s",
+            filename,
+            result.get("fileName"),
+            result.get("contentLength"),
+            result.get("pageCount"),
+        )
+        return result
+    except DocxConversionError as exc:
+        logger.warning("docx to pdf failed filename=%s reason=%s", filename, exc)
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+
+@router.post("/docx/to-ppt")
+def convert_docx_to_ppt_document(
+    request: DocxConvertRequest,
+    authorization: Optional[str] = Header(default=None, alias="Authorization"),
+) -> Dict[str, Any]:
+    _require_authorization(authorization)
+    filename = request.fileName or "document.docx"
+    if not filename.lower().endswith(".docx"):
+        raise HTTPException(status_code=400, detail="仅支持上传 DOCX 文件")
+    try:
+        import base64
+        docx_bytes = base64.b64decode(request.contentBase64, validate=True)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="DOCX Base64 内容无效") from exc
+    logger.info("docx to ppt request filename=%s size=%s", filename, len(docx_bytes))
+    try:
+        result = convert_docx_to_ppt(docx_bytes, filename, request.convertMode)
+        logger.info(
+            "docx to ppt success filename=%s output=%s content_length=%s pages=%s",
+            filename,
+            result.get("fileName"),
+            result.get("contentLength"),
+            result.get("pageCount"),
+        )
+        return result
+    except (DocxConversionError, PdfConversionError) as exc:
+        logger.warning("docx to ppt failed filename=%s reason=%s", filename, exc)
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 
 

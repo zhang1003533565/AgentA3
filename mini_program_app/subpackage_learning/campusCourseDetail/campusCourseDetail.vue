@@ -101,7 +101,41 @@
             <text class="intro-heading">课程简介</text>
             <text class="intro-text" :selectable="true" user-select>{{ course.description || course.intro || '暂无课程简介' }}</text>
           </view>
-          <view class="intro-section" v-if="course.ownerName">
+          <view class="intro-section course-teacher-material-separate">
+            <text class="intro-heading">课程教师</text>
+            <view class="owner-card">
+              <view class="owner-avatar">
+                <text>{{ (course.teacherName || '?')[0] }}</text>
+              </view>
+              <view class="owner-info">
+                <text class="owner-name">{{ course.teacherName || '暂无' }}</text>
+                <text class="owner-label">课程教师</text>
+              </view>
+            </view>
+          </view>
+          <view class="intro-section course-material-separate" v-if="course.bookTitle">
+            <text class="intro-heading">课程教材</text>
+            <view class="owner-card">
+              <view class="owner-info">
+                <text class="owner-name">{{ course.bookTitle }}</text>
+                <text class="owner-label">课程教材</text>
+              </view>
+            </view>
+          </view>
+          <view class="intro-section course-teacher-material-new">
+            <text class="intro-heading">课程信息</text>
+            <view class="course-intro-fields">
+              <view class="course-intro-field">
+                <text class="course-intro-label">课程教师</text>
+                <text class="course-intro-value">{{ course.teacherName || '暂无' }}</text>
+              </view>
+              <view class="course-intro-field">
+                <text class="course-intro-label">课程教材</text>
+                <text class="course-intro-value">{{ course.bookTitle || '暂无' }}</text>
+              </view>
+            </view>
+          </view>
+          <view class="intro-section course-teacher-material" v-if="course.ownerName || course.bookTitle">
             <text class="intro-heading">课程管理员</text>
             <view class="owner-card">
               <view class="owner-avatar">
@@ -170,13 +204,14 @@
       <view class="enroll-btn" @tap="startLearning">
         {{ course.progressPercent > 0 ? '继续学习' : '开始学习' }}
       </view>
+      <view class="unenroll-btn" @tap="unenrollCourse">退选该课程</view>
     </view>
   </view>
 </template>
 
 <script>
 import NavBar from '@/components/nav-bar/nav-bar.vue'
-import { getCampusCourseDetail } from '@/api/campusCourse.js'
+import { getCampusCourseDetail, unenrollCourse as removeEnrollment } from '@/api/campusCourse.js'
 
 const HERO_COLORS = [
   'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
@@ -246,6 +281,22 @@ export default {
         this.goToChapter(this.course.chapters[0])
       }
     },
+    unenrollCourse() {
+      uni.showModal({
+        title: '确认退选',
+        content: '退选后可在全部课程中重新加入，确定退选吗？',
+        success: async (result) => {
+          if (!result.confirm) return
+          try {
+            await removeEnrollment(this.courseId)
+            uni.showToast({ title: '已退选课程', icon: 'success' })
+            await this.loadCourse(false)
+          } catch (error) {
+            uni.showToast({ title: error?.msg || error?.message || '退选失败', icon: 'none' })
+          }
+        }
+      })
+    },
     goToCourseList() {
       uni.navigateTo({ url: '/subpackage_learning/campusCourseList/campusCourseList' })
     }
@@ -262,7 +313,7 @@ export default {
 
 /* Hero */
 .course-hero {
-  padding: 40rpx 28rpx 50rpx;
+  padding: 40rpx 28rpx 36rpx;
   color: #fff;
   position: relative;
   overflow: hidden;
@@ -274,6 +325,7 @@ export default {
   left: 0;
   width: 100%;
   height: 100%;
+  object-position: center 58%;
 }
 
 .hero-content {
@@ -329,7 +381,7 @@ export default {
 
 /* 进度卡片 */
 .info-cards {
-  margin: -36rpx 24rpx 0;
+  margin: 16rpx 24rpx 0;
   position: relative;
   z-index: 10;
 }
@@ -337,7 +389,7 @@ export default {
 .progress-card {
   background: #fff;
   border-radius: 20rpx;
-  padding: 32rpx;
+  padding: 18rpx 22rpx;
   box-shadow: 0 8rpx 32rpx rgba(0, 0, 0, 0.08);
 }
 
@@ -345,28 +397,28 @@ export default {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 20rpx;
+  margin-bottom: 10rpx;
 }
 
 .progress-card-title {
-  font-size: 30rpx;
+  font-size: 24rpx;
   color: #333;
   font-weight: 650;
 }
 
 .progress-card-value {
-  font-size: 40rpx;
+  font-size: 30rpx;
   font-weight: 750;
   color: #4a90d9;
 }
 
 .progress-card-bar {
   width: 100%;
-  height: 14rpx;
+  height: 8rpx;
   background: #eef1f5;
   border-radius: 7rpx;
   overflow: hidden;
-  margin-bottom: 18rpx;
+  margin-bottom: 8rpx;
 }
 
 .progress-card-inner {
@@ -377,7 +429,7 @@ export default {
 }
 
 .progress-card-meta {
-  font-size: 24rpx;
+  font-size: 20rpx;
   color: #999;
 }
 
@@ -593,6 +645,7 @@ export default {
   display: flex;
   align-items: center;
   justify-content: center;
+  gap: 20rpx;
   box-shadow: 0 -4rpx 24rpx rgba(0, 0, 0, 0.06);
   z-index: 100;
 }
@@ -600,7 +653,9 @@ export default {
 .enroll-btn {
   background: linear-gradient(135deg, #4a90d9, #6ba3e8);
   color: #fff;
-  padding: 22rpx 80rpx;
+  flex: 1;
+  text-align: center;
+  padding: 22rpx 0;
   border-radius: 44rpx;
   font-size: 28rpx;
   font-weight: 650;
@@ -617,6 +672,115 @@ export default {
 
 .intro-section {
   margin-bottom: 36rpx;
+}
+
+.unenroll-btn {
+  color: #6f7f95;
+  background: #f1f4f8;
+  flex: 1;
+  text-align: center;
+  padding: 22rpx 0;
+  border-radius: 44rpx;
+  font-size: 28rpx;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.course-teacher-material {
+  display: none;
+}
+
+.course-teacher-material-new {
+  display: none;
+}
+
+.course-material-separate .owner-card {
+  min-height: 96rpx;
+  box-sizing: border-box;
+  align-items: center;
+}
+
+.course-material-separate .owner-info {
+  width: 100%;
+  min-width: 0;
+}
+
+.course-material-separate .owner-name {
+  line-height: 1.35;
+  word-break: break-all;
+}
+
+.course-material-separate .owner-card {
+  display: block;
+  min-height: 0;
+  padding: 0;
+  background: transparent;
+  border-radius: 0;
+}
+
+.course-material-separate .owner-label {
+  display: none;
+}
+
+.course-material-separate .owner-name {
+  font-size: 28rpx;
+  font-weight: 400;
+  line-height: 1.5;
+}
+
+.course-teacher-material-separate .owner-label {
+  display: none;
+}
+
+.course-teacher-material-separate .owner-card {
+  display: block;
+  min-height: 0;
+  padding: 0;
+  background: transparent;
+  border-radius: 0;
+}
+
+.course-teacher-material-separate .owner-avatar {
+  display: none;
+}
+
+.course-teacher-material-separate .owner-name {
+  font-size: 28rpx;
+  font-weight: 400;
+  line-height: 1.5;
+}
+
+.course-intro-fields {
+  display: flex;
+  gap: 16rpx;
+}
+
+.course-intro-field {
+  flex: 1;
+  min-width: 0;
+  padding: 20rpx;
+  border-radius: 14rpx;
+  background: #f8f9fa;
+}
+
+.course-intro-label,
+.course-intro-value {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.course-intro-label {
+  margin-bottom: 8rpx;
+  color: #999;
+  font-size: 22rpx;
+}
+
+.course-intro-value {
+  color: #333;
+  font-size: 26rpx;
+  font-weight: 600;
 }
 
 .intro-section:last-child {

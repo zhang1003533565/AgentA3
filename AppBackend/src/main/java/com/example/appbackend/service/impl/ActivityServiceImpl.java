@@ -17,6 +17,7 @@ import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDateTime;
 import java.util.List;
 
 import static com.example.appbackend.entity.Activity.Status.PUBLISHED;
@@ -35,9 +36,22 @@ public class ActivityServiceImpl implements ActivityService {
     private RegistrationRepository registrationRepository;
 
     @Override
-    public PageResponse<Activity> getActivityList(Integer page, Integer size, String title, Long categoryId, Status status) {
+    public PageResponse<Activity> getActivityList(Integer page, Integer size, String title, Long categoryId, Status status, String timePhase) {
         PageRequest pageRequest = PageRequest.of(page - 1, size, Sort.by(Sort.Direction.DESC, "createTime"));
-        Page<Activity> activityPage = activityRepository.findByConditions(title, categoryId, status, pageRequest);
+        Page<Activity> activityPage = activityRepository.findByConditions(title, categoryId, status, timePhase, java.time.LocalDateTime.now(), pageRequest);
+        activityPage.getContent().forEach(this::fillOrganizerAvatar);
+        return new PageResponse<>(
+            activityPage.getContent(),
+            activityPage.getTotalElements(),
+            page,
+            size
+        );
+    }
+
+    @Override
+    public PageResponse<Activity> getActivitiesByOrganizer(Long organizerId, Integer page, Integer size) {
+        PageRequest pageRequest = PageRequest.of(page - 1, size, Sort.by(Sort.Direction.DESC, "createTime"));
+        Page<Activity> activityPage = activityRepository.findByOrganizerId(organizerId, pageRequest);
         activityPage.getContent().forEach(this::fillOrganizerAvatar);
         return new PageResponse<>(
             activityPage.getContent(),
@@ -58,7 +72,10 @@ public class ActivityServiceImpl implements ActivityService {
     @Override
     public Activity draftActivity(Activity activity, Long userId, String organizerName) {
         activity.setOrganizerId(userId);
-        activity.setOrganizerName(organizerName);
+        // 主办方名称：请求里填写了则使用填写的，否则默认使用当前账号姓名
+        if (activity.getOrganizerName() == null || activity.getOrganizerName().isBlank()) {
+            activity.setOrganizerName(organizerName);
+        }
         activity.setStatus(Status.PUBLISHED);
         activity.setCurrentPeople(0);
         if (activity.getRequiresAudit() == null) {
@@ -70,17 +87,26 @@ public class ActivityServiceImpl implements ActivityService {
     @Override
     public Activity updateActivity(Long id, Activity activity) {
         Activity existing = getActivityById(id);
-        if (existing.getStatus() != Status.DRAFT && existing.getStatus() != PUBLISHED) {
-            throw new BusinessException(400, "只有草稿或已发布的活动可以编辑");
+        if (existing.getStatus() != Status.DRAFT && existing.getStatus() != PUBLISHED && existing.getStatus() != Status.COMPLETED) {
+            throw new BusinessException(400, "只有草稿、已发布或已完成的活动可以编辑");
         }
         activity.setId(id);
         activity.setOrganizerId(existing.getOrganizerId());
-        activity.setOrganizerName(existing.getOrganizerName());
+        // 主办方名称：请求里填写了则更新，留空则保留原值
+        if (activity.getOrganizerName() == null || activity.getOrganizerName().isBlank()) {
+            activity.setOrganizerName(existing.getOrganizerName());
+        }
         activity.setCurrentPeople(existing.getCurrentPeople());
         if (activity.getRequiresAudit() == null) {
             activity.setRequiresAudit(Boolean.TRUE.equals(existing.getRequiresAudit()));
         }
-        activity.setStatus(existing.getStatus() == Status.COMPLETED ? Status.COMPLETED : Status.PUBLISHED);
+        // 状态处理：编辑已完成的活动时，若新的结束时间在未来则恢复为已发布，否则保持已完成
+        if (existing.getStatus() == Status.COMPLETED) {
+            boolean endInFuture = activity.getEndTime() != null && activity.getEndTime().isAfter(LocalDateTime.now());
+            activity.setStatus(endInFuture ? Status.PUBLISHED : Status.COMPLETED);
+        } else {
+            activity.setStatus(Status.PUBLISHED);
+        }
         return activityRepository.save(activity);
     }
 

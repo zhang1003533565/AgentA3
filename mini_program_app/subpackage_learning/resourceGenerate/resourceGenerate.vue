@@ -1,10 +1,25 @@
 <template>
   <view class="learning-page">
-    <nav-bar title="个性化资源包" :showBack="true" fixed placeholder />
+    <nav-bar class="resource-nav" :class="{ 'resource-nav--presentation': isPresentationMode }" title="个性化资源包" :showBack="true" fixed placeholder>
+      <template #right>
+        <view v-if="isPresentationMode" class="presentation-history-action" @tap.stop="openPresentationHistory">
+          <image class="presentation-history-action__icon" src="/static/icons/history-lucide.svg" mode="aspectFit" />
+          <text>生成历史</text>
+        </view>
+      </template>
+    </nav-bar>
 
-    <ai-presentation-flow v-if="isPresentationMode" :initial-topic="topic" />
+    <ai-presentation-flow v-if="isPresentationMode" ref="presentationFlow" :initial-topic="topic" :initial-entry-mode="presentationEntryMode" />
 
     <template v-else>
+    <view class="presentation-entry-card">
+      <view>
+        <text class="presentation-entry-card__title">PPT 模板生成</text>
+        <text class="presentation-entry-card__desc">先选一套现成模板，再提交资料生成可编辑 PPT。</text>
+      </view>
+      <button class="presentation-entry-card__button" @tap="startTemplateFirstPresentation">先选模板</button>
+    </view>
+
     <view class="request-card">
       <text class="request-card__title">这次想攻克什么？</text>
       <textarea v-model="topic" class="request-card__input" placeholder="例如：理解 Python 列表切片，并能完成常见编程题" :maxlength="500" auto-height />
@@ -89,6 +104,7 @@ export default {
     return {
       topic: '',
       isPresentationMode: false,
+      presentationEntryMode: 'sourceFirst',
       selectedResourceTypes: [...CORE_RESOURCE_TYPES],
       pageState: 'empty',
       errorMessage: '',
@@ -122,7 +138,9 @@ export default {
   onLoad(options = {}) {
     this.topic = this.decodeOption(options.topic || options.prompt || '')
     const requestedType = this.decodeOption(options.resourceType || '')
+    const requestedEntry = this.decodeOption(options.presentationEntry || '')
     this.isPresentationMode = requestedType === 'presentation'
+    this.presentationEntryMode = requestedEntry === 'templateFirst' || String(options.templateFirst || '') === '1' ? 'templateFirst' : 'sourceFirst'
     if (CORE_RESOURCE_TYPES.includes(requestedType)) this.selectedResourceTypes = [requestedType]
     if (this.isPresentationMode) return
     const workflowId = this.decodeOption(options.workflowId || '') || uni.getStorageSync(WORKFLOW_STORAGE_KEY) || ''
@@ -154,6 +172,14 @@ export default {
     },
     resourceLabel(value) {
       return this.resourceTypeOptions.find(item => item.value === value)?.label || value
+    },
+    openPresentationHistory() {
+      const flow = this.$refs.presentationFlow
+      if (flow && typeof flow.openHistory === 'function') flow.openHistory('generation')
+    },
+    startTemplateFirstPresentation() {
+      this.presentationEntryMode = 'templateFirst'
+      this.isPresentationMode = true
     },
     toggleResourceType(type) {
       if (this.generating) return
@@ -286,6 +312,7 @@ export default {
 </script>
 
 <style scoped>
-.learning-page{min-height:100vh;padding:24rpx 24rpx 80rpx;background:#f5f7fb;box-sizing:border-box;color:#172033}.request-card,.progress-card,.state-card{padding:28rpx;border-radius:24rpx;background:#fff}.request-card__title{display:block;font-size:34rpx;font-weight:780}.request-card__input{width:100%;min-height:150rpx;margin-top:20rpx;padding:22rpx;border-radius:18rpx;background:#f5f7fb;box-sizing:border-box;font-size:27rpx;line-height:1.6}.resource-types{margin-top:18rpx;white-space:nowrap}.resource-types__inner{display:inline-flex;gap:12rpx;padding:4rpx 2rpx}.resource-type{padding:12rpx 20rpx;border:1px solid #dbe2ea;border-radius:999rpx;color:#64748b;font-size:23rpx}.resource-type--active{border-color:#6366f1;background:#eef2ff;color:#4338ca}.generate-button{margin-top:24rpx;border:0;border-radius:17rpx;background:#4f46e5;color:#fff;font-size:27rpx;font-weight:700}.generate-button[disabled]{opacity:.48}.progress-card{margin-top:20rpx}.progress-card__head{display:flex;justify-content:space-between;color:#334155;font-size:25rpx;font-weight:650}.progress-card__track{height:12rpx;margin-top:16rpx;border-radius:999rpx;background:#e7eaf0;overflow:hidden}.progress-card__value{height:100%;border-radius:inherit;background:linear-gradient(90deg,#4f46e5,#22c55e);transition:width .25s}.progress-card__agent,.progress-card__workflow{display:block;margin-top:12rpx;color:#64748b;font-size:21rpx}.progress-card__workflow{color:#94a3b8}.state-card{margin-top:20rpx;padding:64rpx 32rpx;text-align:center}.state-card__title,.state-card__desc{display:block}.state-card__title{font-size:31rpx;font-weight:750}.state-card__desc{margin-top:13rpx;color:#64748b;font-size:24rpx;line-height:1.6}.state-card__button{margin-top:24rpx;border:0;border-radius:16rpx;background:#4f46e5;color:#fff}.resource-section{margin-top:26rpx}.resource-section__head{display:flex;justify-content:space-between;margin-bottom:18rpx}.resource-section__title{font-size:32rpx;font-weight:780}.resource-section__count{color:#64748b;font-size:23rpx}.failure-banner{position:sticky;bottom:20rpx;display:flex;align-items:center;justify-content:space-between;gap:18rpx;padding:20rpx 24rpx;border-radius:18rpx;background:#7f1d1d;color:#fff;font-size:23rpx}.failure-banner text{flex:1}.failure-banner button{margin:0;border:0;background:#fff;color:#7f1d1d;font-size:22rpx}
+.learning-page{min-height:100vh;padding:24rpx 24rpx 80rpx;background:#f5f7fb;box-sizing:border-box;color:#172033}.request-card,.progress-card,.state-card{padding:28rpx;border-radius:24rpx;background:#fff}.presentation-entry-card{display:flex;align-items:center;justify-content:space-between;gap:22rpx;margin-bottom:20rpx;padding:24rpx;border:1px solid #dfe7ef;border-radius:20rpx;background:#fff}.presentation-entry-card__title,.presentation-entry-card__desc{display:block}.presentation-entry-card__title{color:#172033;font-size:28rpx;font-weight:780}.presentation-entry-card__desc{margin-top:8rpx;color:#64748b;font-size:21rpx;line-height:1.45}.presentation-entry-card__button{flex:none;height:64rpx;margin:0;padding:0 22rpx;border:0;border-radius:14rpx;background:#5265f5;color:#fff;font-size:22rpx;font-weight:720;line-height:64rpx}.presentation-entry-card__button::after{border:0}.request-card__title{display:block;font-size:34rpx;font-weight:780}.request-card__input{width:100%;min-height:150rpx;margin-top:20rpx;padding:22rpx;border-radius:18rpx;background:#f5f7fb;box-sizing:border-box;font-size:27rpx;line-height:1.6}.resource-types{margin-top:18rpx;white-space:nowrap}.resource-types__inner{display:inline-flex;gap:12rpx;padding:4rpx 2rpx}.resource-type{padding:12rpx 20rpx;border:1px solid #dbe2ea;border-radius:999rpx;color:#64748b;font-size:23rpx}.resource-type--active{border-color:#6366f1;background:#eef2ff;color:#4338ca}.generate-button{margin-top:24rpx;border:0;border-radius:17rpx;background:#4f46e5;color:#fff;font-size:27rpx;font-weight:700}.generate-button[disabled]{opacity:.48}.progress-card{margin-top:20rpx}.progress-card__head{display:flex;justify-content:space-between;color:#334155;font-size:25rpx;font-weight:650}.progress-card__track{height:12rpx;margin-top:16rpx;border-radius:999rpx;background:#e7eaf0;overflow:hidden}.progress-card__value{height:100%;border-radius:inherit;background:linear-gradient(90deg,#4f46e5,#22c55e);transition:width .25s}.progress-card__agent,.progress-card__workflow{display:block;margin-top:12rpx;color:#64748b;font-size:21rpx}.progress-card__workflow{color:#94a3b8}.state-card{margin-top:20rpx;padding:64rpx 32rpx;text-align:center}.state-card__title,.state-card__desc{display:block}.state-card__title{font-size:31rpx;font-weight:750}.state-card__desc{margin-top:13rpx;color:#64748b;font-size:24rpx;line-height:1.6}.state-card__button{margin-top:24rpx;border:0;border-radius:16rpx;background:#4f46e5;color:#fff}.resource-section{margin-top:26rpx}.resource-section__head{display:flex;justify-content:space-between;margin-bottom:18rpx}.resource-section__title{font-size:32rpx;font-weight:780}.resource-section__count{color:#64748b;font-size:23rpx}.failure-banner{position:sticky;bottom:20rpx;display:flex;align-items:center;justify-content:space-between;gap:18rpx;padding:20rpx 24rpx;border-radius:18rpx;background:#7f1d1d;color:#fff;font-size:23rpx}.failure-banner text{flex:1}.failure-banner button{margin:0;border:0;background:#fff;color:#7f1d1d;font-size:22rpx}
+.resource-nav--presentation :deep(.nav-inner){grid-template-columns:112rpx 1fr 174rpx!important}.resource-nav--presentation :deep(.nav-side--right){overflow:visible}.presentation-history-action{display:flex;height:64rpx;align-items:center;justify-content:center;gap:8rpx;padding:0 18rpx;border:1px solid #d8e0ec;border-radius:999rpx;background:#fff;color:#5265f5;box-sizing:border-box;font-size:22rpx;font-weight:760;line-height:1;box-shadow:0 8rpx 18rpx rgba(43,60,120,.05)}.presentation-history-action:active{background:#f6f7ff;transform:scale(.97)}.presentation-history-action__icon{width:28rpx;height:28rpx;flex:none}
 .trace-card{margin-top:20rpx;padding:24rpx;border-radius:22rpx;background:#fff}.trace-card__head,.trace-card__head>view,.trace-item__copy>view{display:flex;align-items:center}.trace-card__head{justify-content:space-between}.trace-card__head>view{gap:12rpx}.trace-card__title{font-size:27rpx;font-weight:720}.trace-card__count,.trace-card__toggle{color:#708096;font-size:20rpx}.trace-list{margin-top:22rpx}.trace-item{display:flex;gap:16rpx;min-height:92rpx}.trace-item__rail{position:relative;width:20rpx}.trace-item__rail:after{content:'';position:absolute;left:8rpx;top:20rpx;bottom:-4rpx;width:2rpx;background:#dbe2e9}.trace-item:last-child .trace-item__rail:after{display:none}.trace-item__rail>view{position:relative;z-index:1;width:16rpx;height:16rpx;border-radius:50%;background:#7890a8}.trace-item__rail .trace-item__dot--completed{background:#4d8a72}.trace-item__rail .trace-item__dot--failed{background:#b65f58}.trace-item__copy{flex:1;padding-bottom:18rpx}.trace-item__copy>view{justify-content:space-between}.trace-item__agent{font-size:23rpx;font-weight:680}.trace-item__status{color:#708096;font-size:18rpx}.trace-item__message{display:block;margin-top:6rpx;color:#64748b;font-size:21rpx}.trace-item__resource{display:inline-block;margin-top:7rpx;padding:4rpx 10rpx;border-radius:999rpx;background:#edf2f6;color:#536b82;font-size:17rpx}
 </style>

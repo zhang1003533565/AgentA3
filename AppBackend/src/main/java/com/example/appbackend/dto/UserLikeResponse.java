@@ -13,5 +13,9 @@ public class UserLikeResponse {
     Long id;
     Long postId;
     String postTitle;
+    String content;
+    String images;
+    Integer likeCount;
+    Integer commentCount;
     private LocalDateTime createTime;
 }

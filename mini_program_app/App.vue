@@ -39,7 +39,6 @@
 	uni-page-body::-webkit-scrollbar,
 	.uni-page-body::-webkit-scrollbar,
 	uni-scroll-view::-webkit-scrollbar,
-	.uni-scroll-view::-webkit-scrollbar,
 	.uni-scroll-view-content::-webkit-scrollbar {
 		width: 0;
 		height: 0;

@@ -12,19 +12,103 @@ class PdfConversionError(RuntimeError):
         self.status_code = status_code
 
 
-def convert_pdf(pdf_bytes: bytes, original_filename: str, target_format: str) -> Dict[str, Any]:
+MAX_PPTX_SLIDES = 200
+DOCX_IMAGE_ZOOM = 1.5  # 高清 DOCX 每页图片渲染分辨率
+DOCX_IMAGE_JPEG_QUALITY = 85
+
+
+def convert_pdf(
+    pdf_bytes: bytes,
+    original_filename: str,
+    target_format: str,
+    convert_mode: str = "image",
+) -> Dict[str, Any]:
     fmt = (target_format or "").strip().lower()
-    if fmt not in {"md", "docx"}:
-        raise PdfConversionError("仅支持转换为 md 或 docx", 400)
+    if fmt not in {"md", "docx", "pptx"}:
+        raise PdfConversionError("仅支持转换为 md、docx 或 pptx", 400)
     if not pdf_bytes:
         raise PdfConversionError("PDF 文件不能为空", 400)
     if not pdf_bytes.lstrip().startswith(b"%PDF"):
         raise PdfConversionError("上传文件不是有效的 PDF", 400)
 
     base_name = _safe_stem(original_filename)
+    mode = (convert_mode or "").strip().lower()
     if fmt == "docx":
+        if mode == "image":
+            return _convert_to_docx_image(pdf_bytes, base_name)
+        # reflow / editable / 未知值统一走可编辑逻辑（智能编辑兜底）
         return _convert_to_docx(pdf_bytes, base_name)
+    if fmt == "pptx":
+        if mode == "editable":
+            from app.rag.document_conversion.editable_converter import convert_pdf_to_editable_pptx
+            return convert_pdf_to_editable_pptx(pdf_bytes, base_name)
+        return _convert_to_pptx(pdf_bytes, base_name)
     return _convert_to_markdown_zip(pdf_bytes, base_name)
+
+
+def _convert_to_pptx(pdf_bytes: bytes, base_name: str) -> Dict[str, Any]:
+    """PDF 每页渲染为图片，逐页生成 PPTX（图片铺满幻灯片，保持页面比例，不拉伸）。"""
+    try:
+        import fitz
+        from pptx import Presentation
+        from pptx.util import Inches
+    except Exception as exc:
+        raise PdfConversionError("PDF 转 PPTX 依赖未安装，请安装 PyMuPDF 和 python-pptx", 500) from exc
+
+    try:
+        pdf_document = fitz.open(stream=pdf_bytes, filetype="pdf")
+    except Exception as exc:
+        raise PdfConversionError(f"PDF 解析失败：{exc}", 400) from exc
+
+    page_count = pdf_document.page_count
+    if page_count <= 0:
+        raise PdfConversionError("PDF 没有可转换的页面", 422)
+    if page_count > MAX_PPTX_SLIDES:
+        raise PdfConversionError(f"PDF 页数超过 {MAX_PPTX_SLIDES} 页，暂不支持转 PPTX", 422)
+
+    try:
+        presentation = Presentation()
+        slide_layout = presentation.slide_layouts[6]  # blank
+        zoom = 1.0  # 渲染分辨率（约 72 DPI），控制 PPTX 体积
+        for page_index in range(page_count):
+            page = pdf_document.load_page(page_index)
+            page_rect = page.rect
+            width_inches = max(page_rect.width / 72.0, 0.1)
+            height_inches = max(page_rect.height / 72.0, 0.1)
+            pixmap = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom), alpha=False)
+            image_bytes = pixmap.tobytes("png")
+            slide = presentation.slides.add_slide(slide_layout)
+            slide.slide_width = Inches(width_inches)
+            slide.slide_height = Inches(height_inches)
+            slide.shapes.add_picture(
+                io.BytesIO(image_bytes),
+                0,
+                0,
+                width=Inches(width_inches),
+                height=Inches(height_inches),
+            )
+    except PdfConversionError:
+        raise
+    except Exception as exc:
+        raise PdfConversionError(f"PPTX 生成失败：{exc}", 500) from exc
+    finally:
+        pdf_document.close()
+
+    buffer = io.BytesIO()
+    presentation.save(buffer)
+    output_bytes = buffer.getvalue()
+    return {
+        "format": "pptx",
+        "outputType": "file",
+        "downloadType": "file",
+        "fileName": f"{base_name}.pptx",
+        "mimeType": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        "contentBase64": base64.b64encode(output_bytes).decode("ascii"),
+        "contentLength": len(output_bytes),
+        "imageCount": page_count,
+        "pageCount": page_count,
+        "conversionMode": "pdf_to_ppt_page_image",
+    }
 
 
 def _convert_to_docx(pdf_bytes: bytes, base_name: str) -> Dict[str, Any]:
@@ -88,6 +172,62 @@ def _convert_to_docx(pdf_bytes: bytes, base_name: str) -> Dict[str, Any]:
         "imageCount": len(image_assets),
         "pageCount": page_count,
         "conversionMode": "pdf_to_docx_reflow",
+    }
+
+
+def _convert_to_docx_image(pdf_bytes: bytes, base_name: str) -> Dict[str, Any]:
+    """PDF 转 DOCX 高清还原模式：每页渲染为图片嵌入 Word，保留原始视觉效果（文字不可编辑）。"""
+    try:
+        import fitz
+        from docx import Document
+        from docx.shared import Inches
+    except Exception as exc:
+        raise PdfConversionError("PDF 转 DOCX 高清模式依赖未安装，请安装 PyMuPDF 和 python-docx", 500) from exc
+
+    try:
+        pdf_document = fitz.open(stream=pdf_bytes, filetype="pdf")
+    except Exception as exc:
+        raise PdfConversionError(f"PDF 解析失败：{exc}", 400) from exc
+
+    page_count = pdf_document.page_count
+    if page_count <= 0:
+        raise PdfConversionError("PDF 没有可转换的页面", 422)
+
+    document = Document()
+    try:
+        for page_index in range(page_count):
+            page = pdf_document.load_page(page_index)
+            page_rect = page.rect
+            width_inches = max(page_rect.width / 72.0, 0.1)
+            pixmap = page.get_pixmap(
+                matrix=fitz.Matrix(DOCX_IMAGE_ZOOM, DOCX_IMAGE_ZOOM),
+                alpha=False,
+            )
+            image_bytes = pixmap.tobytes("jpeg", jpg_quality=DOCX_IMAGE_JPEG_QUALITY)
+            document.add_picture(io.BytesIO(image_bytes), width=Inches(width_inches))
+            if page_index < page_count - 1:
+                document.add_page_break()
+    except PdfConversionError:
+        raise
+    except Exception as exc:
+        raise PdfConversionError(f"高清 DOCX 生成失败：{exc}", 500) from exc
+    finally:
+        pdf_document.close()
+
+    buffer = io.BytesIO()
+    document.save(buffer)
+    output_bytes = buffer.getvalue()
+    return {
+        "format": "docx",
+        "outputType": "file",
+        "downloadType": "file",
+        "fileName": f"{base_name}.docx",
+        "mimeType": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "contentBase64": base64.b64encode(output_bytes).decode("ascii"),
+        "contentLength": len(output_bytes),
+        "imageCount": page_count,
+        "pageCount": page_count,
+        "conversionMode": "pdf_to_docx_page_image",
     }
 
 

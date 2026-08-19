@@ -172,4 +172,19 @@ public class TopicController {
         topicService.deleteTopic(id);
         return Result.success("删除成功", null);
     }
+
+    @Operation(summary = "批量删除话题", description = "管理员批量删除话题")
+    @DeleteMapping("/batch")
+    public Result<Void> batchDeleteTopics(
+            @Parameter(description = "话题ID列表", required = true)
+            @RequestBody List<Long> ids,
+            HttpServletRequest request) {
+        Long userId = getCurrentUserId(request);
+        if (userId == null) {
+            return Result.unauthorized("请先登录");
+        }
+        checkRole(request);
+        topicService.batchDeleteTopics(ids);
+        return Result.success("批量删除成功", null);
+    }
 }

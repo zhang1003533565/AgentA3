@@ -60,6 +60,25 @@ public class RegistrationController {
         return Result.success(registration);
     }
 
+    @Operation(summary = "Admin add registration", description = "Admin/teacher manually registers a student for an activity")
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "Success"),
+            @ApiResponse(responseCode = "401", description = "Unauthorized"),
+            @ApiResponse(responseCode = "403", description = "Forbidden"),
+            @ApiResponse(responseCode = "400", description = "Duplicate or full")
+    })
+    @PostMapping("/admin/add")
+    public Result<Registration> adminAddRegistration(
+            @Parameter(description = "Activity ID", required = true, example = "1")
+            @RequestParam Long activityId,
+            @Parameter(description = "User ID", required = true, example = "4")
+            @RequestParam Long userId,
+            HttpServletRequest request) {
+        checkRole(request);
+        Registration registration = registrationService.adminRegisterActivity(activityId, userId);
+        return Result.success(registration);
+    }
+
     @Operation(summary = "Cancel registration", description = "Cancel activity registration")
     @ApiResponses(value = {
             @ApiResponse(responseCode = "200", description = "Success"),
@@ -74,6 +93,30 @@ public class RegistrationController {
         User user = getCurrentUser(request);
         Registration registration = registrationService.cancelRegistration(id, user.getId());
         return Result.success(registration);
+    }
+
+    @Operation(summary = "All registrations", description = "Admin or teacher gets registrations across activities, filterable by activity/status/keyword")
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "Success"),
+            @ApiResponse(responseCode = "401", description = "Unauthorized"),
+            @ApiResponse(responseCode = "403", description = "Forbidden")
+    })
+    @GetMapping
+    public Result<PageResponse<RegistrationListItem>> getAllRegistrations(
+            @Parameter(description = "Activity ID (optional)", example = "1")
+            @RequestParam(required = false) Long activityId,
+            @Parameter(description = "Registration status: PENDING/APPROVED/REJECTED (optional)", example = "PENDING")
+            @RequestParam(required = false) String status,
+            @Parameter(description = "Keyword: realName/username/personalNumber (optional)", example = "zhang")
+            @RequestParam(required = false) String keyword,
+            @Parameter(description = "Page number, starts at 1", example = "1")
+            @RequestParam(defaultValue = "1") Integer page,
+            @Parameter(description = "Page size", example = "10")
+            @RequestParam(defaultValue = "10") Integer size,
+            HttpServletRequest request) {
+        checkRole(request);
+        PageResponse<RegistrationListItem> list = registrationService.getAllRegistrations(activityId, status, keyword, page, size);
+        return Result.success(list);
     }
 
     @Operation(summary = "Manager remove registration", description = "Admin or teacher removes a registration")

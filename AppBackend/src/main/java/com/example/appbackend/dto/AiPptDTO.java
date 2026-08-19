@@ -19,7 +19,32 @@ public final class AiPptDTO {
     @Data
     public static class OptionsResponse {
         private List<SceneOption> scenes;
+        private List<TemplateOption> templates;
         private long cacheTtlSeconds;
+        private String engine;
+        private boolean enhancedEngineAvailable;
+        private boolean editorEnabled;
+    }
+
+    @Data
+    public static class TemplateOption {
+        private String id;
+        private String name;
+        private String description;
+        private String thumbnailUrl;
+        private Integer layoutCount;
+        private List<LayoutInfo> layouts;
+        @JsonProperty("default")
+        private boolean defaultOption;
+    }
+
+    @Data
+    public static class LayoutInfo {
+        private String id;
+        private String description;
+        private List<String> elementTypes;
+        private List<String> slots;
+        private List<String> previewTexts;
     }
 
     @Data
@@ -37,9 +62,10 @@ public final class AiPptDTO {
         @NotBlank
         @Size(max = 255)
         private String sourceName;
-        @NotBlank
         @Size(max = 200000)
         private String sourceContent;
+        @Size(max = 80)
+        private String sourceFileId;
         @Size(max = 32)
         private String outlineMode = "ai_outline";
         @Min(3)
@@ -57,6 +83,8 @@ public final class AiPptDTO {
         private Map<String, Object> outline;
         @Size(max = 200000)
         private String sourceContent;
+        @Size(max = 80)
+        private String sourceFileId;
         private Map<String, Object> settings;
         @Size(max = 2000)
         private String sharedPrompt;
@@ -77,5 +105,14 @@ public final class AiPptDTO {
         private Map<String, Object> settings;
         @Size(max = 2)
         private List<String> exportFormats;
+    }
+
+    @Data
+    public static class SlideImageRequest {
+        @NotBlank
+        @Size(max = 12000000)
+        private String imageBase64;
+        @Size(max = 8)
+        private String extension = "png";
     }
 }
