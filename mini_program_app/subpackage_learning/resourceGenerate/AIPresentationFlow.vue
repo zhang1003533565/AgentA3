@@ -1590,16 +1590,17 @@ export default {
       if (!this.fileInfo) return
       if (this.outlineMode === 'original_outline') {
         const detected = this.detectOutlineItems()
-        this.outlineItems = detected.length ? detected : [
-          this.createOutlineItem(this.resultName, 1),
-          this.createOutlineItem('资料核心内容', 2),
-          this.createOutlineItem('复习总结', 2)
-        ]
-        this.outlineDocument = { title: this.resultName, items: this.outlineItems }
-        this.outlineName = `${this.resultName}大纲`
-        this.outlineSavedAt = ''
-        this.currentStep = 3
-        return
+        // 章节标题不足 2 条说明资料没有可用的原结构（如短主题输入），
+        // 硬塞"资料核心内容"等假条目会得到没有要点的空壳大纲，
+        // 此时回退走 AI 生成分支
+        if (detected.length >= 2) {
+          this.outlineItems = detected
+          this.outlineDocument = { title: this.resultName, items: this.outlineItems }
+          this.outlineName = `${this.resultName}大纲`
+          this.outlineSavedAt = ''
+          this.currentStep = 3
+          return
+        }
       }
       this.apiBusy = true
       this.modelConfigError = false
