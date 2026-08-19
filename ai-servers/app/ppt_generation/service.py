@@ -1149,8 +1149,8 @@ def _merge_content_into_layout(layout: Mapping[str, Any], component_content: Map
                         node["categories"] = _compact_table_values(content["categories"], node.get("max_children"))
                     if "series" in content:
                         node["series"] = content["series"]
-                else:
-                    node.update({k: v for k, v in content.items() if k != "name"})
+                # 其他类型（image/decoration/vector 等）不接受内容覆盖：
+                # 盲目 node.update 会让 LLM 幻觉键改掉样式字段，破坏模板
         for key in ("components", "elements", "children"):
             if key in node:
                 _merge(node[key])
@@ -1188,10 +1188,28 @@ def _node_display_text(node: Mapping[str, Any]) -> str:
     return str(text or "")
 
 
+_PLACEHOLDER_LEXICON = re.compile(
+    r"(?i)\b(lorem|ipsum|dolor|consectetur|title|heading|headline|subtitle|"
+    r"description|body|paragraph|your\s?text|sample|placeholder|text\s?here|"
+    r"enter\s?text|untitled|caption|label|content)\b|^[-–—.]+$|^[a-z]{1,2}\d{0,2}$"
+)
+
+
 def _is_template_placeholder_text(node: Mapping[str, Any]) -> bool:
-    """识别模板自带的占位文本（模板原件不含中文：非中文文本即残留）。"""
-    text = _node_display_text(node)
-    return bool(text.strip()) and not re.search(r"[\u4e00-\u9fff]", text)
+    """识别模板占位文本。
+
+    只清真正的占位词（lorem/title/description/your text 等通用词或
+    长英文句子）；"01"、"KEY POINTS"、"CONCLUSION" 这类短装饰文字
+    是模板设计的一部分，保留以维持模板原貌。
+    """
+    text = _node_display_text(node).strip()
+    if not text or re.search(r"[\u4e00-\u9fff]", text):
+        return False
+    # 短装饰文字（数字角标、全大写设计词、单词标签）保留
+    if len(text) <= 14 and not _PLACEHOLDER_LEXICON.search(text):
+        return False
+    # 长英文：占位词命中才清；命中也清（长英文正文多半是占位示例）
+    return bool(_PLACEHOLDER_LEXICON.search(text)) or len(text.split()) >= 12
 
 
 def _clear_template_placeholder_text(root: Dict[str, Any], matched_names: set) -> None:
@@ -1219,8 +1237,47 @@ def _clear_template_placeholder_text(root: Dict[str, Any], matched_names: set) -
             _walk(root[key])
 
 
+def _node_text_capacity(node: Mapping[str, Any]) -> int:
+    """估算文本节点容量：优先模板显式 max_length，缺失时按几何尺寸推算。
+
+    中文字符宽约等于字号，英文约 0.55 倍；行高按 1.35 倍字号。
+    容量溢出会把文本撑出组件边界，是模板版式被撑破的主要来源。
+    """
+    explicit = 0
+    try:
+        explicit = int(node.get("max_length") or 0)
+    except (TypeError, ValueError):
+        explicit = 0
+    if explicit > 0:
+        return explicit
+    font_size = _text_font_size(node)
+    size = node.get("size")
+    if font_size <= 0 or not isinstance(size, Mapping):
+        return 0
+    try:
+        width = float(size.get("width") or 0)
+        height = float(size.get("height") or 0)
+    except (TypeError, ValueError):
+        return 0
+    if width <= 0 or height <= 0:
+        return 0
+    chars_per_line = max(1, int(width / (font_size * 0.95)))
+    max_lines = max(1, int(height / (font_size * 1.35) + 0.35))
+    return chars_per_line * max_lines
+
+
 def _set_text_node_content(node: Dict[str, Any], content: Any) -> None:
-    text = _compact_text(str(content or ""), node.get("max_length"))
+    text = _compact_text(str(content or ""), _node_text_capacity(node))
+    # 只容得下一行的位置（几何高度不足两行）压平换行，避免撑高版式
+    font_size = _text_font_size(node)
+    size = node.get("size")
+    if "\n" in text and font_size > 0 and isinstance(size, Mapping):
+        try:
+            height = float(size.get("height") or 0)
+        except (TypeError, ValueError):
+            height = 0
+        if 0 < height < font_size * 2.5:
+            text = re.sub(r"\s*\n+\s*", " ", text)
     node["text"] = text
     runs = node.get("runs")
     if isinstance(runs, list) and runs:
@@ -1318,9 +1375,9 @@ def _fill_layout_with_slide_text(
 ) -> Dict[str, Any]:
     """componentContent 缺失时的兜底：把大纲标题/要点填进版式文本组件。
 
-    规则：字号最大的文本位放标题，次大的放要点正文（• 分条），
-    其余文本位清空英文模板占位。保证输出永远是用户资料内容，
-    而不是模板原件。
+    规则：标题优先放名称含 title/heading 的槽位（否则最大字号非装饰位），
+    正文按面积降序分摊要点；装饰位（数字角标/全大写标签/超大号字）
+    保留模板原文字以维持版式原貌；所有写入按槽位容量截断防溢出。
     """
     result = copy.deepcopy(dict(layout))
     title = str(
@@ -1338,23 +1395,46 @@ def _fill_layout_with_slide_text(
     body_text = "\n".join(f"• {point}" for point in points) or str(slide_item.get("objective") or outline_item.get("objective") or "").strip()
 
     text_nodes = _collect_text_nodes(result)
-    text_nodes.sort(key=_text_font_size, reverse=True)
-    if text_nodes:
-        _set_text_node_content(text_nodes[0], title)
+
+    def _is_decorative(node: Mapping[str, Any]) -> bool:
+        """装饰位：纯数字角标/全大写短标签/容量过小，不参与标题正文分配。"""
+        text = _node_display_text(node).strip()
+        if text and (text.isdigit() or (text.isupper() and len(text) <= 12)):
+            return True
+        if _text_font_size(node) >= 100:
+            return True
+        return 0 < _node_text_capacity(node) < 8
+
+    def _area(node: Mapping[str, Any]) -> float:
+        size = node.get("size")
+        if not isinstance(size, Mapping):
+            return 0.0
+        try:
+            return float(size.get("width") or 0) * float(size.get("height") or 0)
+        except (TypeError, ValueError):
+            return 0.0
+
+    fillable = [n for n in text_nodes if not _is_decorative(n)]
+    # 标题位：名称含 title/heading/headline 优先，否则取字号最大的非装饰位
+    title_node = next(
+        (n for n in fillable if re.search(r"(?i)title|heading|headline", str(n.get("name") or ""))),
+        None,
+    )
+    if title_node is None:
+        candidates = sorted(fillable, key=_text_font_size, reverse=True)
+        title_node = candidates[0] if candidates else None
+    if title_node is not None:
+        _set_text_node_content(title_node, title)
 
     def _capacity(node: Mapping[str, Any]) -> int:
-        try:
-            return int(node.get("max_length") or 0)
-        except (TypeError, ValueError):
-            return 0
+        return _node_text_capacity(node)
 
-    # 容量过小的组件（如头像 initials）不参与正文分摊，直接清空占位
-    body_nodes = [n for n in text_nodes[1:] if _capacity(n) == 0 or _capacity(n) >= 8]
-    body_ids = {id(n) for n in body_nodes}
-    tiny_nodes = [n for n in text_nodes[1:] if id(n) not in body_ids]
-    for node in tiny_nodes:
-        if _is_template_placeholder_text(node):
-            _set_text_node_content(node, "")
+    # 正文位：面积降序分配要点（正文框才是最大的可写区域，字号大不代表是正文）
+    body_nodes = sorted(
+        [n for n in fillable if n is not title_node and (_capacity(n) == 0 or _capacity(n) >= 8)],
+        key=_area,
+        reverse=True,
+    )
     if len(body_nodes) == 1:
         if body_text:
             _set_text_node_content(body_nodes[0], body_text)
@@ -1368,7 +1448,7 @@ def _fill_layout_with_slide_text(
             _set_text_node_content(body_nodes[0], merged)
         elif not points and body_text:
             _set_text_node_content(body_nodes[0], body_text)
-        # 未分摊到要点的正文位清掉模板占位
+        # 未分摊到要点的正文位清掉模板占位（装饰位保留原文字）
         for node in body_nodes[len(points):] if points else body_nodes[1:]:
             if _is_template_placeholder_text(node):
                 _set_text_node_content(node, "")
