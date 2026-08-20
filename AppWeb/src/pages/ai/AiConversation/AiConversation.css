@@ -18,6 +18,10 @@
 .ai-conversation-message--assistant { align-self: flex-start; }
 .ai-conversation-message-label { color: #64748b; font-size: 12px; }
 .ai-conversation-bubble { padding: 12px 15px; border: 1px solid #e2e8f0; border-radius: 12px; color: #334155; background: #fff; line-height: 1.7; white-space: pre-wrap; }
+.ai-conversation-steps { display: flex; margin-bottom: 10px; flex-direction: column; gap: 5px; color: #64748b; font-size: 12px; line-height: 1.5; }
+.ai-conversation-step { display: flex; align-items: center; gap: 7px; }
+.ai-conversation-step-dot { width: 6px; height: 6px; flex: 0 0 6px; border-radius: 50%; background: #77a5c9; }
+.ai-conversation-message--assistant .ai-conversation-step:last-child .ai-conversation-step-dot { background: #2f80b7; box-shadow: 0 0 0 3px #e5f2fb; }
 .ai-conversation-message--user .ai-conversation-bubble { border-color: #d7e9f7; color: #234a69; background: #edf6fc; }
 .ai-conversation-loading { color: #64748b; }
 .ai-conversation-meta { font-size: 11px; }

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Alert, Button, Empty, Input, List, Spin, Tag, Typography, message } from 'antd'
 import { HistoryOutlined, PlusOutlined, ReloadOutlined, RobotOutlined, SendOutlined } from '@ant-design/icons'
-import { getLeaderSessionDetail, getLeaderSessions, queryLeaderAgent } from '../../../api/aiLeader'
+import { getLeaderSessionDetail, getLeaderSessions, streamLeaderAgent } from '../../../api/aiLeader'
 import './AiConversation.css'
 
 const { Text, Title } = Typography
@@ -16,6 +16,8 @@ const normalizeMessage = (item, index) => ({
   model: item.model || '',
   retrievalMeta: item.retrievalMeta || {},
   resources: Array.isArray(item.resources) ? item.resources : [],
+  status: item.status || 'completed',
+  steps: Array.isArray(item.steps) ? item.steps : [],
 })
 
 function AiConversation() {
@@ -58,7 +60,6 @@ function AiConversation() {
 
   useEffect(() => {
     // 页面进入时同步 APP 端的会话历史。
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     loadSessions()
   }, [loadSessions])
 
@@ -80,20 +81,63 @@ function AiConversation() {
     if (!content || loading) return
     setInput('')
     setError('')
-    setMessages((current) => [...current, { id: `user-${Date.now()}`, role: 'user', content }])
+    const thinkingId = `assistant-${Date.now()}`
+    setMessages((current) => [...current,
+      { id: `user-${Date.now()}`, role: 'user', content },
+      { id: thinkingId, role: 'assistant', content: '', status: 'running', steps: ['已提交给智能助手，正在准备处理'] },
+    ])
     setLoading(true)
     try {
-      const response = await queryLeaderAgent({
+      const streamTask = streamLeaderAgent({
         sessionId: sessionId || undefined,
         input: content,
+      }, {
+        onSession: (payload) => {
+          setSessionId(payload?.sessionId || sessionId)
+          setMessages((current) => current.map((item) => item.id === thinkingId
+            ? { ...item, steps: [...item.steps, `已建立会话，使用 ${payload?.agentName || 'Leader'}${payload?.model ? ` · ${payload.model}` : ''}`] }
+            : item))
+        },
+        onEvent: (eventName, payload) => {
+          if (eventName === 'generation_start') {
+            setMessages((current) => current.map((item) => item.id === thinkingId
+              ? { ...item, content: payload?.answer || '', status: 'running', steps: [...item.steps, `开始生成${payload?.outputType ? ` ${payload.outputType}` : '回答'}`] }
+              : item))
+          } else if (eventName === 'tool_start') {
+            setMessages((current) => current.map((item) => item.id === thinkingId
+              ? { ...item, steps: [...item.steps, payload?.message || '正在调用工具'] }
+              : item))
+          }
+        },
+        onSearch: (payload) => {
+          const count = Array.isArray(payload?.matchedResults) ? payload.matchedResults.length : null
+          setMessages((current) => current.map((item) => item.id === thinkingId
+            ? { ...item, steps: [...item.steps, `正在检索${payload?.searchKeyword ? `：${payload.searchKeyword}` : ''}${count === null ? '' : `，找到 ${count} 条结果`}`] }
+            : item))
+        },
+        onDelta: (delta) => {
+          setMessages((current) => current.map((item) => item.id === thinkingId
+            ? { ...item, content: `${item.content || ''}${delta}` }
+            : item))
+        },
+        onDone: (payload) => {
+          setSessionId(payload?.sessionId || sessionId)
+          setMessages((current) => current.map((item) => item.id === thinkingId
+            ? normalizeMessage({ ...payload, id: thinkingId, role: 'assistant', content: payload?.answer || item.content, steps: [...item.steps, '回答完成'] }, current.indexOf(item))
+            : item))
+        },
+        onError: (payload) => { throw new Error(payload?.message || '流式请求失败') },
       })
-      const data = response.data || {}
-      setSessionId(data.sessionId || sessionId)
-      setMessages((current) => [...current, normalizeMessage(data, current.length)])
+      await streamTask
       await loadSessions()
     } catch (requestError) {
-      setError(requestError?.message || 'AI 回复失败，请稍后重试')
-      message.error(requestError?.message || 'AI 回复失败')
+      if (requestError?.name !== 'AbortError') {
+        setMessages((current) => current.map((item) => item.id === thinkingId
+          ? { ...item, status: 'error', steps: [...item.steps, requestError?.message || '处理失败'] }
+          : item))
+        setError(requestError?.message || 'AI 回复失败，请稍后重试')
+        message.error(requestError?.message || 'AI 回复失败')
+      }
     } finally {
       setLoading(false)
     }
@@ -139,11 +183,13 @@ function AiConversation() {
           {detailLoading ? <Spin /> : messages.length ? messages.map((item) => (
             <div key={item.id} className={`ai-conversation-message ai-conversation-message--${item.role}`}>
               <div className="ai-conversation-message-label">{item.role === 'user' ? '我' : '智能助手'}</div>
-              <div className="ai-conversation-bubble">{item.content || '智能助手没有返回可用内容。'}</div>
+              <div className="ai-conversation-bubble">
+                {item.role === 'assistant' && item.steps?.length ? <div className="ai-conversation-steps">{item.steps.map((step, stepIndex) => <div key={`${item.id}-step-${stepIndex}`} className="ai-conversation-step"><span className="ai-conversation-step-dot" />{step}</div>)}</div> : null}
+                {item.content || (item.status === 'running' ? '正在处理…' : '智能助手没有返回可用内容。')}
+              </div>
               {item.role === 'assistant' && item.agentName ? <Text type="secondary" className="ai-conversation-meta">{item.agentName}{item.model ? ` · ${item.model}` : ''}</Text> : null}
             </div>
           )) : <div className="ai-conversation-empty"><RobotOutlined /><Title level={4}>和智能助手开始聊吧</Title><Text type="secondary">这里会保存成一条历史会话，下次可以继续打开。</Text></div>}
-          {loading ? <div className="ai-conversation-message ai-conversation-message--assistant"><div className="ai-conversation-message-label">智能助手</div><div className="ai-conversation-bubble ai-conversation-loading">正在思考…</div></div> : null}
         </div>
 
         <div className="ai-conversation-composer">
