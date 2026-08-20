@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Button, Card, Empty, Segmented, Select, Space, Switch, Table, Tabs, Tag, Typography, message } from 'antd'
-import { CheckCircleOutlined, ExclamationCircleOutlined, ReloadOutlined, SaveOutlined, SettingOutlined } from '@ant-design/icons'
-import { getRagAgents } from '../../../api/rag'
+import { Button, Card, Empty, Input, Segmented, Select, Space, Switch, Table, Tabs, Tag, Typography, message } from 'antd'
+import { CheckCircleOutlined, ExclamationCircleOutlined, ReloadOutlined, RobotOutlined, SaveOutlined, SettingOutlined } from '@ant-design/icons'
+import { getRagAgents, runRagQuery } from '../../../api/rag'
 import { getSystemConfigList, upsertSystemConfig } from '../../../api/systemConfig'
 import {
   AGENT_ENABLED_CONFIG_PREFIX,
@@ -10,10 +10,12 @@ import {
   TOOL_BOUND_CONFIG_PREFIX,
   TOOL_BOUND_UNBOUND_MARKER,
   TOOL_ENABLED_CONFIG_PREFIX,
+  TOOL_RETRIEVAL_CONFIG_PREFIX,
   buildAgentModelBindings,
   buildQuestionGenerationAgentMappings,
   buildToolBindings,
   buildToolToggles,
+  buildToolRetrievalProfiles,
   buildLlmModelOptions,
   getAgentModelRequirementText,
   getAgentRequiredModelModalities,
@@ -59,6 +61,77 @@ const renderOutputs = (outputs) => (
   </Space>
 )
 
+const defaultRetrievalProfile = (tool) => ({
+  description: tool?.purpose || '',
+  keywords: [],
+  aliases: [],
+  entities: [],
+  constraints: [],
+  negativeCases: [],
+  examples: [],
+})
+
+const retrievalProfileText = (tool, profile) => {
+  const value = { ...defaultRetrievalProfile(tool), ...(profile || {}) }
+  return [
+    `说明：${value.description || ''}`,
+    `关键词：${(value.keywords || []).join('、')}`,
+    `用户说法：${(value.aliases || []).join('、')}`,
+    `实体：${(value.entities || []).join('、')}`,
+    `限制条件：${(value.constraints || []).join('、')}`,
+    `不适用：${(value.negativeCases || []).join('、')}`,
+    `示例：${(value.examples || []).join('；')}`,
+  ].join('\n')
+}
+
+const parseRetrievalProfileText = (text, tool) => {
+  const profile = defaultRetrievalProfile(tool)
+  String(text || '').split('\n').forEach((line) => {
+    const match = line.match(/^([^：:]+)[：:](.*)$/)
+    if (!match) return
+    const fieldMap = {
+      说明: 'description',
+      关键词: 'keywords',
+      用户说法: 'aliases',
+      实体: 'entities',
+      限制条件: 'constraints',
+      不适用: 'negativeCases',
+      示例: 'examples',
+    }
+    const field = fieldMap[match[1].trim()]
+    if (!field) return
+    if (field === 'description') profile[field] = match[2].trim()
+    else profile[field] = match[2].split(/[、,，;；]/).map((item) => item.trim()).filter(Boolean)
+  })
+  return profile
+}
+
+const parseGeneratedRetrievalProfile = (answer, tool) => {
+  const raw = String(answer || '').replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/\s*```$/i, '').trim()
+  try {
+    const parsed = JSON.parse(raw)
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null
+    const profile = defaultRetrievalProfile(tool)
+    profile.description = String(parsed.description || parsed.说明 || tool.purpose || '').trim()
+    const fields = {
+      keywords: parsed.keywords || parsed.关键词,
+      aliases: parsed.aliases || parsed.用户说法,
+      entities: parsed.entities || parsed.实体,
+      constraints: parsed.constraints || parsed.限制条件,
+      negativeCases: parsed.negativeCases || parsed.不适用,
+      examples: parsed.examples || parsed.示例,
+    }
+    Object.entries(fields).forEach(([key, value]) => {
+      profile[key] = Array.isArray(value)
+        ? value.map((item) => String(item).trim()).filter(Boolean)
+        : String(value || '').split(/[、,，;；]/).map((item) => item.trim()).filter(Boolean)
+    })
+    return profile
+  } catch {
+    return null
+  }
+}
+
 function AgentSettings() {
   const [loading, setLoading] = useState(false)
   const [savingKey, setSavingKey] = useState('')
@@ -73,6 +146,9 @@ function AgentSettings() {
   const [draftQuestionAgentMappings, setDraftQuestionAgentMappings] = useState({})
   const [toolBindings, setToolBindings] = useState({})
   const [draftToolBindings, setDraftToolBindings] = useState({})
+  const [, setToolRetrievalProfiles] = useState({})
+  const [draftToolRetrievalProfiles, setDraftToolRetrievalProfiles] = useState({})
+  const [retrievalGenerating, setRetrievalGenerating] = useState('')
   const [activeTab, setActiveTab] = useState('overview')
   const [leaderObjectType, setLeaderObjectType] = useState('all')
   const [leaderToolFilter, setLeaderToolFilter] = useState('all')
@@ -86,13 +162,14 @@ function AgentSettings() {
         getSystemConfigList({
           current: 1,
           size: 500,
-          prefixes: 'ai.service.,ai.agent-bindings.,ai.agent-enabled.,ai.tool-enabled.,ai.tool-bound.,ai.question-generation.agent.',
+          prefixes: 'ai.service.,ai.agent-bindings.,ai.agent-enabled.,ai.tool-enabled.,ai.tool-bound.,ai.tool-retrieval.,ai.question-generation.agent.',
         }),
       ])
       const configRows = configRes.data?.records || []
       const nextBindings = buildAgentModelBindings(configRows)
       const nextToolToggles = buildToolToggles(configRows)
       const nextToolBindings = buildToolBindings(configRows)
+      const nextToolRetrievalProfiles = buildToolRetrievalProfiles(configRows)
       const nextQuestionAgentMappings = buildQuestionGenerationAgentMappings(configRows)
       setAgents(agentRes.data?.agents || [])
       setInternalTools(agentRes.data?.internalTools || [])
@@ -103,6 +180,7 @@ function AgentSettings() {
           ...tool,
           enabled: hasConfiguredValue ? nextToolToggles[tool.name] : tool.enabled !== false,
           boundAgent: hasBoundConfig ? nextToolBindings[tool.name] : (tool.boundAgent || ''),
+          retrievalProfile: nextToolRetrievalProfiles[tool.name] || defaultRetrievalProfile(tool),
         }
       }))
       setLeaderTools((agentRes.data?.leaderTools || []).map((tool) => {
@@ -112,6 +190,7 @@ function AgentSettings() {
           ...tool,
           enabled: tool.configurable === false ? true : hasConfiguredValue ? nextToolToggles[tool.name] : tool.enabled !== false,
           boundAgent: hasBoundConfig ? nextToolBindings[tool.name] : (tool.boundAgent || ''),
+          retrievalProfile: nextToolRetrievalProfiles[tool.name] || defaultRetrievalProfile(tool),
         }
       }))
       setLlmModelOptions(buildLlmModelOptions(configRows))
@@ -121,6 +200,13 @@ function AgentSettings() {
       setDraftQuestionAgentMappings(nextQuestionAgentMappings)
       setToolBindings(nextToolBindings)
       setDraftToolBindings(nextToolBindings)
+      setToolRetrievalProfiles(nextToolRetrievalProfiles)
+      setDraftToolRetrievalProfiles(Object.fromEntries(
+        [...(agentRes.data?.generatedTools || []), ...(agentRes.data?.leaderTools || [])].map((tool) => [
+          tool.name,
+          retrievalProfileText(tool, nextToolRetrievalProfiles[tool.name]),
+        ]),
+      ))
     } catch (error) {
       message.error(error.message || '加载智能体设置失败')
     } finally {
@@ -239,6 +325,65 @@ function AgentSettings() {
       setSavingKey('')
     }
   }, [draftToolBindings])
+
+  const saveToolRetrievalProfile = useCallback(async (tool) => {
+    const text = draftToolRetrievalProfiles[tool.name] || retrievalProfileText(tool, tool.retrievalProfile)
+    const profile = parseRetrievalProfileText(text, tool)
+    setSavingKey(`tool-retrieval:${tool.name}`)
+    try {
+      await upsertSystemConfig({
+        configKey: `${TOOL_RETRIEVAL_CONFIG_PREFIX}${tool.name}`,
+        configValue: JSON.stringify(profile, null, 0),
+        configGroup: 'ai',
+        description: `工具 ${tool.name} 检索说明`,
+        status: 1,
+        isDefault: 0,
+      })
+      setToolRetrievalProfiles((prev) => ({ ...prev, [tool.name]: profile }))
+      setTools((prev) => prev.map((item) => (item.name === tool.name ? { ...item, retrievalProfile: profile } : item)))
+      setLeaderTools((prev) => prev.map((item) => (item.name === tool.name ? { ...item, retrievalProfile: profile } : item)))
+      setDraftToolRetrievalProfiles((prev) => ({ ...prev, [tool.name]: retrievalProfileText(tool, profile) }))
+      message.success('工具检索说明已保存')
+    } catch (error) {
+      message.error(error.message || '工具检索说明保存失败')
+    } finally {
+      setSavingKey('')
+    }
+  }, [draftToolRetrievalProfiles])
+
+  const generateToolRetrievalProfile = useCallback(async (tool) => {
+    setRetrievalGenerating(tool.name)
+    try {
+      const res = await runRagQuery({
+        input: [
+          '请根据下面的工具注册信息，生成该工具的检索配置。',
+          '只输出 JSON，不要输出 Markdown 或解释文字。',
+          '字段必须包含：description、keywords、aliases、entities、constraints、negativeCases、examples。',
+          `工具名称：${tool.name}`,
+          `工具用途：${tool.purpose || ''}`,
+          `触发条件：${tool.trigger || ''}`,
+          `输出类型：${(tool.outputs || []).join('、')}`,
+        ].join('\n'),
+        agentName: 'tool_intent_router_agent',
+        intent: 'tool_retrieval_profile_generation',
+        metadata: {
+          testFrom: 'admin_agent_console',
+          generationPurpose: 'tool_retrieval_profile',
+          toolName: tool.name,
+        },
+      })
+      const profile = parseGeneratedRetrievalProfile(res.data?.answer, tool)
+      if (!profile) {
+        throw new Error('模型没有返回合法的检索配置 JSON')
+      }
+      setDraftToolRetrievalProfiles((prev) => ({ ...prev, [tool.name]: retrievalProfileText(tool, profile) }))
+      message.success('AI 已生成检索说明，请确认后保存')
+    } catch (error) {
+      message.error(error.message || 'AI 生成检索说明失败')
+    } finally {
+      setRetrievalGenerating('')
+    }
+  }, [])
 
   const saveQuestionAgentMapping = useCallback(async (type, label) => {
     const agentName = String(draftQuestionAgentMappings[type] || '').trim()
@@ -467,7 +612,41 @@ function AgentSettings() {
       dataIndex: 'purpose',
       ellipsis: true,
     },
-  ], [saveToolEnabled, saveToolBinding, savingKey, agents, toolBindingOptions, draftToolBindings, toolBindings])
+    {
+      title: '检索说明（可编辑）',
+      dataIndex: 'retrievalProfile',
+      width: 430,
+      render: (value, record) => {
+        const text = draftToolRetrievalProfiles[record.name] ?? retrievalProfileText(record, value)
+        return (
+          <Space direction="vertical" size={4} style={{ width: '100%' }}>
+            <Input.TextArea
+              value={text}
+              autoSize={{ minRows: 3, maxRows: 7 }}
+              placeholder="关键词：\n用户说法：\n实体：\n限制条件：\n不适用：\n示例："
+              onChange={(event) => setDraftToolRetrievalProfiles((prev) => ({ ...prev, [record.name]: event.target.value }))}
+            />
+            <Button
+              size="small"
+              icon={<RobotOutlined />}
+              loading={retrievalGenerating === record.name}
+              onClick={() => generateToolRetrievalProfile(record)}
+            >
+              AI 生成
+            </Button>
+            <Button
+              size="small"
+              icon={<SaveOutlined />}
+              loading={savingKey === `tool-retrieval:${record.name}`}
+              onClick={() => saveToolRetrievalProfile(record)}
+            >
+              保存检索说明
+            </Button>
+          </Space>
+        )
+      },
+    },
+  ], [saveToolEnabled, saveToolBinding, saveToolRetrievalProfile, generateToolRetrievalProfile, retrievalGenerating, savingKey, agents, toolBindingOptions, draftToolBindings, toolBindings, draftToolRetrievalProfiles])
 
   const leaderAgentColumns = useMemo(() => [
     {
@@ -614,7 +793,41 @@ function AgentSettings() {
       dataIndex: 'purpose',
       ellipsis: true,
     },
-  ], [saveToolEnabled, saveToolBinding, savingKey, agents, toolBindingOptions, draftToolBindings, toolBindings])
+    {
+      title: '检索说明（可编辑）',
+      dataIndex: 'retrievalProfile',
+      width: 430,
+      render: (value, record) => {
+        const text = draftToolRetrievalProfiles[record.name] ?? retrievalProfileText(record, value)
+        return (
+          <Space direction="vertical" size={4} style={{ width: '100%' }}>
+            <Input.TextArea
+              value={text}
+              autoSize={{ minRows: 3, maxRows: 7 }}
+              placeholder="关键词：\n用户说法：\n实体：\n限制条件：\n不适用：\n示例："
+              onChange={(event) => setDraftToolRetrievalProfiles((prev) => ({ ...prev, [record.name]: event.target.value }))}
+            />
+            <Button
+              size="small"
+              icon={<RobotOutlined />}
+              loading={retrievalGenerating === record.name}
+              onClick={() => generateToolRetrievalProfile(record)}
+            >
+              AI 生成
+            </Button>
+            <Button
+              size="small"
+              icon={<SaveOutlined />}
+              loading={savingKey === `tool-retrieval:${record.name}`}
+              onClick={() => saveToolRetrievalProfile(record)}
+            >
+              保存检索说明
+            </Button>
+          </Space>
+        )
+      },
+    },
+  ], [saveToolEnabled, saveToolBinding, saveToolRetrievalProfile, generateToolRetrievalProfile, retrievalGenerating, savingKey, agents, toolBindingOptions, draftToolBindings, toolBindings, draftToolRetrievalProfiles])
 
   const questionAgentOptions = useMemo(() => agents.map((agent) => ({
     value: agent.name,
@@ -895,7 +1108,7 @@ function AgentSettings() {
                     <SettingOutlined />
                     <Text>
                       意图识别是 Leader 路由前的系统必经步骤，不属于 Leader 可选工具，也不计入 Leader 工具数量。
-                      它会提取用户关键词，从已启用工具中筛选候选工具，再交给 Leader 最终判断。
+                      它只提取意图、关键词、实体、约束和查询变体；工具索引层再根据各工具的检索说明筛选候选工具。
                     </Text>
                   </div>
                   <Table

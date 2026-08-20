@@ -1,6 +1,6 @@
 tools:
   - name: tool_intent_router
-    description: 只提取用户意图、关键词、实体、约束和查询变体；工具检索与评分由独立工具索引层完成。
+    description: 正常路由时只提取用户意图、关键词、实体、约束和查询变体；后台维护工具检索说明时可生成对应配置，工具检索与评分仍由独立工具索引层完成。
     internal: true
     exposedToLeader: false
     executesBusinessTools: false

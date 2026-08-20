@@ -2040,6 +2040,7 @@ def _build_leader_callable_catalog(request: Optional[RagQueryRequest] = None) ->
             getattr(request, "input", ""),
             available_tools,
             intent_result=intent_result,
+            retrieval_profiles=metadata.get("toolRetrievalProfiles") if isinstance(metadata.get("toolRetrievalProfiles"), dict) else {},
             top_k=3,
         )
     tools = selection.get("candidateTools") or []

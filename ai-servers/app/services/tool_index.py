@@ -51,6 +51,7 @@ class ToolIndex:
         input_text: str,
         tools: Iterable[Dict[str, Any]],
         intent_result: Dict[str, Any] | None = None,
+        retrieval_profiles: Dict[str, Any] | None = None,
         top_k: int = 3,
     ) -> Dict[str, Any]:
         available = list(tools)
@@ -64,7 +65,12 @@ class ToolIndex:
                 name = str(tool.get("name") or "").strip()
                 if not name:
                     continue
+                profile = (retrieval_profiles or {}).get(name) or {}
                 registered = list(TOOL_KEYWORDS.get(name, ()))
+                for field in ("keywords", "aliases", "constraints", "examples"):
+                    values = profile.get(field) if isinstance(profile, dict) else []
+                    if isinstance(values, list):
+                        registered.extend(str(item).strip() for item in values if str(item).strip())
                 matched = [item for item in registered if _normalize(item) in normalized]
                 if not matched:
                     text = _tool_search_text(tool)
@@ -90,4 +96,3 @@ class ToolIndex:
 
 
 tool_index = ToolIndex()
-

@@ -49,6 +49,7 @@ public class PythonAiProxyService {
     private static final String AGENT_ENABLED_PREFIX = "ai.agent-enabled.";
     private static final String TOOL_ENABLED_PREFIX = "ai.tool-enabled.";
     private static final String TOOL_BOUND_PREFIX = "ai.tool-bound.";
+    private static final String TOOL_RETRIEVAL_PREFIX = "ai.tool-retrieval.";
     private static final String LEGACY_TEXT_CONFIG_PREFIX = "ai.service.text";
     private static final Pattern SAFE_SSE_EVENT_NAME = Pattern.compile("[A-Za-z][A-Za-z0-9_-]{0,39}");
 
@@ -1334,8 +1335,34 @@ public class PythonAiProxyService {
         metadata.put("agentModelConfigs", loadAgentModelConfigs());
         metadata.put("toolToggles", loadToolToggles());
         metadata.put("toolBoundAgents", loadToolBoundAgents());
+        metadata.put("toolRetrievalProfiles", loadToolRetrievalProfiles());
         copy.put("metadata", metadata);
         return copy;
+    }
+
+    private Map<String, Object> loadToolRetrievalProfiles() {
+        Map<String, Object> profiles = new HashMap<>();
+        systemConfigRepository.findByConfigKeyStartingWithAndStatus(TOOL_RETRIEVAL_PREFIX, 1)
+                .forEach(config -> {
+                    String key = config.getConfigKey();
+                    if (!StringUtils.hasText(key) || key.length() <= TOOL_RETRIEVAL_PREFIX.length()) {
+                        return;
+                    }
+                    String toolName = key.substring(TOOL_RETRIEVAL_PREFIX.length()).trim();
+                    String raw = String.valueOf(config.getConfigValue() == null ? "" : config.getConfigValue()).trim();
+                    if (!StringUtils.hasText(toolName) || !StringUtils.hasText(raw)) {
+                        return;
+                    }
+                    try {
+                        Map<?, ?> parsed = objectMapper.readValue(raw, Map.class);
+                        Map<String, Object> profile = new HashMap<>();
+                        parsed.forEach((field, value) -> profile.put(String.valueOf(field), value));
+                        profiles.put(toolName, profile);
+                    } catch (JsonProcessingException e) {
+                        log.warn("忽略无效工具检索配置 tool={}", toolName);
+                    }
+                });
+        return profiles;
     }
 
     private Map<String, Object> loadAgentModelConfigs() {
