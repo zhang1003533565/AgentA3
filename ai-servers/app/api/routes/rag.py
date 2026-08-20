@@ -1465,6 +1465,17 @@ def _requested_image_recognition_plan(request: RagQueryRequest) -> Optional[Lead
     image_urls = collect_request_image_references(request)
     if not image_urls:
         return None
+    if not _is_tool_enabled(request, IMAGE_RECOGNITION_TOOL_NAME):
+        return LeaderPlan(
+            intent="image_understanding",
+            target_agent="leader_agent",
+            need_retrieval=False,
+            rag_strategy="",
+            answer="图片识别工具当前已关闭，请先在后台开启后再试。",
+            action="direct_answer",
+            route_reason="检测到图片资源，但图片识别工具已关闭，未执行工具调用。",
+            route_mode="tool_disabled",
+        )
     return LeaderPlan(
         intent="image_understanding",
         target_agent=IMAGE_RECOGNITION_AGENT_NAME,
@@ -1488,6 +1499,17 @@ def _requested_file_transform_plan(request: RagQueryRequest) -> Optional[LeaderP
         not metadata.get("sourceMessageId") or not str(metadata.get("sourceMessageContent") or "").strip()
     ):
         return None
+    if not _is_tool_enabled(request, "generated_export_tools"):
+        return LeaderPlan(
+            intent="document_export",
+            target_agent="leader_agent",
+            need_retrieval=False,
+            rag_strategy="",
+            answer="内容导出工具当前已关闭，请先在后台开启后再试。",
+            action="direct_answer",
+            route_reason="用户请求文件导出，但内容导出工具已关闭，未执行工具调用。",
+            route_mode="tool_disabled",
+        )
     return LeaderPlan(
         intent="document_export",
         target_agent="leader_agent",
@@ -1799,7 +1821,7 @@ def _execute_leader_plan(
 def _should_emit_generation_start(request: RagQueryRequest, agent_name: Optional[str], plan=None) -> bool:
     if plan is not None and getattr(plan, "action", "") == "call_tool":
         tool_name = str(getattr(plan, "tool_name", "") or "").strip()
-        return tool_name in VISUAL_GENERATION_TOOL_NAMES and _visual_tool_dependencies_enabled(request, tool_name)
+        return tool_name in VISUAL_GENERATION_TOOL_NAMES and _is_tool_enabled(request, tool_name)
     return False
 
 
@@ -1933,58 +1955,6 @@ def _tool_toggles_from_request(request: RagQueryRequest) -> Dict[str, Any]:
     return toggles if isinstance(toggles, dict) else {}
 
 
-def _default_tool_bound_agent(tool_name: str) -> str:
-    """工具元数据里的默认绑定智能体(请求未配置时使用)。"""
-    for tool in GENERATED_CONTENT_TOOLS:
-        if tool.get("name") == tool_name:
-            return str(tool.get("boundAgent") or "").strip()
-    for tool in LEADER_CALLABLE_TOOLS:
-        if tool.get("name") == tool_name:
-            return str(tool.get("boundAgent") or "").strip()
-    return ""
-
-
-def _resolve_tool_bound_agent(request: RagQueryRequest, tool_name: str) -> str:
-    """解析工具当前绑定的智能体:请求配置优先,未配置时回退元数据默认值;
-    '-' 或空值表示暂不绑定。"""
-    metadata = request.metadata if isinstance(request.metadata, dict) else {}
-    return _metadata_resolve_tool_bound_agent(metadata, tool_name)
-
-
-def _metadata_resolve_tool_bound_agent(metadata: Dict[str, Any], tool_name: str) -> str:
-    """metadata 版:解析工具当前绑定的智能体(配置优先,回退元数据默认值)。"""
-    normalized = str(tool_name or "").strip()
-    configured = metadata.get("toolBoundAgents") if isinstance(metadata, dict) else None
-    if isinstance(configured, dict) and normalized in configured:
-        value = str(configured.get(normalized) or "").strip()
-        return "" if value in ("", TOOL_BOUND_UNBOUND_MARKER) else value
-    return _default_tool_bound_agent(normalized)
-
-
-def _is_tool_agent_available(request: RagQueryRequest, bound_agent: str) -> bool:
-    """绑定智能体被显式关闭时,工具视为不可用。
-
-    只检查 agentToggles 的显式开关,不检查模型是否就绪:内部智能体
-    (如 file_content_planner_agent)的模型配置会回退到 leader_agent,
-    若检查模型就绪会误伤正常可用的工具。
-    """
-    metadata = request.metadata if isinstance(request.metadata, dict) else {}
-    return _metadata_tool_agent_available(metadata, bound_agent)
-
-
-def _metadata_tool_agent_available(metadata: Dict[str, Any], bound_agent: str) -> bool:
-    """metadata 版:绑定智能体被显式关闭时,工具视为不可用。"""
-    if not bound_agent or bound_agent == "leader_agent":
-        return True
-    toggles = metadata.get("agentToggles") if isinstance(metadata, dict) else None
-    if not isinstance(toggles, dict):
-        return True
-    value = toggles.get(normalize_agent_name(bound_agent))
-    if value is None:
-        return True
-    return _parse_agent_enabled_value(value)
-
-
 def _is_tool_enabled(request: RagQueryRequest, tool_name: str) -> bool:
     normalized = str(tool_name or "").strip()
     if not normalized:
@@ -1996,8 +1966,9 @@ def _is_tool_enabled(request: RagQueryRequest, tool_name: str) -> bool:
         enabled = _parse_agent_enabled_value(toggles.get(normalized))
     if not enabled:
         return False
-    # 工具开关跟随绑定智能体的启用状态:绑定智能体被关闭时,工具也不可用
-    return _is_tool_agent_available(request, _resolve_tool_bound_agent(request, normalized))
+    # 绑定智能体属于工具内部实现细节，不再作为 Leader 工具目录的二次开关。
+    # Leader 是否可以调用，只由后台的工具开关决定。
+    return True
 
 
 def _require_tool_enabled(request: RagQueryRequest, tool_name: str) -> None:
@@ -2047,24 +2018,12 @@ def _leader_callable_agent_item(agent_name: str, request: Optional[RagQueryReque
 def _leader_callable_tool_item(tool: Dict[str, Any], request: Optional[RagQueryRequest]) -> Dict[str, Any]:
     name = str(tool.get("name") or "").strip()
     enabled = True if request is None else _is_tool_enabled(request, name)
-    if enabled and request is not None and name in VISUAL_GENERATION_TOOL_NAMES:
-        enabled = _visual_tool_dependencies_enabled(request, name)
-    if enabled and request is not None and name == IMAGE_RECOGNITION_TOOL_NAME:
-        enabled = _is_agent_enabled(request, IMAGE_RECOGNITION_AGENT_NAME)
     return {
         **tool,
         "zhName": tool.get("zhName") or _tool_zh_name(name),
         "displayName": tool.get("displayName") or _tool_display_name(name),
         "enabled": enabled,
     }
-
-
-def _visual_tool_dependencies_enabled(request: RagQueryRequest, tool_name: str) -> bool:
-    config = VISUAL_GENERATION_TOOL_CONFIG.get(str(tool_name or "").strip())
-    if not config or not _is_agent_enabled(request, "image_agent"):
-        return False
-    prompt_agent = str(config.get("promptAgent") or "").strip()
-    return not prompt_agent or _is_agent_enabled(request, prompt_agent)
 
 
 def _leader_agent_category(agent_name: str) -> str:
@@ -2461,9 +2420,6 @@ def _run_image_recognition_tool(
     image_urls = collect_request_image_references(request)
     if not image_urls:
         raise HTTPException(status_code=400, detail="图片识别工具需要至少一个图片资源。")
-    if not _is_agent_enabled(request, IMAGE_RECOGNITION_AGENT_NAME):
-        return _run_disabled_tool_response(request, IMAGE_RECOGNITION_TOOL_NAME, leader_plan=leader_plan)
-
     answer, model_metadata = _run_specialist_agent_with_bound_model(
         request,
         IMAGE_RECOGNITION_AGENT_NAME,
@@ -3241,11 +3197,7 @@ def _metadata_tool_enabled(metadata: Dict[str, Any], tool_name: str) -> bool:
         enabled = _parse_agent_enabled_value(toggles.get(tool_name))
     if not enabled:
         return False
-    # 与 _is_tool_enabled 保持一致的绑定联动:绑定智能体被关闭时,工具不可用
-    return _metadata_tool_agent_available(
-        metadata,
-        _metadata_resolve_tool_bound_agent(metadata, tool_name),
-    )
+    return True
 
 
 def _follow_up_action(label: str, prompt: str, output_type: str, style: str) -> Dict[str, Any]:
