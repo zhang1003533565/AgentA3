@@ -270,11 +270,13 @@ function switchConversation(id) {
 }
 
 function resourceEntry(file) {
+  const isImage = file.type?.startsWith('image/') || /\.(jpe?g|png|webp|gif)$/i.test(file.name)
   return {
     localId: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
     file,
     name: file.name,
     size: file.size,
+    previewUrl: isImage ? URL.createObjectURL(file) : '',
     status: 'uploading',
     resource: null,
     error: '',
@@ -308,7 +310,23 @@ function handleResourceSelect(event) {
 }
 
 function removeResource(localId) {
-  pendingResources.value = pendingResources.value.filter((item) => item.localId !== localId)
+  const item = pendingResources.value.find((entry) => entry.localId === localId)
+  if (item?.previewUrl) URL.revokeObjectURL(item.previewUrl)
+  pendingResources.value = pendingResources.value.filter((entry) => entry.localId !== localId)
+}
+
+function isImageAttachment(item) {
+  return String(item?.type || '').toLowerCase() === 'image'
+    || String(item?.mimeType || '').toLowerCase().startsWith('image/')
+    || /\.(jpe?g|png|webp|gif)$/i.test(String(item?.name || item?.fileName || item?.title || item?.url || ''))
+}
+
+function attachmentUrl(item) {
+  return item?.previewUrl || item?.url || item?.sourceUrl || item?.downloadUrl || ''
+}
+
+function attachmentName(item) {
+  return item?.name || item?.fileName || item?.title || '上传图片'
 }
 
 function formatFileSize(size) {
@@ -345,10 +363,10 @@ async function sendMessage(text) {
       .map((item) => item.resource)
   if ((!value && !attachments.length) || chatBusy.value || uploading) return
 
-  const requestText = value || '请分析我上传的资源'
+  const requestText = value
   messages.value.push({ id: Date.now(), role: 'user', content: requestText, attachments })
   const conversation = conversations.value.find((item) => item.id === activeConversationId.value)
-  if (conversation?.title === '新对话') conversation.title = requestText.slice(0, 18)
+  if (conversation?.title === '新对话' && requestText) conversation.title = requestText.slice(0, 18)
   if (!hasExplicitText) {
     chatDraft.value = ''
     pendingResources.value = []
@@ -1113,9 +1131,18 @@ function handleUpload(event) {
                     </div>
                     <p>{{ message.content }}</p>
                     <div v-if="message.attachments?.length" class="message-attachments">
-                      <span v-for="item in message.attachments" :key="item.id || item.url">
-                        <IconLine name="file" :size="14" />{{ item.name }}
-                      </span>
+                      <template v-for="item in message.attachments" :key="item.id || item.url || item.name">
+                        <img
+                          v-if="isImageAttachment(item) && attachmentUrl(item)"
+                          class="message-image"
+                          :src="attachmentUrl(item)"
+                          :alt="attachmentName(item)"
+                          loading="lazy"
+                        />
+                        <span v-else class="message-file">
+                          <IconLine name="file" :size="14" />{{ attachmentName(item) }}
+                        </span>
+                      </template>
                     </div>
                     <pre v-if="message.code"><code>{{ message.code }}</code></pre>
                     <div v-if="message.table?.rows?.length" class="response-table">
@@ -1147,7 +1174,8 @@ function handleUpload(event) {
           <div class="composer-zone">
             <div v-if="pendingResources.length" class="upload-queue">
               <div v-for="item in pendingResources" :key="item.localId" class="upload-item">
-                <IconLine name="file" :size="16" />
+                <img v-if="item.previewUrl" class="upload-preview" :src="item.previewUrl" :alt="item.name" />
+                <IconLine v-else name="file" :size="16" />
                 <span>
                   <strong>{{ item.name }}</strong>
                   <small>{{ formatFileSize(item.size) }} · {{ item.status === 'uploading' ? '上传中' : item.status === 'error' ? item.error : '已就绪' }}</small>
@@ -1770,13 +1798,16 @@ function handleUpload(event) {
 .resource-input { display: none; }
 .upload-queue { display: flex; width: min(860px, 100%); gap: 8px; margin: 0 auto 8px; overflow-x: auto; }
 .upload-item { display: flex; min-width: 210px; max-width: 280px; align-items: center; gap: 8px; padding: 9px 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+.upload-preview { width: 48px; height: 48px; flex: none; border-radius: 7px; object-fit: cover; background: var(--surface-soft); }
 .upload-item > span { min-width: 0; flex: 1; }
 .upload-item strong, .upload-item small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .upload-item strong { font-size: 12px; }
 .upload-item small { margin-top: 3px; color: var(--muted); font-size: 10px; }
 .upload-item > button { color: var(--primary); background: transparent; font-size: 11px; }
-.message-attachments { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 9px; }
-.message-attachments span { display: inline-flex; align-items: center; gap: 5px; padding: 5px 8px; border: 1px solid var(--line); border-radius: 7px; font-size: 11px; }
+.message-attachments { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 9px; }
+.message-image { display: block; width: min(346px, 100%); max-height: 300px; border-radius: 12px; object-fit: cover; cursor: zoom-in; }
+.message-file { display: inline-flex; align-items: center; gap: 5px; padding: 5px 8px; border: 1px solid var(--line); border-radius: 7px; font-size: 11px; }
+.message-row.user .message-image { border: 1px solid rgba(255, 255, 255, .35); }
 .chat-composer {
   display: flex;
   width: min(860px, 100%);

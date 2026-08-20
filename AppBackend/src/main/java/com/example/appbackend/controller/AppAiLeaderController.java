@@ -694,6 +694,13 @@ public class AppAiLeaderController {
         message.setRole(AiLeaderMessage.ROLE_USER);
         message.setContent(visibleInput == null ? "" : visibleInput);
         message.setAnswerType(userMessageAnswerType(request));
+        if (request != null && request.getAttachments() != null && !request.getAttachments().isEmpty()) {
+            try {
+                message.setAttachmentsJson(objectMapper.writeValueAsString(request.getAttachments()));
+            } catch (JsonProcessingException error) {
+                throw new IllegalStateException("Unable to persist uploaded resources", error);
+            }
+        }
         if (request != null && StringUtils.hasText(request.getInteractionType())) {
             Map<String, Object> actionMeta = new LinkedHashMap<>();
             actionMeta.put("interactionType", request.getInteractionType().trim());
@@ -772,6 +779,7 @@ public class AppAiLeaderController {
         item.setOutputMeta(readMap(message.getOutputMetaJson()));
         item.setRetrievalMeta(readMap(message.getRetrievalMetaJson()));
         item.setTrace(readMapList(message.getTraceJson()));
+        item.setAttachments(readMapList(message.getAttachmentsJson()));
         if (AiLeaderMessage.ROLE_ASSISTANT.equals(message.getRole())) {
             assistantEnvelopeService.restoreEnvelope(message, item, expectedQuery);
         }
