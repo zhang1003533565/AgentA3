@@ -2007,19 +2007,14 @@ def _require_tool_enabled(request: RagQueryRequest, tool_name: str) -> None:
 
 
 def _build_leader_callable_catalog(request: Optional[RagQueryRequest] = None) -> Dict[str, Any]:
-    # 专业智能体已封装在系统工具内部，不作为 Leader 的独立路由目标暴露。
-    agents = []
+    # 专业智能体已封装在系统工具内部，不在 Leader 目录中暴露任何 agents 字段。
     tools = [_leader_callable_tool_item(tool, request) for tool in LEADER_CALLABLE_TOOLS]
     content_tools = [_leader_callable_tool_item(tool, request) for tool in GENERATED_CONTENT_TOOLS]
     return {
         "routingActions": ["direct_answer", "call_tool"],
-        "agents": agents,
         "tools": tools,
         "contentTools": content_tools,
         "summary": {
-            "agentCount": len(agents),
-            "enabledAgentCount": sum(1 for item in agents if item.get("enabled") is not False),
-            "disabledAgentCount": sum(1 for item in agents if item.get("enabled") is False),
             "toolCount": len(tools),
             "enabledToolCount": sum(1 for item in tools if item.get("enabled") is not False),
             "disabledToolCount": sum(1 for item in tools if item.get("enabled") is False),
