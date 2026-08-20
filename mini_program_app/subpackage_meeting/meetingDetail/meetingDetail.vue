@@ -85,11 +85,105 @@
 
 			<!-- AI 会议纪要展开区：仅展示 Agent 2 (meeting_summary_agent) 的结果 -->
 			<view v-if="showAiResults && aiMinutesResult" class="expand-panel">
-				<view class="result-block">
-					<view class="block-meta">
+				<view class="ai-result-header">
+					<view class="result-tag-block">
 						<text class="result-tag">会议纪要</text>
 						<text class="block-time">{{ formatDateTime(aiMinutesResult.createTime) }}</text>
 					</view>
+				</view>
+
+				<!-- 解析后的 JSON 数据 -->
+				<view v-if="parsedAiResult" class="ai-content-container">
+					<!-- 会议概览 -->
+					<view v-if="parsedAiResult.summary" class="ai-section">
+						<view class="section-title">
+							<text class="section-icon">📋</text>
+							<text>会议概览</text>
+						</view>
+						<view class="summary-card">
+							<text class="summary-text">{{ parsedAiResult.summary }}</text>
+						</view>
+					</view>
+
+					<!-- 关键结论 -->
+					<view v-if="(parsedAiResult.decisions || []).length > 0" class="ai-section">
+						<view class="section-title">
+							<text class="section-icon">✓</text>
+							<text>关键结论</text>
+						</view>
+						<view class="decisions-list">
+							<view v-for="(decision, index) in parsedAiResult.decisions" :key="index" class="decision-item">
+								<text class="decision-mark">✓</text>
+								<text class="decision-text">{{ decision }}</text>
+							</view>
+						</view>
+					</view>
+
+					<!-- 任务分工 -->
+					<view v-if="(parsedAiResult.tasks || []).length > 0" class="ai-section">
+						<view class="section-title">
+							<text class="section-icon">👥</text>
+							<text>任务分工</text>
+						</view>
+						<view class="tasks-grid">
+							<view v-for="task in parsedAiResult.tasks" :key="task.task || index" class="task-card">
+								<view class="task-header">
+									<view class="assignee-info">
+										<text class="assignee-name">{{ task.assignee || '未明确' }}</text>
+									</view>
+								</view>
+								<view class="task-body">
+									<text class="task-description">{{ task.task }}</text>
+								</view>
+								<view class="task-footer">
+									<view class="task-meta">
+										<text class="meta-label">截止时间</text>
+										<text :class="['meta-value', { 'meta-missing': !task.deadline }]">{{ task.deadline || '未明确' }}</text>
+									</view>
+									<view class="task-status">
+										<text :class="['status-badge', getStatusClass(task.status)]">{{ task.status || '待完成' }}</text>
+									</view>
+								</view>
+							</view>
+						</view>
+					</view>
+
+					<!-- TODOs（如果没有 personActions） -->
+					<view v-if="(parsedAiResult.todos || []).length > 0 && !(parsedAiResult.personActions || []).length" class="ai-section">
+						<view class="section-title">
+							<text class="section-icon">📝</text>
+							<text>后续事项</text>
+						</view>
+						<view class="todos-list">
+							<view v-for="(todo, index) in parsedAiResult.todos" :key="index" class="todo-item">
+								<text class="todo-marker">•</text>
+								<text class="todo-text">{{ todo }}</text>
+							</view>
+						</view>
+					</view>
+
+					<!-- 待确认事项 -->
+					<view v-if="(parsedAiResult.pendingItems || []).length > 0" class="ai-section">
+						<view class="section-title">
+							<text class="section-icon">❓</text>
+							<text>待确认事项</text>
+						</view>
+						<view class="pending-list">
+							<view v-for="(item, index) in parsedAiResult.pendingItems" :key="index" class="pending-item">
+								<text class="pending-marker">•</text>
+								<text class="pending-text">{{ item }}</text>
+							</view>
+						</view>
+					</view>
+
+					<!-- 如无内容 -->
+					<view v-if="!hasAnyContent(parsedAiResult)" class="ai-empty">
+						<text class="empty-text">本次会议暂无结构化纪要</text>
+					</view>
+				</view>
+
+				<!-- JSON 解析失败回退 -->
+				<view v-else class="result-block">
 					<text class="block-text">{{ aiMinutesResult.answer }}</text>
 				</view>
 			</view>
@@ -145,7 +239,8 @@ export default {
 			results: [],
 			organizing: false,
 			showAiResults: false,
-			showRecords: false
+			showRecords: false,
+			parsedAiResult: null // 已解析的 AI 会议纪要 JSON
 		}
 	},
 	computed: {
@@ -187,6 +282,27 @@ export default {
 		aiMinutesResult() {
 			if (!Array.isArray(this.results) || this.results.length === 0) return null
 			return this.results.find(item => item && item.agentName === 'meeting_summary_agent') || null
+		},
+		/** 解析后的 AI 会议纪要数据 */
+		parsedAiResult() {
+			if (!this.aiMinutesResult || !this.aiMinutesResult.answer) return null
+			try {
+				const parsed = JSON.parse(this.aiMinutesResult.answer)
+				// 确保所有字段存在（避免 undefined）
+				return {
+					summary: parsed.summary || '',
+					decisions: Array.isArray(parsed.decisions) ? parsed.decisions : [],
+					tasks: Array.isArray(parsed.tasks) ? parsed.tasks : [],
+					todos: Array.isArray(parsed.todos) ? parsed.todos : [],
+					pendingItems: Array.isArray(parsed.pendingItems) ? parsed.pendingItems : [],
+					// 兼容 future扩展字段
+					keyPoints: parsed.keyPoints || [],
+					personActions: parsed.personActions || []
+				}
+			} catch (e) {
+				console.warn('[AI Minutes] JSON parse failed:', e)
+				return null
+			}
 		},
 		/** AI 会议纪要状态：已生成 / 生成中 / 未生成 */
 		aiMinutesStatus() {
@@ -284,7 +400,29 @@ export default {
 				meeting_resource_recommendation_agent: '资源推荐',
 				meeting_voice_broadcast_agent: '语音播报'
 			}
-			return map[agentName] || agentName || 'AI整理'
+			return map[agentName] || agentName || 'AI 整理'
+		},
+		/** 判断是否有任何内容 */
+		hasAnyContent(result) {
+			if (!result) return false
+			return (
+				(result.summary || '').length > 0 ||
+				(result.decisions || []).length > 0 ||
+				(result.tasks || []).length > 0 ||
+				(result.todos || []).length > 0 ||
+				(result.pendingItems || []).length > 0
+			)
+		},
+		/** 状态样式类 */
+		getStatusClass(status) {
+			if (!status) return 'status-pending'
+			const map = {
+				'已完成': 'status-done',
+				'进行中': 'status-processing',
+				'待开始': 'status-start',
+				'已延期': 'status-delayed'
+			}
+			return map[status] || 'status-pending'
 		},
 		sourceLabel(source) {
 			return source === 'transcription' ? '实时转写' : '手动记录'
@@ -696,7 +834,7 @@ $card-radius: 24rpx;
 /* 展开面板 */
 .expand-panel {
 	margin: -12rpx 0 24rpx;
-	padding: 24rpx;
+	padding: 32rpx;
 	border-radius: 0 0 $card-radius $card-radius;
 	background: #fff;
 	box-shadow: 0 8rpx 32rpx rgba(15, 23, 42, 0.04);
@@ -705,10 +843,259 @@ $card-radius: 24rpx;
 	gap: 20rpx;
 }
 
-.result-block {
-	padding: 20rpx;
+/* AI 会议纪要结构化展示 */
+.ai-result-header {
+	margin-bottom: 20rpx;
+}
+
+.result-tag-block {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	margin-bottom: 12rpx;
+}
+
+.result-tag {
+	height: 36rpx;
+	padding: 0 14rpx;
+	border-radius: 999rpx;
+	background: #EDE9FE;
+	color: #7C3AED;
+	font-size: 20rpx;
+	font-weight: 700;
+	display: flex;
+	align-items: center;
+}
+
+.ai-content-container {
+	display: flex;
+	flex-direction: column;
+	gap: 32rpx;
+}
+
+.ai-section {
+	display: flex;
+	flex-direction: column;
+	gap: 16rpx;
+}
+
+.section-title {
+	display: flex;
+	align-items: center;
+	gap: 10rpx;
+	font-size: 28rpx;
+	font-weight: 800;
+	color: $text-main;
+}
+
+.section-icon {
+	font-size: 24rpx;
+	line-height: 1;
+}
+
+.summary-card {
+	padding: 24rpx;
 	border-radius: 16rpx;
 	background: #F8FAFC;
+	border-left: 4rpx solid $primary;
+}
+
+.summary-text {
+	display: block;
+	font-size: 26rpx;
+	color: $text-secondary;
+	line-height: 1.7;
+}
+
+.decisions-list {
+	display: flex;
+	flex-direction: column;
+	gap: 16rpx;
+}
+
+.decision-item {
+	display: flex;
+	align-items: flex-start;
+	gap: 12rpx;
+	padding: 16rpx 20rpx;
+	border-radius: 12rpx;
+	background: #F0FDF4;
+	border: 1rpx solid #DCFCE7;
+}
+
+.decision-mark {
+	font-size: 24rpx;
+	color: $success;
+	flex-shrink: 0;
+	line-height: 1;
+}
+
+.decision-text {
+	flex: 1;
+	display: block;
+	font-size: 26rpx;
+	color: $text-main;
+	line-height: 1.6;
+}
+
+.tasks-grid {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 20rpx;
+}
+
+.task-card {
+	flex: 1;
+	min-width: 320rpx;
+	max-width: 480rpx;
+	padding: 24rpx;
+	border-radius: 16rpx;
+	background: #fff;
+	border: 1rpx solid #E5E7EB;
+	box-shadow: 0 4rpx 16rpx rgba(0, 0, 0, 0.04);
+	display: flex;
+	flex-direction: column;
+	gap: 14rpx;
+}
+
+.task-header {
+	display: flex;
+	align-items: center;
+}
+
+.assignee-info {
+	flex: 1;
+}
+
+.assignee-name {
+	display: block;
+	font-size: 26rpx;
+	font-weight: 700;
+	color: $primary;
+}
+
+.task-body {
+	flex: 1;
+	padding: 0 4rpx;
+}
+
+.task-description {
+	display: block;
+	font-size: 28rpx;
+	font-weight: 600;
+	color: $text-main;
+	line-height: 1.5;
+}
+
+.task-footer {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	margin-top: 8rpx;
+	padding-top: 12rpx;
+	border-top: 1rpx solid #F3F4F6;
+}
+
+.task-meta {
+	display: flex;
+	align-items: center;
+	gap: 8rpx;
+}
+
+.meta-label {
+	font-size: 22rpx;
+	color: $text-muted;
+}
+
+.meta-value {
+	font-size: 22rpx;
+	color: $text-secondary;
+	&.meta-missing {
+		color: $text-muted;
+	}
+}
+
+.task-status {
+	display: flex;
+	align-items: center;
+}
+
+.status-badge {
+	padding: 4rpx 12rpx;
+	border-radius: 6rpx;
+	font-size: 20rpx;
+	font-weight: 700;
+
+	&.status-pending {
+		background: #FEF3C7;
+		color: #D97706;
+	}
+
+	&.status-done {
+		background: #DCFCE7;
+		color: #16A34A;
+	}
+
+	&.status-processing {
+		background: #DBEAFE;
+		color: $primary;
+	}
+
+	&.status-start {
+		background: #F3F4F6;
+		color: $text-secondary;
+	}
+
+	&.status-delayed {
+		background: #FEE2E2;
+		color: $danger;
+	}
+}
+
+.todos-list,
+.pending-list {
+	display: flex;
+	flex-direction: column;
+	gap: 14rpx;
+	padding: 0 8rpx;
+}
+
+.todo-item,
+.pending-item {
+	display: flex;
+	align-items: flex-start;
+	gap: 10rpx;
+}
+
+.todo-marker,
+.pending-marker {
+	font-size: 24rpx;
+	color: $primary;
+	line-height: 1;
+	flex-shrink: 0;
+}
+
+.todo-text,
+.pending-text {
+	flex: 1;
+	display: block;
+	font-size: 26rpx;
+	color: $text-secondary;
+	line-height: 1.6;
+}
+
+.ai-empty {
+	padding: 60rpx 40rpx;
+	text-align: center;
+	background: #F9FAFB;
+	border-radius: 16rpx;
+	border: 1rpx dashed #E5E7EB;
+}
+
+.empty-text {
+	display: block;
+	font-size: 26rpx;
+	color: $text-muted;
 }
 
 .block-meta {

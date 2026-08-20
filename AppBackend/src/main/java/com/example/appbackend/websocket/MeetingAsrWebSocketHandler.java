@@ -608,7 +608,14 @@ public class MeetingAsrWebSocketHandler extends TextWebSocketHandler {
         }
 
         private String buildTranscript() {
-            return String.join("", finalSegments.values());
+            String speaker = speakerName(clientSession);
+            List<String> segmentsWithSpeaker = new ArrayList<>();
+            for (String text : finalSegments.values()) {
+                if (StringUtils.hasText(text)) {
+                    segmentsWithSpeaker.add("[说话人：" + speaker + "] " + text.trim());
+                }
+            }
+            return String.join("\n", segmentsWithSpeaker);
         }
 
         private String buildTranscriptWithPartial() {
