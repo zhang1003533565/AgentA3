@@ -5,6 +5,12 @@ import { useRouter } from 'vue-router'
 import AppTabBar from '../components/AppTabBar.vue'
 import { deleteLeaderSession, getLeaderSessionDetail, getLeaderSessions, queryLeaderAgent, streamLeaderAgent } from '../api/aiGeneration'
 import { AI_RESOURCE_ACCEPT, uploadAiResource } from '../api/upload'
+import pdfIcon from '../assets/file-icons/pdf.png'
+import pptIcon from '../assets/file-icons/ppt.png'
+import excelIcon from '../assets/file-icons/excel.png'
+import wordIcon from '../assets/file-icons/word.png'
+import markdownIcon from '../assets/file-icons/markdown.png'
+import zipIcon from '../assets/file-icons/zip.png'
 
 const IconLine = (props) => {
   const paths = {
@@ -327,6 +333,34 @@ function attachmentUrl(item) {
 
 function attachmentName(item) {
   return item?.name || item?.fileName || item?.title || '上传图片'
+}
+
+function fileExtension(item) {
+  const name = attachmentName(item)
+  const match = String(name).match(/\.([a-z0-9]+)$/i)
+  return (match?.[1] || 'file').toUpperCase()
+}
+
+function fileIconClass(item) {
+  const extension = fileExtension(item).toLowerCase()
+  if (extension === 'pdf') return 'pdf'
+  if (['ppt', 'pptx'].includes(extension)) return 'ppt'
+  if (['xls', 'xlsx', 'csv'].includes(extension)) return 'excel'
+  if (['doc', 'docx'].includes(extension)) return 'word'
+  if (['md', 'mmd', 'txt'].includes(extension)) return 'text'
+  if (['zip', 'rar', '7z'].includes(extension)) return 'archive'
+  return 'generic'
+}
+
+function fileIconAsset(item) {
+  const extension = fileExtension(item).toLowerCase()
+  if (extension === 'pdf') return pdfIcon
+  if (['ppt', 'pptx'].includes(extension)) return pptIcon
+  if (['xls', 'xlsx', 'csv'].includes(extension)) return excelIcon
+  if (['doc', 'docx'].includes(extension)) return wordIcon
+  if (['md', 'mmd', 'txt'].includes(extension)) return markdownIcon
+  if (['zip', 'rar', '7z'].includes(extension)) return zipIcon
+  return ''
 }
 
 function formatFileSize(size) {
@@ -1140,7 +1174,9 @@ function handleUpload(event) {
                           loading="lazy"
                         />
                         <span v-else class="message-file">
-                          <IconLine name="file" :size="14" />{{ attachmentName(item) }}
+                          <img v-if="fileIconAsset(item)" class="file-type-image" :src="fileIconAsset(item)" :alt="fileExtension(item)" />
+                          <i v-else :class="['file-type-icon', `file-type-icon--${fileIconClass(item)}`]">{{ fileExtension(item) }}</i>
+                          <span>{{ attachmentName(item) }}</span>
                         </span>
                       </template>
                     </div>
@@ -1175,7 +1211,8 @@ function handleUpload(event) {
             <div v-if="pendingResources.length" class="upload-queue">
               <div v-for="item in pendingResources" :key="item.localId" class="upload-item">
                 <img v-if="item.previewUrl" class="upload-preview" :src="item.previewUrl" :alt="item.name" />
-                <IconLine v-else name="file" :size="16" />
+                <img v-if="fileIconAsset(item)" class="file-type-image upload-file-icon" :src="fileIconAsset(item)" :alt="fileExtension(item)" />
+                <i v-else :class="['file-type-icon', `file-type-icon--${fileIconClass(item)}`]">{{ fileExtension(item) }}</i>
                 <span>
                   <strong>{{ item.name }}</strong>
                   <small>{{ formatFileSize(item.size) }} · {{ item.status === 'uploading' ? '上传中' : item.status === 'error' ? item.error : '已就绪' }}</small>
@@ -1799,6 +1836,16 @@ function handleUpload(event) {
 .upload-queue { display: flex; width: min(860px, 100%); gap: 8px; margin: 0 auto 8px; overflow-x: auto; }
 .upload-item { display: flex; min-width: 210px; max-width: 280px; align-items: center; gap: 8px; padding: 9px 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
 .upload-preview { width: 48px; height: 48px; flex: none; border-radius: 7px; object-fit: cover; background: var(--surface-soft); }
+.file-type-icon { display: inline-grid; width: 30px; height: 34px; flex: none; place-items: center; border-radius: 6px; color: #fff; font-size: 8px; font-style: normal; font-weight: 800; letter-spacing: -.03em; line-height: 1; }
+.file-type-icon--pdf { background: #e05252; }
+.file-type-icon--ppt { background: #e87532; }
+.file-type-icon--excel { background: #2f9b68; }
+.file-type-icon--word { background: #3d76c8; }
+.file-type-icon--text { background: #64748b; }
+.file-type-icon--archive { background: #8b5fc7; }
+.file-type-icon--generic { background: #718096; }
+.file-type-image { display: block; width: 30px; height: 34px; flex: none; object-fit: contain; }
+.upload-file-icon { width: 48px; height: 48px; }
 .upload-item > span { min-width: 0; flex: 1; }
 .upload-item strong, .upload-item small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .upload-item strong { font-size: 12px; }
@@ -1807,6 +1854,9 @@ function handleUpload(event) {
 .message-attachments { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 9px; }
 .message-image { display: block; width: min(346px, 100%); max-height: 300px; border-radius: 12px; object-fit: cover; cursor: zoom-in; }
 .message-file { display: inline-flex; align-items: center; gap: 5px; padding: 5px 8px; border: 1px solid var(--line); border-radius: 7px; font-size: 11px; }
+.message-file > span { min-width: 0; max-width: 290px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.message-file .file-type-icon { width: 24px; height: 28px; font-size: 7px; }
+.message-file .file-type-image { width: 30px; height: 34px; }
 .message-row.user .message-image { border: 1px solid rgba(255, 255, 255, .35); }
 .chat-composer {
   display: flex;
