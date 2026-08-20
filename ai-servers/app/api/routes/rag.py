@@ -25,6 +25,7 @@ from app.model_providers.multimodal import (
 from app.model_providers.runtime_config import build_llm_runtime_config, reset_active_llm_config, set_active_llm_config
 from app.observability.langfuse import observe_request, settings_from_headers, use_settings
 from app.multi_agents.catalog import (
+    INTERNAL_ONLY_AGENT_NAMES,
     LEADER_CALLABLE_AGENT_ORDER,
     get_agent_catalog,
     get_agent_detail,
@@ -38,6 +39,7 @@ from app.multi_agents.question_bank_schema import review_question_bank_payload
 from app.multi_agents.runner import run_specialist_agent
 from app.multi_agents.textbook_knowledge_agent import resolve_knowledge_source_mode
 from app.multi_agents.tool_intent_router_agent import TOOL_INTENT_ROUTER_TOOL, tool_intent_router_agent
+from app.services.tool_index import tool_index
 from app.learning_workflow import (
     LearningWorkflowRequest,
     export_learning_resources,
@@ -826,6 +828,11 @@ async def run_rag_query_stream(
             requested_agent = normalize_leader_request_agent(request.agentName)
             if request.agentName and not requested_agent:
                 raise HTTPException(status_code=400, detail="智能体不存在")
+            if requested_agent in INTERNAL_ONLY_AGENT_NAMES and not (
+                isinstance(request.metadata, dict)
+                and request.metadata.get("testFrom") == "admin_agent_console"
+            ):
+                raise HTTPException(status_code=400, detail="该智能体仅由系统内部工具自动调用，不能直接执行")
 
             active_agent = requested_agent or "leader_agent"
             if active_agent == "leader_agent":
@@ -1272,6 +1279,11 @@ def _run_rag_query_core(request: RagQueryRequest, authorization: str) -> RagQuer
     requested_agent = normalize_leader_request_agent(request.agentName)
     if request.agentName and not requested_agent:
         raise HTTPException(status_code=400, detail="智能体不存在")
+    if requested_agent in INTERNAL_ONLY_AGENT_NAMES and not (
+        isinstance(request.metadata, dict)
+        and request.metadata.get("testFrom") == "admin_agent_console"
+    ):
+        raise HTTPException(status_code=400, detail="该智能体仅由系统内部工具自动调用，不能直接执行")
 
     active_agent = requested_agent or "leader_agent"
     if active_agent == "leader_agent":
@@ -1920,6 +1932,9 @@ def _is_agent_enabled(request: RagQueryRequest, agent_name: Optional[str]) -> bo
     normalized = normalize_agent_name(agent_name)
     if not normalized or normalized == "leader_agent":
         return True
+    if normalized in INTERNAL_ONLY_AGENT_NAMES:
+        # 系统必经的内部智能体不受普通智能体开关控制；模型配置校验由执行阶段统一给出明确错误。
+        return True
     toggles = _agent_toggles_from_request(request)
     if normalized in toggles and not _parse_agent_enabled_value(toggles.get(normalized)):
         return False
@@ -1996,12 +2011,37 @@ def _build_leader_callable_catalog(request: Optional[RagQueryRequest] = None) ->
     selection = {
         "intent": "",
         "keywords": [],
+        "entities": {},
+        "constraints": [],
+        "queryVariants": [],
         "candidateTools": available_tools,
         "candidateCount": len(available_tools),
         "topK": len(available_tools),
     }
     if request is not None:
-        selection = tool_intent_router_agent.select_candidates(getattr(request, "input", ""), available_tools, top_k=3)
+        intent_result = tool_intent_router_agent.extract(getattr(request, "input", ""))
+        metadata = request.metadata if isinstance(request.metadata, dict) else {}
+        model_configs = metadata.get("agentModelConfigs") if isinstance(metadata.get("agentModelConfigs"), dict) else {}
+        router_config = model_configs.get("tool_intent_router_agent") if isinstance(model_configs, dict) else None
+        if isinstance(router_config, dict) and router_config.get("tested") is True:
+            try:
+                model_answer, _ = _run_specialist_agent_with_bound_model(
+                    request,
+                    "tool_intent_router_agent",
+                    getattr(request, "input", ""),
+                    [],
+                )
+                parsed_result = tool_intent_router_agent.parse_model_result(model_answer)
+                if parsed_result:
+                    intent_result = parsed_result
+            except Exception as exc:
+                logger.warning("tool intent model extraction failed; using local extraction: %s", exc)
+        selection = tool_index.search(
+            getattr(request, "input", ""),
+            available_tools,
+            intent_result=intent_result,
+            top_k=3,
+        )
     tools = selection.get("candidateTools") or []
     return {
         "routingActions": ["direct_answer", "call_tool"],
@@ -2009,6 +2049,9 @@ def _build_leader_callable_catalog(request: Optional[RagQueryRequest] = None) ->
         "toolSelection": {
             "intent": selection.get("intent") or "direct_answer",
             "keywords": selection.get("keywords") or [],
+            "entities": selection.get("entities") or {},
+            "constraints": selection.get("constraints") or [],
+            "queryVariants": selection.get("queryVariants") or [],
             "candidateCount": len(tools),
         },
         "summary": {

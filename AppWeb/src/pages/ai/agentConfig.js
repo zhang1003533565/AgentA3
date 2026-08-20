@@ -161,6 +161,8 @@ export const getAgentModelRequirementText = (agent) => (
     .join(' / ')
 )
 
-export const isAgentEnabled = (agent) => !agent || agent.name === 'leader_agent' || agent.enabled !== false
+export const isAgentEnabled = (agent) => (
+  !agent || agent.name === 'leader_agent' || agent.internalOnly || agent.enabled !== false
+)
 
 export const isToolEnabled = (tool) => !tool || tool.enabled !== false
