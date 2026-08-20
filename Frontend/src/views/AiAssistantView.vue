@@ -3,7 +3,7 @@ import { computed, h, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 
 import AppTabBar from '../components/AppTabBar.vue'
-import { getLeaderSessionDetail, getLeaderSessions, queryLeaderAgent, streamLeaderAgent } from '../api/aiGeneration'
+import { deleteLeaderSession, getLeaderSessionDetail, getLeaderSessions, queryLeaderAgent, streamLeaderAgent } from '../api/aiGeneration'
 import { AI_RESOURCE_ACCEPT, uploadAiResource } from '../api/upload'
 
 const IconLine = (props) => {
@@ -172,6 +172,26 @@ async function loadConversationHistory({ openFirst = true } = {}) {
     historyError.value = cause.message || '加载 AI 会话历史失败'
   } finally {
     historyLoading.value = false
+  }
+}
+
+async function removeConversation(item) {
+  const sessionId = String(item?.sessionId || '').trim()
+  if (!sessionId || !window.confirm('确定删除这个历史会话吗？删除后无法恢复。')) return
+  try {
+    await deleteLeaderSession(sessionId)
+    conversations.value = conversations.value.filter((conversation) => conversation.sessionId !== sessionId)
+    if (activeConversationId.value === sessionId) {
+      activeConversationId.value = ''
+      messages.value = [{
+        id: `assistant-${Date.now()}`,
+        role: 'assistant',
+        content: '已删除该会话。你可以点击“新建对话”开始新的对话。',
+      }]
+    }
+    showToast('历史会话已删除')
+  } catch (cause) {
+    showToast(cause.message || '删除历史会话失败')
   }
 }
 
@@ -1003,6 +1023,14 @@ function handleUpload(event) {
           >
             <IconLine name="chat" :size="15" />
             <span>{{ item.title }}</span>
+            <span
+              class="history-delete"
+              role="button"
+              tabindex="0"
+              title="删除会话"
+              @click.stop="removeConversation(item)"
+              @keydown.enter.stop="removeConversation(item)"
+            >×</span>
           </button>
         </div>
       </section>
@@ -1462,7 +1490,7 @@ function handleUpload(event) {
   display: flex;
   width: 252px;
   flex-direction: column;
-  padding: 22px 16px 18px;
+  padding: 22px 16px 106px;
   border-right: 1px solid var(--line);
   background: var(--surface);
   transition: width .24s ease, padding .24s ease;
@@ -1547,7 +1575,22 @@ function handleUpload(event) {
   text-align: left;
 }
 .history-list button:hover, .history-list button.active { color: var(--primary); background: var(--surface-soft); }
-.history-list span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.history-list button > span:nth-child(2) { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.history-delete {
+  display: grid;
+  width: 22px;
+  height: 22px;
+  flex: none;
+  place-items: center;
+  border-radius: 6px;
+  color: var(--muted);
+  opacity: 0;
+  font-size: 18px;
+  line-height: 1;
+  transition: opacity .18s ease, color .18s ease, background .18s ease;
+}
+.history-list button:hover .history-delete, .history-list button.active .history-delete { opacity: 1; }
+.history-delete:hover { color: #b42318; background: #fee4e2; }
 
 .back-home {
   display: flex;

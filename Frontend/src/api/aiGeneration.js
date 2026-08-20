@@ -133,3 +133,8 @@ export const getLeaderSessions = (params = {}) => unwrap(request({
 export const getLeaderSessionDetail = (sessionId) => unwrap(request({
   url: `/api/ai/leader/sessions/${encodeURIComponent(sessionId)}`,
 }))
+
+export const deleteLeaderSession = (sessionId) => unwrap(request({
+  url: `/api/ai/leader/sessions/${encodeURIComponent(sessionId)}`,
+  method: 'DELETE',
+}))

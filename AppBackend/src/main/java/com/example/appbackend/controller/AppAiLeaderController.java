@@ -33,6 +33,7 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestHeader;
@@ -41,6 +42,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
+import org.springframework.transaction.annotation.Transactional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -253,6 +255,19 @@ public class AppAiLeaderController {
         }
         detail.setMessages(items);
         return Result.success(detail);
+    }
+
+    @DeleteMapping("/sessions/{sessionId}")
+    @Transactional
+    @Operation(summary = "删除 App Leader 会话", description = "删除当前用户指定会话及其消息、导出记录")
+    public Result<Void> deleteSession(@PathVariable String sessionId, HttpServletRequest httpRequest) {
+        Long userId = currentUserId(httpRequest);
+        AiLeaderSession session = sessionRepository.findByUserIdAndSessionId(userId, sessionId)
+                .orElseThrow(() -> new BusinessException(404, "会话不存在"));
+        exportRepository.deleteAll(exportRepository.findByUserIdAndLeaderSessionId(userId, session.getId()));
+        messageRepository.deleteAll(messageRepository.findByLeaderSessionIdOrderByCreateTimeAscIdAsc(session.getId()));
+        sessionRepository.delete(session);
+        return Result.success(null);
     }
 
     @GetMapping("/sessions/{sessionId}/messages/{messageId}/exports/{storageKey}")
