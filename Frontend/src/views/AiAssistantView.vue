@@ -62,13 +62,8 @@ const toast = ref('')
 const searchText = ref('')
 const router = useRouter()
 
-const modules = [
-  { id: 'chat', label: '智能问答', icon: 'chat' },
-  { id: 'writing', label: 'AI 创作', icon: 'pen' },
-  { id: 'meeting', label: '会议助手', icon: 'meeting' },
-]
-
-const pageTitle = computed(() => modules.find((item) => item.id === activeModule.value)?.label)
+// AI 页面只有默认对话，不再提供模块切换入口。
+const pageTitle = computed(() => '默认对话')
 
 function showToast(message) {
   toast.value = message
@@ -282,6 +277,7 @@ async function sendMessage(text) {
     role: 'assistant',
     content: attachments.length ? '正在读取并分析上传的资源…' : '正在思考…',
     streaming: true,
+    steps: [attachments.length ? '正在读取并分析上传的资源' : '已提交给智能助手，正在思考'],
   })
   chatBusy.value = true
   void scrollMessages()
@@ -304,15 +300,18 @@ async function sendMessage(text) {
       onEvent(eventName, payload) {
         streamTouched = true
         syncConversationSession(requestConversationId, payload?.sessionId)
-        if (eventName === 'generation_start' && payload?.answer) {
+        const current = messages.value.find((item) => item.id === assistantMessageId)
+        if (eventName === 'generation_start') {
           updateChatMessage(assistantMessageId, {
-            content: payload.answer,
+            content: payload?.answer || current?.content || '',
             streaming: true,
+            steps: [...(current?.steps || []), '开始生成回答'],
           })
         } else if (eventName === 'tool_start' && payload?.message) {
           updateChatMessage(assistantMessageId, {
-            content: payload.message,
+            content: current?.receivedDelta ? current.content : '',
             streaming: true,
+            steps: [...(current?.steps || []), payload.message],
           })
         }
         void scrollMessages()
@@ -320,6 +319,10 @@ async function sendMessage(text) {
       onSession(payload) {
         streamTouched = true
         syncConversationSession(requestConversationId, payload?.sessionId)
+        const current = messages.value.find((item) => item.id === assistantMessageId)
+        updateChatMessage(assistantMessageId, {
+          steps: [...(current?.steps || []), `已建立会话${payload?.agentName ? `，由 ${payload.agentName} 处理` : ''}${payload?.model ? ` · ${payload.model}` : ''}`],
+        })
       },
       onSearch(payload) {
         streamTouched = true
@@ -329,6 +332,7 @@ async function sendMessage(text) {
             content: payload?.searchKeyword
               ? `正在检索“${payload.searchKeyword}”…`
               : '正在检索相关资料…',
+            steps: [...(current.steps || []), payload?.searchKeyword ? `正在检索：${payload.searchKeyword}` : '正在检索相关资料'],
           })
         }
         void scrollMessages()
@@ -358,6 +362,7 @@ async function sendMessage(text) {
           streaming: false,
           receivedDelta: false,
           answerType: payload?.answerType || 'text',
+          steps: [...(current?.steps || []), '回答完成'],
         })
         void scrollMessages()
       },
@@ -914,20 +919,6 @@ function handleUpload(event) {
         </span>
       </div>
 
-      <nav class="module-nav" aria-label="AI 功能">
-        <button
-          v-for="item in modules"
-          :key="item.id"
-          :class="{ active: activeModule === item.id }"
-          type="button"
-          :title="sidebarCollapsed ? item.label : undefined"
-          @click="selectModule(item.id)"
-        >
-          <IconLine :name="item.icon" />
-          <span>{{ item.label }}</span>
-        </button>
-      </nav>
-
       <section class="history-section">
         <div class="section-heading">
           <span>最近记录</span>
@@ -1020,6 +1011,11 @@ function handleUpload(event) {
                 <span v-if="message.role === 'assistant'" class="ai-avatar"><IconLine name="logo" :size="17" /></span>
                 <div class="message-wrap">
                   <div class="message-bubble">
+                    <div v-if="message.role === 'assistant' && message.steps?.length" class="thinking-steps">
+                      <div v-for="(step, stepIndex) in message.steps" :key="`${message.id}-step-${stepIndex}`" class="thinking-step">
+                        <i></i><span>{{ step }}</span>
+                      </div>
+                    </div>
                     <p>{{ message.content }}</p>
                     <div v-if="message.attachments?.length" class="message-attachments">
                       <span v-for="item in message.attachments" :key="item.id || item.url">
@@ -1340,13 +1336,6 @@ function handleUpload(event) {
       </main>
     </section>
 
-    <nav class="mobile-tabs" aria-label="移动端功能导航">
-      <button v-for="item in modules" :key="item.id" :class="{ active: activeModule === item.id }" type="button" @click="selectModule(item.id)">
-        <IconLine :name="item.icon" :size="20" />
-        <span>{{ item.label }}</span>
-      </button>
-    </nav>
-
     <transition name="toast">
       <div v-if="toast" class="toast-message"><IconLine name="check" :size="17" />{{ toast }}</div>
     </transition>
@@ -1634,6 +1623,10 @@ function handleUpload(event) {
 .message-wrap { max-width: min(720px, 82%); }
 .message-bubble { padding: 15px 17px; border: 1px solid var(--line); border-radius: 5px 16px 16px 16px; background: var(--surface); box-shadow: 0 4px 14px rgba(30, 58, 95, .045); line-height: 1.72; }
 .message-row.user .message-bubble { max-width: 620px; border: 0; border-radius: 16px 5px 16px 16px; color: #fff; background: #1e3a5f; }
+.thinking-steps { display: grid; gap: 5px; margin: 0 0 11px; padding-bottom: 10px; border-bottom: 1px solid var(--line); color: var(--muted); font-size: 12px; line-height: 1.5; }
+.thinking-step { display: flex; align-items: center; gap: 7px; }
+.thinking-step i { width: 6px; height: 6px; flex: 0 0 6px; border-radius: 50%; background: var(--accent); }
+.thinking-step:last-child i { box-shadow: 0 0 0 3px var(--primary-soft); }
 .message-bubble > p { margin: 0; }
 .message-bubble pre { overflow-x: auto; margin: 15px 0; padding: 15px; border-radius: 10px; color: #dce8f4; background: #15283e; font: 12px/1.65 Consolas, monospace; }
 .response-table { overflow-x: auto; margin-top: 15px; }
