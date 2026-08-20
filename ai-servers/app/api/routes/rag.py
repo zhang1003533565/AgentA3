@@ -37,6 +37,7 @@ from app.multi_agents.leader_agent.agent import LeaderPlan, leader_agent
 from app.multi_agents.question_bank_schema import review_question_bank_payload
 from app.multi_agents.runner import run_specialist_agent
 from app.multi_agents.textbook_knowledge_agent import resolve_knowledge_source_mode
+from app.multi_agents.tool_intent_router_agent import TOOL_INTENT_ROUTER_TOOL, tool_intent_router_agent
 from app.learning_workflow import (
     LearningWorkflowRequest,
     export_learning_resources,
@@ -478,6 +479,7 @@ def get_rag_capabilities(
             "internalAgentsExposedToLeader": False,
             "imageProviderEntry": "image_agent",
         },
+        "internalTools": [TOOL_INTENT_ROUTER_TOOL],
         "profileSummary": {
             "agent": "profile_summary_agent",
             "purpose": "把 Java 画像快照总结为强项、欠缺、置信依据和补证建议；不修改画像分数。",
@@ -623,6 +625,7 @@ def list_rag_agents(
     catalog["serviceTools"] = CAMPUS_SERVICE_TOOLS
     catalog["leaderCallableCatalog"] = _build_leader_callable_catalog()
     catalog["generatedTools"] = GENERATED_CONTENT_TOOLS
+    catalog["internalTools"] = [TOOL_INTENT_ROUTER_TOOL]
     return catalog
 
 
@@ -1982,16 +1985,36 @@ def _build_leader_callable_catalog(request: Optional[RagQueryRequest] = None) ->
     tool_by_name = {str(tool.get("name") or "").strip(): tool for tool in LEADER_CALLABLE_TOOLS}
     for tool in GENERATED_CONTENT_TOOLS:
         tool_by_name.setdefault(str(tool.get("name") or "").strip(), tool)
-    tools = [_leader_callable_tool_item(tool, request) for tool in tool_by_name.values() if tool.get("name")]
+    # 运行时目录只暴露当前已启用的工具；禁用项留在后台管理接口，不进入 Leader 上下文。
+    available_tools = [
+        _leader_callable_tool_item(tool, request)
+        for tool in tool_by_name.values()
+        if tool.get("name") and (
+            request is None or _is_tool_enabled(request, str(tool.get("name") or "").strip())
+        )
+    ]
+    selection = {
+        "intent": "",
+        "keywords": [],
+        "candidateTools": available_tools,
+        "candidateCount": len(available_tools),
+        "topK": len(available_tools),
+    }
+    if request is not None:
+        selection = tool_intent_router_agent.select_candidates(getattr(request, "input", ""), available_tools, top_k=3)
+    tools = selection.get("candidateTools") or []
     return {
         "routingActions": ["direct_answer", "call_tool"],
         "tools": tools,
+        "toolSelection": {
+            "intent": selection.get("intent") or "direct_answer",
+            "keywords": selection.get("keywords") or [],
+            "candidateCount": len(tools),
+        },
         "summary": {
             "toolCount": len(tools),
-            "enabledToolCount": sum(1 for item in tools if item.get("enabled") is not False),
-            "disabledToolCount": sum(1 for item in tools if item.get("enabled") is False),
         },
-        "routingRule": "Leader 只能直接回答，或从 enabled=true 的 tools 中选择系统工具；专业智能体不作为独立路由目标，关闭工具不允许继续调用或绕过。",
+        "routingRule": "Leader 只能直接回答，或从 tools 中选择系统工具；tools 只包含后台已启用的工具，专业智能体不作为独立路由目标。",
     }
 
 
@@ -2017,12 +2040,14 @@ def _leader_callable_agent_item(agent_name: str, request: Optional[RagQueryReque
 
 def _leader_callable_tool_item(tool: Dict[str, Any], request: Optional[RagQueryRequest]) -> Dict[str, Any]:
     name = str(tool.get("name") or "").strip()
-    enabled = True if request is None else _is_tool_enabled(request, name)
     return {
-        **tool,
+        "name": name,
         "zhName": tool.get("zhName") or _tool_zh_name(name),
         "displayName": tool.get("displayName") or _tool_display_name(name),
-        "enabled": enabled,
+        "category": tool.get("category") or "",
+        "purpose": tool.get("purpose") or "",
+        "trigger": tool.get("trigger") or "",
+        "outputs": tool.get("outputs") or [],
     }
 
 

@@ -1,0 +1,6 @@
+tools:
+  - name: tool_intent_router
+    description: 从已启用工具中提取关键词并评分，返回 Leader 路由所需的候选工具 Top 3。
+    internal: true
+    exposedToLeader: false
+    executesBusinessTools: false

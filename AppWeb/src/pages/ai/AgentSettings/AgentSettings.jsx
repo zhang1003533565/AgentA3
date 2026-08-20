@@ -65,6 +65,7 @@ function AgentSettings() {
   const [agents, setAgents] = useState([])
   const [leaderTools, setLeaderTools] = useState([])
   const [tools, setTools] = useState([])
+  const [internalTools, setInternalTools] = useState([])
   const [llmModelOptions, setLlmModelOptions] = useState([])
   const [agentModelBindings, setAgentModelBindings] = useState({})
   const [draftBindings, setDraftBindings] = useState({})
@@ -94,6 +95,7 @@ function AgentSettings() {
       const nextToolBindings = buildToolBindings(configRows)
       const nextQuestionAgentMappings = buildQuestionGenerationAgentMappings(configRows)
       setAgents(agentRes.data?.agents || [])
+      setInternalTools(agentRes.data?.internalTools || [])
       setTools((agentRes.data?.generatedTools || []).map((tool) => {
         const hasConfiguredValue = Object.prototype.hasOwnProperty.call(nextToolToggles, tool.name)
         const hasBoundConfig = Object.prototype.hasOwnProperty.call(nextToolBindings, tool.name)
@@ -880,6 +882,68 @@ function AgentSettings() {
                     pagination={false}
                     size="middle"
                     scroll={{ x: 1080 }}
+                  />
+                </div>
+              ),
+            },
+            {
+              key: 'intent-router',
+              label: '意图识别',
+              children: (
+                <div className="agent-settings-tab-panel">
+                  <div className="agent-settings-rule-note">
+                    <SettingOutlined />
+                    <Text>
+                      意图识别是 Leader 路由前的系统必经步骤，不属于 Leader 可选工具，也不计入 Leader 工具数量。
+                      它会提取用户关键词，从已启用工具中筛选候选工具，再交给 Leader 最终判断。
+                    </Text>
+                  </div>
+                  <Table
+                    className="agent-settings-clean-table"
+                    rowKey="name"
+                    loading={loading}
+                    pagination={false}
+                    size="middle"
+                    dataSource={internalTools}
+                    columns={[
+                      {
+                        title: '内部工具',
+                        dataIndex: 'zhName',
+                        width: 280,
+                        render: (value, record) => (
+                          <Space direction="vertical" size={4}>
+                            <Tag color="purple">{value || record.name}</Tag>
+                            <Text type="secondary">{record.name}</Text>
+                          </Space>
+                        ),
+                      },
+                      {
+                        title: '状态',
+                        width: 150,
+                        render: () => <Tag color="green">系统必用 · 强制启用</Tag>,
+                      },
+                      {
+                        title: '调用范围',
+                        width: 220,
+                        render: () => <Tag color="blue">Leader 路由前自动调用</Tag>,
+                      },
+                      {
+                        title: '输出',
+                        dataIndex: 'outputs',
+                        width: 260,
+                        render: (outputs) => renderOutputs(outputs),
+                      },
+                      {
+                        title: '说明',
+                        dataIndex: 'purpose',
+                        render: (value, record) => (
+                          <Space direction="vertical" size={2}>
+                            <Text>{value}</Text>
+                            <Text type="secondary">{record.trigger}</Text>
+                          </Space>
+                        ),
+                      },
+                    ]}
                   />
                 </div>
               ),
