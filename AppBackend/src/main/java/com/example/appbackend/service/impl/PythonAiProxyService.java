@@ -1468,14 +1468,6 @@ public class PythonAiProxyService {
             }
             copy.put("tools", mergedTools);
         }
-        Object contentToolsValue = sourceMap.get("contentTools");
-        if (contentToolsValue instanceof List<?> contentToolsList) {
-            List<Object> mergedContentTools = new ArrayList<>();
-            for (Object tool : contentToolsList) {
-                mergedContentTools.add(mergeToolEnabledState(tool, toolToggles));
-            }
-            copy.put("contentTools", mergedContentTools);
-        }
         return copy;
     }
 

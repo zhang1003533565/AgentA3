@@ -410,7 +410,6 @@ class LeaderFastRouteTest(unittest.TestCase):
                     {"name": "java_schedule_api", "displayName": "课表查询", "purpose": "查询课表", "enabled": True},
                     {"name": "java_meeting_api", "displayName": "会议查询", "purpose": "查询会议", "enabled": False},
                 ],
-                "contentTools": [],
             },
         )
 
@@ -423,7 +422,7 @@ class LeaderFastRouteTest(unittest.TestCase):
         unavailable_plan = self.agent.plan(
             "你支持生图吗？",
             chat_service=self.provider,
-            callable_catalog={"agents": [], "tools": [], "contentTools": []},
+            callable_catalog={"tools": []},
         )
         available_plan = self.agent.plan(
             "你支持生图吗？",
@@ -436,7 +435,6 @@ class LeaderFastRouteTest(unittest.TestCase):
                     "category": "visual_generation",
                     "enabled": True,
                 }],
-                "contentTools": [],
             },
         )
 

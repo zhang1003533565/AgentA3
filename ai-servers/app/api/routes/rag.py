@@ -2007,19 +2007,18 @@ def _require_tool_enabled(request: RagQueryRequest, tool_name: str) -> None:
 
 
 def _build_leader_callable_catalog(request: Optional[RagQueryRequest] = None) -> Dict[str, Any]:
-    # 专业智能体已封装在系统工具内部，不在 Leader 目录中暴露任何 agents 字段。
-    tools = [_leader_callable_tool_item(tool, request) for tool in LEADER_CALLABLE_TOOLS]
-    content_tools = [_leader_callable_tool_item(tool, request) for tool in GENERATED_CONTENT_TOOLS]
+    # 所有能力统一进入 tools；内容导出工具只通过 category=content_export 区分。
+    tool_by_name = {str(tool.get("name") or "").strip(): tool for tool in LEADER_CALLABLE_TOOLS}
+    for tool in GENERATED_CONTENT_TOOLS:
+        tool_by_name.setdefault(str(tool.get("name") or "").strip(), tool)
+    tools = [_leader_callable_tool_item(tool, request) for tool in tool_by_name.values() if tool.get("name")]
     return {
         "routingActions": ["direct_answer", "call_tool"],
         "tools": tools,
-        "contentTools": content_tools,
         "summary": {
             "toolCount": len(tools),
             "enabledToolCount": sum(1 for item in tools if item.get("enabled") is not False),
             "disabledToolCount": sum(1 for item in tools if item.get("enabled") is False),
-            "contentToolCount": len(content_tools),
-            "enabledContentToolCount": sum(1 for item in content_tools if item.get("enabled") is not False),
         },
         "routingRule": "Leader 只能直接回答，或从 enabled=true 的 tools 中选择系统工具；专业智能体不作为独立路由目标，关闭工具不允许继续调用或绕过。",
     }

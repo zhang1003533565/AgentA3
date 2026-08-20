@@ -73,11 +73,9 @@ function AgentSettings() {
   const [toolBindings, setToolBindings] = useState({})
   const [draftToolBindings, setDraftToolBindings] = useState({})
   const [activeTab, setActiveTab] = useState('overview')
-  const [leaderObjectType, setLeaderObjectType] = useState('agents')
-  const [leaderAgentFilter, setLeaderAgentFilter] = useState('all')
+  const [leaderObjectType, setLeaderObjectType] = useState('all')
   const [leaderToolFilter, setLeaderToolFilter] = useState('all')
   const [runtimeAgentFilter, setRuntimeAgentFilter] = useState('all')
-  const [contentToolFilter, setContentToolFilter] = useState('all')
 
   const fetchData = useCallback(async () => {
     setLoading(true)
@@ -292,10 +290,6 @@ function AgentSettings() {
     configuredTools.forEach((tool) => map.set(tool.name, tool))
     return Array.from(map.values())
   }, [configuredLeaderTools, configuredTools])
-
-  const leaderCallableAgents = useMemo(() => (
-    configuredAgents.filter((agent) => agent.name !== 'leader_agent')
-  ), [configuredAgents])
 
   const modelColumns = useMemo(() => [
     {
@@ -696,23 +690,28 @@ function AgentSettings() {
   ], [questionAgentOptions, saveQuestionAgentMapping, savingKey])
 
   const disabledAgentCount = configuredAgents.filter((item) => item.enabled === false).length
-  const disabledLeaderAgentCount = leaderCallableAgents.filter((item) => item.enabled === false).length
   const disabledToolCount = allConfiguredTools.filter((item) => item.enabled === false).length
   const boundCount = configuredAgents.filter((item) => item.boundModel).length
   const unboundAgentCount = configuredAgents.filter((item) => !item.boundModel).length
-  const callableAgentCount = leaderCallableAgents.filter((item) => item.enabled !== false).length
-  const callableToolCount = configuredLeaderTools.filter((item) => item.enabled !== false).length
-  const campusServiceTools = configuredLeaderTools.filter((item) => item.category === 'campus_service')
+  const callableToolCount = allConfiguredTools.filter((item) => item.enabled !== false).length
+  const campusServiceTools = allConfiguredTools.filter((item) => item.category === 'campus_service')
   const enabledCampusServiceCount = campusServiceTools.filter((item) => item.enabled !== false).length
-  const leaderInterfaceTools = configuredLeaderTools.filter((item) => item.category !== 'campus_service')
-  const enabledLeaderInterfaceToolCount = leaderInterfaceTools.filter((item) => item.enabled !== false).length
+  const visualTools = allConfiguredTools.filter((item) => item.category === 'visual_generation')
+  const contentCategoryTools = allConfiguredTools.filter((item) => item.category === 'content_export')
+  const structuredTools = allConfiguredTools.filter((item) => item.category === 'structured_query')
   const mappedQuestionAgentCount = questionAgentRows.filter((item) => item.agentName && item.exists).length
   const validQuestionAgentCount = questionAgentRows.filter((item) => (
     item.agentName && item.exists && item.enabled !== false && item.boundModel
   )).length
-  const enabledContentToolCount = configuredTools.filter((item) => item.enabled !== false).length
-  const disabledContentToolCount = configuredTools.filter((item) => item.enabled === false).length
-  const leaderToolSource = leaderObjectType === 'campus' ? campusServiceTools : leaderInterfaceTools
+  const leaderToolSource = leaderObjectType === 'all'
+    ? allConfiguredTools
+    : leaderObjectType === 'campus'
+      ? campusServiceTools
+      : leaderObjectType === 'visual'
+        ? visualTools
+        : leaderObjectType === 'content'
+          ? contentCategoryTools
+          : structuredTools
 
   const overviewIssues = [
     unboundAgentCount ? {
@@ -720,12 +719,6 @@ function AgentSettings() {
       title: `${unboundAgentCount} 个智能体未绑定默认模型`,
       action: '去模型绑定',
       tab: 'models',
-    } : null,
-    disabledLeaderAgentCount ? {
-      key: 'disabled-agent',
-      title: `${disabledLeaderAgentCount} 个 Leader 专业智能体已关闭`,
-      action: '去 Leader 调用',
-      tab: 'leader',
     } : null,
     mappedQuestionAgentCount < questionAgentRows.length ? {
       key: 'question-map',
@@ -746,19 +739,6 @@ function AgentSettings() {
       tab: 'tools',
     } : null,
   ].filter(Boolean)
-
-  const filteredLeaderCallableAgents = useMemo(() => {
-    if (leaderAgentFilter === 'enabled') {
-      return leaderCallableAgents.filter((item) => item.enabled !== false)
-    }
-    if (leaderAgentFilter === 'disabled') {
-      return leaderCallableAgents.filter((item) => item.enabled === false)
-    }
-    if (leaderAgentFilter === 'unbound') {
-      return leaderCallableAgents.filter((item) => !item.boundModel)
-    }
-    return leaderCallableAgents
-  }, [leaderAgentFilter, leaderCallableAgents])
 
   const filteredLeaderTools = useMemo(() => {
     if (leaderToolFilter === 'enabled') {
@@ -782,16 +762,6 @@ function AgentSettings() {
     }
     return configuredAgents
   }, [configuredAgents, runtimeAgentFilter])
-
-  const filteredContentTools = useMemo(() => {
-    if (contentToolFilter === 'enabled') {
-      return configuredTools.filter((item) => item.enabled !== false)
-    }
-    if (contentToolFilter === 'disabled') {
-      return configuredTools.filter((item) => item.enabled === false)
-    }
-    return configuredTools
-  }, [configuredTools, contentToolFilter])
 
   return (
     <div className="agent-settings-page">
@@ -817,8 +787,8 @@ function AgentSettings() {
                 <div className="agent-settings-overview">
                   <div className="agent-settings-metrics">
                     <div className="agent-settings-metric">
-                      <Text type="secondary">可调用智能体</Text>
-                      <strong>{callableAgentCount}/{leaderCallableAgents.length}</strong>
+                      <Text type="secondary">Leader 工具</Text>
+                      <strong>{callableToolCount}/{allConfiguredTools.length}</strong>
                     </div>
                     <div className="agent-settings-metric">
                       <Text type="secondary">模型绑定</Text>
@@ -836,7 +806,7 @@ function AgentSettings() {
 
                   <div className="agent-settings-rule-note">
                     <SettingOutlined />
-                    <Text>Leader 固定开启。关闭智能体或工具后，识别到对应意图也不会进入后续路由。</Text>
+                    <Text>Leader 固定开启。关闭工具后，识别到对应能力也不会进入后续路由。</Text>
                   </div>
 
                   <div className="agent-settings-issues">
@@ -870,7 +840,7 @@ function AgentSettings() {
             },
             {
               key: 'leader',
-              label: 'Leader 调用',
+              label: '工具开关',
               children: (
                 <div className="agent-settings-tab-panel">
                   <div className="agent-settings-table-tools">
@@ -878,40 +848,36 @@ function AgentSettings() {
                       className="agent-settings-segmented"
                       value={leaderObjectType}
                       options={[
-                        { label: `专业智能体 ${callableAgentCount}/${leaderCallableAgents.length}`, value: 'agents' },
-                        { label: `系统能力 ${enabledCampusServiceCount}/${campusServiceTools.length}`, value: 'campus' },
-                        { label: `接口工具 ${enabledLeaderInterfaceToolCount}/${leaderInterfaceTools.length}`, value: 'tools' },
+                        { label: `全部工具 ${callableToolCount}/${allConfiguredTools.length}`, value: 'all' },
+                        { label: `校园服务 ${enabledCampusServiceCount}/${campusServiceTools.length}`, value: 'campus' },
+                        { label: `视觉能力 ${visualTools.filter((item) => item.enabled !== false).length}/${visualTools.length}`, value: 'visual' },
+                        { label: `内容处理 ${contentCategoryTools.filter((item) => item.enabled !== false).length}/${contentCategoryTools.length}`, value: 'content' },
+                        { label: `结构化查询 ${structuredTools.filter((item) => item.enabled !== false).length}/${structuredTools.length}`, value: 'structured' },
                       ]}
                       onChange={(value) => {
                         setLeaderObjectType(value)
-                        setLeaderAgentFilter('all')
                         setLeaderToolFilter('all')
                       }}
                     />
                     <Segmented
                       className="agent-settings-segmented"
                       size="small"
-                      value={leaderObjectType === 'agents' ? leaderAgentFilter : leaderToolFilter}
-                      options={leaderObjectType === 'agents' ? [
-                        { label: '全部', value: 'all' },
-                        { label: '可调用', value: 'enabled' },
-                        { label: '已关闭', value: 'disabled' },
-                        { label: '未绑定', value: 'unbound' },
-                      ] : [
+                      value={leaderToolFilter}
+                      options={[
                         { label: '全部', value: 'all' },
                         { label: '可调用', value: 'enabled' },
                         { label: '已关闭', value: 'disabled' },
                       ]}
-                      onChange={leaderObjectType === 'agents' ? setLeaderAgentFilter : setLeaderToolFilter}
+                      onChange={setLeaderToolFilter}
                     />
                   </div>
                   <Table
                     className="agent-settings-clean-table"
                     rowKey="name"
                     loading={loading}
-                    columns={leaderObjectType === 'agents' ? leaderAgentColumns : leaderToolColumns}
-                    dataSource={leaderObjectType === 'agents' ? filteredLeaderCallableAgents : filteredLeaderTools}
-                    pagination={leaderObjectType === 'agents' ? { pageSize: 8 } : false}
+                    columns={leaderToolColumns}
+                    dataSource={filteredLeaderTools}
+                    pagination={false}
                     size="middle"
                     scroll={{ x: 1080 }}
                   />
@@ -982,45 +948,6 @@ function AgentSettings() {
                     pagination={false}
                     scroll={{ x: 820 }}
                   />
-                </div>
-              ),
-            },
-            {
-              key: 'tools',
-              label: '工具开关',
-              children: (
-                <div className="agent-settings-tab-panel">
-                  <div className="agent-settings-table-tools">
-                    <Space className="agent-settings-title-tags" size={6} wrap>
-                      <Tag color="blue">工具 {configuredTools.length}</Tag>
-                      <Tag color={enabledContentToolCount === configuredTools.length ? 'green' : 'orange'}>开启 {enabledContentToolCount}</Tag>
-                      <Tag color={disabledContentToolCount ? 'orange' : 'green'}>关闭 {disabledContentToolCount}</Tag>
-                    </Space>
-                    <Segmented
-                      className="agent-settings-segmented"
-                      size="small"
-                      value={contentToolFilter}
-                      options={[
-                        { label: '全部', value: 'all' },
-                        { label: '已开启', value: 'enabled' },
-                        { label: '已关闭', value: 'disabled' },
-                      ]}
-                      onChange={setContentToolFilter}
-                    />
-                  </div>
-                  {configuredTools.length ? (
-                    <Table
-                      className="agent-settings-clean-table"
-                      rowKey="name"
-                      loading={loading}
-                      columns={toolColumns}
-                      dataSource={filteredContentTools}
-                      pagination={false}
-                      scroll={{ x: 1080 }}
-                    />
-                  ) : (
-                    <Empty description="暂无工具配置" />
-                  )}
                 </div>
               ),
             },
