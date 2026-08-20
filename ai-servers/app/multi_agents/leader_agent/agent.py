@@ -325,7 +325,7 @@ class LeaderPlan:
     target_agent: str
     need_retrieval: bool
     rag_strategy: str
-    action: str = "delegate_agent"
+    action: str = "direct_answer"
     tool_name: str = ""
     route_reason: str = ""
     answer: str = ""
@@ -352,18 +352,6 @@ class LeaderAgent:
         forced_plan = self._plan_for_requested_agent(requested_agent, rag_strategy)
         if forced_plan:
             return forced_plan
-
-        learning_plan = self._plan_learning_workflow(learning_context)
-        if learning_plan:
-            return learning_plan
-
-        learning_guidance_plan = self._plan_learning_guidance_agent(input_text, callable_catalog)
-        if learning_guidance_plan:
-            return learning_guidance_plan
-
-        knowledge_generation_plan = self._plan_explicit_knowledge_generation_request(input_text, callable_catalog)
-        if knowledge_generation_plan:
-            return knowledge_generation_plan
 
         file_export_plan = self._plan_explicit_file_export_request(input_text)
         if file_export_plan:
@@ -981,16 +969,12 @@ class LeaderAgent:
     def _parse_llm_plan(self, plan: Dict[str, Any], requested_rag_strategy: str) -> Optional[LeaderPlan]:
         if not isinstance(plan, dict):
             return None
-        action = str(plan.get("action") or "delegate_agent").strip()
+        action = str(plan.get("action") or "direct_answer").strip()
         tool_name = str(plan.get("tool_name") or plan.get("toolName") or "").strip()
-        default_target = "leader_agent" if action in {"direct_answer", "call_tool"} else "textbook_knowledge_agent"
-        target_agent = normalize_agent_name(str(plan.get("target_agent") or plan.get("targetAgent") or "")) or default_target
-        if target_agent not in {"leader_agent", *LEADER_CALLABLE_AGENT_ORDER}:
-            return None
-        need_retrieval = bool(plan.get("need_retrieval", plan.get("needRetrieval", False)))
-        profile = get_agent_profile(target_agent)
-        if profile and action == "delegate_agent":
-            need_retrieval = bool(profile["needRetrieval"])
+        if action not in {"direct_answer", "call_tool"}:
+            action = "direct_answer"
+        target_agent = "leader_agent"
+        need_retrieval = False
         rag_strategy = self._normalize_rag_strategy(plan.get("rag_strategy") or plan.get("ragStrategy"))
         if action == "call_tool" and tool_name == "text_to_sql" and not rag_strategy:
             rag_strategy = "text_to_sql"
@@ -1001,8 +985,8 @@ class LeaderAgent:
             target_agent=target_agent,
             need_retrieval=need_retrieval,
             rag_strategy=rag_strategy,
-            action=action if action in {"direct_answer", "delegate_agent", "call_tool"} else "delegate_agent",
-            tool_name=tool_name,
+            action=action,
+            tool_name=tool_name if action == "call_tool" else "",
             route_reason=str(plan.get("route_reason") or plan.get("routeReason") or "Leader LLM 完成意图识别。").strip(),
             answer=str(plan.get("answer") or "").strip(),
             route_mode="llm",
@@ -1015,14 +999,8 @@ class LeaderAgent:
         profile = get_agent_profile(agent_name)
         if not profile or agent_name == "leader_agent":
             return None
-        return LeaderPlan(
-            intent=profile["intent"],
-            target_agent=agent_name,
-            need_retrieval=bool(profile["needRetrieval"]),
-            rag_strategy="",
-            route_reason=f"用户显式选择 {profile['role']}，Leader 按指定智能体执行。",
-            route_mode="forced",
-        )
+        # 专业智能体不再作为 Leader 的独立路由目标；相关能力必须以系统工具形式进入工具目录。
+        return None
 
     def _is_structured_query(self, normalized_text: str) -> bool:
         query_tokens = ("统计", "数量", "多少", "有多少", "列表", "查询", "查一下", "排名")
@@ -1358,7 +1336,7 @@ def build_leader_router_user_prompt(
             "当前输入与画像冲突时，以当前输入完成本轮回答，并在 route_reason 中说明冲突倾向。",
             "profile_snapshot.outputPreferenceHints 只能用于提供后续图片版/文件版选项，不能凭偏好把普通学习、解释或问答请求改成生图任务。只有当前 user_input 明确要求图片、图解或具体图表时，才允许选择图片/图表智能体。",
             "如果任务既可做图片又可做文件且没有稳定偏好，先询问用户要图片形式还是文件形式。",
-            "用户要求文件版/文档版/Excel/Word/打包下载时，优先路由到能生成知识、题库、会议纪要或 PPT 大纲的专业智能体；AI Server 会自动调用 generated_export_tools 生成附件，不要把长内容只当纯文字回复。",
+            "用户要求文件版/文档版/Excel/Word/打包下载时，调用已启用的 generated_export_tools；工具内部负责组织内容并生成附件，不要把长内容只当纯文字回复。",
             "用户要求题库表格或题库 Excel 时，仍先选择对应题型智能体生成严格题库 JSON，再由导出工具转换为 md/docx/xlsx/zip。",
             "用户要求 Mermaid 源文件、图表源码或后续编辑图表时，图表智能体返回 Mermaid 后会自动生成 mmd/md/zip 附件。",
             "如果用户已经提供了要导出的 Markdown、普通文本或标准题库 JSON，且只要求转成文件，可以直接 call_tool: generated_export_tools。",
@@ -1370,15 +1348,15 @@ def build_leader_router_user_prompt(
             "用户问某门课的老师是谁、任课老师、授课教师、谁教某门课时，这是课程信息查询，必须优先选择 java_schedule_api，不要路由到教材知识点智能体。",
             "用户问某门课什么时候学、什么时候上课、周几几点上时，也是课程信息查询，必须优先选择 java_schedule_api；但“什么时候开始没有课/哪天没课/今天有课吗”属于课表状态查询，不要套用最近课程。",
             "用户问某门课本学期有几节课、几次课、多少课时或上课次数时，也是课程信息查询，必须优先选择 java_schedule_api。",
-            "会议纪要/总结/转写/成员分析仍属于会议专业智能体；活动图/流程图仍属于图表智能体，不要误判为校园活动查询。",
-            "路由时只能选择 leader_callable_catalog 中 enabled=true 的 agents/tools；关闭项只可在 route_reason 中说明，不允许绕过后台配置。",
+            "会议纪要/总结/转写/成员分析以及活动图/流程图等能力，统一通过已启用的系统工具处理，不要单独委派专业智能体。",
+            "路由只有两种：普通问题使用 direct_answer；确实需要系统能力时使用 call_tool。只能选择 leader_callable_catalog 中 enabled=true 的 tools；关闭项不允许绕过后台配置。",
             "用户询问你有什么功能、是否支持生图/PPT/题库/文档/图表等能力时，只能依据 leader_callable_catalog 中 enabled=true 的项目回答；不得把静态提示词、已知智能体名称或输出策略当成当前可用能力。",
             "问候、闲聊和能力询问都必须由你在 answer 中直接生成自然回复；系统不会补写固定问候语、能力清单或其他兜底文案。",
             "回答能力询问时面向普通用户说明可完成的事情，不要主动输出内部 agent/tool 标识；只有用户明确询问技术名称时才可给出。",
             "某项能力未出现在启用清单中时，必须明确回答当前不可用或尚未完成配置，不得声称可以生成后再执行失败。",
             "leader_output_push_strategies 只是已启用能力的输出路由提示，不能单独证明某种生成能力当前可用。",
-            "所有图片、思维导图、流程图、活动图、架构图、知识图谱和 PPT 配图请求都必须 action=call_tool，并从 leader_callable_catalog.tools 选择对应 generate_*_image_tool；不得 delegate_agent 到提示词智能体或 image_agent。",
-            "target_agent 必须来自 leader_callable_catalog.agents.name；tool_name 必须来自 leader_callable_catalog.tools.name。",
+            "所有图片、思维导图、流程图、活动图、架构图、知识图谱和 PPT 配图请求都必须 action=call_tool，并从 leader_callable_catalog.tools 选择对应 generate_*_image_tool；不要单独委派任何智能体。",
+            "target_agent 固定为 leader_agent；call_tool 时 tool_name 必须来自 leader_callable_catalog.tools.name。",
             "action=call_tool 时，answer 必须是一句简短自然的进行中回复，例如“正在为你查询今日课表。”；最终结果会在工具返回后再由模型整理。",
         ],
         "leader_output_push_strategies": LEADER_OUTPUT_PUSH_STRATEGIES,

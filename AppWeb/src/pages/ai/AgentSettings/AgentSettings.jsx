@@ -10,12 +10,10 @@ import {
   TOOL_BOUND_CONFIG_PREFIX,
   TOOL_BOUND_UNBOUND_MARKER,
   TOOL_ENABLED_CONFIG_PREFIX,
-  TOOL_REGISTERED_CONFIG_PREFIX,
   buildAgentModelBindings,
   buildQuestionGenerationAgentMappings,
   buildToolBindings,
   buildToolToggles,
-  buildToolRegistrations,
   buildLlmModelOptions,
   getAgentModelRequirementText,
   getAgentRequiredModelModalities,
@@ -73,7 +71,6 @@ function AgentSettings() {
   const [questionAgentMappings, setQuestionAgentMappings] = useState({})
   const [draftQuestionAgentMappings, setDraftQuestionAgentMappings] = useState({})
   const [toolBindings, setToolBindings] = useState({})
-  const [toolRegistrations, setToolRegistrations] = useState({})
   const [draftToolBindings, setDraftToolBindings] = useState({})
   const [activeTab, setActiveTab] = useState('overview')
   const [leaderObjectType, setLeaderObjectType] = useState('agents')
@@ -90,14 +87,13 @@ function AgentSettings() {
         getSystemConfigList({
           current: 1,
           size: 500,
-          prefixes: 'ai.service.,ai.agent-bindings.,ai.agent-enabled.,ai.tool-enabled.,ai.tool-registered.,ai.tool-bound.,ai.question-generation.agent.',
+          prefixes: 'ai.service.,ai.agent-bindings.,ai.agent-enabled.,ai.tool-enabled.,ai.tool-bound.,ai.question-generation.agent.',
         }),
       ])
       const configRows = configRes.data?.records || []
       const nextBindings = buildAgentModelBindings(configRows)
       const nextToolToggles = buildToolToggles(configRows)
       const nextToolBindings = buildToolBindings(configRows)
-      const nextToolRegistrations = buildToolRegistrations(configRows)
       const nextQuestionAgentMappings = buildQuestionGenerationAgentMappings(configRows)
       setAgents(agentRes.data?.agents || [])
       setTools((agentRes.data?.generatedTools || []).map((tool) => {
@@ -125,7 +121,6 @@ function AgentSettings() {
       setDraftQuestionAgentMappings(nextQuestionAgentMappings)
       setToolBindings(nextToolBindings)
       setDraftToolBindings(nextToolBindings)
-      setToolRegistrations(nextToolRegistrations)
     } catch (error) {
       message.error(error.message || '加载智能体设置失败')
     } finally {
@@ -213,26 +208,6 @@ function AgentSettings() {
       message.success(enabled ? '工具已开启，Leader 可调用' : '工具已关闭，Leader 不会调用')
     } catch (error) {
       message.error(error.message || '工具开关保存失败')
-    } finally {
-      setSavingKey('')
-    }
-  }, [])
-
-  const saveToolRegistration = useCallback(async (toolName, registered) => {
-    setSavingKey(`tool-registration:${toolName}`)
-    try {
-      await upsertSystemConfig({
-        configKey: `${TOOL_REGISTERED_CONFIG_PREFIX}${toolName}`,
-        configValue: registered ? '1' : '0',
-        configGroup: 'ai',
-        description: `Leader 工具 ${toolName} 注册状态`,
-        status: 1,
-        isDefault: 0,
-      })
-      setToolRegistrations((prev) => ({ ...prev, [toolName]: registered }))
-      message.success(registered ? '工具已注册到 Leader 白名单' : '工具已移出 Leader 白名单')
-    } catch (error) {
-      message.error(error.message || '工具注册状态保存失败')
     } finally {
       setSavingKey('')
     }
@@ -497,30 +472,6 @@ function AgentSettings() {
       ellipsis: true,
     },
   ], [saveToolEnabled, saveToolBinding, savingKey, agents, toolBindingOptions, draftToolBindings, toolBindings])
-
-  const toolRegistryRows = useMemo(() => allConfiguredTools.map((tool) => ({
-    ...tool,
-    // 注册表是唯一准入来源；没有明确配置时，工具默认未注册。
-    registered: toolRegistrations[tool.name] === true,
-  })), [allConfiguredTools, toolRegistrations])
-
-  const toolRegistryColumns = useMemo(() => [
-    {
-      title: '注册到 Leader',
-      dataIndex: 'registered',
-      width: 140,
-      render: (value, record) => (
-        <Switch
-          checked={value === true}
-          loading={savingKey === `tool-registration:${record.name}`}
-          checkedChildren="已注册"
-          unCheckedChildren="未注册"
-          onChange={(checked) => saveToolRegistration(record.name, checked)}
-        />
-      ),
-    },
-    ...toolColumns,
-  ], [saveToolRegistration, savingKey, toolColumns])
 
   const leaderAgentColumns = useMemo(() => [
     {
@@ -1030,30 +981,6 @@ function AgentSettings() {
                     dataSource={questionAgentRows}
                     pagination={false}
                     scroll={{ x: 820 }}
-                  />
-                </div>
-              ),
-            },
-            {
-              key: 'registry',
-              label: '工具注册',
-              children: (
-                <div className="agent-settings-tab-panel">
-                  <div className="agent-settings-section-summary">
-                    <Text type="secondary">只有注册到 Leader 白名单且已开启的工具才允许自动调用；未注册工具只能进行普通对话，不会执行系统操作。</Text>
-                    <Space className="agent-settings-title-tags" size={6} wrap>
-                      <Tag color="blue">可注册工具 {toolRegistryRows.length}</Tag>
-                      <Tag color="green">已注册 {toolRegistryRows.filter((item) => item.registered).length}</Tag>
-                    </Space>
-                  </div>
-                  <Table
-                    className="agent-settings-clean-table"
-                    rowKey="name"
-                    loading={loading}
-                    columns={toolRegistryColumns}
-                    dataSource={toolRegistryRows}
-                    pagination={false}
-                    scroll={{ x: 1180 }}
                   />
                 </div>
               ),

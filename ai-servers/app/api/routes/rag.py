@@ -1793,14 +1793,7 @@ def _execute_leader_plan(
             return _run_visual_generation_tool(request, plan)
         raise HTTPException(status_code=502, detail=f"Leader 选择了未注册工具：{plan.tool_name or '空'}，已停止执行。")
 
-    agent_profile = get_agent_profile(plan.target_agent)
-    if not agent_profile:
-        raise HTTPException(status_code=502, detail=f"Leader 路由到了不存在的目标智能体：{plan.target_agent}")
-    if not _is_agent_enabled(request, plan.target_agent):
-        return _run_disabled_agent_response(request, plan.target_agent, leader_plan=plan)
-    if not agent_profile.get("needRetrieval", True):
-        return _run_direct_agent(request, agent_profile, leader_plan=plan)
-    return _run_agent_without_local_retrieval(request, plan.target_agent, leader_plan=plan)
+    raise HTTPException(status_code=502, detail=f"Leader 只允许直接回答或调用系统工具，已拒绝动作：{plan.action}")
 
 
 def _should_emit_generation_start(request: RagQueryRequest, agent_name: Optional[str], plan=None) -> bool:
@@ -1940,34 +1933,6 @@ def _tool_toggles_from_request(request: RagQueryRequest) -> Dict[str, Any]:
     return toggles if isinstance(toggles, dict) else {}
 
 
-def _tool_registrations_from_request(request: Optional[RagQueryRequest]) -> Dict[str, Any]:
-    metadata = request.metadata if isinstance(getattr(request, "metadata", None), dict) else {}
-    registrations = metadata.get("toolRegistrations")
-    return registrations if isinstance(registrations, dict) else {}
-
-
-def _default_registered_tool_names() -> set[str]:
-    # 注册表是唯一准入来源。没有后台明确注册的工具，默认全部不可被 Leader 调用。
-    return set()
-
-
-def _is_tool_registered(request: Optional[RagQueryRequest], tool_name: str) -> bool:
-    normalized = str(tool_name or "").strip()
-    if not normalized:
-        return False
-    registrations = _tool_registrations_from_request(request)
-    registered = _default_registered_tool_names()
-    for name, value in registrations.items():
-        clean_name = str(name or "").strip()
-        if not clean_name:
-            continue
-        if _parse_agent_enabled_value(value):
-            registered.add(clean_name)
-        else:
-            registered.discard(clean_name)
-    return normalized in registered
-
-
 def _default_tool_bound_agent(tool_name: str) -> str:
     """工具元数据里的默认绑定智能体(请求未配置时使用)。"""
     for tool in GENERATED_CONTENT_TOOLS:
@@ -2024,8 +1989,6 @@ def _is_tool_enabled(request: RagQueryRequest, tool_name: str) -> bool:
     normalized = str(tool_name or "").strip()
     if not normalized:
         return False
-    if not _is_tool_registered(request, normalized):
-        return False
     toggles = _tool_toggles_from_request(request)
     if normalized not in toggles:
         enabled = True
@@ -2044,15 +2007,12 @@ def _require_tool_enabled(request: RagQueryRequest, tool_name: str) -> None:
 
 
 def _build_leader_callable_catalog(request: Optional[RagQueryRequest] = None) -> Dict[str, Any]:
-    agents = [
-        _leader_callable_agent_item(agent_name, request)
-        for agent_name in LEADER_CALLABLE_AGENT_ORDER
-    ]
-    agents = [item for item in agents if item]
+    # 专业智能体已封装在系统工具内部，不作为 Leader 的独立路由目标暴露。
+    agents = []
     tools = [_leader_callable_tool_item(tool, request) for tool in LEADER_CALLABLE_TOOLS]
     content_tools = [_leader_callable_tool_item(tool, request) for tool in GENERATED_CONTENT_TOOLS]
     return {
-        "routingActions": ["direct_answer", "delegate_agent", "call_tool"],
+        "routingActions": ["direct_answer", "call_tool"],
         "agents": agents,
         "tools": tools,
         "contentTools": content_tools,
@@ -2066,7 +2026,7 @@ def _build_leader_callable_catalog(request: Optional[RagQueryRequest] = None) ->
             "contentToolCount": len(content_tools),
             "enabledContentToolCount": sum(1 for item in content_tools if item.get("enabled") is not False),
         },
-        "routingRule": "Leader 只能从 enabled=true 的 agents 和 tools 中选择；关闭项只允许展示为不可用，不允许继续调用或兜底改调。",
+        "routingRule": "Leader 只能直接回答，或从 enabled=true 的 tools 中选择系统工具；专业智能体不作为独立路由目标，关闭工具不允许继续调用或绕过。",
     }
 
 
@@ -2092,8 +2052,7 @@ def _leader_callable_agent_item(agent_name: str, request: Optional[RagQueryReque
 
 def _leader_callable_tool_item(tool: Dict[str, Any], request: Optional[RagQueryRequest]) -> Dict[str, Any]:
     name = str(tool.get("name") or "").strip()
-    registered = _is_tool_registered(request, name)
-    enabled = registered and (True if request is None else _is_tool_enabled(request, name))
+    enabled = True if request is None else _is_tool_enabled(request, name)
     if enabled and request is not None and name in VISUAL_GENERATION_TOOL_NAMES:
         enabled = _visual_tool_dependencies_enabled(request, name)
     if enabled and request is not None and name == IMAGE_RECOGNITION_TOOL_NAME:
@@ -2103,7 +2062,6 @@ def _leader_callable_tool_item(tool: Dict[str, Any], request: Optional[RagQueryR
         "zhName": tool.get("zhName") or _tool_zh_name(name),
         "displayName": tool.get("displayName") or _tool_display_name(name),
         "enabled": enabled,
-        "registered": registered,
     }
 
 
@@ -3496,7 +3454,6 @@ def _leader_plan_detail(plan) -> Dict[str, Any]:
 def _leader_action_label(action: str) -> str:
     labels = {
         "direct_answer": "直接回答",
-        "delegate_agent": "调用专业智能体",
         "call_tool": "调用接口/工具",
     }
     return labels.get(action or "", action or "未知动作")

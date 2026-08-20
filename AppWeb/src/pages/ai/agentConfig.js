@@ -2,7 +2,6 @@ export const AI_MODEL_CONFIG_PATTERN = /^ai\.service\.(text|vision|image|video|a
 export const AGENT_MODEL_BINDING_PATTERN = /^ai\.agent-bindings\.([A-Za-z0-9_-]+)\.model$/
 export const AGENT_ENABLED_CONFIG_PREFIX = 'ai.agent-enabled.'
 export const TOOL_ENABLED_CONFIG_PREFIX = 'ai.tool-enabled.'
-export const TOOL_REGISTERED_CONFIG_PREFIX = 'ai.tool-registered.'
 export const TOOL_BOUND_CONFIG_PREFIX = 'ai.tool-bound.'
 export const TOOL_BOUND_UNBOUND_MARKER = '-'
 export const QUESTION_GENERATION_AGENT_PREFIX = 'ai.question-generation.agent.'
@@ -136,17 +135,6 @@ export const buildToolToggles = (configRows = []) => {
     }
   })
   return toggles
-}
-
-export const buildToolRegistrations = (configRows = []) => {
-  const registrations = {}
-  configRows.forEach((item) => {
-    const key = String(item.configKey || '')
-    if (!key.startsWith(TOOL_REGISTERED_CONFIG_PREFIX)) return
-    const toolName = key.slice(TOOL_REGISTERED_CONFIG_PREFIX.length).trim()
-    if (toolName) registrations[toolName] = parseEnabledConfigValue(item.configValue)
-  })
-  return registrations
 }
 
 export const buildToolBindings = (configRows = []) => {
