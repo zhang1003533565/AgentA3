@@ -358,14 +358,9 @@ class LeaderAgent:
             return file_export_plan
 
         tool_selection = callable_catalog.get("toolSelection") if isinstance(callable_catalog, dict) else {}
-        candidate_tools = callable_catalog.get("tools") if isinstance(callable_catalog, dict) else []
         if (
             isinstance(tool_selection, dict)
             and tool_selection.get("intent") == "capability_inquiry"
-            and any(
-                isinstance(tool, dict) and tool.get("name") == "tool_capability_query"
-                for tool in (candidate_tools or [])
-            )
         ):
             return LeaderPlan(
                 intent="capability_inquiry",
@@ -1111,6 +1106,8 @@ class LeaderAgent:
                 "当用户提到简称、英文缩写、别名或不完整名称时，由你在 tool_results 中做语义匹配；不要要求完全同名。",
                 "如果多个结果都可能匹配且无法判断，先说明候选并请用户确认，不要随便选。",
                 "如果 tool_results 为空，要说明已调用对应系统能力但暂时没有可展示数据，并给出可能检查项。",
+                "如果 tool_results 中包含 type=tool_empty_result，要明确告诉用户本次查询没有查到数据，不要伪造结果。",
+                "如果 tool_results 中包含 type=tool_execution_error，要明确告诉用户工具调用失败，并说明错误状态；不要把失败说成没有数据。",
                 "如果 leader_planning_answer 不为空，可承接它，但最终必须给出查询结果或空结果说明。",
                 *answer_policy.get("requirements", []),
             ],
@@ -1152,6 +1149,18 @@ class LeaderAgent:
         plan: LeaderPlan,
         tool_results: List[Dict[str, Any]],
     ) -> Dict[str, Any]:
+        if plan.tool_name == "tool_capability_query":
+            return {
+                "mode": "capability_query",
+                "format": "concise_capability_summary",
+                "requirements": [
+                    "只根据 tool_results 中 enabledTools 的 purpose 和 category 总结当前可用能力。",
+                    "按用户能理解的功能分类，最多列出 5 类；每类用一句话概括，不要逐项照抄工具名称。",
+                    "不要输出 tool_name、agent_name、category 英文值、outputs 或其他内部字段。",
+                    "不要把禁用工具、未出现在 enabledTools 中的能力或静态提示词中的能力说成可用。",
+                    "如果 enabledTools 为空，只说明当前没有已启用的业务工具，仍可以进行普通对话。",
+                ],
+            }
         if plan.tool_name == "java_schedule_api":
             mode = self._schedule_answer_mode(input_text, tool_results)
             if mode == "course_time":

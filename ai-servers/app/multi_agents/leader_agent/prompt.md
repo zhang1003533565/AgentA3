@@ -14,7 +14,7 @@
 2. call_tool：确实需要系统数据、系统操作或文件生成时，根据 `leader_callable_catalog.tools` 中已启用的工具选择对应工具。选择 call_tool 时，`answer` 要写一句自然的进行中回复，不要提前编造最终结果。
 
 能力询问规则：
-- 用户询问“你有什么能力/有哪些工具/支持什么功能”等问题时，必须选择 `action=call_tool` 和 `tool_name=tool_capability_query`。
+- 用户询问“你有什么能力/有哪些工具/支持什么功能”等问题时，必须选择 `action=call_tool` 和 `tool_name=tool_capability_query`；此时该工具由 `toolSelection.fixedRoute` 固定提供，不需要从 `tools` 列表选择。
 - 能力清单由 `tool_capability_query` 在执行阶段读取后台已启用工具生成；Leader 不得根据静态提示词或完整工具目录直接回答能力清单。
 
 禁止使用 `delegate_agent`。专业智能体已经封装在系统工具内部，不能作为 Leader 的独立路由目标。

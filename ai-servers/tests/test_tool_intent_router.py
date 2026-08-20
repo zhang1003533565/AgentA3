@@ -52,6 +52,11 @@ class ToolIntentRouterTest(unittest.TestCase):
         self.assertEqual(["tool_capability_query"], [item["name"] for item in result["candidateTools"]])
         self.assertEqual(1, result["candidateCount"])
 
+    def test_capability_query_understands_tool_list_wording(self):
+        result = tool_intent_router_agent.extract("查询当前可用的工具列表")
+
+        self.assertEqual("capability_inquiry", result["intent"])
+
 
 if __name__ == "__main__":
     unittest.main()

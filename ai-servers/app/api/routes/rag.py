@@ -2068,7 +2068,10 @@ def _build_leader_callable_catalog(request: Optional[RagQueryRequest] = None) ->
             retrieval_profiles=metadata.get("toolRetrievalProfiles") if isinstance(metadata.get("toolRetrievalProfiles"), dict) else {},
             top_k=3,
         )
-    tools = selection.get("candidateTools") or []
+    is_capability_inquiry = selection.get("intent") == "capability_inquiry"
+    # 能力询问由系统固定工具路由，不把工具本身或业务工具清单发送给 Leader。
+    # 普通问题仍只保留索引后的少量候选工具。
+    tools = [] if is_capability_inquiry else (selection.get("candidateTools") or [])
     return {
         "routingActions": ["direct_answer", "call_tool"],
         "tools": tools,
@@ -2079,11 +2082,13 @@ def _build_leader_callable_catalog(request: Optional[RagQueryRequest] = None) ->
             "constraints": selection.get("constraints") or [],
             "queryVariants": selection.get("queryVariants") or [],
             "candidateCount": len(tools),
+            "fixedRoute": TOOL_CAPABILITY_QUERY_NAME if is_capability_inquiry else "",
         },
         "summary": {
-            "toolCount": len(tools),
+        "toolCount": len(tools),
+        "fixedRoute": TOOL_CAPABILITY_QUERY_NAME if is_capability_inquiry else "",
         },
-        "routingRule": "Leader 只能直接回答，或从 tools 中选择系统工具；tools 只包含后台已启用的工具，专业智能体不作为独立路由目标。",
+        "routingRule": "普通问题由 Leader 从 tools 候选中选择系统工具；能力询问由 toolSelection.fixedRoute 固定调用能力查询工具；专业智能体不作为独立路由目标。",
     }
 
 
@@ -2099,7 +2104,6 @@ def _run_tool_capability_query(request: RagQueryRequest, leader_plan) -> RagQuer
         for name, tool in tool_by_name.items()
         if name != TOOL_CAPABILITY_QUERY_NAME and _is_tool_enabled(request, name)
     ]
-    grouped: Dict[str, List[Dict[str, Any]]] = {}
     documents: List[Dict[str, Any]] = []
     for tool in enabled_tools:
         name = str(tool.get("name") or "").strip()
@@ -2110,7 +2114,6 @@ def _run_tool_capability_query(request: RagQueryRequest, leader_plan) -> RagQuer
             "purpose": str(tool.get("purpose") or "").strip(),
             "outputs": tool.get("outputs") or [],
         }
-        grouped.setdefault(item["category"], []).append(item)
         documents.append({
             "id": f"capability:{name}",
             "type": "tool_capability",
@@ -2119,19 +2122,22 @@ def _run_tool_capability_query(request: RagQueryRequest, leader_plan) -> RagQuer
             "metadata": item,
         })
 
-    category_labels = {
-        "campus_service": "校园信息查询",
-        "vision_understanding": "图片理解",
-        "visual_generation": "图片与图表生成",
-        "structured_query": "结构化查询",
-        "content_export": "内容整理与文件导出",
+    tool_result = {
+        "type": "tool_capability_result",
+        "enabledToolCount": len(enabled_tools),
+        "enabledTools": enabled_tools,
     }
-    lines = ["我当前可以使用这些已启用能力："]
-    for category, items in grouped.items():
-        label = category_labels.get(category, category or "其他能力")
-        lines.append(f"• {label}：{'、'.join(str(item['displayName']) for item in items)}")
-    if not enabled_tools:
-        lines.append("目前没有可用的业务工具，只有普通对话能力。")
+    try:
+        answer = leader_agent.summarize_tool_result(
+            input_text=request.input,
+            plan=leader_plan,
+            tool_display_name=_tool_display_name(TOOL_CAPABILITY_QUERY_NAME),
+            tool_results=[tool_result],
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail="模型未能总结工具能力查询结果，已禁止直接透传工具内容。") from exc
+    if not str(answer or "").strip():
+        raise HTTPException(status_code=502, detail="模型返回空的工具能力总结，已禁止直接透传工具内容。")
 
     metadata = {
         "agentName": "leader_agent",
@@ -2149,7 +2155,8 @@ def _run_tool_capability_query(request: RagQueryRequest, leader_plan) -> RagQuer
         "executionMode": "leader_call_tool",
         "executionModeLabel": "调用工具查询当前已启用能力",
         "answerType": "capability_list",
-        "toolResultSummarized": False,
+        "toolResultSummarized": True,
+        "toolResultSummaryMode": "model",
         "toolToggles": _tool_toggles_from_request(request),
         "enabledToolCount": len(enabled_tools),
         "retrievalCandidateCount": 1,
@@ -2157,7 +2164,7 @@ def _run_tool_capability_query(request: RagQueryRequest, leader_plan) -> RagQuer
     metadata.update(_context_metadata_from_request(request))
     return _decorate_output_response(RagQueryResponse(
         strategy=TOOL_CAPABILITY_QUERY_NAME,
-        answer="\n".join(lines),
+        answer=answer,
         answerType="capability_list",
         documents=[_tool_result_to_document(item, index) for index, item in enumerate(documents, start=1)],
         trace=[
@@ -2166,6 +2173,10 @@ def _run_tool_capability_query(request: RagQueryRequest, leader_plan) -> RagQuer
                 "toolName": TOOL_CAPABILITY_QUERY_NAME,
                 "enabledToolCount": len(enabled_tools),
                 "retrievalSkipped": True,
+            }),
+            RagTraceResponse(stage="tool_result_summary", detail={
+                "toolResultSummaryMode": "model",
+                "answerLength": len(answer),
             }),
         ],
         metadata=metadata,
@@ -3103,17 +3114,30 @@ def _run_service_tool(request: RagQueryRequest, authorization: str, leader_plan)
         "toolCacheHitCount": int(tool_cache.get("hitCount") or 0),
         "toolCacheMissCount": int(tool_cache.get("missCount") or 0),
     }
-    documents = [_tool_result_to_document(item, index) for index, item in enumerate(results, start=1)]
     backend_failure = _service_tool_backend_failure(cache_meta) if not results else {}
-    summary_results = results
     if backend_failure:
-        summary_results = [{
+        tool_results = [{
             "type": "tool_execution_error",
             "status": backend_failure.get("status"),
             "reason": backend_failure.get("reason"),
             "statusCode": backend_failure.get("statusCode"),
             "message": "工具调用失败，当前结果不能用于判断是否存在业务数据。",
         }]
+        result_status = "error"
+    elif not results:
+        tool_results = [{
+            "type": "tool_empty_result",
+            "status": "empty",
+            "reason": "no_data",
+            "message": "工具调用成功，但没有查询到匹配数据。",
+        }]
+        result_status = "empty"
+    else:
+        tool_results = results
+        result_status = "ok"
+    # 空结果和错误也作为工具结果返回，避免前端或 Langfuse 看到空数组而无法判断发生了什么。
+    documents = [_tool_result_to_document(item, index) for index, item in enumerate(tool_results, start=1)]
+    summary_results = tool_results
     summary_started_at = time.perf_counter()
     try:
         answer = leader_agent.summarize_tool_result(
@@ -3151,6 +3175,9 @@ def _run_service_tool(request: RagQueryRequest, authorization: str, leader_plan)
         "toolResultSummaryMode": summary_mode,
         "serviceToolBackendStatus": str(backend_failure.get("status") or "ok"),
         "serviceToolBackendFailure": bool(backend_failure),
+        "toolResultStatus": result_status,
+        "toolResultCount": len(tool_results),
+        "toolResultEmpty": result_status == "empty",
         "toolToggles": _tool_toggles_from_request(request),
         **retrieval_meta,
     }
@@ -3168,6 +3195,8 @@ def _run_service_tool(request: RagQueryRequest, authorization: str, leader_plan)
                 "planningAnswer": planning_answer,
                 "toolMs": tool_ms,
                 **retrieval_meta,
+                "resultStatus": result_status,
+                "resultCount": len(tool_results),
             }),
             RagTraceResponse(stage="tool_result_summary", detail={
                 "agentName": "leader_agent",
@@ -3556,6 +3585,7 @@ def _tool_result_to_document(item: Dict[str, Any], index: int) -> RagDocumentRes
         str(item.get("classSessions") or "").strip(),
         " ".join(str(value) for value in item.get("scheduleItems", [])[:3]) if isinstance(item.get("scheduleItems"), list) else "",
         str(item.get("description") or "").strip(),
+        str(item.get("message") or "").strip(),
     ]
     content = " ".join(part for part in content_parts if part) or str(item)
     return RagDocumentResponse(
