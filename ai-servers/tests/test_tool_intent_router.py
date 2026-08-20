@@ -36,6 +36,22 @@ class ToolIntentRouterTest(unittest.TestCase):
 
         self.assertEqual(["java_activity_api"], [item["name"] for item in result["candidateTools"]])
 
+    def test_capability_query_returns_only_capability_tool(self):
+        intent = tool_intent_router_agent.extract("你有哪些工具能力")
+        result = tool_index.search(
+            "你有哪些工具能力",
+            [
+                {"name": "java_activity_api", "purpose": "查询校园活动"},
+                {"name": "tool_capability_query", "purpose": "查询当前已启用工具能力"},
+                {"name": "generate_image_tool", "purpose": "生成图片"},
+            ],
+            intent_result=intent,
+        )
+
+        self.assertEqual("capability_inquiry", result["intent"])
+        self.assertEqual(["tool_capability_query"], [item["name"] for item in result["candidateTools"]])
+        self.assertEqual(1, result["candidateCount"])
+
 
 if __name__ == "__main__":
     unittest.main()

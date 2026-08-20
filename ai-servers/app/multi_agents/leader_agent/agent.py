@@ -357,6 +357,28 @@ class LeaderAgent:
         if file_export_plan:
             return file_export_plan
 
+        tool_selection = callable_catalog.get("toolSelection") if isinstance(callable_catalog, dict) else {}
+        candidate_tools = callable_catalog.get("tools") if isinstance(callable_catalog, dict) else []
+        if (
+            isinstance(tool_selection, dict)
+            and tool_selection.get("intent") == "capability_inquiry"
+            and any(
+                isinstance(tool, dict) and tool.get("name") == "tool_capability_query"
+                for tool in (candidate_tools or [])
+            )
+        ):
+            return LeaderPlan(
+                intent="capability_inquiry",
+                target_agent="leader_agent",
+                need_retrieval=False,
+                rag_strategy="",
+                action="call_tool",
+                tool_name="tool_capability_query",
+                route_reason="用户询问系统能力，调用能力查询工具读取当前已启用工具。",
+                answer="正在查询当前已启用的工具能力。",
+                route_mode="rules",
+            )
+
         if self._is_explicit_visual_generation_request(input_text):
             visual_plan = self._plan_with_rules(input_text, rag_strategy)
             if visual_plan.action == "call_tool" and visual_plan.tool_name in VISUAL_GENERATION_TOOL_NAMES:
@@ -1365,9 +1387,9 @@ def build_leader_router_user_prompt(
             "用户问某门课本学期有几节课、几次课、多少课时或上课次数时，也是课程信息查询，必须优先选择 java_schedule_api。",
             "会议纪要/总结/转写/成员分析以及活动图/流程图等能力，统一通过已启用的系统工具处理，不要单独委派专业智能体。",
             "路由只有两种：普通问题使用 direct_answer；确实需要系统能力时使用 call_tool。只能选择 leader_callable_catalog.tools 中的工具；该列表已经过滤掉后台关闭项。",
-            "用户询问你有什么功能、是否支持生图/PPT/题库/文档/图表等能力时，只能依据 leader_callable_catalog.tools 中的项目回答；不得把静态提示词、已知智能体名称或输出策略当成当前可用能力。",
-            "问候、闲聊和能力询问都必须由你在 answer 中直接生成自然回复；系统不会补写固定问候语、能力清单或其他兜底文案。",
-            "回答能力询问时面向普通用户说明可完成的事情，不要主动输出内部 agent/tool 标识；只有用户明确询问技术名称时才可给出。",
+            "用户询问你有什么功能、是否支持生图/PPT/题库/文档/图表等能力时，必须 action=call_tool，tool_name=tool_capability_query；能力清单由该工具读取当前后台开关后返回，不能由 Leader 根据静态目录直接回答。",
+            "问候和闲聊可以由 Leader 直接回答；能力询问不允许 direct_answer，必须调用 tool_capability_query。",
+            "能力查询工具返回结果后，面向普通用户说明可完成的事情，不要主动输出内部 agent/tool 标识；只有用户明确询问技术名称时才可给出。",
             "某项能力未出现在启用清单中时，必须明确回答当前不可用或尚未完成配置，不得声称可以生成后再执行失败。",
             "leader_output_push_strategies 只是已启用能力的输出路由提示，不能单独证明某种生成能力当前可用。",
             "所有图片、思维导图、流程图、活动图、架构图、知识图谱和 PPT 配图请求都必须 action=call_tool，并从 leader_callable_catalog.tools 选择对应 generate_*_image_tool；不要单独委派任何智能体。",

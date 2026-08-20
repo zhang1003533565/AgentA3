@@ -58,7 +58,17 @@ class ToolIndex:
         result = intent_result or {}
         normalized = _normalize(input_text)
         if result.get("intent") == "capability_inquiry":
-            candidates = available
+            # 能力询问不能把完整工具目录重新塞回 Leader。只暴露一个
+            # 服务端能力查询工具，由它在执行阶段读取最新的后台开关。
+            capability_tool = next(
+                (
+                    tool
+                    for tool in available
+                    if str(tool.get("name") or "").strip() == "tool_capability_query"
+                ),
+                None,
+            )
+            candidates = [capability_tool] if capability_tool else []
         else:
             ranked: List[Dict[str, Any]] = []
             for tool in available:

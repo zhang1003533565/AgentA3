@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Button, Card, Empty, Input, Segmented, Select, Space, Switch, Table, Tabs, Tag, Typography, message } from 'antd'
+import { Alert, Button, Card, Drawer, Empty, Input, Segmented, Select, Space, Switch, Table, Tabs, Tag, Typography, message } from 'antd'
 import { CheckCircleOutlined, ExclamationCircleOutlined, ReloadOutlined, RobotOutlined, SaveOutlined, SettingOutlined } from '@ant-design/icons'
 import { getRagAgents, runRagQuery } from '../../../api/rag'
 import { getSystemConfigList, upsertSystemConfig } from '../../../api/systemConfig'
@@ -132,6 +132,27 @@ const parseGeneratedRetrievalProfile = (answer, tool) => {
   }
 }
 
+const retrievalProfileFields = [
+  ['description', '说明'],
+  ['keywords', '关键词'],
+  ['aliases', '用户说法'],
+  ['entities', '实体'],
+  ['constraints', '限制条件'],
+  ['negativeCases', '不适用'],
+  ['examples', '示例'],
+]
+
+const profileValues = (profile, field) => {
+  const value = profile?.[field]
+  return Array.isArray(value) ? value.filter(Boolean).map(String) : (value ? [String(value)] : [])
+}
+
+const ProfileItems = ({ profile, empty = '未配置' }) => (
+  <Space size={[6, 6]} wrap>
+    {profile?.length ? profile.map((item) => <Tag key={item}>{item}</Tag>) : <Text type="secondary">{empty}</Text>}
+  </Space>
+)
+
 function AgentSettings() {
   const [loading, setLoading] = useState(false)
   const [savingKey, setSavingKey] = useState('')
@@ -148,6 +169,10 @@ function AgentSettings() {
   const [draftToolBindings, setDraftToolBindings] = useState({})
   const [, setToolRetrievalProfiles] = useState({})
   const [draftToolRetrievalProfiles, setDraftToolRetrievalProfiles] = useState({})
+  const [retrievalDrawerTool, setRetrievalDrawerTool] = useState(null)
+  const [retrievalDrawerOpen, setRetrievalDrawerOpen] = useState(false)
+  const [retrievalDrawerProfile, setRetrievalDrawerProfile] = useState(null)
+  const [retrievalGeneratedProfile, setRetrievalGeneratedProfile] = useState(null)
   const [retrievalGenerating, setRetrievalGenerating] = useState('')
   const [activeTab, setActiveTab] = useState('overview')
   const [leaderObjectType, setLeaderObjectType] = useState('all')
@@ -328,7 +353,7 @@ function AgentSettings() {
 
   const saveToolRetrievalProfile = useCallback(async (tool) => {
     const text = draftToolRetrievalProfiles[tool.name] || retrievalProfileText(tool, tool.retrievalProfile)
-    const profile = parseRetrievalProfileText(text, tool)
+    const profile = retrievalDrawerProfile || parseRetrievalProfileText(text, tool)
     setSavingKey(`tool-retrieval:${tool.name}`)
     try {
       await upsertSystemConfig({
@@ -343,12 +368,24 @@ function AgentSettings() {
       setTools((prev) => prev.map((item) => (item.name === tool.name ? { ...item, retrievalProfile: profile } : item)))
       setLeaderTools((prev) => prev.map((item) => (item.name === tool.name ? { ...item, retrievalProfile: profile } : item)))
       setDraftToolRetrievalProfiles((prev) => ({ ...prev, [tool.name]: retrievalProfileText(tool, profile) }))
+      setRetrievalDrawerProfile(profile)
+      setRetrievalGeneratedProfile(null)
       message.success('工具检索说明已保存')
+      return true
     } catch (error) {
       message.error(error.message || '工具检索说明保存失败')
+      return false
     } finally {
       setSavingKey('')
     }
+  }, [draftToolRetrievalProfiles, retrievalDrawerProfile])
+
+  const openRetrievalDrawer = useCallback((tool) => {
+    const current = tool.retrievalProfile || parseRetrievalProfileText(draftToolRetrievalProfiles[tool.name], tool)
+    setRetrievalDrawerTool(tool)
+    setRetrievalDrawerProfile({ ...defaultRetrievalProfile(tool), ...current })
+    setRetrievalGeneratedProfile(null)
+    setRetrievalDrawerOpen(true)
   }, [draftToolRetrievalProfiles])
 
   const generateToolRetrievalProfile = useCallback(async (tool) => {
@@ -376,7 +413,8 @@ function AgentSettings() {
       if (!profile) {
         throw new Error('模型没有返回合法的检索配置 JSON')
       }
-      setDraftToolRetrievalProfiles((prev) => ({ ...prev, [tool.name]: retrievalProfileText(tool, profile) }))
+      setRetrievalGeneratedProfile(profile)
+      setRetrievalDrawerProfile(profile)
       message.success('AI 已生成检索说明，请确认后保存')
     } catch (error) {
       message.error(error.message || 'AI 生成检索说明失败')
@@ -615,38 +653,16 @@ function AgentSettings() {
     {
       title: '检索说明（可编辑）',
       dataIndex: 'retrievalProfile',
-      width: 430,
+      width: 180,
       render: (value, record) => {
-        const text = draftToolRetrievalProfiles[record.name] ?? retrievalProfileText(record, value)
         return (
-          <Space direction="vertical" size={4} style={{ width: '100%' }}>
-            <Input.TextArea
-              value={text}
-              autoSize={{ minRows: 3, maxRows: 7 }}
-              placeholder="关键词：\n用户说法：\n实体：\n限制条件：\n不适用：\n示例："
-              onChange={(event) => setDraftToolRetrievalProfiles((prev) => ({ ...prev, [record.name]: event.target.value }))}
-            />
-            <Button
-              size="small"
-              icon={<RobotOutlined />}
-              loading={retrievalGenerating === record.name}
-              onClick={() => generateToolRetrievalProfile(record)}
-            >
-              AI 生成
-            </Button>
-            <Button
-              size="small"
-              icon={<SaveOutlined />}
-              loading={savingKey === `tool-retrieval:${record.name}`}
-              onClick={() => saveToolRetrievalProfile(record)}
-            >
-              保存检索说明
-            </Button>
-          </Space>
+          <Button icon={<SettingOutlined />} onClick={() => openRetrievalDrawer(record)}>
+            配置检索说明
+          </Button>
         )
       },
     },
-  ], [saveToolEnabled, saveToolBinding, saveToolRetrievalProfile, generateToolRetrievalProfile, retrievalGenerating, savingKey, agents, toolBindingOptions, draftToolBindings, toolBindings, draftToolRetrievalProfiles])
+  ], [openRetrievalDrawer, saveToolEnabled, saveToolBinding, savingKey, agents, toolBindingOptions, draftToolBindings, toolBindings])
 
   const leaderAgentColumns = useMemo(() => [
     {
@@ -796,38 +812,16 @@ function AgentSettings() {
     {
       title: '检索说明（可编辑）',
       dataIndex: 'retrievalProfile',
-      width: 430,
+      width: 180,
       render: (value, record) => {
-        const text = draftToolRetrievalProfiles[record.name] ?? retrievalProfileText(record, value)
         return (
-          <Space direction="vertical" size={4} style={{ width: '100%' }}>
-            <Input.TextArea
-              value={text}
-              autoSize={{ minRows: 3, maxRows: 7 }}
-              placeholder="关键词：\n用户说法：\n实体：\n限制条件：\n不适用：\n示例："
-              onChange={(event) => setDraftToolRetrievalProfiles((prev) => ({ ...prev, [record.name]: event.target.value }))}
-            />
-            <Button
-              size="small"
-              icon={<RobotOutlined />}
-              loading={retrievalGenerating === record.name}
-              onClick={() => generateToolRetrievalProfile(record)}
-            >
-              AI 生成
-            </Button>
-            <Button
-              size="small"
-              icon={<SaveOutlined />}
-              loading={savingKey === `tool-retrieval:${record.name}`}
-              onClick={() => saveToolRetrievalProfile(record)}
-            >
-              保存检索说明
-            </Button>
-          </Space>
+          <Button icon={<SettingOutlined />} onClick={() => openRetrievalDrawer(record)}>
+            配置检索说明
+          </Button>
         )
       },
     },
-  ], [saveToolEnabled, saveToolBinding, saveToolRetrievalProfile, generateToolRetrievalProfile, retrievalGenerating, savingKey, agents, toolBindingOptions, draftToolBindings, toolBindings, draftToolRetrievalProfiles])
+  ], [openRetrievalDrawer, saveToolEnabled, saveToolBinding, savingKey, agents, toolBindingOptions, draftToolBindings, toolBindings])
 
   const questionAgentOptions = useMemo(() => agents.map((agent) => ({
     value: agent.name,
@@ -1231,6 +1225,128 @@ function AgentSettings() {
           ]}
         />
       </Card>
+      <Drawer
+        title={retrievalDrawerTool ? `检索说明：${getToolDisplayName(retrievalDrawerTool)}` : '工具检索说明'}
+        width={620}
+        open={retrievalDrawerOpen}
+        onClose={() => setRetrievalDrawerOpen(false)}
+        destroyOnClose={false}
+        extra={retrievalDrawerTool ? <Tag color="blue">{retrievalDrawerTool.name}</Tag> : null}
+      >
+        {retrievalDrawerTool && retrievalDrawerProfile ? (
+          <Space direction="vertical" size={16} style={{ width: '100%' }}>
+            <Alert
+              type="info"
+              showIcon
+              message="AI 生成只产生候选方案"
+              description="当前配置不会被自动替换。请查看下方差异，确认后再保存。"
+            />
+            <Card size="small" title="当前已保存配置">
+              <Space direction="vertical" size={10} style={{ width: '100%' }}>
+                {retrievalProfileFields.map(([field, label]) => (
+                  <div key={field}>
+                    <Text strong>{label}</Text>
+                    <div style={{ marginTop: 4 }}>
+                      {field === 'description'
+                        ? <Text>{retrievalDrawerTool.retrievalProfile?.description || retrievalDrawerTool.purpose || '未配置'}</Text>
+                        : <ProfileItems profile={profileValues(retrievalDrawerTool.retrievalProfile || defaultRetrievalProfile(retrievalDrawerTool), field)} />}
+                    </div>
+                  </div>
+                ))}
+              </Space>
+            </Card>
+
+            {retrievalGeneratedProfile ? (
+              <Card size="small" title="AI 生成方案" extra={<Tag color="purple">待确认</Tag>}>
+                <Space direction="vertical" size={10} style={{ width: '100%' }}>
+                  {retrievalProfileFields.map(([field, label]) => (
+                    <div key={field}>
+                      <Text strong>{label}</Text>
+                      <div style={{ marginTop: 4 }}>
+                        {field === 'description'
+                          ? <Text>{retrievalGeneratedProfile.description || '未配置'}</Text>
+                          : <ProfileItems profile={profileValues(retrievalGeneratedProfile, field)} />}
+                      </div>
+                    </div>
+                  ))}
+                </Space>
+              </Card>
+            ) : null}
+
+            {retrievalGeneratedProfile ? (
+              <Card size="small" title="前后对比">
+                <Space direction="vertical" size={10} style={{ width: '100%' }}>
+                  {retrievalProfileFields.filter(([field]) => field !== 'description').map(([field, label]) => {
+                    const before = profileValues(retrievalDrawerTool.retrievalProfile || defaultRetrievalProfile(retrievalDrawerTool), field)
+                    const after = profileValues(retrievalGeneratedProfile, field)
+                    const kept = after.filter((item) => before.includes(item))
+                    const added = after.filter((item) => !before.includes(item))
+                    const removed = before.filter((item) => !after.includes(item))
+                    return (
+                      <div key={field}>
+                        <Text strong>{label}</Text>
+                        <div style={{ marginTop: 4 }}>
+                          <Text type="secondary">保留：</Text><ProfileItems profile={kept} />
+                          <Text type="secondary">新增：</Text><ProfileItems profile={added} empty="无" />
+                          <Text type="secondary">去掉：</Text><ProfileItems profile={removed} empty="无" />
+                        </div>
+                      </div>
+                    )
+                  })}
+                </Space>
+              </Card>
+            ) : null}
+
+            <Card size="small" title="编辑并确认">
+              <Space direction="vertical" size={10} style={{ width: '100%' }}>
+                {retrievalProfileFields.map(([field, label]) => (
+                  <div key={field}>
+                    <Text strong>{label}</Text>
+                    {field === 'description' ? (
+                      <Input.TextArea
+                        rows={2}
+                        value={retrievalDrawerProfile.description || ''}
+                        onChange={(event) => setRetrievalDrawerProfile((prev) => ({ ...prev, description: event.target.value }))}
+                      />
+                    ) : (
+                      <Input
+                        value={profileValues(retrievalDrawerProfile, field).join('、')}
+                        placeholder="多个内容用顿号分隔"
+                        onChange={(event) => setRetrievalDrawerProfile((prev) => ({
+                          ...prev,
+                          [field]: event.target.value.split(/[、,，;；]/).map((item) => item.trim()).filter(Boolean),
+                        }))}
+                      />
+                    )}
+                  </div>
+                ))}
+              </Space>
+            </Card>
+
+            <Space>
+              <Button
+                type="primary"
+                icon={<RobotOutlined />}
+                loading={retrievalGenerating === retrievalDrawerTool.name}
+                onClick={() => generateToolRetrievalProfile(retrievalDrawerTool)}
+              >
+                AI 重新生成
+              </Button>
+              <Button
+                type="primary"
+                icon={<SaveOutlined />}
+                loading={savingKey === `tool-retrieval:${retrievalDrawerTool.name}`}
+                onClick={async () => {
+                  const saved = await saveToolRetrievalProfile(retrievalDrawerTool)
+                  if (saved) setRetrievalDrawerOpen(false)
+                }}
+              >
+                保存当前配置
+              </Button>
+            </Space>
+          </Space>
+        ) : null}
+      </Drawer>
     </div>
   )
 }

@@ -17,7 +17,15 @@ TOOL_INTENT_ROUTER_TOOL = {
 }
 
 
-_CAPABILITY_QUERY_MARKERS = ("你能做什么", "有哪些功能", "支持什么", "有什么能力", "能不能做")
+_CAPABILITY_QUERY_MARKERS = (
+    "你能做什么",
+    "有哪些功能",
+    "有哪些工具",
+    "工具能力",
+    "支持什么",
+    "有什么能力",
+    "能不能做",
+)
 _WORD_RE = re.compile(r"[a-z0-9_+#.-]+", re.IGNORECASE)
 
 

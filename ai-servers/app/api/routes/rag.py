@@ -339,6 +339,19 @@ CAMPUS_SERVICE_TOOLS = [
 
 SERVICE_TOOL_NAMES = {tool["name"] for tool in CAMPUS_SERVICE_TOOLS}
 
+TOOL_CAPABILITY_QUERY_NAME = "tool_capability_query"
+TOOL_CAPABILITY_QUERY = {
+    "name": TOOL_CAPABILITY_QUERY_NAME,
+    "zhName": "工具能力查询",
+    "displayName": "工具能力查询（tool_capability_query）",
+    "category": "capability_query",
+    "purpose": "查询当前后台已启用的系统工具能力，并以用户可理解的方式返回。",
+    "trigger": "用户询问系统能做什么、有哪些工具或支持哪些能力时调用。",
+    "outputs": ["capability_list"],
+    "status": "implemented",
+    "configurable": False,
+}
+
 LEADER_CALLABLE_TOOLS = [
     IMAGE_RECOGNITION_TOOL,
     *VISUAL_GENERATION_TOOLS,
@@ -354,6 +367,7 @@ LEADER_CALLABLE_TOOLS = [
         "configurable": True,
     },
     *CAMPUS_SERVICE_TOOLS,
+    TOOL_CAPABILITY_QUERY,
     {
         "name": "generated_export_tools",
         "zhName": "内容整理工具",
@@ -1818,6 +1832,8 @@ def _execute_leader_plan(
     if plan.action == "call_tool":
         if not _is_tool_enabled(request, plan.tool_name):
             return _run_disabled_tool_response(request, plan.tool_name, leader_plan=plan)
+        if plan.tool_name == TOOL_CAPABILITY_QUERY_NAME:
+            return _run_tool_capability_query(request, plan)
         if plan.tool_name == "text_to_sql":
             return _run_text_to_sql_tool(request, plan)
         if plan.tool_name in SERVICE_TOOL_NAMES:
@@ -1977,6 +1993,8 @@ def _is_tool_enabled(request: RagQueryRequest, tool_name: str) -> bool:
     normalized = str(tool_name or "").strip()
     if not normalized:
         return False
+    if normalized == TOOL_CAPABILITY_QUERY_NAME:
+        return True
     toggles = _tool_toggles_from_request(request)
     if normalized not in toggles:
         enabled = True
@@ -2036,6 +2054,13 @@ def _build_leader_callable_catalog(request: Optional[RagQueryRequest] = None) ->
                     intent_result = parsed_result
             except Exception as exc:
                 logger.warning("tool intent model extraction failed; using local extraction: %s", exc)
+        # 能力询问是系统级固定路由，不能因为模型输出了不完整或错误的 intent
+        # 就退回旧的 Leader 直接回答逻辑。
+        if tool_intent_router_agent.is_capability_query(getattr(request, "input", "")):
+            intent_result = {
+                **intent_result,
+                "intent": "capability_inquiry",
+            }
         selection = tool_index.search(
             getattr(request, "input", ""),
             available_tools,
@@ -2060,6 +2085,91 @@ def _build_leader_callable_catalog(request: Optional[RagQueryRequest] = None) ->
         },
         "routingRule": "Leader 只能直接回答，或从 tools 中选择系统工具；tools 只包含后台已启用的工具，专业智能体不作为独立路由目标。",
     }
+
+
+def _run_tool_capability_query(request: RagQueryRequest, leader_plan) -> RagQueryResponse:
+    """查询后台开关后的能力，不把完整工具目录交给 Leader。"""
+    tool_by_name = {
+        str(tool.get("name") or "").strip(): tool
+        for tool in [*LEADER_CALLABLE_TOOLS, *GENERATED_CONTENT_TOOLS]
+        if str(tool.get("name") or "").strip()
+    }
+    enabled_tools = [
+        tool
+        for name, tool in tool_by_name.items()
+        if name != TOOL_CAPABILITY_QUERY_NAME and _is_tool_enabled(request, name)
+    ]
+    grouped: Dict[str, List[Dict[str, Any]]] = {}
+    documents: List[Dict[str, Any]] = []
+    for tool in enabled_tools:
+        name = str(tool.get("name") or "").strip()
+        item = {
+            "name": name,
+            "displayName": tool.get("zhName") or tool.get("displayName") or _tool_display_name(name),
+            "category": str(tool.get("category") or "other").strip(),
+            "purpose": str(tool.get("purpose") or "").strip(),
+            "outputs": tool.get("outputs") or [],
+        }
+        grouped.setdefault(item["category"], []).append(item)
+        documents.append({
+            "id": f"capability:{name}",
+            "type": "tool_capability",
+            "title": item["displayName"],
+            "content": item["purpose"],
+            "metadata": item,
+        })
+
+    category_labels = {
+        "campus_service": "校园信息查询",
+        "vision_understanding": "图片理解",
+        "visual_generation": "图片与图表生成",
+        "structured_query": "结构化查询",
+        "content_export": "内容整理与文件导出",
+    }
+    lines = ["我当前可以使用这些已启用能力："]
+    for category, items in grouped.items():
+        label = category_labels.get(category, category or "其他能力")
+        lines.append(f"• {label}：{'、'.join(str(item['displayName']) for item in items)}")
+    if not enabled_tools:
+        lines.append("目前没有可用的业务工具，只有普通对话能力。")
+
+    metadata = {
+        "agentName": "leader_agent",
+        "targetAgent": TOOL_CAPABILITY_QUERY_NAME,
+        "executedAgent": TOOL_CAPABILITY_QUERY_NAME,
+        "intent": "capability_inquiry",
+        "needRetrieval": False,
+        "retrievalSkipped": True,
+        "leaderAction": "call_tool",
+        "leaderActionLabel": _leader_action_label("call_tool"),
+        "toolName": TOOL_CAPABILITY_QUERY_NAME,
+        "toolDisplayName": _tool_display_name(TOOL_CAPABILITY_QUERY_NAME),
+        "routeReason": getattr(leader_plan, "route_reason", "用户询问系统能力，调用能力查询工具。"),
+        "strategyLabel": "工具能力查询",
+        "executionMode": "leader_call_tool",
+        "executionModeLabel": "调用工具查询当前已启用能力",
+        "answerType": "capability_list",
+        "toolResultSummarized": False,
+        "toolToggles": _tool_toggles_from_request(request),
+        "enabledToolCount": len(enabled_tools),
+        "retrievalCandidateCount": 1,
+    }
+    metadata.update(_context_metadata_from_request(request))
+    return _decorate_output_response(RagQueryResponse(
+        strategy=TOOL_CAPABILITY_QUERY_NAME,
+        answer="\n".join(lines),
+        answerType="capability_list",
+        documents=[_tool_result_to_document(item, index) for index, item in enumerate(documents, start=1)],
+        trace=[
+            RagTraceResponse(stage="leader_route", detail=_leader_plan_detail(leader_plan)),
+            RagTraceResponse(stage="tool_call", detail={
+                "toolName": TOOL_CAPABILITY_QUERY_NAME,
+                "enabledToolCount": len(enabled_tools),
+                "retrievalSkipped": True,
+            }),
+        ],
+        metadata=metadata,
+    ))
 
 
 def _leader_callable_agent_item(agent_name: str, request: Optional[RagQueryRequest]) -> Dict[str, Any]:
@@ -3477,6 +3587,7 @@ def _leader_action_label(action: str) -> str:
 def _strategy_label(strategy_name: str) -> str:
     custom_labels = {
         "leader_direct_answer": "Leader 直接回答",
+        TOOL_CAPABILITY_QUERY_NAME: "工具能力查询",
         "direct_agent": "直接处理",
         "java_schedule_api": "课表查询工具",
         "java_activity_api": "活动查询工具",
@@ -3499,6 +3610,7 @@ def _strategy_label(strategy_name: str) -> str:
 
 def _tool_zh_name(tool_name: str) -> str:
     labels = {
+        TOOL_CAPABILITY_QUERY_NAME: "工具能力查询",
         IMAGE_RECOGNITION_TOOL_NAME: "图片识别工具",
         "text_to_sql": "结构化查询工具",
         "java_schedule_api": "课表查询工具",
