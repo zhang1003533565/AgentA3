@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Alert, Button, Empty, Input, List, Spin, Tag, Typography, message } from 'antd'
-import { HistoryOutlined, PlusOutlined, ReloadOutlined, RobotOutlined, SendOutlined } from '@ant-design/icons'
+import { HistoryOutlined, PlusOutlined, ReloadOutlined, RobotOutlined, SendOutlined, UploadOutlined } from '@ant-design/icons'
 import { getLeaderSessionDetail, getLeaderSessions, streamLeaderAgent } from '../../../api/aiLeader'
+import { getRagAgents } from '../../../api/rag'
 import './AiConversation.css'
 
 const { Text, Title } = Typography
@@ -16,6 +17,7 @@ const normalizeMessage = (item, index) => ({
   model: item.model || '',
   retrievalMeta: item.retrievalMeta || {},
   resources: Array.isArray(item.resources) ? item.resources : [],
+  attachments: Array.isArray(item.attachments) ? item.attachments : [],
   status: item.status || 'completed',
   steps: Array.isArray(item.steps) ? item.steps : [],
 })
@@ -29,6 +31,33 @@ function AiConversation() {
   const [historyLoading, setHistoryLoading] = useState(false)
   const [detailLoading, setDetailLoading] = useState(false)
   const [error, setError] = useState('')
+  const [fileFormats, setFileFormats] = useState([])
+  const [selectedFiles, setSelectedFiles] = useState([])
+  const fileInputRef = useRef(null)
+
+  const uploadAccept = useMemo(() => (
+    fileFormats
+      .filter((item) => item.canUpload !== false)
+      .flatMap((item) => (item.extensions || []).map((extension) => `.${extension}`))
+      .join(',')
+  ), [fileFormats])
+
+  const fileToAttachment = (file) => new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => {
+      const dataUrl = String(reader.result || '')
+      resolve({
+        name: file.name,
+        fileName: file.name,
+        type: file.type || 'file',
+        mimeType: file.type || 'application/octet-stream',
+        size: file.size,
+        contentBase64: dataUrl.includes(',') ? dataUrl.split(',')[1] : dataUrl,
+      })
+    }
+    reader.onerror = () => reject(new Error(`读取文件失败：${file.name}`))
+    reader.readAsDataURL(file)
+  })
 
   const loadSessions = useCallback(async () => {
     setHistoryLoading(true)
@@ -63,6 +92,12 @@ function AiConversation() {
     loadSessions()
   }, [loadSessions])
 
+  useEffect(() => {
+    getRagAgents()
+      .then((response) => setFileFormats(response.data?.fileFormats || []))
+      .catch(() => setFileFormats([]))
+  }, [])
+
   const currentSessionTitle = useMemo(() => {
     const current = sessions.find((item) => item.sessionId === sessionId)
     return current?.title || '智能助手'
@@ -74,23 +109,40 @@ function AiConversation() {
     setMessages([])
     setInput('')
     setError('')
+    setSelectedFiles([])
+  }
+
+  const selectFiles = (event) => {
+    const files = Array.from(event.target.files || [])
+    const allowed = new Set(fileFormats.filter((item) => item.canUpload !== false).flatMap((item) => (item.extensions || []).map((extension) => String(extension).toLowerCase())))
+    const accepted = files.filter((file) => {
+      const extension = file.name.includes('.') ? file.name.split('.').pop().toLowerCase() : ''
+      return allowed.has(extension)
+    })
+    if (accepted.length !== files.length) message.error('包含暂不支持上传的文件格式')
+    setSelectedFiles((current) => [...current, ...accepted].slice(0, 8))
+    event.target.value = ''
   }
 
   const sendMessage = async () => {
     const content = input.trim()
-    if (!content || loading) return
+    if ((!content && !selectedFiles.length) || loading) return
     setInput('')
     setError('')
     const thinkingId = `assistant-${Date.now()}`
+    const pendingFiles = [...selectedFiles]
+    setSelectedFiles([])
     setMessages((current) => [...current,
-      { id: `user-${Date.now()}`, role: 'user', content },
+      { id: `user-${Date.now()}`, role: 'user', content: content || '请查看我上传的文件。', attachments: pendingFiles.map(({ file }) => ({ name: file.name, type: file.type, size: file.size })) },
       { id: thinkingId, role: 'assistant', content: '', status: 'running', steps: ['已提交给智能助手，正在准备处理'] },
     ])
     setLoading(true)
     try {
       const streamTask = streamLeaderAgent({
         sessionId: sessionId || undefined,
-        input: content,
+        input: content || '请查看我上传的文件。',
+        attachments: await Promise.all(pendingFiles.map(({ file }) => fileToAttachment(file))),
+        metadata: { uploadOnly: pendingFiles.length > 0 },
       }, {
         onSession: (payload) => {
           setSessionId(payload?.sessionId || sessionId)
@@ -186,6 +238,7 @@ function AiConversation() {
               <div className="ai-conversation-bubble">
                 {item.role === 'assistant' && item.steps?.length ? <div className="ai-conversation-steps">{item.steps.map((step, stepIndex) => <div key={`${item.id}-step-${stepIndex}`} className="ai-conversation-step"><span className="ai-conversation-step-dot" />{step}</div>)}</div> : null}
                 {item.content || (item.status === 'running' ? '正在处理…' : '智能助手没有返回可用内容。')}
+                {item.attachments?.length ? <div className="ai-conversation-attachments">{item.attachments.map((attachment, attachmentIndex) => <div className="ai-conversation-attachment" key={`${item.id}-attachment-${attachmentIndex}`}><UploadOutlined /><span>{attachment.name || attachment.fileName || '文件'}</span></div>)}</div> : null}
               </div>
               {item.role === 'assistant' && item.agentName ? <Text type="secondary" className="ai-conversation-meta">{item.agentName}{item.model ? ` · ${item.model}` : ''}</Text> : null}
             </div>
@@ -195,9 +248,12 @@ function AiConversation() {
         <div className="ai-conversation-composer">
           {error ? <Alert type="error" showIcon message={error} closable onClose={() => setError('')} /> : null}
           <div className="ai-conversation-input-row">
+            <input ref={fileInputRef} type="file" multiple accept={uploadAccept} style={{ display: 'none' }} onChange={selectFiles} />
+            <Button icon={<UploadOutlined />} onClick={() => fileInputRef.current?.click()} disabled={loading} aria-label="上传文件" />
             <TextArea value={input} onChange={(event) => setInput(event.target.value)} onPressEnter={(event) => { if (!event.shiftKey) { event.preventDefault(); sendMessage() } }} placeholder="输入你想咨询的内容，Enter 发送，Shift + Enter 换行" autoSize={{ minRows: 2, maxRows: 6 }} disabled={loading} />
-            <Button type="primary" icon={<SendOutlined />} onClick={sendMessage} loading={loading} disabled={!input.trim()}>发送</Button>
+            <Button type="primary" icon={<SendOutlined />} onClick={sendMessage} loading={loading} disabled={!input.trim() && !selectedFiles.length}>发送</Button>
           </div>
+          {selectedFiles.length ? <div className="ai-conversation-selected-files">{selectedFiles.map(({ file }, index) => <Tag key={`${file.name}-${index}`} closable onClose={() => setSelectedFiles((current) => current.filter((_, fileIndex) => fileIndex !== index))}>{file.name}</Tag>)}</div> : null}
         </div>
       </section>
     </div>

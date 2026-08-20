@@ -31,4 +31,8 @@
 .ai-conversation-composer { padding: 14px clamp(18px, 5vw, 70px) 20px; border-top: 1px solid #e5e7eb; background: #fff; }
 .ai-conversation-input-row { display: flex; align-items: flex-end; gap: 10px; margin-top: 10px; }
 .ai-conversation-input-row .ant-input { resize: none; }
+.ai-conversation-selected-files { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.ai-conversation-attachments { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 9px; }
+.ai-conversation-attachment { display: inline-flex; align-items: center; gap: 6px; max-width: 260px; padding: 6px 9px; border: 1px solid #dbe7f0; border-radius: 7px; color: #47657e; background: #f7fbfe; font-size: 12px; }
+.ai-conversation-attachment span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 @media (max-width: 800px) { .ai-conversation-page { grid-template-columns: 1fr; } .ai-conversation-history { display: none; } .ai-conversation-messages { max-height: none; } }

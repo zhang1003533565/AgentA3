@@ -40,6 +40,7 @@ from app.multi_agents.runner import run_specialist_agent
 from app.multi_agents.textbook_knowledge_agent import resolve_knowledge_source_mode
 from app.multi_agents.tool_intent_router_agent import TOOL_INTENT_ROUTER_TOOL, tool_intent_router_agent
 from app.services.tool_index import tool_index
+from app.services.file_format_registry import get_detectable_extensions, get_file_format_registry, get_output_aliases, resolve_file_format
 from app.learning_workflow import (
     LearningWorkflowRequest,
     export_learning_resources,
@@ -642,6 +643,7 @@ def list_rag_agents(
     catalog["leaderCallableCatalog"] = _build_leader_callable_catalog()
     catalog["generatedTools"] = GENERATED_CONTENT_TOOLS
     catalog["internalTools"] = [TOOL_INTENT_ROUTER_TOOL]
+    catalog["fileFormats"] = get_file_format_registry()
     return catalog
 
 
@@ -1491,6 +1493,8 @@ def _run_leader_orchestration(request: RagQueryRequest, authorization: str) -> R
 
 
 def _requested_image_recognition_plan(request: RagQueryRequest) -> Optional[LeaderPlan]:
+    if isinstance(request.metadata, dict) and request.metadata.get("uploadOnly") is True:
+        return None
     image_urls = collect_request_image_references(request)
     if not image_urls:
         return None
@@ -1521,7 +1525,7 @@ def _requested_file_transform_plan(request: RagQueryRequest) -> Optional[LeaderP
     metadata = request.metadata if isinstance(request.metadata, dict) else {}
     interaction_type = str(metadata.get("interactionType") or "").strip().lower()
     requested_output_type = str(metadata.get("requestedOutputType") or "").strip().lower()
-    supported_file_types = {"document", "file", "docx", "word", "xlsx", "excel", "md", "markdown", "ppt", "pptx", "mmd", "zip"}
+    supported_file_types = get_output_aliases()
     if requested_output_type not in supported_file_types:
         return None
     if interaction_type == "transform" and (
@@ -3449,8 +3453,9 @@ def _extract_response_attachments(answer: str) -> List[Dict[str, Any]]:
     if parsed:
         attachments.extend(_attachments_from_json_payload(parsed))
 
+    extensions = "|".join(re.escape(value) for value in get_detectable_extensions())
     markdown_pattern = re.compile(
-        r"!?\[([^\]]+)\]\(((?:https?://|/uploads/)[^\s\"'<>，。！？；、)]+?\.(?:png|jpe?g|gif|webp|bmp|mp4|mov|m4v|webm|ogg|pdf|docx?|pptx?|xlsx?|csv|md|mmd|zip)(?:\?[^\s\"'<>，。！？；、)]*)?)\)",
+        rf"!?\[([^\]]+)\]\(((?:https?://|/uploads/)[^\s\"'<>，。！？；、)]+?\.(?:{extensions})(?:\?[^\s\"'<>，。！？；、)]*)?)\)",
         re.IGNORECASE,
     )
     for match in markdown_pattern.finditer(content):
@@ -3458,7 +3463,7 @@ def _extract_response_attachments(answer: str) -> List[Dict[str, Any]]:
 
     plain_text = markdown_pattern.sub("", content)
     url_pattern = re.compile(
-        r"(?:https?://|/uploads/)[^\s\"'<>，。！？；、]+?\.(?:png|jpe?g|gif|webp|bmp|mp4|mov|m4v|webm|ogg|pdf|docx?|pptx?|xlsx?|csv|md|mmd|zip)(?:\?[^\s\"'<>，。！？；、]*)?",
+        rf"(?:https?://|/uploads/)[^\s\"'<>，。！？；、]+?\.(?:{extensions})(?:\?[^\s\"'<>，。！？；、]*)?",
         re.IGNORECASE,
     )
     for match in url_pattern.finditer(plain_text):
@@ -3528,18 +3533,13 @@ def _build_attachment(url: str, name: str = "", type_hint: str = "") -> Dict[str
     ext = _file_ext(name or normalized_url)
     hinted = str(type_hint or "").lower()
     attachment_type = "file"
-    if "image" in hinted or ext in {"png", "jpg", "jpeg", "gif", "webp", "bmp"}:
+    registered = resolve_file_format(ext, hinted)
+    if registered:
+        attachment_type = str(registered.get("type") or attachment_type)
+    elif "image" in hinted:
         attachment_type = "image"
-    elif "video" in hinted or ext in {"mp4", "mov", "m4v", "webm", "ogg"}:
+    elif "video" in hinted:
         attachment_type = "video"
-    elif ext == "pdf":
-        attachment_type = "pdf"
-    elif ext in {"doc", "docx"}:
-        attachment_type = "docx"
-    elif ext in {"ppt", "pptx"}:
-        attachment_type = "ppt"
-    elif ext in {"xls", "xlsx", "csv"}:
-        attachment_type = "excel"
     elif hinted in {"document", "file"}:
         attachment_type = "file"
     if attachment_type == "file" and not ext:

@@ -160,6 +160,7 @@ function AgentSettings() {
   const [leaderTools, setLeaderTools] = useState([])
   const [tools, setTools] = useState([])
   const [internalTools, setInternalTools] = useState([])
+  const [fileFormats, setFileFormats] = useState([])
   const [llmModelOptions, setLlmModelOptions] = useState([])
   const [agentModelBindings, setAgentModelBindings] = useState({})
   const [draftBindings, setDraftBindings] = useState({})
@@ -198,6 +199,7 @@ function AgentSettings() {
       const nextQuestionAgentMappings = buildQuestionGenerationAgentMappings(configRows)
       setAgents(agentRes.data?.agents || [])
       setInternalTools(agentRes.data?.internalTools || [])
+      setFileFormats(agentRes.data?.fileFormats || [])
       setTools((agentRes.data?.generatedTools || []).map((tool) => {
         const hasConfiguredValue = Object.prototype.hasOwnProperty.call(nextToolToggles, tool.name)
         const hasBoundConfig = Object.prototype.hasOwnProperty.call(nextToolBindings, tool.name)
@@ -1151,6 +1153,38 @@ function AgentSettings() {
                         ),
                       },
                     ]}
+                  />
+                </div>
+              ),
+            },
+            {
+              key: 'file-formats',
+              label: '文件格式',
+              children: (
+                <div className="agent-settings-tab-panel">
+                  <div className="agent-settings-rule-note">
+                    <SettingOutlined />
+                    <Text>
+                      文件格式注册表是上传校验、AI 链接识别、文件导出和前端展示的统一来源。后续新增或调整格式时维护这张注册表即可。
+                    </Text>
+                  </div>
+                  <Table
+                    className="agent-settings-clean-table"
+                    rowKey="key"
+                    loading={loading}
+                    pagination={false}
+                    size="middle"
+                    dataSource={fileFormats}
+                    columns={[
+                      { title: '格式', dataIndex: 'name', width: 180 },
+                      { title: '扩展名', dataIndex: 'extensions', width: 180, render: (value) => <Space size={[4, 4]} wrap>{(value || []).map((item) => <Tag key={item} color="blue">.{item}</Tag>)}</Space> },
+                      { title: '可上传', dataIndex: 'canUpload', width: 100, render: (value) => <Tag color={value ? 'green' : 'default'}>{value ? '是' : '否'}</Tag> },
+                      { title: '可识别链接', dataIndex: 'canDetect', width: 120, render: (value) => <Tag color={value ? 'green' : 'default'}>{value ? '是' : '否'}</Tag> },
+                      { title: '可导出', dataIndex: 'canExport', width: 100, render: (value) => <Tag color={value ? 'green' : 'default'}>{value ? '是' : '否'}</Tag> },
+                      { title: '对应工具', dataIndex: 'tool', width: 220, render: (value) => <Text code>{value || '-'}</Text> },
+                      { title: '说明', dataIndex: 'description' },
+                    ]}
+                    scroll={{ x: 1100 }}
                   />
                 </div>
               ),
