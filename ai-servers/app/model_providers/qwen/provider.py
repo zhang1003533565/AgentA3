@@ -75,7 +75,10 @@ class QwenProvider(ChatModelProvider):
             SystemMessage(content=system_prompt),
             HumanMessage(content=build_multimodal_human_content(user_prompt)),
         ])
-        return str(response.content or "").strip()
+        content = str(response.content or "").strip()
+        if not content and isinstance(getattr(response, "additional_kwargs", None), dict):
+            content = str(response.additional_kwargs.get("reasoning_content") or "").strip()
+        return content
 
     def stream_complete(self, system_prompt: str, user_prompt: str) -> Iterator[str]:
         from langchain_core.messages import HumanMessage, SystemMessage

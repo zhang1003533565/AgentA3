@@ -924,7 +924,22 @@ class LeaderAgent:
         )
         plan = parse_json_object(text)
         if not plan:
-            raise HTTPException(status_code=502, detail=f"Leader LLM 路由结果不是合法 JSON：{text[:300]}")
+            # 路由模型偶尔会忽略 JSON 约束或在 JSON 外追加解释。
+            # 解析失败时只能安全地退化为直接回答，不能猜测工具并执行。
+            fallback_answer = str(text or "").strip()
+            if fallback_answer:
+                logger.warning("leader llm returned non-JSON; fallback to direct answer: %s", fallback_answer[:300])
+                return LeaderPlan(
+                    intent="campus_search",
+                    target_agent="leader_agent",
+                    need_retrieval=False,
+                    rag_strategy="",
+                    action="direct_answer",
+                    answer=fallback_answer,
+                    route_reason="Leader 路由结果不是合法 JSON，已安全降级为直接回答，未执行任何工具。",
+                    route_mode="llm_fallback",
+                )
+            raise HTTPException(status_code=502, detail="Leader LLM 路由结果为空，无法生成安全路由。")
         parsed = self._parse_llm_plan(plan, rag_strategy)
         if not parsed:
             raise HTTPException(status_code=502, detail=f"Leader LLM 路由结果字段不合法：{plan}")
@@ -1364,7 +1379,7 @@ def build_leader_router_user_prompt(
 
 
 def parse_json_object(text: str) -> Dict[str, Any]:
-    raw = (text or "").strip()
+    raw = (text or "").strip().lstrip("\ufeff")
     if raw.startswith("```"):
         raw = re.sub(r"^```(?:json)?", "", raw, flags=re.IGNORECASE).strip()
         raw = re.sub(r"```$", "", raw).strip()
@@ -1372,11 +1387,15 @@ def parse_json_object(text: str) -> Dict[str, Any]:
         parsed = json.loads(raw)
         return parsed if isinstance(parsed, dict) else {}
     except Exception:
-        match = re.search(r"\{.*\}", raw, flags=re.DOTALL)
-        if not match:
-            return {}
-        try:
-            parsed = json.loads(match.group(0))
+        # 允许 JSON 前后存在说明文字，但只取第一个可完整解析的对象。
+        # 贪婪的 \{.*\} 会在字符串中包含大括号时吞掉后续内容。
+        decoder = json.JSONDecoder()
+        for index, char in enumerate(raw):
+            if char != "{":
+                continue
+            try:
+                parsed, _ = decoder.raw_decode(raw[index:])
+            except (TypeError, ValueError, json.JSONDecodeError):
+                continue
             return parsed if isinstance(parsed, dict) else {}
-        except Exception:
-            return {}
+        return {}
