@@ -1,9 +1,9 @@
 <script setup>
-import { computed, h, nextTick, onBeforeUnmount, ref } from 'vue'
+import { computed, h, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 
 import AppTabBar from '../components/AppTabBar.vue'
-import { queryLeaderAgent, streamLeaderAgent } from '../api/aiGeneration'
+import { getLeaderSessionDetail, getLeaderSessions, queryLeaderAgent, streamLeaderAgent } from '../api/aiGeneration'
 import { AI_RESOURCE_ACCEPT, uploadAiResource } from '../api/upload'
 
 const IconLine = (props) => {
@@ -83,13 +83,11 @@ function returnHome() {
 }
 
 // 智能问答
-let conversationSeed = 2
-const conversations = ref([
-  { id: 1, title: '图书馆开放时间' },
-  { id: 2, title: '校园活动策划建议' },
-])
-const activeConversationId = ref(1)
+const conversations = ref([])
+const activeConversationId = ref('')
 const conversationSessionIds = ref({})
+const historyLoading = ref(false)
+const historyError = ref('')
 const chatDraft = ref('')
 const chatBusy = ref(false)
 const resourceInput = ref(null)
@@ -108,6 +106,76 @@ const messages = ref([
     content: '你好，我是校园 AI 助手。你可以直接询问校园服务、学习安排或日常事务。',
   },
 ])
+
+function normalizeConversation(item) {
+  const sessionId = String(item?.sessionId || '').trim()
+  return {
+    id: sessionId,
+    sessionId,
+    title: item?.title || item?.lastMessage || '未命名会话',
+    lastMessage: item?.lastMessage || '',
+    messageCount: Number(item?.messageCount || 0),
+    updateTime: item?.updateTime || item?.createTime || '',
+  }
+}
+
+function normalizeHistoryMessage(item, index) {
+  const role = item?.role === 'user' ? 'user' : 'assistant'
+  const trace = Array.isArray(item?.trace) ? item.trace : []
+  const steps = trace
+    .map((entry) => entry?.message || entry?.detail || entry?.stage || '')
+    .filter(Boolean)
+  return {
+    id: item?.id || `${role}-${index}`,
+    role,
+    content: item?.content || item?.answer || '',
+    answerType: item?.answerType || 'text',
+    outputType: item?.outputType || '',
+    agentName: item?.agentName || 'leader_agent',
+    resources: Array.isArray(item?.resources) ? item.resources : [],
+    attachments: Array.isArray(item?.attachments) ? item.attachments : [],
+    steps,
+    streaming: false,
+  }
+}
+
+async function openConversation(id) {
+  const sessionId = String(id || '').trim()
+  if (!sessionId) return
+  activeStreamTask?.abort?.('conversation_changed')
+  activeConversationId.value = sessionId
+  historyError.value = ''
+  try {
+    const response = await getLeaderSessionDetail(sessionId)
+    const data = response || {}
+    conversationSessionIds.value = { ...conversationSessionIds.value, [sessionId]: sessionId }
+    messages.value = (data.messages || []).map(normalizeHistoryMessage)
+    await scrollMessages()
+  } catch (cause) {
+    historyError.value = cause.message || '加载会话内容失败'
+  }
+}
+
+async function loadConversationHistory({ openFirst = true } = {}) {
+  historyLoading.value = true
+  historyError.value = ''
+  try {
+    const response = await getLeaderSessions({ pageNum: 1, pageSize: 50 })
+    const records = Array.isArray(response?.records) ? response.records : []
+    const items = records.map(normalizeConversation).filter((item) => item.sessionId)
+    conversations.value = items
+    conversationSessionIds.value = Object.fromEntries(items.map((item) => [item.id, item.sessionId]))
+    if (openFirst && items.length && !items.some((item) => item.id === activeConversationId.value)) {
+      await openConversation(items[0].id)
+    }
+  } catch (cause) {
+    historyError.value = cause.message || '加载 AI 会话历史失败'
+  } finally {
+    historyLoading.value = false
+  }
+}
+
+onMounted(() => { void loadConversationHistory() })
 
 function isCodeQuestion(question) {
   return /代码|编程|程序|开发|报错|bug|函数|算法|接口|api|python|javascript|typescript|\bjava\b|vue|react|css|html|sql|c\+\+|c#|shell|npm|vite/i.test(question)
@@ -167,23 +235,18 @@ async function scrollMessages() {
 
 function createConversation() {
   activeStreamTask?.abort?.('conversation_changed')
-  const item = { id: ++conversationSeed, title: '新对话' }
-  conversations.value.unshift(item)
-  activeConversationId.value = item.id
-  messages.value = []
+  activeConversationId.value = ''
+  messages.value = [{
+    id: Date.now(),
+    role: 'assistant',
+    content: '你好，我是校园 AI 助手。你可以直接询问校园服务、学习安排或日常事务。',
+  }]
   chatDraft.value = ''
   nextTick(() => document.querySelector('.chat-input')?.focus())
 }
 
 function switchConversation(id) {
-  activeStreamTask?.abort?.('conversation_changed')
-  activeConversationId.value = id
-  const conversation = conversations.value.find((item) => item.id === id)
-  messages.value = [{
-    id: Date.now(),
-    role: 'assistant',
-    content: `已打开“${conversation?.title}”对话。你可以继续提问。`,
-  }]
+  void openConversation(id)
 }
 
 function resourceEntry(file) {
@@ -242,6 +305,7 @@ function syncConversationSession(conversationId, sessionId) {
     ...conversationSessionIds.value,
     [conversationId]: value,
   }
+  if (!conversationId && !activeConversationId.value) activeConversationId.value = value
 }
 
 function updateChatMessage(id, patch) {
@@ -374,6 +438,7 @@ async function sendMessage(text) {
     })
     activeStreamTask = streamTask
     await streamTask
+    await loadConversationHistory({ openFirst: false })
 
     if (!streamCompleted) {
       const current = messages.value.find((item) => item.id === assistantMessageId)
@@ -926,6 +991,8 @@ function handleUpload(event) {
             <IconLine name="plus" :size="16" />
           </button>
         </div>
+        <p v-if="historyError" class="history-error">{{ historyError }}</p>
+        <div v-if="historyLoading && !conversations.length" class="history-empty">正在加载历史会话…</div>
         <div class="history-list">
           <button
             v-for="item in conversations"

@@ -1940,6 +1940,34 @@ def _tool_toggles_from_request(request: RagQueryRequest) -> Dict[str, Any]:
     return toggles if isinstance(toggles, dict) else {}
 
 
+def _tool_registrations_from_request(request: Optional[RagQueryRequest]) -> Dict[str, Any]:
+    metadata = request.metadata if isinstance(getattr(request, "metadata", None), dict) else {}
+    registrations = metadata.get("toolRegistrations")
+    return registrations if isinstance(registrations, dict) else {}
+
+
+def _default_registered_tool_names() -> set[str]:
+    # 注册表是唯一准入来源。没有后台明确注册的工具，默认全部不可被 Leader 调用。
+    return set()
+
+
+def _is_tool_registered(request: Optional[RagQueryRequest], tool_name: str) -> bool:
+    normalized = str(tool_name or "").strip()
+    if not normalized:
+        return False
+    registrations = _tool_registrations_from_request(request)
+    registered = _default_registered_tool_names()
+    for name, value in registrations.items():
+        clean_name = str(name or "").strip()
+        if not clean_name:
+            continue
+        if _parse_agent_enabled_value(value):
+            registered.add(clean_name)
+        else:
+            registered.discard(clean_name)
+    return normalized in registered
+
+
 def _default_tool_bound_agent(tool_name: str) -> str:
     """工具元数据里的默认绑定智能体(请求未配置时使用)。"""
     for tool in GENERATED_CONTENT_TOOLS:
@@ -1995,7 +2023,9 @@ def _metadata_tool_agent_available(metadata: Dict[str, Any], bound_agent: str) -
 def _is_tool_enabled(request: RagQueryRequest, tool_name: str) -> bool:
     normalized = str(tool_name or "").strip()
     if not normalized:
-        return True
+        return False
+    if not _is_tool_registered(request, normalized):
+        return False
     toggles = _tool_toggles_from_request(request)
     if normalized not in toggles:
         enabled = True
@@ -2062,7 +2092,8 @@ def _leader_callable_agent_item(agent_name: str, request: Optional[RagQueryReque
 
 def _leader_callable_tool_item(tool: Dict[str, Any], request: Optional[RagQueryRequest]) -> Dict[str, Any]:
     name = str(tool.get("name") or "").strip()
-    enabled = True if request is None else _is_tool_enabled(request, name)
+    registered = _is_tool_registered(request, name)
+    enabled = registered and (True if request is None else _is_tool_enabled(request, name))
     if enabled and request is not None and name in VISUAL_GENERATION_TOOL_NAMES:
         enabled = _visual_tool_dependencies_enabled(request, name)
     if enabled and request is not None and name == IMAGE_RECOGNITION_TOOL_NAME:
@@ -2072,6 +2103,7 @@ def _leader_callable_tool_item(tool: Dict[str, Any], request: Optional[RagQueryR
         "zhName": tool.get("zhName") or _tool_zh_name(name),
         "displayName": tool.get("displayName") or _tool_display_name(name),
         "enabled": enabled,
+        "registered": registered,
     }
 
 
