@@ -729,9 +729,8 @@ def run_rag_query(
         model=x_ai_model,
     )
     logger.info(
-        "rag query request received agent=%s rag_strategy=%s input_len=%s provider=%s base_url=%s model=%s api_key_len=%s api_key_suffix=%s api_key_sha256_8=%s",
+        "rag query request received agent=%s input_len=%s provider=%s base_url=%s model=%s api_key_len=%s api_key_suffix=%s api_key_sha256_8=%s",
         request.agentName or "-",
-        request.ragStrategy or "-",
         len(request.input or ""),
         audit["provider"],
         audit["base_url"],
@@ -753,7 +752,6 @@ def run_rag_query(
                 session_id=str((request.metadata or {}).get("sessionId") or "") or None,
                 metadata={
                     "agentName": request.agentName or "leader_agent",
-                    "ragStrategy": request.ragStrategy or "",
                     "streaming": False,
                 },
             ):
@@ -821,7 +819,6 @@ async def run_rag_query_stream(
             user_id=int(x_user_id) if x_user_id and x_user_id.isdigit() else None,
             metadata={
                 "agentName": request.agentName or "leader_agent",
-                "ragStrategy": request.ragStrategy or "",
                 "streaming": True,
             },
         )
@@ -864,7 +861,7 @@ async def run_rag_query_stream(
                         plan = await asyncio.to_thread(
                             leader_agent.plan,
                             request.input,
-                            request.ragStrategy or "",
+                            "",
                             profile_context=profile_context,
                             callable_catalog=callable_catalog,
                             conversation_context=conversation_context,
@@ -1028,7 +1025,7 @@ async def _stream_learning_workflow(
 
     plan = leader_agent.plan(
         request.input,
-        request.ragStrategy or "",
+        "",
         learning_context={
             "courseKey": metadata.get("courseKey"),
             "intent": request.intent,
@@ -1474,7 +1471,7 @@ def _run_leader_orchestration(request: RagQueryRequest, authorization: str) -> R
     if plan is None:
         plan = leader_agent.plan(
             request.input,
-            request.ragStrategy or "",
+            "",
             profile_context=profile_context,
             callable_catalog=callable_catalog,
             conversation_context=conversation_context,

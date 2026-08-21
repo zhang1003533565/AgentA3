@@ -1368,8 +1368,6 @@ def build_leader_router_user_prompt(
 ) -> str:
     return json.dumps({
         "user_input": input_text or "",
-        "requested_rag_strategy": rag_strategy or "",
-        "allowed_rag_strategy_when_needed": rag_strategy or "",
         "profile_snapshot": profile_context or {},
         "conversation_context": conversation_context or {},
         "leader_callable_catalog": callable_catalog or {},
