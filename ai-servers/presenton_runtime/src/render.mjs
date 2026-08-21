@@ -58,6 +58,23 @@ function resolveFontAssets(value) {
   return value;
 }
 
+function flattenInlineTextSpansForPptx(html) {
+  // The browser preview renders nested text spans correctly. The bundled
+  // Presenton PPTX extractor, however, reads innerHTML for inline-only text
+  // nodes and promotes that string into a PowerPoint text box. If the spans
+  // remain, the literal `<span style=...>` markup is written into the PPTX.
+  // Export-only HTML can safely flatten these generated spans because user
+  // text is HTML-escaped by template-v2-json-to-html.ts. The preview HTML is
+  // left untouched, so its typography and layout path do not change.
+  let normalized = String(html || "");
+  for (let pass = 0; pass < 16; pass += 1) {
+    const next = normalized.replace(/<span\b[^>]*>([^<>]*)<\/span>/gi, "$1");
+    if (next === normalized) break;
+    normalized = next;
+  }
+  return normalized;
+}
+
 const awaitExists = new Set();
 for (const spec of input.slides || []) {
   const fileList = await fs.readdir(path.resolve(templateRoot, "static"), { recursive: true }).catch(() => []);
@@ -166,11 +183,13 @@ const exportRoot = process.env.PRESENTON_EXPORT_ROOT || path.resolve("../present
 const exportEntrypoint = await fs.stat(path.join(exportRoot, "index.cjs")).then(() => path.join(exportRoot, "index.cjs")).catch(() => path.join(exportRoot, "index.js"));
 const exportConverter = process.env.BUILT_PYTHON_MODULE_PATH || path.join(exportRoot, "py", "convert-linux-current");
 if (!input.pngOnly && process.env.PRESENTON_ENABLE_PPTX === "true" && await fs.stat(exportEntrypoint).then(() => true).catch(() => false)) {
+  const exportHtmlPath = path.join(outputRoot, `${input.taskId}.export.html`);
+  await fs.writeFile(exportHtmlPath, flattenInlineTextSpansForPptx(html), "utf8");
   const exportTask = path.join(outputRoot, `${input.taskId}.export.json`);
   const exportResponse = path.join(outputRoot, `${input.taskId}.export.response.json`);
   await fs.writeFile(exportTask, JSON.stringify({
     type: "export",
-    url: pathToFileURL(htmlPath).href,
+    url: pathToFileURL(exportHtmlPath).href,
     format: "pptx",
     title: input.title || "presentation",
   }), "utf8");
