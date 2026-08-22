@@ -58,6 +58,49 @@ function resolveFontAssets(value) {
   return value;
 }
 
+// The browser can render a Poppins/CJK fallback stack, but the PPTX exporter
+// serializes the requested family as the Office run font. If the requested
+// Latin family has no CJK glyphs, PowerPoint may choose a serif fallback and
+// the editable export no longer matches the verified preview. Keep this
+// normalization limited to native PPTX layers; fidelity screenshots and the
+// preview HTML must retain the original template styling.
+const PPTX_CJK_FONT = String(input.pptxCjkFont || process.env.PPTX_CJK_FONT || "Microsoft YaHei").trim();
+const CJK_TEXT_RE = /[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]/;
+
+function _setPptxCjkFont(node) {
+  if (!node || typeof node !== "object") return;
+  if (node.font && typeof node.font === "object") {
+    if (typeof node.font.family === "string") node.font.family = PPTX_CJK_FONT;
+    if (typeof node.font.fontFamily === "string") node.font.fontFamily = PPTX_CJK_FONT;
+  }
+  if (typeof node.fontFamily === "string") node.fontFamily = PPTX_CJK_FONT;
+  if (node.style && typeof node.style === "object" && typeof node.style.fontFamily === "string") {
+    node.style.fontFamily = PPTX_CJK_FONT;
+  }
+}
+
+function normalizePptxCjkFonts(value) {
+  if (Array.isArray(value)) return value.map(normalizePptxCjkFonts);
+  if (!value || typeof value !== "object") return value;
+
+  const node = structuredClone(value);
+  const directText = typeof node.text === "string" ? node.text : "";
+  if (CJK_TEXT_RE.test(directText)) _setPptxCjkFont(node);
+
+  // Tables keep their text under rows/cells rather than elements/children.
+  // Walk every nested record so the native export receives the same CJK font
+  // rule regardless of the template component type.
+  for (const [key, child] of Object.entries(node)) {
+    if (key === "font" || key === "style") continue;
+    if (Array.isArray(child)) {
+      node[key] = child.map(normalizePptxCjkFonts);
+    } else if (child && typeof child === "object") {
+      node[key] = normalizePptxCjkFonts(child);
+    }
+  }
+  return node;
+}
+
 const HYBRID_COMPLEX_TYPES = new Set(["svg", "chart", "infographic"]);
 
 function isHybridComplexVisual(node) {
@@ -168,6 +211,13 @@ function buildFidelityExportHtml(slideCount, outputRoot, taskId) {
   return `<!doctype html><html><head><meta charset="utf-8"><style>html,body{margin:0;padding:0;background:#fff}#presentation-slides-wrapper{width:1280px}.slide{page-break-after:always}.slide:last-child{page-break-after:auto}</style></head><body><main id="presentation-slides-wrapper"><div><div><div><div>${pages.join("")}</div></div></div></div></main></body></html>`;
 }
 
+function buildEditableExportHtml(pages, originalHead) {
+  const body = pages.map((page) =>
+    `<div class="slide" data-slide-index="${page.index}" style="width:1280px;height:720px;overflow:hidden;position:relative">${page.editableBody}</div>`
+  ).join("");
+  return `<!doctype html><html><head><meta charset="utf-8">${originalHead}<style>html,body{margin:0;padding:0;background:#fff}#presentation-slides-wrapper{width:1280px}.slide{page-break-after:always}.slide:last-child{page-break-after:auto}</style></head><body><main id="presentation-slides-wrapper"><div><div><div><div>${body}</div></div></div></div></main></body></html>`;
+}
+
 function buildHybridExportHtml(pages, outputRoot, taskId) {
   const slides = pages.map((page, offset) => {
     const index = offset + 1;
@@ -190,11 +240,10 @@ for (const spec of input.slides || []) {
 }
 
 const pptxOnly = input.pptxOnly === true;
-const pptxExportMode = String(input.pptxExportMode || process.env.PPTX_EXPORT_RENDER_MODE || "fidelity").toLowerCase();
+const pptxExportMode = String(input.pptxExportMode || process.env.PPTX_EXPORT_RENDER_MODE || "editable").toLowerCase();
 const fidelityExport = pptxOnly && ["fidelity", "raster", "image"].includes(pptxExportMode);
-// Fidelity is the product default: it preserves the verified browser result in
-// Office. Keep `hybrid` and `editable` as explicit opt-ins for diagnostics or
-// callers that accept native-layer editability over pixel parity.
+// Editable is the product default so downloaded PPTX files contain native
+// text boxes and shapes. Fidelity remains an explicit visual-baseline mode.
 const hybridExport = pptxOnly && pptxExportMode === "hybrid";
 const pages = [];
 let originalHead = "";
@@ -218,9 +267,19 @@ for (const spec of input.slides || []) {
   if (!bodyMatch) throw new Error(`Presenton HTML body missing for slide ${spec.index}`);
   if (!originalHead && headMatch) originalHead = headMatch[1];
   let nativeBody = bodyMatch[1];
+  let editableBody = bodyMatch[1];
   let graphicsBody = "";
+  if (!fidelityExport) {
+    const editableHtml = templateV2UiToHtml(normalizePptxCjkFonts(ui), {
+      width: 1280,
+      height: 720,
+      fonts: resolveFontAssets(input.template.fonts || {}),
+    });
+    const editableMatch = editableHtml?.match(/<body>([\s\S]*?)<\/body>/i);
+    editableBody = editableMatch ? editableMatch[1] : bodyMatch[1];
+  }
   if (hybridExport) {
-    const nativeHtml = templateV2UiToHtml(hybridNativeUi(ui), {
+    const nativeHtml = templateV2UiToHtml(hybridNativeUi(normalizePptxCjkFonts(ui)), {
       width: 1280,
       height: 720,
       fonts: resolveFontAssets(input.template.fonts || {}),
@@ -243,6 +302,7 @@ for (const spec of input.slides || []) {
     index: spec.index,
     preview: `<div class="slide" data-slide-index="${spec.index}" style="width:1280px;height:720px">${bodyMatch[1]}</div>`,
     nativeBody,
+    editableBody,
     graphicsBody,
     hasGraphics: Boolean(graphicsBody),
   });
@@ -355,7 +415,7 @@ if (!input.pngOnly && process.env.PRESENTON_ENABLE_PPTX === "true" && await fs.s
     ? buildFidelityExportHtml(slideCount, outputRoot, input.taskId)
     : hybridExport
       ? flattenInlineTextSpansForPptx(buildHybridExportHtml(pages, outputRoot, input.taskId))
-    : flattenInlineTextSpansForPptx(html);
+    : flattenInlineTextSpansForPptx(buildEditableExportHtml(pages, originalHead));
   await fs.writeFile(exportHtmlPath, exportHtml, "utf8");
   const exportTask = path.join(outputRoot, `${input.taskId}.export.json`);
   const exportResponse = path.join(outputRoot, `${input.taskId}.export.response.json`);

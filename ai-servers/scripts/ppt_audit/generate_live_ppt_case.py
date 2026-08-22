@@ -75,7 +75,7 @@ def main() -> int:
     # configuration and make the run reproducible across local invocations.
     os.environ.setdefault("PPT_TEMPLATE_PREVIEW_WARMUP", "0")
     os.environ.setdefault("PPTX_EXPORT_BACKEND", "docker")
-    os.environ.setdefault("PPTX_EXPORT_RENDER_MODE", "fidelity")
+    os.environ.setdefault("PPTX_EXPORT_RENDER_MODE", "editable")
     os.environ.setdefault("PPT_QA_REPORT_DIR", str(output / "qa"))
     os.environ.setdefault("PPT_STRUCTURE_MAX_OUTPUT_TOKENS", "4000")
     os.environ.setdefault("PPT_CONTENT_MAX_OUTPUT_TOKENS", "8000")

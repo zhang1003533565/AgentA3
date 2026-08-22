@@ -4,6 +4,7 @@ import copy
 import json
 import logging
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -12,6 +13,7 @@ import zipfile
 from pathlib import Path
 from typing import Any, Mapping, Tuple
 from urllib.parse import unquote, urlparse
+from xml.sax.saxutils import escape as xml_escape
 
 from app.rag.document_conversion import generated_exporter
 from app.ppt_generation.pptx_export_qa import validate_exported_pptx
@@ -55,6 +57,52 @@ def _normalize_pptx_slide_size_metadata(path: Path) -> None:
                     )
                     changed = normalized != data
                     data = normalized
+                target.writestr(entry, data)
+        if changed:
+            os.replace(temporary_path, path)
+            temporary_path = None
+    finally:
+        if temporary_path is not None:
+            temporary_path.unlink(missing_ok=True)
+
+
+def _normalize_pptx_cjk_font_attributes(path: Path, cjk_font: str) -> None:
+    """Write the East Asian font slot that HTML-to-PPTX omits.
+
+    The exporter maps CSS ``font-family`` to ``a:latin`` even when the run
+    contains Chinese. PowerPoint then uses its default East Asian font, which
+    can change glyph width and make an otherwise correctly sized title overflow.
+    Keep the requested Latin family intact and explicitly populate ``a:ea``
+    for native text runs in editable/hybrid exports.
+    """
+    font = xml_escape(str(cjk_font or "Microsoft YaHei"), {'"': "&quot;"})
+    east_asian = f'<a:ea typeface="{font}"/>'.encode("utf-8")
+    temporary_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            prefix=f"{path.stem}-cjk-",
+            suffix=".pptx",
+            dir=path.parent,
+            delete=False,
+        ) as handle:
+            temporary_path = Path(handle.name)
+        changed = False
+        with zipfile.ZipFile(path, "r") as source, zipfile.ZipFile(
+            temporary_path, "w"
+        ) as target:
+            for entry in source.infolist():
+                data = source.read(entry.filename)
+                if entry.filename.startswith("ppt/slides/") and entry.filename.endswith(".xml"):
+                    original = data
+                    data = re.sub(
+                        rb'<a:ea\b[^>]*/>', east_asian, data
+                    )
+                    data = re.sub(
+                        rb'(<a:(?:rPr|defRPr)\b[^>]*>)(?!\s*<a:ea\b)',
+                        lambda match: match.group(1) + east_asian,
+                        data,
+                    )
+                    changed = changed or data != original
                 target.writestr(entry, data)
         if changed:
             os.replace(temporary_path, path)
@@ -271,14 +319,11 @@ def render_presenton_html(
         "outputRoot": _DOCKER_RUNTIME_ROOT if use_docker else str(runtime_root.resolve()),
         "pngOnly": preview_only,
         "pptxOnly": pptx_only,
-        # HTML-to-PPTX conversion is editable but not pixel-stable for the
-        # template's nested spans, SVG decorations and browser-only CSS.
-        # Fidelity mode makes the already-rendered slide image the PPTX slide
-        # artwork, preventing a second layout engine from dropping content.
-        # Default downloads to the already-rendered slide artwork. The hybrid
-        # native/graphics composition is editable, but Office can reorder its
-        # two full-slide layers and hide the template background.
-        "pptxExportMode": str(os.getenv("PPTX_EXPORT_RENDER_MODE") or "fidelity").strip().lower(),
+        # Editable mode is the product default: text and ordinary shapes stay
+        # native in the downloaded PPTX. Fidelity remains available as an
+        # explicit visual-baseline mode for regression comparisons.
+        "pptxExportMode": str(os.getenv("PPTX_EXPORT_RENDER_MODE") or "editable").strip().lower(),
+        "pptxCjkFont": str(os.getenv("PPTX_CJK_FONT") or "Microsoft YaHei").strip(),
     }
     if use_docker:
         payload = _dockerize_payload(payload, template_id, runtime_root)
@@ -343,6 +388,12 @@ def render_presenton_html(
             source = _host_path_from_renderer(result["pptxPath"], runtime_root).resolve()
             if source.is_file():
                 _normalize_pptx_slide_size_metadata(source)
+                export_mode = str(os.getenv("PPTX_EXPORT_RENDER_MODE") or "editable").strip().lower()
+                if export_mode in {"editable", "hybrid"}:
+                    _normalize_pptx_cjk_font_attributes(
+                        source,
+                        str(os.getenv("PPTX_CJK_FONT") or "Microsoft YaHei").strip(),
+                    )
                 quality = validate_exported_pptx(source)
                 if not quality["passed"]:
                     raise RuntimeError(
