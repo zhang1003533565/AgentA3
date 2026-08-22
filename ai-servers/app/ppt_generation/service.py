@@ -72,13 +72,13 @@ logger = logging.getLogger(__name__)
 # 内容批次单次调用的超时上限：完整槽位输出（componentContent+speakerNote）
 # 输出已设置硬 token 上限；默认 150s 覆盖正常长输出，同时避免异常代理无限等待。
 PPT_PAGE_LLM_TIMEOUT_SECONDS = max(30, min(180, int(os.getenv("PPT_PAGE_LLM_TIMEOUT_SECONDS") or 150)))
-PPT_OUTLINE_LLM_TIMEOUT_SECONDS = max(30, min(180, int(os.getenv("PPT_OUTLINE_LLM_TIMEOUT_SECONDS") or 120)))
+PPT_OUTLINE_LLM_TIMEOUT_SECONDS = max(30, min(180, int(os.getenv("PPT_OUTLINE_LLM_TIMEOUT_SECONDS") or 90)))
 PPT_TASK_TIMEOUT_SECONDS = max(180, min(30 * 60, int(os.getenv("PPT_TASK_TIMEOUT_SECONDS") or 15 * 60)))
 PPT_OUTLINE_TASK_TIMEOUT_SECONDS = max(120, min(15 * 60, int(os.getenv("PPT_OUTLINE_TASK_TIMEOUT_SECONDS") or 5 * 60)))
 # Qwen3.7 medium thinking uses an 8192-token budget; Bailian requires the
 # completion cap to be greater than that budget. Keep enough room for the
 # visible outline instead of silently forcing the provider to shrink reasoning.
-PPT_OUTLINE_MAX_OUTPUT_TOKENS = max(1200, min(12000, int(os.getenv("PPT_OUTLINE_MAX_OUTPUT_TOKENS") or 10000)))
+PPT_OUTLINE_MAX_OUTPUT_TOKENS = max(1200, min(12000, int(os.getenv("PPT_OUTLINE_MAX_OUTPUT_TOKENS") or 9000)))
 PPT_STRUCTURE_MAX_OUTPUT_TOKENS = max(500, min(4000, int(os.getenv("PPT_STRUCTURE_MAX_OUTPUT_TOKENS") or 1600)))
 PPT_CONTENT_MAX_OUTPUT_TOKENS = max(1200, min(12000, int(os.getenv("PPT_CONTENT_MAX_OUTPUT_TOKENS") or 4200)))
 PPT_REPAIR_MAX_OUTPUT_TOKENS = max(200, min(2000, int(os.getenv("PPT_REPAIR_MAX_OUTPUT_TOKENS") or 700)))
@@ -87,8 +87,9 @@ PPT_CONTENT_BATCH_SIZE = max(1, min(5, int(os.getenv("PPT_CONTENT_BATCH_SIZE") o
 # 连接（实测 2 并发即 APIConnectionError，单发正常），因此强制串行处理批次；
 # 串行只影响总时长（每批 40-80s），不会出现整批失败回退。
 PPT_CONTENT_MAX_WORKERS = max(1, min(4, int(os.getenv("PPT_CONTENT_MAX_WORKERS") or 1)))
-# 大纲单次调用可携带的资料字符上限（资料通过 user_input 传递，绕过 evidence 的 1200 字符截断）
-PPT_OUTLINE_SOURCE_MAX_CHARS = max(2_000, int(os.getenv("PPT_OUTLINE_SOURCE_MAX_CHARS") or 24_000))
+# 大纲单次调用可携带的资料字符上限（资料通过 user_input 传递，绕过 evidence 的 1200 字符截断）。
+# 长资料会先做保结构压缩，默认不再把 24k 原文整段塞给模型。
+PPT_OUTLINE_SOURCE_MAX_CHARS = max(2_000, int(os.getenv("PPT_OUTLINE_SOURCE_MAX_CHARS") or 16_000))
 # 内容批次资料切片字符上限：页面正文需要从原始资料展开，不能只靠大纲要点。
 # 默认 24k，避免长资料的定义/公式/例证被位置切片直接丢掉；仍可由环境变量收紧。
 PPT_BATCH_SOURCE_MAX_CHARS = max(2_000, int(os.getenv("PPT_BATCH_SOURCE_MAX_CHARS") or 24_000))
@@ -96,12 +97,15 @@ PPT_BATCH_SOURCE_MAX_CHARS = max(2_000, int(os.getenv("PPT_BATCH_SOURCE_MAX_CHAR
 # 避免单批模型超时后再次占用唯一任务线程。
 PPT_LLM_MAX_RETRIES = max(0, min(3, int(os.getenv("PPT_LLM_MAX_RETRIES") or 0)))
 PPT_LLM_RETRY_BASE_DELAY = max(0.5, float(os.getenv("PPT_LLM_RETRY_BASE_DELAY") or 1.0))
-# 大纲是首个用户可见 AI 结果：默认保留低强度推理，避免推理模型只返回
-# reasoning 而没有可消费的正文；空响应允许一次短退避重试。
-PPT_OUTLINE_REASONING_EFFORT = os.getenv("PPT_OUTLINE_REASONING_EFFORT", "medium").strip().lower()
+# 大纲是首个用户可见 AI 结果：默认使用低强度推理，质量由结构校验和局部修复兜底；
+# medium 只应由部署配置显式开启，避免正常请求把时间耗在长思考上。
+PPT_OUTLINE_REASONING_EFFORT = os.getenv("PPT_OUTLINE_REASONING_EFFORT", "low").strip().lower()
 if PPT_OUTLINE_REASONING_EFFORT not in {"none", "low", "medium", "high"}:
-    PPT_OUTLINE_REASONING_EFFORT = "medium"
-PPT_OUTLINE_LLM_MAX_RETRIES = max(0, min(2, int(os.getenv("PPT_OUTLINE_LLM_MAX_RETRIES") or 1)))
+    PPT_OUTLINE_REASONING_EFFORT = "low"
+# Runtime fallback already tries the configured model chain. Re-running that
+# entire chain after it is exhausted multiplies latency without adding a new
+# recovery path; callers may opt in explicitly for unusually unstable networks.
+PPT_OUTLINE_LLM_MAX_RETRIES = max(0, min(2, int(os.getenv("PPT_OUTLINE_LLM_MAX_RETRIES") or 0)))
 # 内容批次保留 low 推理：reasoning_effort=none 时模型对长输出任务返回空内容
 # （实测），而默认推理每批 100s+；low 实测 ~75s 且输出完整
 PPT_CONTENT_REASONING_EFFORT = os.getenv("PPT_CONTENT_REASONING_EFFORT", "low").strip().lower()
@@ -690,14 +694,14 @@ class PptGenerationService:
                 "但不得虚构具体人物、机构、日期、统计数字、实验结果或无法由资料支持的事实。"
             )
             source_mode = "non_outline"
-            material = source[:PPT_OUTLINE_SOURCE_MAX_CHARS]
+            material = _compact_outline_source(source, PPT_OUTLINE_SOURCE_MAX_CHARS)
         else:
             constraints = (
                 "这是大纲模式。严格保留上传大纲的章节顺序和结构，只对标题和要点做必要的可编辑化整理；"
                 "不得自行改造为另一套框架，也不得补造资料未提供的事实。"
             )
             source_mode = "outline_grounded"
-            material = source[:PPT_OUTLINE_SOURCE_MAX_CHARS]
+            material = _compact_outline_source(source, PPT_OUTLINE_SOURCE_MAX_CHARS)
         prompt_payload = {
             "topic": topic,
             "audience": str(request.get("audience") or "通用受众"),
@@ -721,7 +725,9 @@ class PptGenerationService:
         }
         evidence = []
         timeout_token = set_active_llm_timeout(PPT_OUTLINE_LLM_TIMEOUT_SECONDS)
-        output_token = set_active_max_output_tokens(PPT_OUTLINE_MAX_OUTPUT_TOKENS)
+        output_token = set_active_max_output_tokens(
+            _outline_output_token_budget(min_pages, max_pages)
+        )
         effort_token = set_active_reasoning_effort(PPT_OUTLINE_REASONING_EFFORT)
         token = set_active_llm_config(llm_config)
         model_name = str(getattr(llm_config, "model", "") or "")
@@ -778,10 +784,14 @@ class PptGenerationService:
                 )
                 if coverage_repaired:
                     markdown = _outline_markdown_from_items(items, topic)
-                depth_deficits = _outline_depth_deficits(items) if topic_only else []
-                if (
-                    len(items) >= min_acceptable and not depth_deficits
-                ) or attempt >= PPT_OUTLINE_MAX_RETRIES:
+                depth_deficits = (
+                    _outline_depth_deficits(items)
+                    if source_mode != "outline_grounded"
+                    else []
+                )
+                # 页数不足才重生成整份大纲；内容稀疏改为后面的定向页面修复，
+                # 避免一页缺两个要点时再次等待整份大纲。
+                if len(items) >= min_acceptable or attempt >= PPT_OUTLINE_MAX_RETRIES:
                     break
                 attempt += 1
                 logger.warning(
@@ -796,12 +806,6 @@ class PptGenerationService:
                 if len(items) < min_acceptable:
                     corrections.append(
                         f"上次输出只有 {len(items)} 页，少于下限 {min_acceptable} 页；请展开到 {min_acceptable}-{max_pages} 页。"
-                    )
-                if depth_deficits:
-                    corrections.append(
-                        "以下页面内容过薄："
-                        + "、".join(depth_deficits[:6])
-                        + "。每页至少补足 3 条具体核心内容和 2 个页面节点，节点必须包含标题及面向观众的说明。"
                     )
                 prompt_payload["correction"] = "".join(corrections) + (
                     "逐页使用 ### 第N页 编号，不得合并页面，不得只输出章节标题或一句概括。"
@@ -838,6 +842,16 @@ class PptGenerationService:
                     items, source, topic, max_pages
                 )
                 if coverage_repaired:
+                    markdown = _outline_markdown_from_items(items, topic)
+            if source_mode != "outline_grounded":
+                repaired_items, repaired = _repair_outline_sparse_pages(
+                    items,
+                    prompt_payload,
+                    topic,
+                    evidence,
+                )
+                if repaired:
+                    items = repaired_items
                     markdown = _outline_markdown_from_items(items, topic)
         finally:
             reset_active_llm_config(token)
@@ -2369,14 +2383,190 @@ def _infer_outline_level(title: Any) -> int:
 
 def _outline_depth_deficits(items: List[Dict[str, Any]]) -> List[str]:
     """Return sparse topic-only pages that deserve one targeted regeneration."""
-    deficits: List[str] = []
-    for index, item in enumerate(items, start=1):
+    return [
+        str(items[index].get("title") or f"第{index + 1}页").strip()[:30]
+        for index in _outline_depth_deficit_indices(items)
+    ]
+
+
+def _outline_depth_deficit_indices(items: List[Dict[str, Any]]) -> List[int]:
+    """Return zero-based indices of non-cover pages that are too sparse."""
+    deficits: List[int] = []
+    for index, item in enumerate(items):
+        page_type = str(item.get("type") or "").strip().lower()
+        if page_type in {"封面页", "目录页", "cover", "catalog"}:
+            continue
         points = item.get("keyPoints") or []
         nodes = item.get("nodes") or []
         if len(points) < 3 or len(nodes) < 2:
-            title = str(item.get("title") or f"第{index}页").strip()
-            deficits.append(title[:30])
+            deficits.append(index)
     return deficits
+
+
+def _outline_output_token_budget(min_pages: int, max_pages: int) -> int:
+    """Scale the completion cap with the requested deck size.
+
+    A fixed 10k cap makes ordinary 5-10 page outlines look like long-form
+    writing tasks. Keep enough room for the required fields, but avoid paying
+    the latency cost of a large cap for small decks.
+    """
+    requested_pages = max(int(min_pages or 1), int(max_pages or min_pages or 1))
+    estimated = 3200 + max(0, requested_pages - 5) * 150
+    return max(1200, min(PPT_OUTLINE_MAX_OUTPUT_TOKENS, estimated))
+
+
+def _compact_outline_source(source: str, max_chars: int) -> str:
+    """Compress long source text while preserving headings and both ends.
+
+    The old path sent only the first N characters. That was fast but silently
+    dropped later chapters. This keeps the beginning, unique structure headings,
+    evenly sampled middle excerpts, and the ending within the same budget.
+    """
+    text = str(source or "").replace("\r\n", "\n").replace("\r", "\n").strip()
+    limit = max(2_000, int(max_chars or 2_000))
+    if len(text) <= limit:
+        return text
+
+    lines: List[str] = []
+    line_counts: Dict[str, int] = {}
+    raw_lines = [re.sub(r"[ \t]+", " ", raw_line).strip() for raw_line in text.splitlines()]
+    for line in raw_lines:
+        if line:
+            line_counts[line] = line_counts.get(line, 0) + 1
+    for line in raw_lines:
+        if not line:
+            if lines and lines[-1]:
+                lines.append("")
+            continue
+        # Exact repeated lines are commonly page headers/footers from DOCX
+        # extraction; only drop lines repeated at least three times so repeated
+        # factual statements are not silently removed.
+        if line_counts.get(line, 0) >= 3 and len(line) < 120:
+            continue
+        lines.append(line)
+    normalized = "\n".join(lines).strip() or text
+    if len(normalized) <= limit:
+        return normalized
+
+    heading_pattern = re.compile(
+        r"^(?:#{1,6}\s+|第\s*[一二三四五六七八九十百\d]+\s*[章节篇部分]|"
+        r"[一二三四五六七八九十百\d]+[、.．)）]\s*)",
+    )
+    headings = []
+    for line in lines:
+        if heading_pattern.match(line) and line not in headings:
+            headings.append(line)
+    heading_text = "\n".join(headings)
+    head_budget = int(limit * 0.38)
+    tail_budget = int(limit * 0.18)
+    heading_budget = int(limit * 0.18)
+    middle_budget = max(0, limit - head_budget - tail_budget - heading_budget - 120)
+
+    chunks: List[str] = []
+    if middle_budget:
+        chunk_size = max(1, len(normalized) // 3)
+        for start in (chunk_size, chunk_size * 2):
+            excerpt = normalized[start:start + middle_budget // 2]
+            if excerpt:
+                chunks.append(excerpt)
+    compacted = "\n\n".join(
+        part for part in (
+            "[资料开头]\n" + normalized[:head_budget],
+            "[资料章节标题]\n" + heading_text[:heading_budget] if heading_text else "",
+            "[资料中段摘录]\n" + "\n\n".join(chunks),
+            "[资料结尾]\n" + normalized[-tail_budget:],
+        )
+        if part
+    )
+    return compacted[:limit]
+
+
+def _repair_outline_sparse_pages(
+    items: List[Dict[str, Any]],
+    prompt_payload: Mapping[str, Any],
+    topic: str,
+    evidence: List[Dict[str, Any]],
+) -> tuple[List[Dict[str, Any]], bool]:
+    """Ask the model to repair only sparse pages, preserving the other pages."""
+    deficit_indices = _outline_depth_deficit_indices(items)
+    if not deficit_indices:
+        return items, False
+    repair_payload = copy.deepcopy(dict(prompt_payload))
+    repair_payload["repair_only"] = True
+    repair_payload["repair_pages"] = [
+        {
+            "page_number": index + 1,
+            "current": copy.deepcopy(items[index]),
+            "requirements": "补足至少 3 条核心内容和 2 个页面节点，不能改变本页主题。",
+        }
+        for index in deficit_indices[:6]
+    ]
+    repair_payload["correction"] = (
+        "只修复 repair_pages 中列出的页面；不要重新生成其他页面。"
+        "每个指定页面仍需输出页标题、页面类型、本页目标、核心内容、页面节点、展示建议、素材建议；"
+        "核心内容至少 3 条，页面节点至少 2 个，节点必须包含标题和面向观众的具体说明。"
+    )
+    repair_output_token = set_active_max_output_tokens(
+        max(1800, min(4200, 1200 + len(deficit_indices[:6]) * 500))
+    )
+    try:
+        answer = _retry_llm_call(
+            lambda: run_specialist_agent(
+                "ppt_outline_agent",
+                json.dumps(repair_payload, ensure_ascii=False),
+                evidence,
+            ),
+            max_retries=0,
+        )
+        repaired_items = _outline_items(answer)
+    except Exception as exc:
+        logger.warning(
+            "PPT outline sparse-page repair skipped pages=%s error=%s",
+            [index + 1 for index in deficit_indices[:6]],
+            _safe_error_message(exc),
+        )
+        return items, False
+    finally:
+        reset_active_max_output_tokens(repair_output_token)
+
+    if not repaired_items:
+        return items, False
+    updated = copy.deepcopy(items)
+    repaired_by_page: Dict[int, Dict[str, Any]] = {}
+    for repaired in repaired_items:
+        match = re.search(r"(\d+)", str(repaired.get("id") or ""))
+        if match:
+            repaired_by_page[int(match.group(1))] = repaired
+    used_repaired_indices = set()
+    changed = False
+    for index in deficit_indices[:6]:
+        repaired = repaired_by_page.get(index + 1)
+        if repaired is None:
+            repaired_index = next(
+                (
+                    candidate_index
+                    for candidate_index in range(len(repaired_items))
+                    if candidate_index not in used_repaired_indices
+                ),
+                None,
+            )
+            repaired = repaired_items[repaired_index] if repaired_index is not None else None
+            if repaired_index is not None:
+                used_repaired_indices.add(repaired_index)
+        else:
+            repaired_index = repaired_items.index(repaired)
+            used_repaired_indices.add(repaired_index)
+        if not repaired:
+            continue
+        normalized = _ensure_outline_item_structure(repaired)
+        if len(normalized.get("keyPoints") or []) < 3 or len(normalized.get("nodes") or []) < 2:
+            continue
+        replacement = copy.deepcopy(updated[index])
+        replacement.update(normalized)
+        replacement["id"] = str(updated[index].get("id") or f"slide_{index + 1}")
+        updated[index] = replacement
+        changed = True
+    return updated, changed
 
 
 def _parse_outline_nodes(raw: str, points: List[str]) -> List[Dict[str, Any]]:

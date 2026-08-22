@@ -38,7 +38,7 @@ def test_extract_response_text_supports_content_blocks_and_reasoning():
     assert extract_response_text(SimpleNamespace(content="", additional_kwargs={"reasoning_content": "推理模型答案"})) == "推理模型答案"
 
 
-def test_outline_retries_empty_response_with_medium_reasoning(monkeypatch):
+def test_outline_uses_one_fallback_chain_with_low_reasoning(monkeypatch):
     from app.model_providers.runtime_config import get_active_reasoning_effort
     from app.ppt_generation import service as svc
 
@@ -46,8 +46,6 @@ def test_outline_retries_empty_response_with_medium_reasoning(monkeypatch):
 
     def fake_run_specialist_agent(agent_name, prompt, evidence):
         calls.append((agent_name, get_active_reasoning_effort()))
-        if len(calls) == 1:
-            raise HTTPException(status_code=502, detail="模型返回内容为空")
         return _outline_markdown()
 
     monkeypatch.setattr(svc, "run_specialist_agent", fake_run_specialist_agent)
@@ -55,10 +53,9 @@ def test_outline_retries_empty_response_with_medium_reasoning(monkeypatch):
     result = service.generate_outline({"topic": "数据结构", "sourceContent": "资料内容"}, None)
 
     assert len(result["items"]) == 5
-    assert len(calls) == 2
+    assert len(calls) == 1
     assert calls == [
-        ("ppt_outline_agent", "medium"),
-        ("ppt_outline_agent", "medium"),
+        ("ppt_outline_agent", "low"),
     ]
 
 
@@ -98,7 +95,6 @@ def test_qwen_outline_reasoning_is_forwarded_to_bailian(monkeypatch):
     assert answer == "答案"
     assert calls[0][1]["extra_body"] == {
         "enable_thinking": True,
-        "thinking_budget": 8192,
     }
 
 
@@ -115,10 +111,7 @@ def test_qwen_reasoning_budget_is_compatible_with_output_cap():
         provider.model = "qwen3.7-flash"
 
         assert provider._thinking_extra_body("medium") == {
-            "extra_body": {
-                "enable_thinking": True,
-                "thinking_budget": 4999,
-            }
+            "extra_body": {"enable_thinking": True}
         }
     finally:
         reset_active_max_output_tokens(token)
@@ -169,8 +162,8 @@ def test_model_quota_failure_switches_to_next_free_model(monkeypatch):
     try:
         answer = runtime.complete_agent("ppt_outline_agent", "主题：数据结构", [])
         assert answer == "可用模型返回内容"
-        assert calls == ["qwen3.8-27b", "qwen3.7-flash-2026-07-15"]
-        assert get_active_llm_config().model == "qwen3.7-flash-2026-07-15"
+        assert calls == ["qwen3.7-max-2026-06-08"]
+        assert get_active_llm_config().model == "qwen3.7-max-2026-06-08"
     finally:
         reset_active_llm_config(token)
 

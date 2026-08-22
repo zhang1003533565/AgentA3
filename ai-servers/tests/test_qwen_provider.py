@@ -1,6 +1,9 @@
 from app.model_providers.qwen.provider import QwenProvider
 from app.model_providers.runtime_config import (
+    LlmRuntimeConfig,
     reset_active_max_output_tokens,
+    reset_active_llm_config,
+    set_active_llm_config,
     set_active_max_output_tokens,
 )
 
@@ -62,3 +65,18 @@ def test_provider_switches_model_after_quota_like_failure(monkeypatch):
 
     assert response == "ok"
     assert provider.model == "kimi-k3"
+
+
+def test_provider_does_not_duplicate_runtime_fallback_chain(monkeypatch):
+    provider = _provider("qwen3.7-max-2026-06-08")
+    monkeypatch.setenv("LLM_MODEL_FALLBACKS", "kimi-k3,glm-5.2")
+    token = set_active_llm_config(LlmRuntimeConfig(
+        provider="aliyun",
+        base_url="https://llm.test/v1",
+        api_key="test-key",
+        model=provider.model,
+    ))
+    try:
+        assert provider._fallback_models() == [provider.model]
+    finally:
+        reset_active_llm_config(token)

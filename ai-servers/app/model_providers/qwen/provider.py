@@ -11,6 +11,7 @@ from app.model_providers.runtime_config import (
     get_active_llm_timeout_seconds,
     get_active_max_output_tokens,
     get_active_reasoning_effort,
+    get_active_llm_config,
     resolve_llm_config,
 )
 from app.observability.langfuse import langchain_callbacks
@@ -139,6 +140,13 @@ class QwenProvider(ChatModelProvider):
         return {"extra_body": {"enable_thinking": True}}
 
     def _fallback_models(self) -> List[str]:
+        # When the request-scoped runtime config is present, the multi-agent
+        # runtime owns model rotation. Returning only the active candidate here
+        # prevents Provider fallback and Runtime fallback from walking the same
+        # ten-model chain twice for one request.
+        active_config = get_active_llm_config()
+        if active_config is not None and str(active_config.model or "").strip().lower() == str(self.model or "").strip().lower():
+            return [self.model]
         configured = [
             item.strip()
             for item in str(os.getenv("LLM_MODEL_FALLBACKS") or "").split(",")

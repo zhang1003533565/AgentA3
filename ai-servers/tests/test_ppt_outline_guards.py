@@ -17,6 +17,9 @@ from app.ppt_generation.service import (
     _fill_missing_slots,
     _outline_items,
     _outline_markdown_from_items,
+    _outline_output_token_budget,
+    _compact_outline_source,
+    _repair_outline_sparse_pages,
     _resolve_outline_topic,
     _is_topic_only_outline_request,
     _source_outline_items,
@@ -174,6 +177,57 @@ def test_outline_request_default_page_count_is_30():
     from app.ppt_generation.routes import OutlineRequest
 
     assert OutlineRequest(sourceName="资料").pageCount == 30
+
+
+def test_outline_budget_scales_with_page_count():
+    assert _outline_output_token_budget(5, 5) < _outline_output_token_budget(5, 30)
+    assert _outline_output_token_budget(5, 5) >= 3200
+
+
+def test_long_outline_source_keeps_structure_and_tail_without_overflow():
+    source = "# 第一章 基础\n" + "\n".join(f"基础定义{i}。" for i in range(1800))
+    source += "\n# 第二章 应用\n应用案例与结论。\n"
+    compacted = _compact_outline_source(source, 2000)
+
+    assert len(compacted) <= 2000
+    assert "第一章" in compacted
+    assert "第二章" in compacted
+    assert "资料结尾" in compacted
+
+
+def test_sparse_outline_repair_only_replaces_targeted_page(monkeypatch):
+    from app.ppt_generation import service as svc
+
+    items = _outline_items(_full_markdown(2))
+    original_second = copy.deepcopy(items[1])
+    repaired_markdown = """## PPT 大纲
+
+### 第1页
+- 页标题：第1页标题
+- 页面类型：内容页
+- 本页目标：补足本页信息
+- 核心内容：
+  - 关键事实一
+  - 关键事实二
+  - 关键事实三
+- 页面节点：
+  - 节点1：概念｜说明概念
+  - 节点2：应用｜说明应用
+- 展示建议：分层展示
+- 素材建议：结构图
+"""
+
+    monkeypatch.setattr(svc, "run_specialist_agent", lambda *_args, **_kwargs: repaired_markdown)
+    updated, changed = _repair_outline_sparse_pages(
+        items,
+        {"topic": "T", "source_mode": "non_outline", "material": "资料"},
+        "T",
+        [],
+    )
+
+    assert changed is True
+    assert len(updated[0]["keyPoints"]) == 3
+    assert updated[1] == original_second
 
 
 def test_generate_outline_respects_user_max_pages(monkeypatch):
