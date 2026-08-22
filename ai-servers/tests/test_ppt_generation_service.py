@@ -24,7 +24,9 @@ from app.ppt_generation.service import (
     _retry_llm_call,
     _safe_error_message,
     _layout_requires_numeric_data,
+    _layout_has_required_visual,
     _rebalance_layout_choices,
+    _visuals_enabled,
     _fill_layout_with_slide_text,
     _set_text_node_content,
     _sanitize_content_payload,
@@ -202,6 +204,55 @@ def test_component_content_path_backfills_connector_target_headings():
     ui = result["slides"][0]["ui"]
     headings = [node.get("text") for node in _named_text_nodes(ui, "section_heading")]
     assert headings == ["LIFO", "FIFO", "复杂度"]
+
+
+def test_content_merge_keeps_confirmed_title_source_evidence_and_clears_template_samples():
+    catalog = EmbeddedTemplateCatalog()
+    layout_id = "title_intro"
+    layout = catalog.get_layout("general", layout_id)
+    result = _sanitize_content_payload(
+        {
+            "slides": [
+                {
+                    "title": "模型擅自改写的标题",
+                    "content": ["队列按进入顺序处理任务。", "出队操作保持先进先出。"],
+                    "componentContent": {
+                        "headline_text": "模型擅自改写的标题",
+                        "body_copy": "队列按进入顺序处理任务。出队操作保持先进先出。",
+                    },
+                }
+            ]
+        },
+        [layout_id],
+        {layout_id: layout},
+        1,
+        [{
+            "title": "已确认的队列标题",
+            "sourceMaterial": "资料证据：队列从队尾进入、从队首移出。",
+        }],
+    )
+
+    slide = result["slides"][0]
+    assert slide["title"] == "已确认的队列标题"
+    assert slide["sourceMaterial"].startswith("资料证据：")
+    text = " ".join(str(node.get("text") or "") for node in _named_text_nodes(slide["ui"], "attribution_name"))
+    text += " " + " ".join(str(node.get("text") or "") for node in _named_text_nodes(slide["ui"], "attribution_detail"))
+    assert "John Doe" not in text
+    assert "December 2025" not in text
+    assert "模型擅自改写的标题" not in " ".join(
+        str(node.get("text") or "") for node in _named_text_nodes(slide["ui"], "headline_text")
+    )
+    assert "已确认的队列标题" in " ".join(
+        str(node.get("text") or "") for node in _named_text_nodes(slide["ui"], "headline_text")
+    )
+
+
+def test_visual_disabled_mode_excludes_required_image_layouts():
+    catalog = EmbeddedTemplateCatalog()
+    assert _visuals_enabled({"includeVisuals": False}) is False
+    assert _visuals_enabled({"includeVisuals": "true"}) is True
+    assert _layout_has_required_visual(catalog.get_layout("general", "title_intro")) is True
+    assert _layout_has_required_visual(catalog.get_layout("general", "title_table_description")) is False
 
 
 def test_layout_rebalance_rejects_numeric_template_without_numeric_source():

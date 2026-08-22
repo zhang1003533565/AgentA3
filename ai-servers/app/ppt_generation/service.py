@@ -911,6 +911,30 @@ class PptGenerationService:
                     excluded_layouts,
                 )
             layout_catalog = safe_layout_catalog
+        # When visuals are explicitly disabled, exclude layouts whose
+        # composition depends on a non-decorative image frame. Otherwise the
+        # text remains valid but the empty visual area creates a large blank
+        # region in the rendered slide.
+        if not _visuals_enabled(settings):
+            text_only_catalog = [
+                summary
+                for summary in layout_catalog
+                if not _layout_has_required_visual(
+                    layouts_by_id.get(str(summary.get("id") or "")) or {}
+                )
+            ]
+            if text_only_catalog:
+                excluded_visual_layouts = [
+                    str(summary.get("id") or "")
+                    for summary in layout_catalog
+                    if summary not in text_only_catalog
+                ]
+                if excluded_visual_layouts:
+                    logger.info(
+                        "PPT generation excluded visual-dependent layouts because visuals are disabled: %s",
+                        excluded_visual_layouts,
+                    )
+                layout_catalog = text_only_catalog
         # 容量感知（第 24 节）：给版式匹配模型注入每版式容量提示，
         # 让"几卡片内容"匹配"几卡片版式"，而不是硬塞
         for summary in layout_catalog:
@@ -2823,7 +2847,23 @@ def _sanitize_content_payload(
         item = dict(raw)
         layout = layouts_by_id.get(selected_layouts[index]) or {}
         layout_model = parse_slide_layout(layout) if isinstance(layout, Mapping) and layout else None
+        outline_item = current_slides[index] if current_slides and index < len(current_slides) else {}
         item["index"] = index + 1
+        outline_title = str(outline_item.get("title") or "").strip()
+        if outline_title:
+            # The outline is the user's confirmed navigation contract. The
+            # content model may expand the copy, but must not silently rename
+            # a page after confirmation.
+            item["title"] = outline_title
+        source_evidence = str(
+            outline_item.get("sourceMaterial")
+            or outline_item.get("sourceExcerpt")
+            or ""
+        ).strip()
+        if source_evidence:
+            # Preserve the per-page source evidence used by the content model.
+            # It is trace metadata, not visible slide copy.
+            item["sourceMaterial"] = source_evidence
         layout_mismatch = item.get("layoutMismatch")
         if isinstance(layout_mismatch, Mapping) and layout_mismatch.get("fitsLayout") is False:
             logger.warning(
@@ -2833,7 +2873,6 @@ def _sanitize_content_payload(
                 str(layout_mismatch.get("recommendedSemanticType") or ""),
             )
         component_content = item.pop("componentContent", None)
-        outline_item = current_slides[index] if current_slides and index < len(current_slides) else {}
         if isinstance(component_content, dict) and component_content:
             merged = _merge_content_into_layout(layout, component_content)
             matched = int(merged.pop("_matchedComponents", 0) or 0)
@@ -2858,6 +2897,7 @@ def _sanitize_content_payload(
                 )
             if matched > 0:
                 item["ui"] = merged
+                _set_canonical_slide_title(merged, layout_model, str(item.get("title") or ""))
                 # 槽位完备性：AI 漏填的文本槽位按大纲数据回填（不虚构），
                 # 避免出现"卡片标题有内容、正文空着"的孤立元素（第 71 节）
                 if layout_model is not None:
@@ -2895,6 +2935,25 @@ def _sanitize_content_payload(
             item["_contentFallback"] = True
         normalized.append(item)
     return {"slides": normalized}
+
+
+def _set_canonical_slide_title(
+    ui: Dict[str, Any],
+    model: Optional[SlideLayoutModel],
+    title: str,
+) -> None:
+    """Keep the confirmed outline title in every page-title text node."""
+    if model is None or not str(title or "").strip():
+        return
+    from app.ppt_generation.repair_engine import _find_node_by_name
+
+    for name, elements in model.elements.items():
+        for occurrence, element in enumerate(elements):
+            if element.semantic_role not in {"page_title", "section_title"}:
+                continue
+            node = _find_node_by_name(ui, name, occurrence)
+            if node is not None:
+                _set_text_node_content(node, title, respect_capacity=False)
 
 
 def _fill_missing_slots(
@@ -3391,6 +3450,7 @@ def _merge_content_into_layout(layout: Mapping[str, Any], component_content: Map
             sorted(matched_names),
         )
     _clear_unmatched_content_text(result)
+    _clear_template_placeholder_text(result, matched_names)
     # 匹配计数/名称标记：调用方据此判断键名是否全部未命中（需回退大纲填充），
     # 以及哪些键对应不存在的组件（结构化输出校验：不创建新元素，仅报告）
     result["_matchedComponents"] = len(matched_names)
@@ -3446,6 +3506,11 @@ _PLACEHOLDER_LEXICON = re.compile(
     r"enter\s?text|untitled|caption|label|content|www\.yourwebsite\.com)\b|"
     r"^[-–—.]+$|^[a-z]{1,2}\d{0,2}$"
 )
+_TEMPLATE_SAMPLE_TEXTS = frozenset({
+    "ceo", "cto", "coo", "cmo",
+    "john doe", "juliana silva", "daniel gallego", "ketut susilo",
+    "anna robertson", "www.yourwebsite.com", "december 2025", "jan 1, 2025",
+})
 
 
 def _is_template_placeholder_text(node: Mapping[str, Any]) -> bool:
@@ -3458,6 +3523,8 @@ def _is_template_placeholder_text(node: Mapping[str, Any]) -> bool:
     text = _node_display_text(node).strip()
     if not text or re.search(r"[\u4e00-\u9fff]", text):
         return False
+    if text.casefold() in _TEMPLATE_SAMPLE_TEXTS:
+        return True
     # 短装饰文字（数字角标、全大写设计词、单词标签）保留
     if len(text) <= 14 and not _PLACEHOLDER_LEXICON.search(text):
         return False
@@ -4053,6 +4120,26 @@ def _numeric_layout_has_sufficient_data(
     # two independent values are available.
     minimum = 2
     return _item_allows_numeric_layout(item) and _numeric_token_count(item) >= minimum
+
+
+def _visuals_enabled(settings: Mapping[str, Any]) -> bool:
+    """Return whether the request can populate non-decorative image slots."""
+    value = settings.get("includeVisuals") if isinstance(settings, Mapping) else None
+    return str(value or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _layout_has_required_visual(layout: Mapping[str, Any]) -> bool:
+    """Detect a layout whose composition relies on a real image asset."""
+    def walk(value: Any) -> bool:
+        if isinstance(value, list):
+            return any(walk(item) for item in value)
+        if not isinstance(value, Mapping):
+            return False
+        if str(value.get("type") or "") == "image":
+            return not bool(value.get("decorative")) and not bool(value.get("is_icon"))
+        return any(walk(value.get(key)) for key in ("components", "elements", "children", "child"))
+
+    return walk(layout)
 
 
 def _select_layout_fallback(
