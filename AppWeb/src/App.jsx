@@ -16,6 +16,7 @@ import RagManage from './pages/ai/RagManage/RagManage'
 import AgentSettings from './pages/ai/AgentSettings/AgentSettings'
 import AgentCache from './pages/ai/AgentCache/AgentCache'
 import Observability from './pages/ai/Observability/Observability'
+import AiConversation from './pages/ai/AiConversation/AiConversation'
 import Login from './pages/Login/Login'
 import ReportManage from './pages/forum/ReportManage/ReportManage'
 import PostManage from './pages/forum/PostManage/PostManage'
@@ -87,6 +88,7 @@ function App() {
           <Route path="/forum/topic" element={<TopicManage />} />
           <Route path="/forum/report" element={<ReportManage />} />
           <Route path="/market/report" element={<SecondhandReportManage />} />
+          <Route path="/ai" element={<AiConversation />} />
           <Route path="/ai/rag" element={<Navigate to="/ai/rag/agents" replace />} />
           <Route path="/ai/rag/strategy" element={<Navigate to="/ai/rag/agents" replace />} />
           <Route path="/ai/rag/agents" element={<RagManage page="agents" />} />

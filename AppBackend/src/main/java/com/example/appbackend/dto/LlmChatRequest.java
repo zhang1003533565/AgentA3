@@ -1,7 +1,6 @@
 package com.example.appbackend.dto;
 
 import io.swagger.v3.oas.annotations.media.Schema;
-import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Positive;
 import jakarta.validation.constraints.Size;
@@ -34,7 +33,6 @@ public class LlmChatRequest {
     @Schema(description = "可选：本次请求临时指定 LLM 模型配置前缀；为空时使用 ai.agent-bindings.{agentName}.model 绑定", example = "ai.service.text.deepseek-chat")
     private String llmModel;
 
-    @NotBlank(message = "输入内容不能为空")
     @Size(max = 4000, message = "输入内容最多 4000 字符")
     @Schema(description = "用户输入内容", requiredMode = Schema.RequiredMode.REQUIRED, example = "帮我推荐一个食堂")
     private String input;

@@ -95,6 +95,7 @@ DIAGRAM_AGENT_SPECS = {
 
 AGENT_ORDER = [
     "leader_agent",
+    "tool_intent_router_agent",
     "profile_summary_agent",
     "vision_agent",
     "architecture_prompt_agent",
@@ -127,10 +128,12 @@ INTERNAL_VISUAL_AGENTS = frozenset({
     "ppt_image_agent",
 })
 FILE_EXPORT_INTERNAL_AGENTS = frozenset({"file_content_planner_agent"})
+INTERNAL_ONLY_AGENT_NAMES = frozenset({"tool_intent_router_agent"})
 LEADER_CALLABLE_AGENT_ORDER = tuple(
     agent_name
     for agent_name in AGENT_ORDER
     if agent_name != "leader_agent"
+    and agent_name not in INTERNAL_ONLY_AGENT_NAMES
     and agent_name not in LEARNING_WORKFLOW_INTERNAL_AGENTS
     and agent_name not in DIAGRAM_SOURCE_AGENTS
     and agent_name not in INTERNAL_VISUAL_AGENTS
@@ -337,6 +340,25 @@ AGENT_PROFILES: Dict[str, Dict[str, Any]] = {
         "aliases": ["file_content_planner_agent", "文件内容编排智能体", "Word知识转换智能体", "文件知识转换智能体"],
         "exampleInput": "把刚才关于 Python 发展历史的内容整理成 Word 文档",
         "requiredModelModalities": TEXT_MODEL_MODALITY,
+    },
+    "tool_intent_router_agent": {
+        "role": "工具意图识别智能体",
+        "purpose": "在 Leader 路由前强制提取用户意图、关键词、实体、约束和查询变体；不由 Leader 作为业务智能体路由，但允许后台单独测试和绑定模型。",
+        "inputs": ["user_query", "enabled_tools"],
+        "outputs": ["intent", "keywords", "entities", "constraints", "query_variants"],
+        "skills": ["intent extraction", "keyword extraction", "entity extraction", "query rewriting"],
+        "intent": "tool_intent_routing",
+        "needRetrieval": False,
+        "executionMode": "internal_tool",
+        "executionModeLabel": "生产环境由 tool_intent_router 强制自动调用；后台可单独测试",
+        "defaultRagStrategy": "",
+        "supportedRagStrategies": [],
+        "aliases": ["tool_intent_router", "tool_intent_router_agent", "工具意图识别", "意图识别智能体"],
+        "exampleInput": "从用户问题中提取意图、关键词、实体、约束和最多三个查询变体",
+        "requiredModelModalities": TEXT_MODEL_MODALITY,
+        "internalOnly": True,
+        "mandatory": True,
+        "toolName": "tool_intent_router",
     },
     "vision_agent": {
         "role": "图片识别智能体",
@@ -563,7 +585,11 @@ def normalize_agent_name(agent_name: Optional[str]) -> Optional[str]:
 
 def normalize_leader_request_agent(agent_name: Optional[str]) -> Optional[str]:
     normalized = normalize_agent_name(agent_name)
-    if normalized == "leader_agent" or normalized in LEADER_CALLABLE_AGENT_ORDER:
+    if (
+        normalized == "leader_agent"
+        or normalized in LEADER_CALLABLE_AGENT_ORDER
+        or normalized in INTERNAL_ONLY_AGENT_NAMES
+    ):
         return normalized
     return None
 
@@ -591,6 +617,9 @@ def _build_agent(agent_name: str, include_documents: bool) -> Dict[str, Any]:
         "needRetrieval": profile["needRetrieval"],
         "executionMode": profile["executionMode"],
         "executionModeLabel": profile["executionModeLabel"],
+        "internalOnly": bool(profile.get("internalOnly", False)),
+        "mandatory": bool(profile.get("mandatory", False)),
+        "toolName": profile.get("toolName"),
         "defaultRagStrategy": profile["defaultRagStrategy"],
         "supportedRagStrategies": profile["supportedRagStrategies"],
         "requiredModelModalities": profile.get("requiredModelModalities", TEXT_MODEL_MODALITY),

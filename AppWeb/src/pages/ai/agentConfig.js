@@ -3,6 +3,7 @@ export const AGENT_MODEL_BINDING_PATTERN = /^ai\.agent-bindings\.([A-Za-z0-9_-]+
 export const AGENT_ENABLED_CONFIG_PREFIX = 'ai.agent-enabled.'
 export const TOOL_ENABLED_CONFIG_PREFIX = 'ai.tool-enabled.'
 export const TOOL_BOUND_CONFIG_PREFIX = 'ai.tool-bound.'
+export const TOOL_RETRIEVAL_CONFIG_PREFIX = 'ai.tool-retrieval.'
 export const TOOL_BOUND_UNBOUND_MARKER = '-'
 export const QUESTION_GENERATION_AGENT_PREFIX = 'ai.question-generation.agent.'
 export const AI_TESTED_MODEL_PREFIXES_KEY = 'ai_tested_model_prefixes_v1'
@@ -150,6 +151,23 @@ export const buildToolBindings = (configRows = []) => {
   return bindings
 }
 
+export const buildToolRetrievalProfiles = (configRows = []) => {
+  const profiles = {}
+  configRows.forEach((item) => {
+    const key = String(item.configKey || '')
+    if (!key.startsWith(TOOL_RETRIEVAL_CONFIG_PREFIX) || Number(item.status) === 0) return
+    const toolName = key.slice(TOOL_RETRIEVAL_CONFIG_PREFIX.length).trim()
+    if (!toolName) return
+    try {
+      const parsed = JSON.parse(String(item.configValue || '{}'))
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) profiles[toolName] = parsed
+    } catch {
+      // Ignore malformed legacy values; the UI will show the generated defaults.
+    }
+  })
+  return profiles
+}
+
 export const getAgentRequiredModelModalities = (agent) => {
   const modalities = Array.isArray(agent?.requiredModelModalities) ? agent.requiredModelModalities : []
   return modalities.length ? modalities : ['text']
@@ -161,6 +179,8 @@ export const getAgentModelRequirementText = (agent) => (
     .join(' / ')
 )
 
-export const isAgentEnabled = (agent) => !agent || agent.name === 'leader_agent' || agent.enabled !== false
+export const isAgentEnabled = (agent) => (
+  !agent || agent.name === 'leader_agent' || agent.internalOnly || agent.enabled !== false
+)
 
 export const isToolEnabled = (tool) => !tool || tool.enabled !== false
