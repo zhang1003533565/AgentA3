@@ -1107,6 +1107,17 @@ class PptGenerationService:
                 "title": str(enriched.get("title") or item.get("title") or f"第 {index} 页"),
                 "content": list(points) if isinstance(points, list) else [],
                 "objective": str(enriched.get("objective") or item.get("objective") or ""),
+                # Per-slide source evidence is trace metadata used by the
+                # content-quality audit. Keep it alongside the rendered UI;
+                # dropping it here made a grounded page look ungrounded even
+                # though the content agent had received the evidence.
+                "sourceMaterial": str(
+                    enriched.get("sourceMaterial")
+                    or enriched.get("sourceExcerpt")
+                    or item.get("sourceMaterial")
+                    or item.get("sourceExcerpt")
+                    or ""
+                ),
                 "layout": selected_layouts[index - 1],
                 "templateLayoutId": selected_layouts[index - 1],
                 "privatePrompt": str(item.get("privatePrompt") or ""),
