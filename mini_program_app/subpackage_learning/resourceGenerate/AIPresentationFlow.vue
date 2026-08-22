@@ -437,9 +437,8 @@
             <text class="slide-editor__preview-content">{{ activeSlide.content || '暂未填写页面内容' }}</text>
             <view class="slide-editor__preview-decor"></view>
           </view>
-          <view v-if="editorPreviewLoading || editorPreviewError" class="slide-editor__preview-status">
-            <text v-if="editorPreviewLoading">正在同步最终预览…</text>
-            <text v-else>{{ editorPreviewError }}</text>
+          <view v-if="editorPreviewError" class="slide-editor__preview-status">
+            <text>{{ editorPreviewError }}</text>
           </view>
         </view>
 
