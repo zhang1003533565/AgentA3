@@ -342,6 +342,7 @@ def render_presenton_html(
         if not preview_only and result.get("pptxPath"):
             source = _host_path_from_renderer(result["pptxPath"], runtime_root).resolve()
             if source.is_file():
+                _normalize_pptx_slide_size_metadata(source)
                 quality = validate_exported_pptx(source)
                 if not quality["passed"]:
                     raise RuntimeError(
