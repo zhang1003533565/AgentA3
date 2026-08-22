@@ -87,6 +87,13 @@ class QwenProvider(ChatModelProvider):
         application-level reasoning setting is silently ignored.
         """
         model = str(self.model or "").strip().lower()
+        effort = str(reasoning_effort or get_active_reasoning_effort() or "medium").strip().lower()
+        if model.startswith("qwen3.8"):
+            # qwen3.8 deployments may expose a zero thinking-budget ceiling,
+            # and the current DashScope API also documents that qwen3.8-max
+            # should not combine explicit thinking_budget with model reasoning
+            # controls. Let the server choose its supported default.
+            return {"extra_body": {"enable_thinking": effort != "none"}}
         supported = (
             model.startswith("qwen3.7")
             or model.startswith("qwen3.6")
@@ -95,7 +102,6 @@ class QwenProvider(ChatModelProvider):
         )
         if not supported:
             return {}
-        effort = str(reasoning_effort or get_active_reasoning_effort() or "medium").strip().lower()
         if effort == "none":
             return {"extra_body": {"enable_thinking": False}}
         budget = QWEN_THINKING_BUDGETS.get(effort, QWEN_THINKING_BUDGETS["medium"])
