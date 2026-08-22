@@ -190,10 +190,11 @@ for (const spec of input.slides || []) {
 }
 
 const pptxOnly = input.pptxOnly === true;
-const pptxExportMode = String(input.pptxExportMode || process.env.PPTX_EXPORT_RENDER_MODE || "hybrid").toLowerCase();
+const pptxExportMode = String(input.pptxExportMode || process.env.PPTX_EXPORT_RENDER_MODE || "fidelity").toLowerCase();
 const fidelityExport = pptxOnly && ["fidelity", "raster", "image"].includes(pptxExportMode);
-// `hybrid` is the product default. Keep `editable` as an explicit pure-native
-// escape hatch for diagnostics and callers that prefer zero raster fallback.
+// Fidelity is the product default: it preserves the verified browser result in
+// Office. Keep `hybrid` and `editable` as explicit opt-ins for diagnostics or
+// callers that accept native-layer editability over pixel parity.
 const hybridExport = pptxOnly && pptxExportMode === "hybrid";
 const pages = [];
 let originalHead = "";

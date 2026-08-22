@@ -25,7 +25,7 @@ from app.ppt_generation.template_model import (
     SLIDE_WIDTH,
     SlideLayoutModel,
     TemplateElementModel,
-    count_content_chars,
+    content_chars_for_element,
     estimate_lines,
 )
 
@@ -201,6 +201,7 @@ def validate_slide(ui_tree: Mapping[str, Any], model: SlideLayoutModel) -> Valid
 
     _check_overlaps(nodes, model, result)
     _check_card_balance(nodes, model, result)
+    _check_connector_targets(nodes, model, result)
     _check_density(nodes, model, result)
     return result
 
@@ -277,7 +278,8 @@ def _validate_element(
             # 字数上限按模板首选字号计算。标题在缩小字号后可以容纳更多
             # 中文字符；此时几何行数/宽度才是最终约束，不能再用首选字号
             # 下的硬上限把已经适配好的标题重新判成溢出。
-            exceeds_char_cap = count_content_chars(text) > element.constraint.hard_max_chars
+            content_chars = content_chars_for_element(text, element)
+            exceeds_char_cap = content_chars > element.constraint.hard_max_chars
             if (
                 exceeds_char_cap
                 and not (
@@ -288,7 +290,7 @@ def _validate_element(
                 result.issues.append(ValidationIssue(
                     error_type="TEXT_OVERFLOW",
                     element_id=name,
-                    detail=f"内容字符数 {count_content_chars(text)} 超过硬上限 {element.constraint.hard_max_chars}",
+                    detail=f"内容字符数 {content_chars} 超过硬上限 {element.constraint.hard_max_chars}",
                 ))
             # 内容修复可能已将字号压到角色下限；排版校验必须使用节点当前字号，
             # 否则校验仍按模板原字号测量，合法的缩字结果会被误判为溢出。
@@ -396,6 +398,40 @@ def _check_card_balance(nodes: Dict[str, List[Tuple[Dict[str, Any], float, float
                 # 交给 QA/前端提示，不阻断 PPTX 生成。
                 severity="warning",
             ))
+
+
+def _check_connector_targets(
+    nodes: Dict[str, List[Tuple[Dict[str, Any], float, float]]],
+    model: SlideLayoutModel,
+    result: ValidationResult,
+) -> None:
+    """Ensure every high-confidence connector target still has visible text.
+
+    A line whose target heading was cleared is not a harmless empty slot: it
+    becomes a floating visual fragment in both preview and exported PPTX. The
+    relation is inferred once from the immutable template geometry, while the
+    actual text is checked on the merged UI tree.
+    """
+    for relation in model.connector_targets:
+        entries = nodes.get(relation.target_name) or []
+        if relation.target_index >= len(entries):
+            result.issues.append(ValidationIssue(
+                error_type="CONNECTOR_TARGET_MISSING",
+                element_id=f"{relation.target_name}[{relation.target_index}]",
+                detail="连接线的目标文字槽位在合并后的页面树中缺失",
+            ))
+            continue
+        node = entries[relation.target_index][0]
+        if _node_text(node).strip():
+            continue
+        result.issues.append(ValidationIssue(
+            error_type="CONNECTOR_TARGET_EMPTY",
+            element_id=f"{relation.target_name}[{relation.target_index}]",
+            detail=(
+                f"连接线 #{relation.connector_index} 指向空文字槽位"
+                f"（{relation.target_name}[{relation.target_index}]）"
+            ),
+        ))
 
 
 def _looks_like_template_placeholder(text: str) -> bool:

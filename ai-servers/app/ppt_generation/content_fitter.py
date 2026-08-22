@@ -3,8 +3,10 @@
 Strategy order (spec §14, §15, §29) — content first, template last:
 
     rewrite → summarize → bulletize → remove-secondary
-    → shrink-font (bounded, never below min_font_size). Formal page titles
-    never use ellipsis; they are semantically shortened or reported unfit.
+    → shrink-font (bounded, never below min_font_size). Content is never
+    silently clipped with an ellipsis or arbitrary prefix. If the bounded
+    strategies cannot fit the complete result, the original text is returned
+    with ``fits=False`` so the quality gate can block the export.
 
 The fitter never moves or resizes elements; when even bounded font shrink
 cannot make the text fit it reports ``fits=False`` so the caller can flag
@@ -31,7 +33,7 @@ RewriteCallable = Callable[[str, TextConstraint, str], Optional[str]]
 @dataclass
 class FitResult:
     text: str
-    strategy: str  # none | rewrite | summarize | bulletize | remove-secondary | shrink-font | ellipsis | failed
+    strategy: str  # none | rewrite | summarize | bulletize | remove-secondary | shrink-font | failed
     fits: bool
     shrink_scale: Optional[float] = None
     actions: List[str] = field(default_factory=list)
@@ -81,52 +83,10 @@ def _split_points(text: str) -> List[str]:
     return points or [raw.strip()]
 
 
-def _truncate_ellipsis(text: str, max_chars: int) -> str:
-    if len(text) <= max_chars:
-        return text
-    if max_chars <= 1:
-        return text[:max_chars]
-    return text[: max_chars - 1].rstrip() + "…"
-
-
-def _largest_fitting_prefix(
-    text: str,
-    element: TemplateElementModel,
-    font_size: Optional[float] = None,
-) -> str:
-    """在当前字号下找出仍能落入槽位的最长前缀。
-
-    模板声明的 hard_max_chars 有时仍大于真实几何容量（尤其是窄标签、
-    叠层卡片标题）。直接截到 hard_max_chars 仍可能溢出，随后整页被质量门禁
-    拦截。这里按实际测量二分查找，并保留省略号，保证“最终文本确实可排”。
-    找不到一个字符的可用空间时返回空串，让极小槽位继续走显式失败路径。
-    """
-    value = str(text or "")
-    if not value:
-        return ""
-    if text_fits(value, element, font_size=font_size):
-        return value
-    low, high = 1, len(value)
-    best = ""
-    while low <= high:
-        size = (low + high) // 2
-        candidate = value[:size].rstrip()
-        if size < len(value):
-            candidate = candidate.rstrip("，。；：:、,; ") + "…"
-        if candidate and text_fits(candidate, element, font_size=font_size):
-            best = candidate
-            low = size + 1
-        else:
-            high = size - 1
-    return best
-
-
 def _bulletize(text: str, constraint: TextConstraint) -> str:
-    """要点化：保留尽可能多的要点，每个要点不超过一行宽度。"""
+    """要点化：只改变结构，不截断任何单个要点。"""
     points = _split_points(text)
-    per_line = max(1, int(constraint.chars_per_line) - 2)
-    fitted = [_truncate_ellipsis(p, per_line) for p in points]
-    kept = fitted[: constraint.max_lines]
+    kept = points[: constraint.max_lines]
     return "\n".join(f"• {p}" for p in kept)
 
 
@@ -272,11 +232,6 @@ def fit_text(
 
     if element.semantic_role in {"page_title", "section_title", "page_subtitle"}:
         title_variants = _semantic_title_variants(original, constraint.hard_max_chars)
-        if len(set(original)) == 1 and len(original) > constraint.hard_max_chars:
-            # Synthetic/placeholder runs of one repeated glyph carry no
-            # semantic suffix to preserve; bounded removal is safer than an
-            # ellipsis and keeps the repair engine's failure path visible.
-            title_variants.insert(0, original[:constraint.hard_max_chars])
         for candidate in title_variants:
             if text_fits(candidate, element, font_size=current_font_size):
                 actions.append("semantic-shorten-title")
@@ -311,7 +266,7 @@ def fit_text(
     # 5) shrink-font（限幅缩字：由调用方应用到节点）
     # 中文标题经常只是超过“首选字号下的字符容量”，并不代表内容必须
     # 被截断。先验证缩到角色下限后确实能放下，再保留完整标题；只有
-    # 连下限字号都放不下时，才继续走后面的硬截断。
+    # 连下限字号都放不下时，才显式报告失败。
     if (
         constraint.allow_font_shrink
         and element.font_size > 0
@@ -350,44 +305,9 @@ def fit_text(
                     actions=actions,
                 )
 
-    # 6) ellipsis（仅非正式标题的一行槽位）
-    if constraint.allow_ellipsis and constraint.max_lines <= 1:
-        ellipsized = _truncate_ellipsis(original, max(1, int(constraint.chars_per_line) - 1))
-        actions.append("ellipsis")
-        if text_fits(ellipsized, element, font_size=current_font_size):
-            return FitResult(text=ellipsized, strategy="ellipsis", fits=True, actions=actions)
-
-    # 7) 兜底：硬截断到硬上限（绝不撑破版式），标记失败由调用方上报
-    if element.semantic_role in {"page_title", "section_title", "page_subtitle"}:
-        return FitResult(text=original, strategy="failed", fits=False, actions=actions + ["title-unfit"])
-    hard = max(1, constraint.hard_max_chars)
-    truncated = _truncate_ellipsis(original, hard)
-    # hard_max_chars 仍可能比窄槽位的真实几何容量宽松。先在字号下限
-    # 重新寻找一个真正放得下的前缀；返回 shrink-font 是为了让调用方同步
-    # 应用字号下限，之后 validator 会用新字号重新测量。
-    if constraint.allow_ellipsis and constraint.allow_font_shrink and element.font_size > 0:
-        base_font_size = current_font_size or element.font_size
-        min_scale = max(constraint.max_shrink_ratio, constraint.min_font_size / max(base_font_size, 0.1))
-        fitted = _largest_fitting_prefix(
-            original,
-            element,
-            font_size=base_font_size * min_scale,
-        )
-        if fitted:
-            actions.append(f"shrink-font(scale={min_scale:.2f})+ellipsis")
-            return FitResult(
-                text=fitted,
-                strategy="shrink-font",
-                fits=True,
-                shrink_scale=min_scale,
-                actions=actions,
-            )
-    fitted = _largest_fitting_prefix(original, element, font_size=current_font_size) if constraint.allow_ellipsis else ""
-    if fitted:
-        actions.append("geometry-ellipsis")
-        return FitResult(text=fitted, strategy="ellipsis", fits=True, actions=actions)
-    actions.append("hard-truncate")
-    return FitResult(text=truncated, strategy="failed", fits=False, actions=actions)
+    # 6) 显式失败：保留完整输入，让 QA/质量门禁报告真实溢出位置。
+    # 这里绝不能用省略号、前缀或 hard_max_chars 静默改写用户内容。
+    return FitResult(text=original, strategy="failed", fits=False, actions=actions + ["content-unfit"])
 
 
 def _looks_like_paragraph(text: str) -> bool:

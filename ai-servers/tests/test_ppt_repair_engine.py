@@ -76,33 +76,32 @@ def test_short_content_needs_no_repair(catalog):
 
 
 def test_long_title_is_rewritten_not_unboundedly_shrunk(catalog):
-    """Case 2：超长标题 → 压缩内容（程序化），不缩字、不破坏版式。"""
+    """Case 2：无法安全适配的超长标题 → 保留原文并显式 partial。"""
     layout, model = _model(catalog)
     tree = {"components": copy.deepcopy(layout["components"])}
     _set_text(tree, "headline_text", "超" * 60)
     outcome = RepairEngine().repair(tree, model, llm_rewrite=None)
-    assert outcome.status == "repaired"
+    assert outcome.status == "partial"
     assert outcome.repair_count >= 1
     final_text = _get_text(outcome.ui, "headline_text")[0]
-    element = model.element("headline_text")
-    assert len(final_text) <= element.constraint.hard_max_chars
-    assert text_fits(final_text, element)
-    # 字号未被修改（内容策略优先，模板几何/字号保持）
-    assert "shrink-font" not in [entry["strategy"] for entry in outcome.history]
+    assert final_text == "超" * 60
+    assert "…" not in final_text
+    assert any(issue.error_type == "TEXT_OVERFLOW" for issue in outcome.final_issues)
     assert not any(issue.error_type == "GEOMETRY_CHANGED" for issue in outcome.final_issues)
 
 
 def test_long_card_body_is_compressed(catalog):
-    """Case 3：卡片正文过长 → 压缩到容量内。"""
+    """Case 3：卡片正文过长 → 保留原文并暴露溢出，不能静默截断。"""
     layout, model = _model(catalog, "title_image_bullet_points")
     tree = {"components": copy.deepcopy(layout["components"])}
     long_body = "这是一段非常长的卡片正文内容用来测试内容压缩机制是否正常工作。" * 10
     _set_text(tree, "item_body", long_body)
     outcome = RepairEngine().repair(tree, model, llm_rewrite=None)
     for text in _get_text(outcome.ui, "item_body"):
-        assert len(text) <= 107  # 模板 max_length
-    assert not any(issue.error_type == "TEXT_OVERFLOW" and issue.severity == "error"
-                   for issue in outcome.final_issues)
+        assert text == long_body
+        assert "…" not in text
+    assert any(issue.error_type == "TEXT_OVERFLOW" and issue.severity == "error"
+               for issue in outcome.final_issues)
 
 
 def test_repair_targets_all_equal_repeated_slots(catalog):
@@ -116,8 +115,9 @@ def test_repair_targets_all_equal_repeated_slots(catalog):
     targets = _target_elements(model, issue)
     assert [index for _, index in targets if _.name == "stacked_label"] == [0, 1, 2, 3]
     outcome = RepairEngine().repair(tree, model, llm_rewrite=None)
-    assert outcome.status != "partial"
-    assert not any(
+    assert outcome.status == "partial"
+    assert all(text == "这是一个需要压缩到单行标签容量以内的较长页面标签" for text in _get_text(outcome.ui, "stacked_label"))
+    assert any(
         issue.error_type == "TEXT_OVERFLOW" and issue.severity == "error"
         for issue in outcome.final_issues
     )

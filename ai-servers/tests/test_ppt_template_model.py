@@ -44,6 +44,51 @@ def test_duplicate_names_are_preserved_in_order(catalog):
     assert len({occ.x for occ in occurrences}) == 4  # 每组坐标不同
 
 
+def test_repeated_local_section_heading_and_body_are_card_slots(catalog):
+    layout = catalog.get_layout("momentum", "title_infographic_sections_6705")
+    model = parse_slide_layout(layout)
+
+    headings = model.occurrences("section_heading")
+    bodies = model.occurrences("section_body")
+
+    assert len(headings) == 3
+    assert len(bodies) == 3
+    assert {element.semantic_role for element in headings} == {"card_title"}
+    assert {element.semantic_role for element in bodies} == {"card_body"}
+    assert "stacked_explanation_sections:card_title" in model.card_groups
+    assert "stacked_explanation_sections:card_body" in model.card_groups
+
+
+def test_connector_targets_follow_effective_flex_positions(catalog):
+    layout = catalog.get_layout("momentum", "title_infographic_sections_6705")
+    model = parse_slide_layout(layout)
+
+    assert [relation.target_name for relation in model.connector_targets] == [
+        "section_heading",
+        "section_heading",
+        "section_heading",
+    ]
+    assert [relation.target_index for relation in model.connector_targets] == [0, 1, 2]
+    assert [round(model.effective_boxes[("section_heading", index)][1], 2) for index in range(3)] == [
+        314.74,
+        448.98,
+        583.22,
+    ]
+    assert all(relation.distance < 20 for relation in model.connector_targets)
+
+
+def test_effective_grid_positions_are_resolved_for_repeated_card_slots(catalog):
+    layout = catalog.get_layout("dynamic", "left_title_right_card_grid_2044")
+    model = parse_slide_layout(layout)
+
+    headings = [
+        model.effective_boxes[("card_heading_text", index)]
+        for index in range(4)
+    ]
+    assert [round(box[0], 1) for box in headings] == [513.0, 875.5, 513.0, 875.5]
+    assert [round(box[1], 1) for box in headings] == [107.0, 107.0, 386.0, 386.0]
+
+
 def test_decorations_and_backgrounds_are_locked(catalog):
     layout = _layout(catalog)
     model = parse_slide_layout(layout)
@@ -131,6 +176,18 @@ def test_text_fits_truncation_and_geometry(catalog):
     headline = model.element("headline_text")
     assert text_fits("短标题", headline)
     assert not text_fits("超" * (headline.constraint.hard_max_chars + 1), headline)
+
+
+def test_metric_complexity_notation_uses_semantic_capacity(catalog):
+    """O(1) fits the metric geometry; punctuation must not cause a false block."""
+    model = parse_slide_layout(
+        catalog.get_layout("momentum", "title_infographic_sections_6705")
+    )
+    metric = model.element("outer_metric_value")
+    assert metric is not None
+    assert text_fits("O(1)", metric)
+    assert text_fits("68%", metric)
+    assert not text_fits("1234", metric)
 
 
 def test_empty_layout_parses_safely():

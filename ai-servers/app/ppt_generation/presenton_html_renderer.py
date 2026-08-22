@@ -235,7 +235,10 @@ def render_presenton_html(
         # template's nested spans, SVG decorations and browser-only CSS.
         # Fidelity mode makes the already-rendered slide image the PPTX slide
         # artwork, preventing a second layout engine from dropping content.
-        "pptxExportMode": str(os.getenv("PPTX_EXPORT_RENDER_MODE") or "hybrid").strip().lower(),
+        # Default downloads to the already-rendered slide artwork. The hybrid
+        # native/graphics composition is editable, but Office can reorder its
+        # two full-slide layers and hide the template background.
+        "pptxExportMode": str(os.getenv("PPTX_EXPORT_RENDER_MODE") or "fidelity").strip().lower(),
     }
     if use_docker:
         payload = _dockerize_payload(payload, template_id, runtime_root)

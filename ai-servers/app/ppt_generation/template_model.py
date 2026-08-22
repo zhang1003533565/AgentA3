@@ -30,7 +30,10 @@ _BODY_PATTERN = re.compile(r"(?i)body|paragraph|description|content|details|text
 _CARD_PATTERN = re.compile(r"(?i)card|item|feature|point|metric|stat|highlight")
 _LABEL_PATTERN = re.compile(r"(?i)label|tag|badge|caption|note|kicker|eyebrow")
 _LOGO_PATTERN = re.compile(r"(?i)logo|brand|icon")
-_PAGE_PATTERN = re.compile(r"(?i)page|pagenum|footer|slide_number")
+_PAGE_PATTERN = re.compile(
+    r"(?i)(?:^|[_-])(?:page|pagenum|page[_-]?(?:number|num)|"
+    r"slide[_-]?(?:number|num)|footer[_-]?(?:number|value))(?:$|[_-])"
+)
 # 组件名按 token 判断装饰，不能用简单子串：headline/headline_text_block
 # 都包含 "line"，但它们是可编辑内容区，不是线条装饰。
 _DECORATION_PATTERN = re.compile(
@@ -38,6 +41,24 @@ _DECORATION_PATTERN = re.compile(
     r"bg|background|canvas|overlay|shadow)(?:$|[_\-\s])"
 )
 _LOCKED_TYPES = {"vector", "shape", "line", "divider", "accent", "polygon", "rect", "circle"}
+
+# Repeated local blocks (sections, timelines, callouts, etc.) have their own
+# heading/body hierarchy. They must not be mistaken for the one page title
+# merely because their slot name contains ``heading`` or ``title``.
+_LOCAL_HEADING_SLOT_PATTERN = re.compile(
+    r"(?i)(?:^|[_-])(?:section|callout|feature|item|point|step|timeline|milestone|panel|detail)"
+    r"[_-](?:title|heading|label|name)(?:[_-]|$)"
+)
+_LOCAL_BODY_SLOT_PATTERN = re.compile(
+    r"(?i)(?:^|[_-])(?:section|callout|feature|item|point|step|timeline|milestone|panel|detail)"
+    r"[_-](?:body|description|detail|copy|text|content)(?:[_-]|$)"
+)
+_CONNECTOR_BODY_SLOT_PATTERN = re.compile(
+    r"(?i)(?:body|description|detail|copy|content|text|paragraph|explanation|callout)"
+)
+_CONNECTOR_NON_CONTENT_PATTERN = re.compile(
+    r"(?i)(?:marker|legend|index|number|icon|badge|value|unit)"
+)
 
 # 同角色最小字号缩水比：中文标题不能沿用“只缩小 10%”的英文版式假设。
 # 标题槽位通常只有两行，先按实际字符宽度缩到可读范围，再决定是否截断。
@@ -74,6 +95,20 @@ def count_content_chars(text: str) -> int:
     return len(_CONTENT_ONLY_RE.sub("", str(text or "")))
 
 
+def content_chars_for_element(text: str, element: "TemplateElementModel") -> int:
+    """Count content units using the semantic contract of one slot.
+
+    Compact metric/complexity notation uses punctuation as visual syntax. The
+    geometry check still measures the punctuation's real width, but the
+    template's character budget should not reject ``O(1)`` merely because the
+    two parentheses were counted as extra content units.
+    """
+    value = count_content_chars(text)
+    if element.semantic_role in {"metric_value", "card_value"}:
+        return len(re.sub(r"[()\[\]{}]", "", str(text or "")))
+    return value
+
+
 @dataclass
 class TextConstraint:
     preferred_font_size: float
@@ -85,7 +120,9 @@ class TextConstraint:
     hard_max_chars: int
     allow_font_shrink: bool = True
     max_shrink_ratio: float = 0.85
-    allow_ellipsis: bool = True
+    # Kept as a compatibility field for serialized constraints; content
+    # fitting must never use ellipsis as a lossy fallback.
+    allow_ellipsis: bool = False
 
 
 @dataclass
@@ -115,6 +152,27 @@ class TemplateElementModel:
     semantic_role: str = "body"
 
 
+@dataclass(frozen=True)
+class ConnectorRelation:
+    """A stable, inferred relation between a line endpoint and a text slot.
+
+    Presenton templates currently store many connectors as anonymous vectors,
+    so there is no template-authored ``target`` field to follow.  We only keep
+    relations whose endpoint is geometrically adjacent to an editable heading
+    or label.  Decorative vectors remain intentionally unbound.
+    """
+
+    connector_index: int
+    component_id: str
+    endpoint_index: int
+    endpoint_x: float
+    endpoint_y: float
+    target_name: str
+    target_index: int
+    target_semantic_role: str
+    distance: float
+
+
 @dataclass
 class SlideLayoutModel:
     layout_id: str
@@ -126,6 +184,11 @@ class SlideLayoutModel:
     elements: Dict[str, List[TemplateElementModel]] = field(default_factory=dict)
     # 卡片组件 id -> [(元素名, 出现序号), ...]（用于卡片平衡检测）
     card_groups: Dict[str, List[Tuple[str, int]]] = field(default_factory=dict)
+    # 匿名线条/向量到文本槽位的语义关系。未能可靠推断的装饰向量不进入此表。
+    connector_targets: List[ConnectorRelation] = field(default_factory=list)
+    # flex/group 渲染后的有效盒子；保留原始 x/y 不变，避免把动态布局误报成
+    # 模板几何突变。键为 (name, occurrence)。
+    effective_boxes: Dict[Tuple[str, int], Tuple[float, float, float, float]] = field(default_factory=dict)
 
     def element(self, name: str, index: int = 0) -> Optional[TemplateElementModel]:
         values = self.elements.get(name)
@@ -340,7 +403,10 @@ def parse_slide_layout(layout_json: Mapping[str, Any]) -> SlideLayoutModel:
             base_y=base_y,
             component_locked=component_locked,
         )
+    _refine_repeated_local_semantics(model)
     _normalize_card_groups(model)
+    model.effective_boxes = _resolve_effective_boxes(layout_json)
+    model.connector_targets = _infer_connector_targets(layout_json, model)
     return model
 
 
@@ -467,17 +533,377 @@ def _collect_elements(
 
 def _normalize_card_groups(model: SlideLayoutModel) -> None:
     normalized: Dict[str, List[Tuple[str, int]]] = {}
-    for component_id, members in model.card_groups.items():
-        by_role: Dict[str, List[Tuple[str, int]]] = {}
-        for name, index in members:
-            element = model.element(name, index)
-            if element is None:
+    by_component_role: Dict[Tuple[str, str], List[Tuple[str, int]]] = {}
+    for name, elements in model.elements.items():
+        for index, element in enumerate(elements):
+            if not element.mutable_text:
                 continue
-            by_role.setdefault(element.semantic_role, []).append((name, index))
-        for semantic_role, same_role in by_role.items():
-            if len(same_role) >= 2:
-                normalized[f"{component_id}:{semantic_role}"] = same_role
+            if element.semantic_role not in {
+                "card_title",
+                "card_body",
+                "card_value_label",
+                "metric_value",
+                "metric_label",
+                "metric_description",
+            }:
+                continue
+            by_component_role.setdefault(
+                (element.component_id, element.semantic_role),
+                [],
+            ).append((name, index))
+    for (component_id, semantic_role), members in by_component_role.items():
+        if len(members) >= 2:
+            normalized[f"{component_id}:{semantic_role}"] = members
     model.card_groups = normalized
+
+
+def _refine_repeated_local_semantics(model: SlideLayoutModel) -> None:
+    """Promote repeated local heading/body slots to card semantics.
+
+    The template JSON frequently uses generic names such as
+    ``section_heading`` and ``section_body`` inside a repeated component. A
+    name-only classifier sees ``heading`` and assigns the page-title contract,
+    which prevents the content filler from pairing the heading with its body.
+    Repetition within the same component is the stable, template-independent
+    signal that this is a local block rather than the page title.
+    """
+    component_name_counts: Dict[Tuple[str, str], int] = {}
+    for name, elements in model.elements.items():
+        for element in elements:
+            if element.mutable_text:
+                key = (element.component_id, name.lower())
+                component_name_counts[key] = component_name_counts.get(key, 0) + 1
+
+    for name, elements in model.elements.items():
+        key_name = name.lower()
+        for element in elements:
+            if not element.mutable_text:
+                continue
+            if component_name_counts.get((element.component_id, key_name), 0) < 2:
+                continue
+            if _LOCAL_HEADING_SLOT_PATTERN.search(key_name):
+                element.semantic_role = "card_title"
+                element.role = "title"
+            elif _LOCAL_BODY_SLOT_PATTERN.search(key_name):
+                element.semantic_role = "card_body"
+                element.role = "card"
+
+
+def _iter_layout_nodes(
+    nodes: Any,
+    base_x: float,
+    base_y: float,
+    component_id: str,
+):
+    """Yield raw nodes with the same absolute-coordinate rules as the parser."""
+    if isinstance(nodes, list):
+        for node in nodes:
+            yield from _iter_layout_nodes(node, base_x, base_y, component_id)
+        return
+    if not isinstance(nodes, Mapping):
+        return
+    position = nodes.get("position")
+    node_x = base_x + (_to_float(position.get("x")) if isinstance(position, Mapping) else 0.0)
+    node_y = base_y + (_to_float(position.get("y")) if isinstance(position, Mapping) else 0.0)
+    yield nodes, node_x, node_y, component_id
+    for key in ("elements", "components", "children"):
+        if key in nodes:
+            yield from _iter_layout_nodes(nodes[key], node_x, node_y, component_id)
+    if "child" in nodes:
+        yield from _iter_layout_nodes(nodes["child"], node_x, node_y, component_id)
+
+
+def _connector_points(node: Mapping[str, Any], x: float, y: float) -> List[Tuple[float, float]]:
+    node_type = str(node.get("type") or "").strip().lower()
+    points = node.get("points")
+    if node_type == "vector" and isinstance(points, list) and len(points) == 2 and not node.get("closed"):
+        values: List[Tuple[float, float]] = []
+        for point in points:
+            if not isinstance(point, Mapping):
+                return []
+            values.append((x + _to_float(point.get("x")), y + _to_float(point.get("y"))))
+        return values
+    if node_type in {"line", "divider"}:
+        size = node.get("size")
+        if not isinstance(size, Mapping):
+            return []
+        width = _to_float(size.get("width"))
+        height = _to_float(size.get("height"))
+        if width <= 0 and height <= 0:
+            return []
+        if width >= height:
+            center_y = y + height / 2.0
+            return [(x, center_y), (x + width, center_y)]
+        center_x = x + width / 2.0
+        return [(center_x, y), (center_x, y + height)]
+    return []
+
+
+def _resolve_effective_boxes(layout_json: Mapping[str, Any]) -> Dict[Tuple[str, int], Tuple[float, float, float, float]]:
+    """Resolve the small subset of flex geometry needed for connector QA.
+
+    The source JSON keeps repeated flex children at ``position: 0`` and lets
+    the renderer apply direction/gap at export time.  Reading those raw
+    positions makes every repeated heading appear to share one y coordinate.
+    This resolver records effective boxes separately; the immutable template
+    snapshot used for geometry validation remains untouched.
+    """
+    boxes: Dict[Tuple[str, int], Tuple[float, float, float, float]] = {}
+    occurrences: Dict[str, int] = {}
+
+    def number(value: Any) -> float:
+        return _to_float(value)
+
+    def size_of(node: Mapping[str, Any]) -> Tuple[float, float]:
+        size = node.get("size")
+        if not isinstance(size, Mapping):
+            return 0.0, 0.0
+        return number(size.get("width")), number(size.get("height"))
+
+    def distribute_children(node: Mapping[str, Any], node_x: float, node_y: float) -> None:
+        children = node.get("children")
+        if not isinstance(children, list):
+            return
+        width, height = size_of(node)
+        direction = str(node.get("direction") or "row").lower()
+        is_column = direction == "column"
+        gap = number(node.get("gap"))
+        sizes = [size_of(child) if isinstance(child, Mapping) else (0.0, 0.0) for child in children]
+        main_sizes = [size[1] if is_column else size[0] for size in sizes]
+        cross_sizes = [size[0] if is_column else size[1] for size in sizes]
+        container_main = height if is_column else width
+        container_cross = width if is_column else height
+        content_main = sum(main_sizes) + max(0, len(children) - 1) * gap
+        free_main = max(0.0, container_main - content_main)
+        justify = str(node.get("justify_content") or "flex-start").lower().replace("-", "_")
+        start = free_main / 2.0 if justify == "center" else free_main if justify in {"flex_end", "end"} else 0.0
+        step_gap = gap
+        if justify == "space_between" and len(children) > 1:
+            step_gap = gap + free_main / (len(children) - 1)
+        cursor = start
+        align = str(node.get("align_items") or "flex_start").lower().replace("-", "_")
+        for child, (child_width, child_height), cross_size in zip(children, sizes, cross_sizes):
+            if not isinstance(child, Mapping):
+                continue
+            cross_offset = 0.0
+            if align == "center":
+                cross_offset = max(0.0, (container_cross - cross_size) / 2.0)
+            elif align in {"flex_end", "end"}:
+                cross_offset = max(0.0, container_cross - cross_size)
+            if is_column:
+                child_base_x = node_x + cross_offset
+                child_base_y = node_y + cursor
+            else:
+                child_base_x = node_x + cursor
+                child_base_y = node_y + cross_offset
+            walk(child, child_base_x, child_base_y)
+            cursor += (child_height if is_column else child_width) + step_gap
+
+    def distribute_grid_children(node: Mapping[str, Any], node_x: float, node_y: float) -> None:
+        children = node.get("children")
+        if not isinstance(children, list) or not children:
+            return
+        width, height = size_of(node)
+        try:
+            columns = max(1, int(node.get("columns") or 1))
+        except (TypeError, ValueError):
+            columns = 1
+        try:
+            rows = max(1, int(node.get("rows") or ((len(children) + columns - 1) // columns)))
+        except (TypeError, ValueError):
+            rows = max(1, (len(children) + columns - 1) // columns)
+        column_gap = number(node.get("column_gap"))
+        row_gap = number(node.get("row_gap"))
+        cell_width = max(0.0, (width - max(0, columns - 1) * column_gap) / columns)
+        cell_height = max(0.0, (height - max(0, rows - 1) * row_gap) / rows)
+        for index, child in enumerate(children):
+            if not isinstance(child, Mapping):
+                continue
+            row = index // columns
+            column = index % columns
+            walk(
+                child,
+                node_x + column * (cell_width + column_gap),
+                node_y + row * (cell_height + row_gap),
+            )
+
+    def walk(node: Any, base_x: float, base_y: float) -> None:
+        if isinstance(node, list):
+            for value in node:
+                walk(value, base_x, base_y)
+            return
+        if not isinstance(node, Mapping):
+            return
+        position = node.get("position")
+        node_x = base_x + (number(position.get("x")) if isinstance(position, Mapping) else 0.0)
+        node_y = base_y + (number(position.get("y")) if isinstance(position, Mapping) else 0.0)
+        name = str(node.get("name") or "").strip()
+        if name:
+            occurrence = occurrences.get(name, 0)
+            occurrences[name] = occurrence + 1
+            width, height = size_of(node)
+            boxes[(name, occurrence)] = (node_x, node_y, width, height)
+        node_type = str(node.get("type") or "").lower()
+        if node_type == "flex" and isinstance(node.get("children"), list):
+            distribute_children(node, node_x, node_y)
+        elif node_type == "grid" and isinstance(node.get("children"), list):
+            distribute_grid_children(node, node_x, node_y)
+        for key in ("elements", "components"):
+            if key in node:
+                walk(node[key], node_x, node_y)
+        if node_type not in {"flex", "grid"} and "children" in node:
+            walk(node["children"], node_x, node_y)
+        if "child" in node:
+            walk(node["child"], node_x, node_y)
+
+    for component in layout_json.get("components") or []:
+        if not isinstance(component, Mapping):
+            continue
+        position = component.get("position")
+        base_x = number(position.get("x")) if isinstance(position, Mapping) else 0.0
+        base_y = number(position.get("y")) if isinstance(position, Mapping) else 0.0
+        walk(component.get("elements") or [], base_x, base_y)
+        walk(component.get("components") or [], base_x, base_y)
+        walk(component.get("children") or [], base_x, base_y)
+        walk(component.get("child"), base_x, base_y)
+    return boxes
+
+
+def _infer_connector_targets(
+    layout_json: Mapping[str, Any],
+    model: SlideLayoutModel,
+) -> List[ConnectorRelation]:
+    """Infer only high-confidence line-to-slot relations from template geometry.
+
+    A connector is considered semantic when one endpoint sits just outside a
+    mutable heading/label box and is vertically aligned with its center.  The
+    thresholds scale with the target box/font, so this works across all slide
+    sizes without template-specific coordinates or scale constants.
+    """
+    targets: List[Tuple[str, int, TemplateElementModel, Tuple[float, float, float, float]]] = []
+    for name, elements in model.elements.items():
+        for index, element in enumerate(elements):
+            if (
+                element.element_type not in {"text", "text-list"}
+                or not element.mutable_text
+                or element.locked
+                or element.width <= 0
+                or element.height <= 0
+            ):
+                continue
+            preferred_heading = element.semantic_role in {
+                "card_title",
+                "section_title",
+                "metric_label",
+                "card_value_label",
+            }
+            name_key = name.lower()
+            body_target = (
+                element.semantic_role in {"card_body", "body", "bullet_body"}
+                and _CONNECTOR_BODY_SLOT_PATTERN.search(name_key)
+                and not _CONNECTOR_NON_CONTENT_PATTERN.search(name_key)
+            )
+            if not preferred_heading and not body_target:
+                continue
+            targets.append(
+                (
+                    name,
+                    index,
+                    element,
+                    model.effective_boxes.get(
+                        (name, index),
+                        (element.x, element.y, element.width, element.height),
+                    ),
+                )
+            )
+
+    candidates: List[Tuple[int, str, int, List[Tuple[float, float]]]] = []
+    connector_index = 0
+    for component in layout_json.get("components") or []:
+        if not isinstance(component, Mapping):
+            continue
+        component_id = str(component.get("id") or "")
+        position = component.get("position")
+        base_x = _to_float(position.get("x")) if isinstance(position, Mapping) else 0.0
+        base_y = _to_float(position.get("y")) if isinstance(position, Mapping) else 0.0
+        for node, node_x, node_y, _ in _iter_layout_nodes(
+            component.get("elements") or [], base_x, base_y, component_id
+        ):
+            points = _connector_points(node, node_x, node_y)
+            if len(points) == 2:
+                candidates.append((connector_index, component_id, connector_index, points))
+                connector_index += 1
+
+    relations: List[ConnectorRelation] = []
+    preferred_roles = {"card_title", "section_title", "metric_label", "card_value_label"}
+    for candidate_index, component_id, _, points in candidates:
+        # A vertical divider/axis is normally a layout boundary, not a line
+        # pointing at a text slot. Only infer text bindings for connectors whose
+        # dominant direction is horizontal; this keeps decorative grid rules
+        # out of the semantic contract while retaining timeline/callout lines.
+        delta_x = abs(points[1][0] - points[0][0])
+        delta_y = abs(points[1][1] - points[0][1])
+        if delta_x <= delta_y:
+            continue
+        best: Optional[Tuple[Tuple[int, float], int, str, int, TemplateElementModel, float, float]] = None
+        for endpoint_index, (endpoint_x, endpoint_y) in enumerate(points):
+            for name, target_index, element, box in targets:
+                target_x, target_y, target_width, target_height = box
+                center_y = target_y + target_height / 2.0
+                vertical_tolerance = max(target_height * 0.75, element.font_size * 0.75, 4.0)
+                vertical_distance = abs(endpoint_y - center_y)
+                if vertical_distance > vertical_tolerance:
+                    continue
+                left_gap = target_x - endpoint_x
+                right_gap = endpoint_x - (target_x + target_width)
+                gap = left_gap if left_gap >= 0 else right_gap
+                gap_limit = max(target_height * 2.0, element.font_size * 2.0, 16.0)
+                if gap < 0 or gap > gap_limit:
+                    continue
+                role_priority = 0 if element.semantic_role in preferred_roles else 1
+                score = vertical_distance / max(vertical_tolerance, 1.0) + gap / max(gap_limit, 1.0)
+                ranking = (role_priority, score)
+                if best is None or ranking < best[0]:
+                    best = (
+                        ranking,
+                        endpoint_index,
+                        name,
+                        target_index,
+                        element,
+                        endpoint_x,
+                        endpoint_y,
+                    )
+        if best is None:
+            continue
+        _, endpoint_index, name, target_index, element, endpoint_x, endpoint_y = best
+        target_box = model.effective_boxes.get(
+            (name, target_index),
+            (element.x, element.y, element.width, element.height),
+        )
+        target_x, target_y, target_width, target_height = target_box
+        horizontal_gap = (
+            target_x - endpoint_x
+            if endpoint_x < target_x
+            else max(0.0, endpoint_x - (target_x + target_width))
+        )
+        distance = math.hypot(
+            endpoint_y - (target_y + target_height / 2.0),
+            horizontal_gap,
+        )
+        relations.append(
+            ConnectorRelation(
+                connector_index=candidate_index,
+                component_id=component_id,
+                endpoint_index=endpoint_index,
+                endpoint_x=endpoint_x,
+                endpoint_y=endpoint_y,
+                target_name=name,
+                target_index=target_index,
+                target_semantic_role=element.semantic_role,
+                distance=round(distance, 3),
+            )
+        )
+    return relations
 
 
 def _build_text_constraint(element: TemplateElementModel) -> TextConstraint:
@@ -513,9 +939,10 @@ def _build_text_constraint(element: TemplateElementModel) -> TextConstraint:
         hard_max_chars=hard,
         allow_font_shrink=True,
         max_shrink_ratio=ratio,
-        # Formal page/section titles must be adapted semantically or reported
-        # as unfit; an ellipsis is not acceptable user-facing PPT copy.
-        allow_ellipsis=(max_lines <= 1 and element.semantic_role not in {"page_title", "section_title", "page_subtitle"}),
+        # No content slot may silently discard user/model text. When bounded
+        # fitting strategies fail, the original text is kept and the QA gate
+        # reports the overflow instead of exporting an ellipsis.
+        allow_ellipsis=False,
     )
 
 
@@ -560,7 +987,8 @@ def text_fits(
         and element.semantic_role in {"page_title", "section_title", "page_subtitle"}
     ):
         return True
-    return count_content_chars(text) <= element.constraint.hard_max_chars
+    content_chars = content_chars_for_element(text, element)
+    return content_chars <= element.constraint.hard_max_chars
 
 
 __all__ = [
@@ -568,10 +996,12 @@ __all__ = [
     "SLIDE_HEIGHT",
     "TextConstraint",
     "TemplateElementModel",
+    "ConnectorRelation",
     "SlideLayoutModel",
     "parse_slide_layout",
     "measure_text",
     "estimate_lines",
     "text_fits",
     "count_content_chars",
+    "content_chars_for_element",
 ]

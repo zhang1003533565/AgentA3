@@ -27,6 +27,7 @@ from app.ppt_generation.service import (
     _rebalance_layout_choices,
     _fill_layout_with_slide_text,
     _set_text_node_content,
+    _sanitize_content_payload,
 )
 from app.ppt_generation.template_catalog import EmbeddedTemplateCatalog
 
@@ -76,7 +77,7 @@ def test_fallback_preserves_template_badges_and_fills_card_copy():
     assert any(str(value or "").strip() for value in rendered_titles)
 
 
-def test_fallback_card_title_uses_slot_capacity_and_marks_truncation():
+def test_fallback_card_title_preserves_content_for_quality_gate():
     catalog = EmbeddedTemplateCatalog()
     layout = catalog.get_layout("momentum", "title_over_cards_layout_8558")
     result = _fill_layout_with_slide_text(
@@ -97,7 +98,8 @@ def test_fallback_card_title_uses_slot_capacity_and_marks_truncation():
     visible_titles = [value for value in rendered_titles if value]
     assert visible_titles
     assert any(len(value) > 16 for value in visible_titles)
-    assert any(value.endswith("…") for value in visible_titles)
+    assert visible_titles[0].startswith("聚焦计算机科学的底层基石")
+    assert all("…" not in value for value in visible_titles)
 
 
 def test_numeric_layout_is_rebalanced_for_non_numeric_outline():
@@ -144,6 +146,62 @@ def test_fallback_fills_metric_slots_only_from_explicit_numeric_facts():
     )
     values = [node.get("text") for node in _named_text_nodes(result, "outer_metric_value")]
     assert values == ["O(1)"]
+
+
+def test_fallback_keeps_connector_target_headings_paired_with_body():
+    layout = EmbeddedTemplateCatalog().get_layout("momentum", "title_infographic_sections_6705")
+
+    result = _fill_layout_with_slide_text(
+        layout,
+        {
+            "title": "栈队列 LIFO/FIFO 机制及应用",
+            "content": [
+                "LIFO：栈顶操作适合撤销、递归和表达式求值。",
+                "FIFO：队首出队适合任务调度和消息处理。",
+                "复杂度：顺序实现的入栈、出栈和入队保持 O(1)。",
+            ],
+        },
+        {},
+    )
+
+    headings = [node.get("text") for node in _named_text_nodes(result, "section_heading")]
+    bodies = [node.get("text") for node in _named_text_nodes(result, "section_body")]
+    assert headings == ["LIFO", "FIFO", "复杂度"]
+    assert all(str(value or "").strip() for value in bodies)
+
+
+def test_component_content_path_backfills_connector_target_headings():
+    catalog = EmbeddedTemplateCatalog()
+    layout_id = "title_infographic_sections_6705"
+    layout = catalog.get_layout("momentum", layout_id)
+    result = _sanitize_content_payload(
+        {
+            "slides": [
+                {
+                    "title": "栈队列机制及应用",
+                    "content": [
+                        "LIFO：栈顶操作适合撤销、递归和表达式求值。",
+                        "FIFO：队首出队适合任务调度和消息处理。",
+                        "复杂度：顺序实现的入栈、出栈和入队保持 O(1)。",
+                    ],
+                    "componentContent": {
+                        "section_body": [
+                            "LIFO：栈顶操作适合撤销、递归和表达式求值。",
+                            "FIFO：队首出队适合任务调度和消息处理。",
+                            "复杂度：顺序实现的入栈、出栈和入队保持 O(1)。",
+                        ],
+                    },
+                }
+            ]
+        },
+        [layout_id],
+        {layout_id: layout},
+        1,
+    )
+
+    ui = result["slides"][0]["ui"]
+    headings = [node.get("text") for node in _named_text_nodes(ui, "section_heading")]
+    assert headings == ["LIFO", "FIFO", "复杂度"]
 
 
 def test_layout_rebalance_rejects_numeric_template_without_numeric_source():
@@ -597,7 +655,8 @@ def test_component_content_merge_respects_presenton_text_constraints():
     })
 
     headline = merged["components"][0]
-    assert len(headline["text"]) <= 12
+    assert headline["text"] == "这是一个非常非常长的标题，应该被压缩到模板允许范围内。"
+    assert "…" not in headline["text"]
     assert headline["runs"][0]["text"] == headline["text"]
     assert headline["runs"][1]["text"] == ""
     table = merged["components"][1]

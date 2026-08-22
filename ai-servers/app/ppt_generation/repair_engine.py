@@ -71,6 +71,7 @@ class RepairEngine:
                 return RepairOutcome(ui=ui, history=history, final_issues=result.issues, status=status, last_result=result)
 
             round_actions: List[Tuple[str, str, str]] = []  # (error_type, element, strategy)
+            round_changed = False
             for issue in errors:
                 strategy = self._strategy_for(issue)
                 applied = self._apply_strategy(
@@ -79,9 +80,9 @@ class RepairEngine:
                 if applied:
                     llm_budget -= applied.get("llm_calls", 0)
                     round_actions.append((issue.error_type, issue.element_id, applied["strategy"]))
+                    round_changed = round_changed or not applied.get("failed", False)
 
-            if not round_actions:
-                changed = False
+            changed = bool(round_actions) and round_changed
             for error_type, element_id, strategy in round_actions:
                 history.append({
                     "round": round_no,
@@ -173,6 +174,7 @@ def _fit_element_contents(
     llm_budget: int,
 ) -> Optional[Dict[str, Any]]:
     applied = False
+    failure_detected = False
     llm_calls = 0
     for element, index in elements:
         node = _find_node_by_name(ui, element.name, index)
@@ -192,6 +194,8 @@ def _fit_element_contents(
             llm_call_budget=min(2, budget),
             current_font_size=current_font_size,
         )
+        if not result.fits:
+            failure_detected = True
         text_changed = result.strategy != "none" and result.text != text
         font_changed = False
         if result.strategy == "shrink-font" and result.shrink_scale:
@@ -202,9 +206,13 @@ def _fit_element_contents(
             applied = True
             if result.strategy in {"rewrite", "summarize"}:
                 llm_calls += 1
-    if not applied:
+    if not applied and not failure_detected:
         return None
-    return {"strategy": strategy, "llm_calls": llm_calls}
+    return {
+        "strategy": strategy,
+        "llm_calls": llm_calls,
+        "failed": failure_detected and not applied,
+    }
 
 
 def _find_node_by_name(root: Mapping[str, Any], name: str, index: int = 0) -> Optional[Dict[str, Any]]:

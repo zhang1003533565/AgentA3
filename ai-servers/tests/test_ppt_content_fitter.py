@@ -2,7 +2,7 @@
 
 Spec §14-§16, §29-§31:
 - strategy order: rewrite → summarize → bulletize → remove-secondary →
-  shrink-font (bounded) → ellipsis
+    shrink-font (bounded) → explicit failure with original text preserved
 - never shrink font first; never below min_font_size
 - rewrite prompt carries explicit capacity
 """
@@ -58,19 +58,23 @@ def test_overflowing_title_uses_rewrite_first_when_llm_available(title_model):
 
 
 def test_overflowing_title_never_shrinks_font_first(title_model):
-    """§15：不允许首先缩小字体。LLM 不可用时标题走截断而不是缩字。"""
+    """超出容量时不能用截断伪装成成功，必须保留完整标题并失败。"""
     long_title = "超" * 60
     result = _fit(title_model, "headline_text", long_title, llm=None)
-    assert result.strategy != "shrink-font"
-    assert len(result.text) <= title_model.element("headline_text").constraint.hard_max_chars
+    assert result.strategy == "failed"
+    assert result.text == long_title
+    assert not result.fits
+    assert "…" not in result.text
 
 
 def test_body_content_compresses_to_capacity(title_model):
     long_body = "自动完成重复任务降低人工处理成本，这是企业数字化转型的核心价值所在。" * 5
     result = _fit(title_model, "body_copy", long_body, llm=None)
     element = title_model.element("body_copy")
-    assert result.fits
-    assert text_fits(result.text, element)
+    assert result.text == long_body
+    assert not result.fits
+    assert not text_fits(result.text, element)
+    assert "…" not in result.text
 
 
 def test_shrink_font_is_bounded_by_min_font(title_model):
@@ -92,15 +96,17 @@ def test_rewrite_prompt_carries_explicit_capacity(title_model):
     assert str(element.constraint.max_lines) in prompt
 
 
-def test_ellipsis_for_single_line_slot(catalog):
-    # table_of_contents 的 item_label 是单行槽
+def test_single_line_slot_never_ellipsis(catalog):
+    # table_of_contents 的 item_label 是单行槽，但不能静默丢内容
     layout = catalog.get_layout("general", "table_of_contents")
     model = parse_slide_layout(layout)
     element = model.element("item_label")
     if element is None or element.constraint is None:
         pytest.skip("item_label not found")
     result = fit_text("很" * 100, element, llm_rewrite=None, llm_call_budget=0)
-    assert result.text.endswith("…") or result.strategy != "ellipsis"
+    assert result.text == "很" * 100
+    assert "…" not in result.text
+    assert not result.fits
 
 
 def test_empty_text_passthrough(title_model):

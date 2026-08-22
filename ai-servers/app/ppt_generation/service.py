@@ -2934,11 +2934,10 @@ def _fill_missing_slots(
     # 或没有返回 content 时，才把用户确认过的大纲要点作为“缺口回填”来源。
     # 这样不会把整页降级成大纲，但也不会留下空卡片/空节点。
     points = _points_from(slide_item.get("content"))
-    fallback_points = _points_from(
-        slide_item.get("keyPoints")
-        or outline_item.get("content")
-        or outline_item.get("keyPoints")
-    )
+    # 大纲 keyPoints 只是导航信息，不是内容智能体已经审核过的正文。
+    # 只有当前页对象自己明确返回 keyPoints 时才允许作为缺口回填来源；
+    # 不能在 content 为空时跨层把 outline_item 的导航要点变成成品正文。
+    fallback_points = _points_from(slide_item.get("keyPoints"))
     for point in fallback_points:
         if point not in points:
             points.append(point)
@@ -3236,7 +3235,9 @@ def _merge_content_into_layout(layout: Mapping[str, Any], component_content: Map
         if node.get("locked") is True or node.get("decorative") is True:
             return True
         name_lower = str(node.get("name") or "").lower()
-        if re.search(r"page|pagenum|slide[_ -]?number|footer|logo|brand|watermark|background|decor|accent|copyright", name_lower):
+        if re.search(r"page|pagenum|slide[_ -]?number|logo|brand|watermark|background|decor|accent|copyright", name_lower):
+            return True
+        if "footer" in name_lower and not _is_template_placeholder_text(node):
             return True
         text = _node_display_text(node).strip()
         semantic_name = re.search(r"title|headline|heading|body|description|content|card|item|point|summary|intro", name_lower)
@@ -3339,11 +3340,19 @@ def _merge_content_into_layout(layout: Mapping[str, Any], component_content: Map
                     if layout_model is not None
                     else None
                 )
-                if model_element is not None and model_element.semantic_role in {
-                    "badge", "author", "date", "footer", "page_number", "logo"
-                }:
-                    # 这些是模板的结构性标记。AI 没有返回对应槽位时保留
-                    # 原文，避免卡片圆点、标签和页脚只剩空图形。
+                if model_element is not None and (
+                    model_element.semantic_role in {"page_number", "logo"}
+                    or (
+                        model_element.semantic_role == "footer"
+                        and not _is_template_placeholder_text(node)
+                    )
+                    or (
+                        model_element.semantic_role == "badge"
+                        and _is_template_structural_marker(_node_display_text(node))
+                    )
+                ):
+                    # 页脚、页码、logo 和数字/全大写短标签是结构性标记。
+                    # 姓名、日期等可编辑示例必须继续走清理逻辑。
                     for key in ("components", "elements", "children"):
                         if key in node:
                             _walk(node[key])
@@ -3353,7 +3362,8 @@ def _merge_content_into_layout(layout: Mapping[str, Any], component_content: Map
                 name_lower = name.lower()
                 is_content_slot = bool(re.search(
                     r"title|headline|heading|subtitle|body|paragraph|description|content|"
-                    r"card|item|feature|profile|metric|point|summary|intro|label|role|value|text",
+                    r"card|item|feature|profile|metric|point|summary|intro|label|role|value|text|"
+                    r"badge|author|date",
                     name_lower,
                 ))
                 occurrence_key = f"{name}[{occurrence}]"
@@ -3421,10 +3431,20 @@ def _node_display_text(node: Mapping[str, Any]) -> str:
     return str(text or "")
 
 
+def _is_template_structural_marker(value: Any) -> bool:
+    """判断短徽标文本是否属于模板结构，而不是示例内容。"""
+    text = str(value or "").strip()
+    return bool(
+        re.fullmatch(r"\d+(?:\.\d+)?[A-Za-z]?", text)
+        or re.fullmatch(r"[A-Z0-9][A-Z0-9 _&/+.-]{1,20}", text)
+    )
+
+
 _PLACEHOLDER_LEXICON = re.compile(
     r"(?i)\b(lorem|ipsum|dolor|consectetur|title|heading|headline|subtitle|"
     r"description|body|paragraph|your\s?text|sample|placeholder|text\s?here|"
-    r"enter\s?text|untitled|caption|label|content)\b|^[-–—.]+$|^[a-z]{1,2}\d{0,2}$"
+    r"enter\s?text|untitled|caption|label|content|www\.yourwebsite\.com)\b|"
+    r"^[-–—.]+$|^[a-z]{1,2}\d{0,2}$"
 )
 
 
@@ -3586,24 +3606,15 @@ def _set_text_node_content(
 
 
 def _compact_text(value: str, max_length: Any = None) -> str:
+    """Normalize text without silently deleting user/model content.
+
+    ``max_length`` is retained for callers that use it as a capacity hint,
+    but capacity enforcement belongs to the layout/QA layer. Truncating here
+    made the XML differ from the generated content and hid the real overflow.
+    """
     text = re.sub(r"[ \t]+", " ", str(value or "").replace("\r", "\n")).strip()
     text = re.sub(r"\n{3,}", "\n\n", text)
-    try:
-        limit = int(max_length or 0)
-    except (TypeError, ValueError):
-        limit = 0
-    if limit <= 0 or len(text) <= limit:
-        return text
-    candidate = text[:limit].rstrip()
-    sentence_end = max(candidate.rfind("。"), candidate.rfind("！"), candidate.rfind("？"), candidate.rfind("."), candidate.rfind(";"), candidate.rfind("；"))
-    if sentence_end >= max(8, int(limit * 0.55)):
-        return candidate[:sentence_end + 1].rstrip()
-    punctuation = max(candidate.rfind("，"), candidate.rfind(","), candidate.rfind("、"), candidate.rfind(" "))
-    if punctuation >= max(8, int(limit * 0.55)):
-        return candidate[:punctuation].rstrip()
-    if limit <= 1:
-        return candidate[:limit]
-    return f"{candidate[:limit - 1].rstrip()}…"
+    return text
 
 
 def _compact_table_values(values: Any, max_children: Any = None) -> List[Any]:
@@ -3731,10 +3742,17 @@ def _fill_layout_with_slide_text(
             node_semantic_roles[id(node)] = model_element.semantic_role
             if model_element.locked or not model_element.mutable_text:
                 return True
-            if model_element.semantic_role in {"badge", "author", "date", "footer"}:
-                # 这些是模板的结构性视觉标记。兜底填充时保留模板原文，
-                # 避免圆点/标签只剩背景图形。
-                return True
+            if model_element.semantic_role == "footer":
+                # Keep real footer metadata (Page, section markers), but treat
+                # obvious template URLs/sample copy as mutable placeholders so
+                # they cannot leak into exported PPTX.
+                return not _is_template_placeholder_text(node)
+            if model_element.semantic_role == "badge":
+                # 数字/全大写短标签通常是卡片编号或结构性标记；姓名、
+                # 日期等模板示例不是装饰，必须清掉，不能泄漏到成品。
+                return _is_template_structural_marker(_node_display_text(node))
+            if model_element.semantic_role in {"author", "date"}:
+                return False
             # 可编辑标题/正文/卡片/标签即使原文是全大写，也必须参与填充。
             # 仅保留明确的结构性标记（logo、日期标签、角标等）。
             if model_element.role in {"title", "subtitle", "body", "card", "label"}:

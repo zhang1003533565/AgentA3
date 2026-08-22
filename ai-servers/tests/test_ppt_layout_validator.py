@@ -223,6 +223,42 @@ def test_template_native_overlap_is_not_a_quality_error(catalog):
     )
 
 
+def test_empty_connector_target_is_a_blocking_layout_error(catalog):
+    layout = catalog.get_layout("momentum", "title_infographic_sections_6705")
+    model = parse_slide_layout(layout)
+    tree = {"components": copy.deepcopy(layout["components"])}
+
+    def clear_first_heading(node):
+        if isinstance(node, list):
+            for item in node:
+                if clear_first_heading(item):
+                    return True
+            return False
+        if not isinstance(node, dict):
+            return False
+        if node.get("name") == "section_heading":
+            node["text"] = ""
+            runs = node.get("runs")
+            if isinstance(runs, list):
+                for run in runs:
+                    if isinstance(run, dict):
+                        run["text"] = ""
+            return True
+        for key in ("elements", "components", "children", "child"):
+            if key in node and clear_first_heading(node[key]):
+                return True
+        return False
+
+    assert clear_first_heading(tree)
+    result = validate_slide(tree, model)
+
+    assert any(
+        issue.error_type == "CONNECTOR_TARGET_EMPTY"
+        and issue.element_id == "section_heading[0]"
+        for issue in result.issues
+    )
+
+
 def test_unbalanced_cards_are_a_warning_not_a_blocker(catalog):
     layout = catalog.get_layout("general", "title_metrics_description")
     model = parse_slide_layout(layout)

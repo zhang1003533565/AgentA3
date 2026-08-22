@@ -202,6 +202,7 @@ def test_outline_fallback_does_not_preserve_mutable_badge_sample_copy(catalog):
     texts = [_node_display_text(node) for node in _collect_text_nodes(filled)]
     assert "John Doe" not in texts
     assert "Jan 1, 2025" not in texts
+    assert "www.yourwebsite.com" not in texts
 
 
 def test_outline_fallback_replaces_footer_profile_sample_copy(catalog):
