@@ -4,6 +4,9 @@
       <view class="flow-heading__copy">
         <text class="flow-heading__title">{{ stepMeta[currentStep - 1].title }}</text>
       </view>
+      <view v-if="canRestartFlow" class="flow-heading__actions">
+        <view class="restart-input-button" @tap="requestRestartFlow">重新输入</view>
+      </view>
     </view>
 
     <view class="stepper-card">
@@ -22,7 +25,8 @@
             :id="`ppt-step-${item.id}`"
             :key="item.id"
             class="stepper__item"
-            :class="{ 'stepper__item--active': currentStep === item.id, 'stepper__item--done': currentStep > item.id }"
+            :class="{ 'stepper__item--active': currentStep === item.id, 'stepper__item--done': currentStep > item.id, 'stepper__item--clickable': isStepNavigable(item) }"
+            @tap="navigateToStep(item.id)"
           >
             <view class="stepper__marker">
               <view class="stepper__number">
@@ -42,7 +46,7 @@
     <view v-if="modelConfigError" class="recover-card recover-card--warning">
       <view>
         <text class="recover-card__title">模型还没有准备好</text>
-        <text class="recover-card__desc">{{ lastPptError || 'PPT 生成和思维导图、活动图使用同一套已测试模型配置。请先确认 API key 已配置并测试成功。' }}</text>
+        <text class="recover-card__desc">{{ lastPptError || 'PPT 生成使用已测试的模型配置。请先确认 API key 已配置并测试成功。' }}</text>
       </view>
       <button class="recover-card__button" @tap="openModelHelp">查看说明</button>
     </view>
@@ -85,7 +89,7 @@
             :class="{ 'template-library-card--selected': pptStyle === template.id }"
             @tap="selectPptTemplate(template.id)"
           >
-            <image v-if="template.thumbnailUrl" class="template-library-card__thumb" :src="template.thumbnailUrl" mode="aspectFill" />
+            <image v-if="template.thumbnailUrl" class="template-library-card__thumb" :src="template.thumbnailUrl" mode="aspectFill" @error="onTemplateThumbnailError(template.id)" />
             <view v-else class="template-library-card__thumb template-library-card__thumb--fallback">
               <text></text><text></text><text></text>
             </view>
@@ -106,13 +110,13 @@
           </view>
         </view>
         <view v-else class="template-empty">
-          <text>{{ templateOptionsLoading ? '正在加载模板…' : '当前分类暂无模板' }}</text>
-          <text v-if="!templateOptionsLoading" class="template-empty__retry" @tap="loadPptScenes(true)">重新加载模板</text>
+          <text>{{ templateOptionsLoading ? '正在加载模板…' : (templateCatalogAvailable ? '当前分类暂无模板' : '模板目录暂不可用，请稍后重试') }}</text>
+          <text v-if="!templateOptionsLoading" class="template-empty__retry" @tap="loadPptOptions(true)">重新加载模板</text>
         </view>
 
         <view class="bottom-actions">
           <view class="bottom-actions__buttons">
-            <button v-if="currentStep > 1" class="secondary-button" @tap="goPrevious">上一步</button>
+            <button v-if="currentStep > 1" class="secondary-button" :disabled="apiBusy" @tap="goPrevious">上一步</button>
             <button class="primary-button" :disabled="!selectedTemplate || apiBusy" @tap="goNext">{{ apiBusy ? '正在生成大纲…' : templateNextLabel }}</button>
           </view>
         </view>
@@ -143,14 +147,13 @@
             <text class="template-detail-card__desc">{{ selectedTemplateDescription }}</text>
             <view class="template-detail-card__stats">
               <view><text>{{ selectedTemplateLayoutCount }}</text><text>版式</text></view>
-              <view><text>{{ selectedScene.label }}</text><text>场景</text></view>
             </view>
           </view>
         </view>
 
         <view class="bottom-actions">
           <view class="bottom-actions__buttons">
-            <button class="secondary-button" @tap="showTemplateLibrary">返回模板库</button>
+            <button class="secondary-button" :disabled="apiBusy" @tap="showTemplateLibrary">返回模板库</button>
             <button class="primary-button" :disabled="apiBusy" @tap="goNext">{{ apiBusy ? '正在生成大纲…' : templateDetailActionLabel }}</button>
           </view>
         </view>
@@ -159,7 +162,7 @@
       <view v-else class="template-upload-entry">
         <view v-if="currentStep > 1 && selectedTemplate" class="selected-template-strip">
           <view class="selected-template-strip__preview">
-            <image v-if="selectedTemplate && selectedTemplate.thumbnailUrl" :src="selectedTemplate.thumbnailUrl" mode="aspectFill" />
+            <image v-if="selectedTemplate && selectedTemplate.thumbnailUrl" :src="selectedTemplate.thumbnailUrl" mode="aspectFill" @error="onTemplateThumbnailError(selectedTemplate.id)" />
             <text v-else>{{ selectedTemplateName.slice(0, 1) }}</text>
           </view>
           <view class="selected-template-strip__main">
@@ -180,6 +183,29 @@
           </view>
           <view class="product-hero__slide">
             <text></text><text></text><text></text>
+          </view>
+        </view>
+
+        <view class="outline-mode-selector">
+          <view class="outline-mode-selector__head">
+            <text class="outline-mode-selector__title">选择上传类型</text>
+          </view>
+          <view class="outline-mode-selector__options">
+            <view
+              v-for="mode in outlineModes"
+              :key="mode.id"
+              class="outline-mode-card"
+              :class="{ 'outline-mode-card--selected': outlineMode === mode.id }"
+              @tap="selectOutlineMode(mode.id)"
+            >
+              <view class="outline-mode-card__radio">
+                <view v-if="outlineMode === mode.id" class="outline-mode-card__radio-dot"></view>
+              </view>
+              <view class="outline-mode-card__copy">
+                <text class="outline-mode-card__title">{{ mode.shortName || mode.name }}</text>
+                <text class="outline-mode-card__desc">{{ mode.description }}</text>
+              </view>
+            </view>
           </view>
         </view>
 
@@ -224,25 +250,9 @@
           </view>
         </view>
 
-        <view class="outline-mode-inline">
-          <view>
-            <text class="outline-mode-inline__title">大纲生成方式</text>
-            <text class="outline-mode-inline__desc">常规资料建议 AI 重整；已有目录的资料可保留原结构。</text>
-          </view>
-          <view class="outline-mode-inline__options">
-            <view
-              v-for="mode in outlineModes"
-              :key="mode.id"
-              class="outline-mode-chip"
-              :class="{ 'outline-mode-chip--active': outlineMode === mode.id }"
-              @tap="outlineMode = mode.id"
-            >{{ mode.shortName || mode.name }}</view>
-          </view>
-        </view>
-
         <view class="bottom-actions">
           <view class="bottom-actions__buttons">
-            <button v-if="currentStep > 1" class="secondary-button" @tap="goPrevious">上一步</button>
+            <button v-if="currentStep > 1" class="secondary-button" :disabled="apiBusy" @tap="goPrevious">上一步</button>
             <button class="primary-button" :disabled="!fileInfo || apiBusy" @tap="goNext">{{ apiBusy ? '正在生成大纲…' : uploadNextLabel }}</button>
           </view>
         </view>
@@ -295,23 +305,18 @@
       </view>
       <view class="bottom-actions bottom-actions--three">
         <view class="bottom-actions__buttons">
-          <button class="secondary-button" @tap="goPrevious">上一步</button>
-          <button class="secondary-button" @tap="saveOutlineSnapshot(true)">保存大纲</button>
-          <button class="primary-button" :disabled="!validOutlineItems.length" @tap="confirmOutline">下一步</button>
+          <button class="secondary-button" :disabled="apiBusy" @tap="goPrevious">上一步</button>
+          <button class="secondary-button" :disabled="apiBusy || !validOutlineItems.length" @tap="saveOutlineSnapshot(true)">保存大纲</button>
+          <button class="primary-button" :disabled="validOutlineItems.length < 2" @tap="confirmOutline">下一步</button>
         </view>
       </view>
     </view>
 
     <view v-else-if="currentStep === 4" class="panel">
-      <view v-if="pptScenes.length > 1" class="scene-summary">
-        <text class="scene-summary__label">学习场景</text>
-        <text class="scene-summary__value">{{ selectedScene.label }}</text>
-      </view>
-
       <view v-if="selectedTemplate" class="template-usage-card">
         <view class="template-usage-card__main">
           <view class="template-usage-card__preview">
-            <image v-if="selectedTemplate.thumbnailUrl" :src="selectedTemplate.thumbnailUrl" mode="aspectFill" />
+            <image v-if="selectedTemplate.thumbnailUrl" :src="selectedTemplate.thumbnailUrl" mode="aspectFill" @error="onTemplateThumbnailError(selectedTemplate.id)" />
             <text v-else>{{ selectedTemplateName.slice(0, 1) }}</text>
           </view>
           <view class="template-usage-card__copy">
@@ -345,7 +350,7 @@
         <view class="visual-mode-row">
           <text class="switch-row__title">配图生成方式</text>
           <view class="segmented visual-mode-segmented">
-            <view v-for="mode in imageModes" :key="mode.id" class="segmented__item" :class="{ 'segmented__item--active': settings.imageMode === mode.id }" @tap="settings.imageMode = mode.id">
+            <view v-for="mode in imageModes" :key="mode.id" class="segmented__item" :class="{ 'segmented__item--active': settings.imageMode === mode.id }" @tap="setImageMode(mode.id)">
               <text>{{ mode.name }}</text>
             </view>
           </view>
@@ -364,13 +369,14 @@
           <view><text>{{ slideGenerationSnapshot.remainingSlides || 0 }}</text><text>剩余</text></view>
           <view><text>{{ slideGenerationCurrentLabel }}</text><text>当前页</text></view>
         </view>
-        <text v-if="slideGenerationProcessingLabel" class="slide-task-card__processing">并行处理中：{{ slideGenerationProcessingLabel }}</text>
+        <text v-if="slideGenerationProcessingLabel" class="slide-task-card__processing">正在生成：{{ slideGenerationProcessingLabel }}</text>
+        <button v-if="apiBusy" class="text-button slide-task-card__cancel" @tap="cancelGeneration">取消生成</button>
       </view>
 
       <view class="bottom-actions">
         <view class="bottom-actions__buttons">
-          <button class="secondary-button" @tap="goPrevious">上一步</button>
-          <button class="primary-button" :disabled="apiBusy" @tap="prepareSlides">{{ apiBusy ? '正在生成页面…' : '编辑页面内容' }}</button>
+          <button class="secondary-button" :disabled="apiBusy" @tap="goPrevious">上一步</button>
+          <button class="primary-button" :disabled="apiBusy" @tap="handleSettingsNext">{{ apiBusy ? '正在生成页面…' : settingsNextLabel }}</button>
         </view>
       </view>
     </view>
@@ -381,7 +387,10 @@
           <text class="editor-toolbar__title">逐页编辑</text>
           <text class="editor-toolbar__desc">正式生成前，确认每页标题、内容和提示词</text>
         </view>
-        <text class="page-editor-count">{{ activeSlideIndex + 1 }} / {{ slides.length }}</text>
+        <view class="editor-toolbar__aside">
+          <text class="page-editor-count">{{ activeSlideIndex + 1 }} / {{ slides.length }}</text>
+          <text v-if="hasLastSuccessfulResult" class="editor-toolbar__result-link" @tap="returnToLastSuccessfulResult">查看上次成品</text>
+        </view>
       </view>
 
       <scroll-view class="slide-tabs" scroll-x :scroll-into-view="`slide-tab-${activeSlideIndex}`" :show-scrollbar="false">
@@ -392,7 +401,7 @@
             :key="slide.id"
             class="slide-tab"
             :class="{ 'slide-tab--active': activeSlideIndex === index }"
-            @tap="activeSlideIndex = index"
+            @tap="selectEditorSlide(index)"
           >
             <text>{{ index + 1 }}</text>
             <text>{{ slide.title || '未命名页面' }}</text>
@@ -409,11 +418,29 @@
           <button class="retry-render-card__button" :disabled="apiBusy" @tap="retryGenerationTask">{{ apiBusy ? '重试中…' : '重试渲染' }}</button>
         </view>
 
-        <view class="slide-editor__preview" :class="`slide-editor__preview--${pptStyle}`">
-          <text class="slide-editor__preview-index">{{ String(activeSlideIndex + 1).padStart(2, '0') }}</text>
-          <text class="slide-editor__preview-title">{{ activeSlide.title || '未命名页面' }}</text>
-          <text class="slide-editor__preview-content">{{ activeSlide.content || '暂未填写页面内容' }}</text>
-          <view class="slide-editor__preview-decor"></view>
+        <view class="slide-editor__preview" :class="`slide-editor__preview--${pptStyle}`" :style="editorPreviewFrameStyle">
+          <image
+            v-if="editorPreviewImage && editorPreviewSlideIndex === activeSlideIndex"
+            class="slide-editor__preview-image"
+            :src="editorPreviewImage"
+            mode="aspectFit"
+          />
+          <image
+            v-else-if="editorPreviewLayoutImage"
+            class="slide-editor__preview-image slide-editor__preview-image--layout"
+            :src="editorPreviewLayoutImage"
+            mode="aspectFit"
+          />
+          <view v-else class="slide-editor__preview-fallback">
+            <text class="slide-editor__preview-index">{{ String(activeSlideIndex + 1).padStart(2, '0') }}</text>
+            <text class="slide-editor__preview-title">{{ activeSlide.title || '未命名页面' }}</text>
+            <text class="slide-editor__preview-content">{{ activeSlide.content || '暂未填写页面内容' }}</text>
+            <view class="slide-editor__preview-decor"></view>
+          </view>
+          <view v-if="editorPreviewLoading || editorPreviewError" class="slide-editor__preview-status">
+            <text v-if="editorPreviewLoading">正在同步最终预览…</text>
+            <text v-else>{{ editorPreviewError }}</text>
+          </view>
         </view>
 
         <view class="slide-layout-lock-row">
@@ -426,18 +453,18 @@
 
         <view class="edit-field">
           <view class="edit-field__label"><text>页面标题</text><text>{{ activeSlide.title.length }}/80</text></view>
-          <input v-model="activeSlide.title" :maxlength="80" placeholder="请输入页面标题" @input="applyManualTextOverride" />
+          <input v-model="activeSlide.title" :maxlength="80" placeholder="请输入页面标题" @input="onEditorContentInput" />
         </view>
         <view class="edit-field">
           <view class="edit-field__label"><text>页面内容</text><text>支持修改单页内容</text></view>
-          <textarea v-model="activeSlide.content" :maxlength="1200" auto-height placeholder="请输入本页需要展示的知识点和说明" @input="applyManualTextOverride" />
+          <textarea v-model="activeSlide.content" :maxlength="1200" auto-height placeholder="请输入本页需要展示的知识点和说明" @input="onEditorContentInput" />
         </view>
         <view class="prompt-field prompt-field--shared">
           <view class="prompt-field__head">
             <view><text>公共提示词</text><text>所有页面共同生效</text></view>
             <view class="prompt-badge">全局</view>
           </view>
-          <textarea v-model="sharedPrompt" :maxlength="800" auto-height placeholder="例如：保持学习资料准确，使用简洁排版，突出关键概念" />
+          <textarea v-model="sharedPrompt" :maxlength="800" auto-height placeholder="例如：保持学习资料准确，使用简洁排版，突出关键概念" @input="markEditorDirty" />
           <text class="prompt-field__hint">在任意页面修改后，会同步到全部页面。</text>
         </view>
         <view class="prompt-field">
@@ -445,19 +472,20 @@
             <view><text>单页私有提示词</text><text>仅对第 {{ activeSlideIndex + 1 }} 页生效</text></view>
             <view class="prompt-badge prompt-badge--private">私有</view>
           </view>
-          <textarea v-model="activeSlide.privatePrompt" :maxlength="800" auto-height placeholder="例如：本页使用左右对比布局，增加函数图像示意" />
-          <text class="prompt-field__hint">私有提示词用于补充本页版式、配图和强调重点。</text>
+          <textarea v-model="activeSlide.privatePrompt" :maxlength="800" auto-height placeholder="例如：本页使用左右对比布局，增加函数图像示意" @input="onEditorContentInput" />
+              <text class="prompt-field__hint">点击“确认并生成”后生效，用于补充本页配图和强调重点；不会改变固定模板结构。</text>
         </view>
 
         <view class="slide-editor__navigation">
-          <button class="secondary-button" :disabled="activeSlideIndex === 0" @tap="activeSlideIndex -= 1">上一页</button>
-          <button class="secondary-button" :disabled="activeSlideIndex === slides.length - 1" @tap="activeSlideIndex += 1">下一页</button>
+          <button class="secondary-button" :disabled="activeSlideIndex === 0" @tap="selectEditorSlide(activeSlideIndex - 1)">上一页</button>
+          <button class="secondary-button" :disabled="activeSlideIndex === slides.length - 1" @tap="selectEditorSlide(activeSlideIndex + 1)">下一页</button>
         </view>
       </view>
 
       <view class="bottom-actions">
         <view class="bottom-actions__buttons">
-          <button class="secondary-button" @tap="goPrevious">返回设置</button>
+          <button class="secondary-button" :disabled="apiBusy" @tap="goPrevious">返回设置</button>
+          <button v-if="hasLastSuccessfulResult" class="secondary-button" :disabled="apiBusy" @tap="returnToLastSuccessfulResult">返回上次成品</button>
           <button class="primary-button" :disabled="apiBusy" @tap="startGeneration">{{ apiBusy ? '正在创建任务…' : editorPrimaryLabel }}</button>
         </view>
       </view>
@@ -504,20 +532,20 @@
     <view v-else-if="currentStep === 7" class="panel result-panel">
       <view class="success-hero">
         <view class="success-icon">✓</view>
-        <text class="success-hero__title">复习 PPT 已生成</text>
-        <text class="success-hero__desc">共 {{ pageCount }} 页，使用 {{ selectedTemplateName }} 模板，已生成 {{ availableExportFormats.length }} 种可导出格式。</text>
+        <text class="success-hero__title">{{ qualityStatus === 'partial' ? 'PPT 已生成，部分页面需复核' : 'PPT 已生成' }}</text>
+        <text class="success-hero__desc">共 {{ pageCount }} 页，使用 {{ selectedTemplateName }} 模板，PPTX 已生成。</text>
       </view>
 
       <view class="result-summary">
         <view class="result-summary__name">
           <view class="result-summary__file-icon">P</view>
-          <view><text>{{ resultName }}</text><text>复习资料 · {{ pageCount }} 页</text></view>
+          <view><text>{{ resultName }}</text><text>演示文稿 · {{ pageCount }} 页</text></view>
         </view>
         <view class="result-summary__meta"><text>生成完成</text><text>刚刚</text></view>
       </view>
 
       <view v-if="generationWarnings.length" class="generation-warning">
-        <text>{{ generationWarnings[0] }}</text>
+        <text>{{ generationWarnings.join('；') }}</text>
       </view>
       <view v-if="formatErrorList.length" class="generation-warning generation-warning--error">
         <text>{{ formatErrorList[0].label }}：{{ formatErrorList[0].message }}</text>
@@ -529,7 +557,8 @@
             <text class="format-status-panel__title">导出文件</text>
             <text class="format-status-panel__desc">{{ exportStatusCopy }}</text>
           </view>
-          <text>{{ availableExportFormats.length }} / {{ exportFormats.length }}</text>
+          <text v-if="availableExportFormats.length">PPTX 可下载</text>
+          <text v-else>生成失败</text>
         </view>
         <view
           v-for="format in exportFormats"
@@ -550,21 +579,18 @@
 
       <view class="preview-section">
         <view class="preview-section__head"><text>页面预览</text><text>共 {{ pageCount }} 页</text></view>
-        <view class="slide-grid">
-          <view v-for="slide in visibleSlides" :key="slide" class="slide-thumb" @tap="activeSlideIndex = slide - 1; openSlidePreview(slide)">
-            <view class="slide-thumb__canvas" :class="[`slide-thumb__canvas--${pptStyle}`, { 'slide-thumb__canvas--cover': slide === 1 }]">
-              <image v-if="previewImages[slide]" class="slide-thumb__image" :src="previewImages[slide]" mode="aspectFill" />
+        <scroll-view class="slide-preview-feed" scroll-y enhanced :show-scrollbar="false">
+          <view v-for="slide in visibleSlides" :key="slide" class="slide-preview-feed__item" @tap="activeSlideIndex = slide - 1; openSlidePreview(slide)">
+            <image v-if="previewImages[slide]" class="slide-preview-feed__image" :src="previewImages[slide]" mode="widthFix" />
+            <view v-else class="slide-thumb__canvas slide-preview-feed__fallback" :class="[`slide-thumb__canvas--${pptStyle}`, { 'slide-thumb__canvas--cover': slide === 1 }]">
               <text class="slide-thumb__number">{{ String(slide).padStart(2, '0') }}</text>
-              <template v-if="!previewImages[slide]">
-                <text class="slide-thumb__title">{{ slideTitle(slide) }}</text>
-                <view class="slide-thumb__lines"><text></text><text></text><text></text></view>
-                <view class="slide-thumb__decor"></view>
-              </template>
+              <text class="slide-thumb__title">{{ slideTitle(slide) }}</text>
+              <view class="slide-thumb__lines"><text></text><text></text><text></text></view>
+              <view class="slide-thumb__decor"></view>
             </view>
-            <text class="slide-thumb__page">{{ slide }}</text>
+            <view class="slide-preview-feed__meta"><text>第 {{ slide }} 页</text><text>{{ slideTitle(slide) }}</text></view>
           </view>
-        </view>
-        <button v-if="pageCount > 6" class="text-button" @tap="showAllSlides = !showAllSlides">{{ showAllSlides ? '收起页面' : `查看全部 ${pageCount} 页` }}</button>
+        </scroll-view>
         <view class="image-replace-row">
           <view>
             <text class="image-replace-row__title">替换第 {{ activeSlideIndex + 1 }} 页配图</text>
@@ -620,7 +646,7 @@
 
       <view v-if="exportReady" class="download-ready">
         <view class="download-ready__illustration">
-          <view class="download-ready__file">{{ exportFormat === 'pptx' ? 'P' : 'PDF' }}</view>
+          <view class="download-ready__file">P</view>
           <view class="download-ready__arrow">↓</view>
         </view>
         <text class="download-ready__title">文件已生成</text>
@@ -631,19 +657,20 @@
       <button class="back-result-button" @tap="currentStep = 7">返回生成结果</button>
     </view>
 
-    <view v-if="operationFeedback.active" class="operation-feedback">
-      <view class="operation-feedback__head"><text>{{ operationFeedback.message }}</text><text>{{ operationFeedback.progress }}%</text></view>
-      <view class="operation-feedback__track"><view class="operation-feedback__value" :style="{ width: `${operationFeedback.progress}%` }"></view></view>
-      <text class="operation-feedback__detail">{{ operationFeedback.detail }}</text>
-    </view>
+      <view v-if="operationFeedback.active" class="operation-feedback">
+        <view class="operation-feedback__head"><text>{{ operationFeedback.message }}</text><text>{{ operationFeedback.progress }}%</text></view>
+        <view class="operation-feedback__track"><view class="operation-feedback__value" :style="{ width: `${operationFeedback.progress}%` }"></view></view>
+        <text class="operation-feedback__detail">{{ operationFeedback.detail }}</text>
+        <button class="text-button operation-feedback__cancel" @tap="cancelGeneration">取消生成</button>
+      </view>
 
     <view v-if="layoutViewerVisible" class="layout-fullscreen">
       <view class="layout-fullscreen__bar">
+        <view class="layout-fullscreen__back" @tap="closeLayoutViewer"></view>
         <view class="layout-fullscreen__bar-main">
           <text class="layout-fullscreen__title">{{ selectedTemplateName }}</text>
           <text class="layout-fullscreen__count">{{ activeLayoutIndex + 1 }} / {{ selectedTemplateLayouts.length }} 页版式</text>
         </view>
-        <view class="layout-fullscreen__close" @tap="closeLayoutViewer"><text>×</text></view>
       </view>
       <scroll-view
         v-show="layoutViewerReady"
@@ -725,20 +752,24 @@
 import {
   cancelPptTask,
   createPptTask,
+  createPptOutlineTask,
   createPptSlidesTask,
   downloadPptLayoutPreview,
   downloadPptPreview,
   downloadPptTaskFile,
   downloadPptTemplateThumbnail,
-  generatePptOutline,
+  clearPptTemplateThumbnailCache,
   generatePptSlides,
   getPptOptions,
   getPptTask,
   replacePptSlideImage,
+  renderPptPreview,
   retryPptTask,
   streamPptTask,
   uploadPptSourceFile
 } from '@/api/ppt.js'
+
+const DEFAULT_PPT_PAGE_COUNT = 30
 
 export default {
   name: 'AiPresentationFlow',
@@ -751,20 +782,18 @@ export default {
     return {
       currentStep: 1,
       entryMode: templateFirst ? 'templateFirst' : 'sourceFirst',
-      scene: 'review',
-      pptScenes: [
-        { value: 'review', label: '复习资料', description: '将学习资料整理成结构清晰的复习 PPT', enabled: true, default: true }
-      ],
       fileInfo: null,
       fileContent: '',
       manualSourceContent: '',
       sourceFileId: '',
       enhancedEngineAvailable: false,
+      templateCatalogAvailable: true,
       previewExpanded: false,
       outlineMode: 'ai_outline',
       outlineName: '',
       outlineItems: [],
       outlineDocument: null,
+      outlineSourceDirty: false,
       layoutMarkdown: '',
       outlineSavedAt: '',
       outlineLevels: [
@@ -772,7 +801,7 @@ export default {
         { value: 2, label: '小节' },
         { value: 3, label: '知识点' }
       ],
-      pageCount: 15,
+      pageCount: DEFAULT_PPT_PAGE_COUNT,
       pptStyle: 'general',
       templateEntryMode: templateFirst ? 'library' : 'upload',
       templateUploadSource: templateFirst ? 'library' : 'upload',
@@ -783,6 +812,8 @@ export default {
         { id: 'report', name: '汇报展示' }
       ],
       templateOptionsLoading: false,
+      // 模板查看/更换是从哪个页面进入的，关闭预览或确认模板后回到原上下文。
+      templateReturnContext: null,
       activeLayoutIndex: 0,
       layoutViewerVisible: false,
       layoutViewerReady: false,
@@ -792,11 +823,21 @@ export default {
       layoutPreviewCache: {},
       layoutPreviewPending: {},
       templateThumbPending: {},
+      // 与任务恢复缓存绑定，避免退出页面后模板列表重建时丢失已下载封面。
+      templateThumbnailState: {},
       layoutPreviewFailed: {},
       contentLevel: 'standard',
       slides: [],
       activeSlideIndex: 0,
-      sharedPrompt: '保持学习资料内容准确，版面简洁清晰，突出核心知识点，使用适合学生复习的视觉层级。',
+      editorPreviewImage: '',
+      editorPreviewSlideIndex: -1,
+      editorPreviewCache: {},
+      editorPreviewLoading: false,
+      editorPreviewError: '',
+      editorPreviewTimer: null,
+      editorPreviewRequestId: 0,
+      editorPreviewQueued: false,
+      sharedPrompt: '保持资料内容准确，版面简洁清晰，突出核心知识点，使用清晰易读的视觉层级。',
       settings: {
         includeCover: true,
         includeCatalog: true,
@@ -815,10 +856,19 @@ export default {
       slideGenerationTaskId: '',
       slideGenerationStream: null,
       slideGenerationSnapshot: null,
+      slidesDirty: false,
+      outlineGenerationTaskId: '',
+      outlineGenerationStream: null,
+      outlineGenerationSnapshot: null,
       generationRunId: 0,
+      outlineGenerationRunId: 0,
       slideGenerationRunId: 0,
       taskId: '',
       taskResult: null,
+      pendingTaskFingerprint: '',
+      completedTaskFingerprint: '',
+      editorDirty: false,
+      lastSuccessfulResult: null,
       previewImages: {},
       generationWarnings: [],
       modelConfigError: false,
@@ -826,6 +876,8 @@ export default {
       apiBusy: false,
       operationFeedback: { active: false, progress: 0, message: '', detail: '' },
       operationFeedbackTimer: null,
+      draftPersistTimer: null,
+      restoringSavedWork: false,
 
       showAllSlides: false,
       exportFormat: 'pptx',
@@ -839,20 +891,20 @@ export default {
       stepMeta: [
         templateFirst
           ? { id: 1, shortTitle: '选模板', title: '选择 PPT 模板', description: '先选择可直接套用的模板' }
-          : { id: 1, shortTitle: '上传资料', title: '上传学习资料', description: '先确定要生成 PPT 的内容' },
+          : { id: 1, shortTitle: '上传资料', title: '上传演示资料', description: '先确定要生成 PPT 的内容' },
         templateFirst
-          ? { id: 2, shortTitle: '上传资料', title: '上传学习资料', description: '再提交要写入模板的资料' }
+          ? { id: 2, shortTitle: '上传资料', title: '上传演示资料', description: '再提交要写入模板的资料' }
           : { id: 2, shortTitle: '选模板', title: '选择 PPT 模板', description: '根据这份资料选择合适的模板' },
         { id: 3, shortTitle: '编辑大纲', title: '编辑 PPT 大纲', description: '确认内容结构，并将本次大纲独立保存' },
         { id: 4, shortTitle: '设置 PPT', title: '设置 PPT', description: '设置 PPT 的展示效果' },
         { id: 5, shortTitle: '编辑页面', title: '编辑页面内容', description: '逐页调整内容、公共提示词和单页提示词' },
-        { id: 6, shortTitle: '生成进度', title: '正在生成 PPT', description: 'AI 正在整理你的学习资料，请稍候' },
+        { id: 6, shortTitle: '生成进度', title: '正在生成 PPT', description: 'AI 正在整理你的资料，请稍候' },
         { id: 7, shortTitle: '生成结果', title: 'PPT 生成完成', description: '预览生成效果并确认导出' },
         { id: 8, shortTitle: '导出下载', title: '导出下载', description: '选择需要导出的文件格式' }
       ],
       outlineModes: [
-        { id: 'ai_outline', shortName: 'AI 重整', name: 'AI 生成复习大纲', description: 'AI 分析资料内容，重新整理知识结构，生成适合复习的 PPT 大纲。', fit: '适合内容零散或没有明确结构的资料' },
-        { id: 'original_outline', shortName: '保留原结构', name: '使用原内容作为大纲', description: '按照上传资料原有的内容顺序和标题层级生成 PPT。', fit: '适合已经整理好大纲的资料' }
+        { id: 'ai_outline', shortName: '非大纲资料', name: '非大纲资料', description: '上传课件、笔记或成套资料，系统将自动整理大纲', fit: '适合只有主题、笔记或零散资料' },
+        { id: 'original_outline', shortName: '上传大纲', name: '上传大纲', description: '已准备好提纲或目录时可直接上传，尽量保留原结构', fit: '适合已有清晰目录的资料' }
       ],
       pptStyles: [],
       pageOptions: [
@@ -862,16 +914,14 @@ export default {
         { key: 'includeSummary', label: '包含总结页' }
       ],
       generationSteps: [
-        { id: 'analyzing', activeText: '正在分析资料', description: '识别资料主题、章节和核心知识点', doneText: '资料分析完成' },
-        { id: 'outline', activeText: '正在生成大纲', description: '整理章节层级和页面结构', doneText: '大纲生成完成' },
-        { id: 'writing', activeText: '正在撰写内容', description: '生成每页标题、知识点和必要说明', doneText: '页面内容生成完成' },
-        { id: 'layout', activeText: '正在匹配版式', description: '为不同内容选择合适的页面布局', doneText: '版式匹配完成' },
-        { id: 'visuals', activeText: '正在生成配图', description: '匹配图标、流程图和结构图', doneText: '配图生成完成' },
-        { id: 'building', activeText: '正在制作文件', description: '生成页面预览和导出文件', doneText: 'PPT 文件制作完成' }
+        { id: 'preparing', activeText: '正在整理页面内容', description: '整理已确认的页面内容', doneText: '页面内容整理完成' },
+        { id: 'quality_check', activeText: '正在检查页面质量', description: '检查文字密度和固定模板的适配情况', doneText: '页面质量检查完成' },
+        { id: 'visuals', activeText: '正在生成配图', description: '生成页面需要的视觉素材', doneText: '配图生成完成' },
+        { id: 'rendering', activeText: '正在渲染页面', description: '生成每页预览图', doneText: '页面渲染完成' },
+        { id: 'exporting', activeText: '正在生成 PPTX', description: '整理可编辑的 PowerPoint 文件', doneText: 'PPTX 文件生成完成' }
       ],
       exportFormats: [
-        { id: 'pptx', icon: 'P', name: 'PowerPoint 格式', description: '可使用 PowerPoint 或 WPS 打开并继续编辑。' },
-        { id: 'pdf', icon: 'PDF', name: 'PDF 格式', description: '适合查看和打印，不支持编辑。' }
+        { id: 'pptx', icon: 'P', name: 'PowerPoint 格式', description: '可使用 PowerPoint 或 WPS 打开并继续编辑。' }
       ]
     }
   },
@@ -909,10 +959,10 @@ export default {
     templateHeroDescription() {
       return this.templateFirstEnabled
         ? '选定模板后再提交资料，系统会把内容写入所选版式。'
-        : '模板只在这里确认一次，后续会按所选版式生成 PPTX、PDF 和页面预览。'
+        : '模板只在这里确认一次，后续会按所选版式生成 PPTX 和页面预览。'
     },
     uploadHeroTitle() {
-      return this.templateFirstEnabled ? '提交学习资料' : '先上传学习资料'
+      return this.templateFirstEnabled ? '提交演示资料' : '先上传演示资料'
     },
     uploadHeroDescription() {
       return this.templateFirstEnabled
@@ -920,17 +970,39 @@ export default {
         : '先确定要生成的内容，再选择适合这份资料的 PPT 模板。'
     },
     templateNextLabel() {
+      if (this.templateReturnContext?.entryMode !== 'upload' && this.templateReturnContext?.currentStep) return '使用并返回设置'
+      if (!this.templateFirstEnabled && this.canReturnToOutline) return '返回大纲'
       return this.templateFirstEnabled ? '下一步：上传资料' : '生成大纲'
     },
     templateDetailActionLabel() {
+      if (this.templateReturnContext?.entryMode !== 'upload' && this.templateReturnContext?.currentStep) return '使用并返回设置'
+      if (!this.templateFirstEnabled && this.canReturnToOutline) return '返回大纲'
       return this.templateFirstEnabled ? '使用该模板' : '使用并生成大纲'
     },
     uploadNextLabel() {
+      if (this.canReturnToOutline) return '返回大纲'
+      if (this.validOutlineItems.length >= 2) return '重新生成大纲'
       return this.templateFirstEnabled ? '生成大纲' : '下一步：选择模板'
     },
     activeSlideLayoutLabel() {
       const layouts = this.selectedTemplateLayouts
       return layouts[this.activeSlideIndex % Math.max(1, layouts.length)]?.name || '图文内容'
+    },
+    editorPreviewLayoutImage() {
+      const templateId = this.selectedTemplate?.id || this.pptStyle
+      const layoutIndex = this.editorLayoutIndex(this.activeSlideIndex)
+      if (!templateId || layoutIndex < 0) return ''
+      return this.layoutPreviewCache[templateId]?.[layoutIndex] || ''
+    },
+    editorPreviewFrameStyle() {
+      const background = this.activeSlide?.ui?.background
+      const value = typeof background === 'string'
+        ? background.trim()
+        : (background && typeof background === 'object'
+          ? String(background.color || background.fill || background.value || '').trim()
+          : '')
+      if (!value || !/^(#|rgb\(|rgba\(|hsl\(|hsla\(|linear-gradient\(|radial-gradient\(|url\()/i.test(value)) return {}
+      return { background: value }
     },
     currentGenerationPage() {
       const fromTask = Number(this.taskResult?.currentSlide || 0)
@@ -943,13 +1015,6 @@ export default {
     },
     currentHistory() {
       return this.historyTab === 'outline' ? this.outlineHistory : this.generationHistory
-    },
-    selectedSceneIndex() {
-      const index = this.pptScenes.findIndex(item => item.value === this.scene)
-      return index >= 0 ? index : 0
-    },
-    selectedScene() {
-      return this.pptScenes[this.selectedSceneIndex] || this.pptScenes[0]
     },
     stepperProgress() {
       const total = Math.max(1, this.stepMeta.length - 1)
@@ -1030,7 +1095,7 @@ export default {
 
     supportedSourceHint() {
       return this.enhancedEngineAvailable
-        ? '支持 TXT、PDF、Word、PPT 和表格文件，最大 25MB'
+        ? '支持 TXT、Word、PPT 和表格文件，最大 25MB'
         : '当前仅支持单个 TXT 文件'
     },
     fileKindLabel() {
@@ -1047,7 +1112,13 @@ export default {
       return [1, 2, 3, 4, 5, 6, 7, 8].includes(this.currentStep)
     },
     canRetryGeneration() {
-      return Boolean(this.taskId && ['failed', 'cancelled'].includes(String(this.taskResult?.status || '')))
+      return Boolean(this.taskId && ['failed', 'cancelled', 'timed_out'].includes(String(this.taskResult?.status || '')))
+    },
+    qualityStatus() {
+      const value = String(this.taskResult?.qualityStatus || '').toLowerCase()
+      if (value === 'partial' || value === 'blocked') return 'partial'
+      if (this.generationWarnings.length || this.formatErrorList.length) return 'partial'
+      return 'complete'
     },
     renderFailureMessage() {
       return this.lastPptError || this.taskResult?.message || '可以保留当前页面内容，重新提交模板渲染。'
@@ -1064,18 +1135,23 @@ export default {
       return String((this.fileContent || '').replace(/\s/g, '').length).replace(/\B(?=(\d{3})+(?!\d))/g, ',')
     },
     activeGenerationIndex() {
-      if (this.progress >= 100) return this.generationSteps.length - 1
+      if (this.progress >= 100 || this.taskResult?.status === 'completed') return this.generationSteps.length - 1
+      const stageIndex = {
+        queued: 0,
+        preparing: 0,
+        quality_check: 1,
+        visuals: 2,
+        rendering: 3,
+        exporting: 4
+      }[String(this.taskResult?.stage || '')]
+      if (Number.isInteger(stageIndex)) return stageIndex
       return Math.min(Math.floor(this.progress / (100 / this.generationSteps.length)), this.generationSteps.length - 1)
     },
     activeGenerationStep() {
       return this.generationSteps[this.activeGenerationIndex]
     },
     progressMessage() {
-      if (this.activeGenerationStep.id === 'writing') {
-        const current = Math.max(1, Math.min(this.pageCount, Math.round((this.progress / 100) * this.pageCount)))
-        return `正在生成第 ${current} 页，共 ${this.pageCount} 页`
-      }
-      return this.activeGenerationStep.description
+      return this.taskResult?.message || this.activeGenerationStep.description
     },
     remainingTime() {
       const seconds = Math.max(1, Math.ceil((100 - this.progress) / 5))
@@ -1117,54 +1193,133 @@ export default {
       })).filter(item => item.message)
     },
     exportStatusCopy() {
-      if (!this.taskResult) return '等待生成结果'
-      if (!this.availableExportFormats.length) return '本次任务未返回可下载文件'
-      if (this.formatErrorList.length) return '部分格式已生成，可先下载可用文件'
-      return 'PPTX 与 PDF 均已生成'
+       if (!this.taskResult) return '等待生成结果'
+       if (this.qualityStatus === 'partial') return '页面已完成自动排版修复，建议检查预览后直接下载'
+       if (!this.availableExportFormats.length) return '本次任务未返回可下载文件'
+       return 'PPTX 已生成，可直接下载'
     },
     resultName() {
-      const name = this.fileInfo?.name || '复习资料.txt'
-      return name.replace(/\.(?:txt|pdf|docx?|pptx?|xlsx?)$/i, '') || '复习资料'
+      const name = this.fileInfo?.name || this.initialTopic || '演示文稿.txt'
+      return name.replace(/\.(?:txt|docx?|pptx?|xlsx?)$/i, '') || '演示文稿'
     },
     visibleSlides() {
-      const length = this.showAllSlides ? this.pageCount : Math.min(6, this.pageCount)
-      return Array.from({ length }, (_, index) => index + 1)
+      return Array.from({ length: this.pageCount }, (_, index) => index + 1)
     },
     downloadFileName() {
-      return `${this.resultName}_复习资料PPT.${this.exportFormat}`
+      return `${this.resultName}.pptx`
+    },
+    hasLastSuccessfulResult() {
+      return Boolean(
+        this.lastSuccessfulResult?.taskId
+        && String(this.lastSuccessfulResult?.taskResult?.status || '') === 'completed'
+      )
     },
     editorPrimaryLabel() {
-      return this.canReuseCompletedTask() ? '查看生成结果' : '确认并生成'
+      if (this.hasLastSuccessfulResult && !this.editorDirty) return '查看生成结果'
+      return this.hasLastSuccessfulResult ? '确认修改并生成' : '确认并生成'
+    },
+    canReturnToEditor() {
+      return this.slides.length >= 2 && !this.slidesDirty
+    },
+    canReturnToOutline() {
+      return this.validOutlineItems.length >= 2 && !this.outlineSourceDirty
+    },
+    settingsNextLabel() {
+      if (this.canReturnToEditor) return '返回编辑'
+      return this.slides.length >= 2 ? '重新生成页面内容' : '编辑页面内容'
+    },
+    canRestartFlow() {
+      return Boolean(
+        this.fileInfo
+        || String(this.fileContent || '').trim()
+        || String(this.manualSourceContent || '').trim()
+        || String(this.sourceFileId || '').trim()
+        || this.outlineItems.length
+        || this.slides.length
+        || this.hasActivePptTask()
+      )
     }
   },
   watch: {
     // 选中哪个模板才补哪张封面缩略图
     pptStyle(id) {
       this.ensureTemplateThumbnail(id)
+      this.scheduleDraftPersistence()
+    },
+    fileInfo() {
+      this.scheduleDraftPersistence()
+    },
+    currentStep() {
+      this.scheduleDraftPersistence()
+    },
+    templateEntryMode() {
+      this.scheduleDraftPersistence()
+    },
+    templateCategory() {
+      this.scheduleDraftPersistence()
+    },
+    contentLevel() {
+      this.scheduleDraftPersistence()
+    },
+    sharedPrompt() {
+      this.scheduleDraftPersistence()
+    },
+    fileContent() {
+      this.scheduleDraftPersistence()
+    },
+    manualSourceContent() {
+      this.scheduleDraftPersistence()
+    },
+    sourceFileId() {
+      this.scheduleDraftPersistence()
+    },
+    outlineMode() {
+      this.scheduleDraftPersistence()
+    },
+    outlineName() {
+      this.scheduleDraftPersistence()
+    },
+    outlineItems: {
+      deep: true,
+      handler() {
+        this.scheduleDraftPersistence()
+      }
+    },
+    settings: {
+      deep: true,
+      handler() {
+        this.scheduleDraftPersistence()
+      }
+    },
+    slides: {
+      deep: true,
+      handler() {
+        this.scheduleDraftPersistence()
+      }
     }
   },
   created() {
+    // 先展示可用的基础模板，再后台刷新完整目录；入口不能被模板服务拖成空白页。
+    this.applyLocalPptTemplateFallback()
     this.restoreHistories()
-    this.loadPptScenes()
+    this.loadPptOptions()
+    this.promptSavedWork()
   },
   beforeDestroy() {
+    if (this.hasActivePptTask()) this.persistCurrentTaskSnapshot()
+    else this.persistDraft()
     this.clearTimers()
   },
   methods: {
-    async loadPptScenes(forceRefresh = false) {
+    async loadPptOptions(forceRefresh = false) {
       this.templateOptionsLoading = true
       try {
         const options = await getPptOptions({ forceRefresh })
         this.enhancedEngineAvailable = Boolean(options.enhancedEngineAvailable)
-        const scenes = (options.scenes || []).filter(item => item?.enabled !== false && item?.value && item?.label)
-        if (scenes.length) {
-          this.pptScenes = scenes
-          if (!scenes.some(item => item.value === this.scene)) {
-            this.scene = (scenes.find(item => item.default || item.defaultOption) || scenes[0]).value
-          }
-        }
+        this.templateCatalogAvailable = options.templateCatalogAvailable !== false
         const templates = (options.templates || []).filter(item => item?.id && item?.name)
         if (templates.length) {
+          const previousTemplates = new Map(this.pptStyles.map(item => [String(item.id), item]))
           // 只取元数据，缩略图按需下载：进入页面不再一次性拉全部模板图
           this.pptStyles = templates.map(item => ({
             id: String(item.id),
@@ -1172,8 +1327,13 @@ export default {
             description: String(item.description || `${Number(item.layoutCount || 0)} 种页面布局`),
             layoutCount: Number(item.layoutCount || 0),
             layouts: Array.isArray(item.layouts) ? item.layouts : [],
-            thumbnailUrl: '',
-            hasThumbnail: Boolean(item.thumbnailUrl),
+            // options 刷新时保留已经下载的本地路径，避免列表重新渲染瞬间退回占位封面。
+            thumbnailUrl: previousTemplates.get(String(item.id))?.thumbnailUrl
+              || this.templateThumbnailState[String(item.id)]
+              || '',
+            hasThumbnail: Boolean(item.thumbnailUrl)
+              || Boolean(previousTemplates.get(String(item.id))?.thumbnailUrl)
+              || Boolean(this.templateThumbnailState[String(item.id)]),
             default: Boolean(item.default || item.defaultOption)
           }))
           if (!this.pptStyles.some(item => item.id === this.pptStyle)) {
@@ -1182,21 +1342,79 @@ export default {
           this.ensureTemplateThumbnail(this.pptStyle)
           // 模板库首屏可见时仅为当前分类补封面缩略图（不加载版式图）
           if (this.templateLibraryVisible) this.loadTemplateThumbnails()
+        } else {
+          this.applyLocalPptTemplateFallback()
         }
       } catch (error) {
-        this.pptStyles = []
+        this.applyLocalPptTemplateFallback()
+        this.templateCatalogAvailable = false
+        this.lastPptError = '模板服务暂时不可用，已保留基础模板；可稍后重新加载模板。'
       } finally {
         this.templateOptionsLoading = false
       }
     },
-    selectScene(event) {
-      const selected = this.pptScenes[Number(event?.detail?.value || 0)]
-      if (selected) this.scene = selected.value
+    applyLocalPptTemplateFallback() {
+      if (!this.pptStyles.length) {
+        this.pptStyles = [{
+          id: 'general',
+          name: '简约通用',
+          description: '清晰留白，适合课程复习与知识讲解',
+          layoutCount: 12,
+          layouts: [],
+          thumbnailUrl: '',
+          hasThumbnail: false,
+          default: true
+        }]
+      }
+      if (!this.pptStyles.some(item => item.id === this.pptStyle)) {
+        this.pptStyle = 'general'
+      }
     },
     stepStateLabel(item) {
       if (this.currentStep > item.id) return '已完成'
       if (this.currentStep === item.id) return '进行中'
+      if (this.isStepAvailable(item.id)) return '可进入'
       return '待处理'
+    },
+    isStepAvailable(step) {
+      const target = Number(step)
+      if (!target) return false
+      if (target === this.templateStepIndex) {
+        return this.templateFirstEnabled ? Boolean(this.selectedTemplate) : Boolean(this.fileInfo)
+      }
+      if (target === this.uploadStepIndex) {
+        return this.templateFirstEnabled ? Boolean(this.selectedTemplate) : Boolean(this.fileInfo)
+      }
+      if (target === 3 || target === 4) return this.validOutlineItems.length >= 2
+      if (target === 5) return this.slides.length >= 2
+      if (target === 6) return this.hasActivePptTask() || this.hasLastSuccessfulResult
+      if (target === 7 || target === 8) return this.hasLastSuccessfulResult
+      return false
+    },
+    isStepNavigable(item) {
+      const target = Number(item?.id)
+      if (!target || this.apiBusy || target === this.currentStep) return false
+      return this.isStepAvailable(target)
+    },
+    navigateToStep(step) {
+      const target = Number(step)
+      if (this.apiBusy) {
+        uni.showToast({ title: '当前任务进行中，请先取消任务', icon: 'none' })
+        return
+      }
+      if (!this.isStepNavigable({ id: target })) return
+      if (target === this.templateStepIndex) {
+        this.templateEntryMode = 'library'
+      } else if (target === this.uploadStepIndex) {
+        this.templateEntryMode = 'upload'
+      }
+      this.templateReturnContext = null
+      this.currentStep = target
+      if (target === 5) {
+        this.$nextTick(() => this.scheduleEditorPreview(true))
+      } else if (target === 7) {
+        this.loadPreviewImages()
+      }
     },
     templateCategoryOf(template) {
       const id = String(template?.id || '').toLowerCase()
@@ -1244,13 +1462,44 @@ export default {
       return elementTypes ? `元素：${elementTypes}` : '模板原始版式'
     },
     selectTemplateCategory(id) {
+      if (this.apiBusy) return
       this.templateCategory = id
+      this.persistPptTemplateSelection()
       // 切换分类时补该分类封面，避免新分类白卡
       this.loadTemplateThumbnails()
     },
     selectPptTemplate(id) {
+      if (this.apiBusy) return
       if (!id) return
+      if (this.pptStyle !== id) {
+        if (this.hasLastSuccessfulResult) this.markEditorDirty()
+        if (this.slides.length) this.slidesDirty = true
+      }
       this.pptStyle = id
+      // 模板切换本身也要写入活动任务缓存；否则用户在设置页退出时，缓存仍会保留默认模板。
+      this.persistPptTemplateSelection()
+    },
+    selectOutlineMode(mode) {
+      if (!mode || this.outlineMode === mode) return
+      this.outlineMode = mode
+      this.markOutlineSourceDirty()
+    },
+    markOutlineSourceDirty() {
+      if (!this.outlineItems.length) return
+      this.outlineSourceDirty = true
+      if (this.slides.length) {
+        this.slidesDirty = true
+        this.markEditorDirty()
+      }
+    },
+    markEditorDirty() {
+      if (this.hasLastSuccessfulResult) this.editorDirty = true
+    },
+    setImageMode(mode) {
+      if (this.settings.imageMode === mode) return
+      this.settings.imageMode = mode
+      if (this.slides.length) this.slidesDirty = true
+      this.markEditorDirty()
     },
     // 单个模板缩略图按需下载，pending 去重防重复请求
     ensureTemplateThumbnail(templateId) {
@@ -1259,15 +1508,44 @@ export default {
       if (this.templateThumbPending[templateId]) return this.templateThumbPending[templateId]
       const request = (async () => {
         try {
-          template.thumbnailUrl = await downloadPptTemplateThumbnail(templateId)
+          const thumbnailPath = await downloadPptTemplateThumbnail(templateId)
+          template.thumbnailUrl = thumbnailPath
+          this.templateThumbnailState = {
+            ...this.templateThumbnailState,
+            [templateId]: thumbnailPath
+          }
+          this.persistPptTemplateSelection()
         } catch (error) {
-          template.hasThumbnail = false
+          // 网络抖动不能把模板永久标记成“无封面”，下次进入或重新加载时继续重试。
+          template.thumbnailUrl = ''
+          template.hasThumbnail = true
         } finally {
           delete this.templateThumbPending[templateId]
         }
       })()
       this.templateThumbPending[templateId] = request
       return request
+    },
+    onTemplateThumbnailError(templateId) {
+      const template = this.pptStyles.find(item => item.id === templateId)
+      if (!template) return
+      clearPptTemplateThumbnailCache(templateId)
+      template.thumbnailUrl = ''
+      template.hasThumbnail = true
+      const nextState = { ...this.templateThumbnailState }
+      delete nextState[templateId]
+      this.templateThumbnailState = nextState
+      this.ensureTemplateThumbnail(templateId)
+    },
+    persistPptTemplateSelection() {
+      const activeTask = this.taskId
+        ? { kind: 'final', taskId: this.taskId }
+        : this.slideGenerationTaskId
+          ? { kind: 'slides', taskId: this.slideGenerationTaskId }
+          : this.outlineGenerationTaskId
+            ? { kind: 'outline', taskId: this.outlineGenerationTaskId }
+            : null
+      if (activeTask) this.persistActiveTask(activeTask.kind, activeTask.taskId)
     },
     // 模板库可见时，只为当前分类的卡片补图，小并发避免请求被吞
     loadTemplateThumbnails() {
@@ -1282,15 +1560,62 @@ export default {
       }
       for (let i = 0; i < Math.min(3, queue.length); i += 1) worker()
     },
+    rememberTemplateReturnContext() {
+      // 已经在模板区域内部切换库/详情时，保留最初的外部入口。
+      if (this.isTemplateStep) return
+      this.templateReturnContext = {
+        currentStep: this.currentStep,
+        entryMode: this.templateEntryMode
+      }
+    },
+    restoreTemplateReturnContext() {
+      const context = this.templateReturnContext
+      this.templateReturnContext = null
+      if (!context?.currentStep) {
+        this.templateEntryMode = 'library'
+        this.currentStep = this.templateStepIndex
+        return
+      }
+      this.templateEntryMode = context.entryMode || 'library'
+      this.currentStep = context.currentStep
+    },
+    returnFromTemplateSelection() {
+      const context = this.templateReturnContext
+      if (!context?.currentStep || context.entryMode === 'upload') return false
+      this.templateReturnContext = null
+      this.templateEntryMode = context.entryMode || 'library'
+      this.currentStep = context.currentStep
+      return true
+    },
     showTemplateLibrary() {
+      if (this.apiBusy) return
+      this.rememberTemplateReturnContext()
       this.templateEntryMode = 'library'
       this.currentStep = this.templateStepIndex
       this.loadTemplateThumbnails()
     },
     showTemplateDetail(id = '') {
-      if (id) this.pptStyle = id
+      if (this.apiBusy) return
+      if (id) {
+        // 从模板库打开详情时没有外部页面，关闭后回模板库；若模板库由
+        // 上传资料/设置页打开，则沿用那个外部入口。
+        if (!this.templateReturnContext) {
+          this.templateReturnContext = {
+            currentStep: this.templateStepIndex,
+            entryMode: 'library'
+          }
+        }
+      } else {
+        // 上传资料页的“查看”直接打开详情，必须记住上传页而不是当前模板页。
+        this.rememberTemplateReturnContext()
+      }
+      if (id) {
+        this.pptStyle = id
+        this.persistPptTemplateSelection()
+      }
       if (!this.selectedTemplate && this.pptStyles.length) {
         this.pptStyle = this.pptStyles[0].id
+        this.persistPptTemplateSelection()
       }
       this.activeLayoutIndex = 0
       this.templateEntryMode = 'detail'
@@ -1363,12 +1688,12 @@ export default {
     },
     useTemplateFromViewer() {
       this.layoutViewerVisible = false
+      this.templateReturnContext = null
       this.goNext()
     },
     closeLayoutViewer() {
       this.layoutViewerVisible = false
-      // 全屏预览关闭后直接回模板库列表，不再露出旧的详情页
-      this.showTemplateLibrary()
+      this.restoreTemplateReturnContext()
     },
     async ensureLayoutPreview(templateId, index) {
       const cache = this.layoutPreviewCache[templateId] || {}
@@ -1378,8 +1703,13 @@ export default {
       const request = (async () => {
         try {
           const tempPath = await downloadPptLayoutPreview(templateId, index + 1)
-          if (!this.layoutPreviewCache[templateId]) this.layoutPreviewCache[templateId] = {}
-          this.layoutPreviewCache[templateId][index] = tempPath
+          this.layoutPreviewCache = {
+            ...this.layoutPreviewCache,
+            [templateId]: {
+              ...(this.layoutPreviewCache[templateId] || {}),
+              [index]: tempPath
+            }
+          }
           this.layoutPreviewFailed[pendingKey] = false
           return tempPath
         } catch (error) {
@@ -1402,6 +1732,7 @@ export default {
       this.ensureLayoutPreview(templateId, index)
     },
     showTemplateUpload(sourceMode = this.templateEntryMode) {
+      if (this.apiBusy) return
       if (!this.selectedTemplate && this.pptStyles.length) {
         this.pptStyle = this.pptStyles[0].id
       }
@@ -1414,7 +1745,7 @@ export default {
         uni.chooseFile({
           count: 1,
           extension: this.enhancedEngineAvailable
-            ? ['txt', 'pdf', 'doc', 'docx', 'ppt', 'pptx', 'xls', 'xlsx']
+            ? ['txt', 'doc', 'docx', 'ppt', 'pptx', 'xls', 'xlsx']
             : ['txt'],
           success: result => this.handleSelectedFile((result.tempFiles || [])[0], (result.tempFilePaths || [])[0]),
           fail: error => {
@@ -1428,7 +1759,7 @@ export default {
           count: 1,
           type: 'file',
           extension: this.enhancedEngineAvailable
-            ? ['txt', 'pdf', 'doc', 'docx', 'ppt', 'pptx', 'xls', 'xlsx']
+            ? ['txt', 'doc', 'docx', 'ppt', 'pptx', 'xls', 'xlsx']
             : ['txt'],
           success: result => this.handleSelectedFile((result.tempFiles || [])[0]),
           fail: error => {
@@ -1454,6 +1785,7 @@ export default {
           try {
             const uploaded = await uploadPptSourceFile(path, name)
             if (!uploaded.fileId) throw new Error('服务端未返回资料文件编号')
+            this.markOutlineSourceDirty()
             this.sourceFileId = String(uploaded.fileId)
             this.fileContent = ''
             this.manualSourceContent = ''
@@ -1470,6 +1802,7 @@ export default {
           uni.showToast({ title: 'TXT 文件内容为空', icon: 'none' })
           return
         }
+        this.markOutlineSourceDirty()
         this.fileContent = content
         this.manualSourceContent = content
         this.sourceFileId = ''
@@ -1507,15 +1840,53 @@ export default {
       return `${(size / 1024 / 1024).toFixed(1)} MB`
     },
     removeFile() {
+      if (this.apiBusy) {
+        uni.showToast({ title: '生成进行中，请先取消任务', icon: 'none' })
+        return
+      }
+      this.clearTaskContext()
       this.fileInfo = null
       this.fileContent = ''
       this.manualSourceContent = ''
       this.sourceFileId = ''
       this.previewExpanded = false
+      this.outlineName = ''
       this.outlineItems = []
+      this.outlineDocument = null
+      this.outlineSourceDirty = false
+      this.layoutMarkdown = ''
+      this.outlineSavedAt = ''
       this.slides = []
     },
+    clearTaskContext(clearStorage = true) {
+      this.generationRunId += 1
+      this.outlineGenerationRunId += 1
+      this.slideGenerationRunId += 1
+      this.taskId = ''
+      this.taskResult = null
+      this.pendingTaskFingerprint = ''
+      this.completedTaskFingerprint = ''
+      this.editorDirty = false
+      this.lastSuccessfulResult = null
+      this.slidesDirty = false
+      this.outlineSourceDirty = false
+      this.outlineGenerationTaskId = ''
+      this.slideGenerationTaskId = ''
+      this.outlineGenerationSnapshot = null
+      this.slideGenerationSnapshot = null
+      this.generationWarnings = []
+      this.previewImages = {}
+      this.editorPreviewCache = {}
+      this.editorPreviewImage = ''
+      this.editorPreviewSlideIndex = -1
+      this.lastPptError = ''
+      this.exportReady = false
+      if (clearStorage) {
+        try { uni.removeStorageSync('aiPptActiveTask') } catch (error) {}
+      }
+    },
     applyManualSourceInput(event) {
+      this.markOutlineSourceDirty()
       const content = String(event?.detail?.value ?? this.manualSourceContent ?? '')
       this.manualSourceContent = content
       if (!content.trim()) {
@@ -1527,7 +1898,6 @@ export default {
         return
       }
       if (this.fileInfo && !this.fileInfo.manual) {
-        this.fileContent = content
         this.previewExpanded = false
         return
       }
@@ -1545,12 +1915,13 @@ export default {
     async goNext() {
       if (this.isTemplateStep) {
         if (!this.selectedTemplate) return
+        if (this.returnFromTemplateSelection()) return
         if (this.templateFirstEnabled) {
           this.templateEntryMode = 'upload'
           this.currentStep = this.uploadStepIndex
           return
         }
-        return this.prepareOutline()
+        return this.handleOutlineEntryNext()
       }
       if (this.isUploadStep) {
         if (!this.fileInfo) return
@@ -1559,11 +1930,36 @@ export default {
           this.currentStep = this.templateStepIndex
           return
         }
-        return this.prepareOutline()
+        return this.handleOutlineEntryNext()
       }
       this.currentStep = Math.min(this.stepMeta.length, this.currentStep + 1)
     },
+    handleOutlineEntryNext() {
+      if (this.outlineSourceDirty && this.validOutlineItems.length >= 2) {
+        uni.showModal({
+          title: '资料已修改',
+          content: '检测到上传资料或大纲来源已修改，是否重新生成大纲？',
+          confirmText: '重新生成',
+          cancelText: '返回原大纲',
+          success: result => {
+            if (result?.confirm) {
+              this.prepareOutline()
+            } else {
+              this.outlineSourceDirty = false
+              this.currentStep = 3
+            }
+          }
+        })
+        return
+      }
+      if (this.canReturnToOutline) {
+        this.currentStep = 3
+        return
+      }
+      return this.prepareOutline()
+    },
     goPrevious() {
+      if (this.apiBusy) return
       if (this.isTemplateStep && this.templateEntryMode === 'detail') {
         this.templateEntryMode = 'library'
         return
@@ -1584,7 +1980,11 @@ export default {
       this.currentStep = Math.max(1, this.currentStep - 1)
     },
     toggleSetting(key, event) {
-      this.settings[key] = Boolean(event?.detail?.value)
+      const value = Boolean(event?.detail?.value)
+      if (this.settings[key] === value) return
+      this.settings[key] = value
+      if (this.slides.length) this.slidesDirty = true
+      this.markEditorDirty()
     },
     async prepareOutline() {
       if (!this.fileInfo) return
@@ -1598,6 +1998,7 @@ export default {
           this.outlineDocument = { title: this.resultName, items: this.outlineItems }
           this.outlineName = `${this.resultName}大纲`
           this.outlineSavedAt = ''
+          this.outlineSourceDirty = false
           this.currentStep = 3
           return
         }
@@ -1607,28 +2008,43 @@ export default {
       this.lastPptError = ''
       this.startOperationFeedback()
       try {
-        const response = await generatePptOutline({
+        const runId = ++this.outlineGenerationRunId
+        const response = await createPptOutlineTask({
           sourceName: this.fileInfo.name,
           sourceContent: this.fileContent,
           sourceFileId: this.sourceFileId,
           outlineMode: this.outlineMode,
           pageCount: this.pageCount,
-          scene: this.scene,
+           sourceSupplement: this.sourceFileId ? this.manualSourceContent : '',
           topic: this.initialTopic || this.resultName
         })
+        const created = this.responseData(response)
+        this.outlineGenerationTaskId = String(created.taskId || '')
+        if (!this.outlineGenerationTaskId) throw new Error('服务端未返回大纲生成任务编号')
+        this.persistActiveTask('outline', this.outlineGenerationTaskId)
+        await this.followOutlineGenerationTask(runId)
+        if (runId !== this.outlineGenerationRunId) return
+        const task = this.responseData(await getPptTask(this.outlineGenerationTaskId))
+        const extracted = this.extractOutlineItems(task)
+        const items = extracted.items
+        const outline = extracted.outline
         this.updateOperationFeedback(92, '正在校验并转换大纲格式', '即将进入可编辑大纲')
-        const outline = this.responseData(response)
-        const items = Array.isArray(outline.items) ? outline.items : []
-        if (!items.length) throw new Error('AI 未返回可编辑的大纲')
-        this.outlineItems = items.map((item, index) => ({
-          ...item,
-          id: item.id || `outline-${Date.now()}-${index}`,
-          level: Number(item.level || 1),
-          title: String(item.title || '')
-        }))
+        if (!items.length) {
+          console.error('[PPT outline] completed task has no editable items', {
+            taskId: this.outlineGenerationTaskId,
+            status: task?.status,
+            stage: task?.stage,
+            taskKeys: task && typeof task === 'object' ? Object.keys(task) : [],
+            outlineKeys: outline && typeof outline === 'object' ? Object.keys(outline) : []
+          })
+          throw new Error(task?.error?.message || task?.message || '服务端未返回可编辑的大纲，请重试')
+        }
+        this.outlineItems = this.normalizeOutlineItems(items)
         this.outlineDocument = { ...outline, items: this.outlineItems }
         this.outlineName = `${outline.title || this.resultName}大纲`
         this.outlineSavedAt = ''
+        this.outlineSourceDirty = false
+        this.clearActiveTaskStorage()
         this.currentStep = 3
       } catch (error) {
         this.handlePptError(error, '大纲生成失败')
@@ -1637,8 +2053,48 @@ export default {
         this.stopOperationFeedback()
       }
     },
+    async followOutlineGenerationTask(runId) {
+      try {
+        this.outlineGenerationStream = streamPptTask(this.outlineGenerationTaskId, {
+          onEvent: payload => this.applyOutlineGenerationSnapshot(payload, runId),
+          onDone: payload => this.applyOutlineGenerationSnapshot(payload, runId),
+          onError: payload => this.applyOutlineGenerationSnapshot(payload, runId)
+        })
+        await this.outlineGenerationStream
+      } catch (error) {
+        if (runId !== this.outlineGenerationRunId) return
+        await this.pollOutlineGenerationTask(runId)
+      } finally {
+        this.outlineGenerationStream = null
+      }
+    },
+    async pollOutlineGenerationTask(runId) {
+      for (let attempt = 0; attempt < 900 && runId === this.outlineGenerationRunId; attempt += 1) {
+        const response = await getPptTask(this.outlineGenerationTaskId)
+        const task = this.responseData(response)
+        this.applyOutlineGenerationSnapshot(task, runId)
+        if (['completed', 'failed', 'cancelled', 'timed_out'].includes(String(task.status || ''))) return
+        await new Promise(resolve => setTimeout(resolve, 1000))
+      }
+      if (runId === this.outlineGenerationRunId) throw new Error('大纲生成等待超时，可稍后重新进入查看')
+    },
+    applyOutlineGenerationSnapshot(task, runId) {
+      if (!task || runId !== this.outlineGenerationRunId) return
+      this.outlineGenerationSnapshot = task
+      this.persistActiveTask('outline', this.outlineGenerationTaskId)
+      if (task.status === 'failed' || task.status === 'timed_out') {
+        this.clearActiveTaskStorage()
+        throw new Error(task.error?.message || task.message || '大纲生成失败')
+      }
+      if (task.status === 'cancelled') {
+        this.clearActiveTaskStorage()
+        this.apiBusy = false
+        throw new Error('大纲生成已取消')
+      }
+    },
     detectOutlineItems() {
-      const lines = String(this.fileContent || '').split(/\r?\n/).map(line => line.trim()).filter(Boolean)
+      const source = [this.fileContent, this.manualSourceContent].map(value => String(value || '').trim()).filter(Boolean).join('\n')
+      const lines = source.split(/\r?\n/).map(line => line.trim()).filter(Boolean)
       const candidates = lines.filter(line => {
         if (line.length > 42) return false
         return /^(第[一二三四五六七八九十百\d]+[章节篇部分]|[一二三四五六七八九十]+[、.．]|[\d]+[、.．])/.test(line)
@@ -1650,15 +2106,114 @@ export default {
         return this.createOutlineItem(line, level)
       })
     },
+    extractOutlineItems(task) {
+      const root = this.responseData(task)
+      const nestedOutline = this.responseData(root?.outline)
+      const nestedResult = this.responseData(root?.result)
+      const candidates = [
+        root?.items,
+        nestedOutline?.items,
+        nestedResult?.items,
+        root?.data?.items,
+        root?.payload?.items
+      ]
+      const items = candidates.find(value => Array.isArray(value) && value.length) || []
+      if (items.length) {
+        const source = Array.isArray(nestedOutline?.items) && nestedOutline.items.length
+          ? nestedOutline
+          : (Array.isArray(nestedResult?.items) && nestedResult.items.length ? nestedResult : root)
+        return { items, outline: { ...(source || {}), items } }
+      }
+      const markdown = String(
+        root?.outlineMarkdown || nestedOutline?.outlineMarkdown || nestedResult?.outlineMarkdown || ''
+      ).trim()
+      const parsed = this.parseOutlineMarkdownItems(markdown)
+      return { items: parsed, outline: { ...(nestedOutline || root || {}), items: parsed } }
+    },
+    parseOutlineMarkdownItems(markdown) {
+      const text = String(markdown || '')
+      if (!text) return []
+      const matches = []
+      const headingPattern = /^###\s+(?!大纲信息\s*$)(.+)$/gm
+      let match
+      while ((match = headingPattern.exec(text))) matches.push({ title: match[1].trim(), start: match.index, end: headingPattern.lastIndex })
+      return matches.map((heading, index) => {
+        const block = text.slice(heading.end, matches[index + 1]?.start || text.length)
+        const title = block.match(/^\s*-\s*页标题[：:]\s*(.+)$/m)?.[1]?.trim() || heading.title
+        const contentStart = block.search(/^\s*-\s*核心内容[：:]?.*$/m)
+        const contentBlock = contentStart >= 0 ? block.slice(contentStart) : block
+        const points = [...contentBlock.matchAll(/^\s*-\s+(.+)$/gm)]
+          .map(item => item[1].trim())
+          .filter(item => item && !/^(页标题|页面类型|本页目标|核心内容|展示建议|素材建议)[：:]?/.test(item))
+        const rawLevel = block.match(/^\s*-\s*(?:大纲层级|层级)[：:]\s*(.+)$/m)?.[1]?.trim()
+        return {
+          id: `slide_${index + 1}`,
+          level: this.normalizeOutlineLevel(rawLevel, title),
+          title,
+          type: block.match(/^\s*-\s*页面类型[：:]\s*(.+)$/m)?.[1]?.trim() || 'content',
+          objective: block.match(/^\s*-\s*本页目标[：:]\s*(.+)$/m)?.[1]?.trim() || '',
+          keyPoints: points
+        }
+      }).filter(item => item.title || item.keyPoints.length)
+    },
     createOutlineItem(title = '', level = 2) {
       return { id: `outline-${Date.now()}-${Math.random().toString(16).slice(2)}`, title, level }
     },
     addOutlineItem() {
       this.outlineItems.push(this.createOutlineItem('', 2))
     },
+    normalizeOutlineLevel(value, title = '') {
+      const raw = value && typeof value === 'object'
+        ? (value.level ?? value.outlineLevel ?? value['大纲层级'] ?? value['层级'])
+        : value
+      const text = String(raw ?? '').replace(/\s+/g, '').toLowerCase()
+      if (/^[123]$/.test(text)) return Number(text)
+      const aliases = {
+        '章节': 1, '章': 1, 'chapter': 1, 'section': 1, '一级': 1,
+        '小节': 2, '节': 2, '节点': 2, 'node': 2, 'subsection': 2, '二级': 2,
+        '知识点': 3, '知识节点': 3, '要点': 3, 'knowledgepoint': 3, '三级': 3
+      }
+      if (Object.prototype.hasOwnProperty.call(aliases, text)) return aliases[text]
+      return this.inferOutlineLevelFromTitle(title)
+    },
+    normalizeOutlineItems(items) {
+      const normalized = (Array.isArray(items) ? items : []).map((item, index) => ({
+        ...item,
+        id: item.id || `outline-${Date.now()}-${index}`,
+        level: this.normalizeOutlineLevel(
+          item.level ?? item.outlineLevel ?? item['大纲层级'] ?? item['层级']
+            ?? (['章节', '小节', '节点', '知识点'].includes(String(item.type || '').trim()) ? item.type : ''),
+          item.title
+        ),
+        title: String(item.title || '')
+      }))
+      if (normalized.length < 2 || !normalized.every(item => item.level === 1)) return normalized
+
+      const titles = normalized.map(item => String(item.title || '').trim())
+      const allChapterTitles = titles.every(title => /^(?:第[一二三四五六七八九十百\d]+[篇章节部分]|\d+[、.．)）])/.test(title))
+      if (allChapterTitles) return normalized
+      normalized.forEach((item, index) => {
+        const pageType = String(item.type || '').toLowerCase()
+        const title = titles[index]
+        if (index === 0 || ['封面页', '目录页', 'cover', 'catalog'].includes(pageType)) item.level = 1
+        else if (index === normalized.length - 1 && ['总结页', 'summary'].includes(pageType)) item.level = 1
+        else if (/知识点|知识节点|考点|要点|细节|关键概念|机制|方法|应用|案例|辨析/.test(title)) item.level = 3
+        else item.level = 2
+      })
+      return normalized
+    },
     outlineLevelIndex(level) {
-      const index = this.outlineLevels.findIndex(item => item.value === level)
+      const index = this.outlineLevels.findIndex(item => item.value === this.normalizeOutlineLevel(level))
       return index >= 0 ? index : 1
+    },
+    inferOutlineLevelFromTitle(title) {
+      const value = String(title || '').replace(/\s+/g, '')
+      if (/^第[一二三四五六七八九十百\d]+[篇章节部分]/.test(value)) return 1
+      if (/^\d+\.\d+\.\d+(?:[.、．)）]|$|(?=[\u4e00-\u9fff]))/.test(value)) return 3
+      if (/^\d+\.\d+(?:[.、．)）]|$|(?=[\u4e00-\u9fff]))/.test(value)) return 2
+      if (/^\d+(?:[、.．)）]|(?=[\u4e00-\u9fff]))/.test(value)) return 2
+      if (/^[一二三四五六七八九十百]+[、.．)）]/.test(value)) return 2
+      return 1
     },
     outlineLevelLabel(level) {
       return this.outlineLevels[this.outlineLevelIndex(level)]?.label || '小节'
@@ -1685,9 +2240,21 @@ export default {
       this.outlineItems = items
     },
     confirmOutline() {
-      if (!this.validOutlineItems.length) return
+      if (this.validOutlineItems.length < 2) {
+        uni.showToast({ title: '至少保留两页大纲内容', icon: 'none' })
+        return
+      }
       this.saveOutlineSnapshot(false)
+      if (this.slides.length) this.slidesDirty = true
       this.currentStep = 4
+    },
+    handleSettingsNext() {
+      if (this.canReturnToEditor) {
+        this.currentStep = 5
+        this.$nextTick(() => this.scheduleEditorPreview(true))
+        return
+      }
+      return this.prepareSlides()
     },
     saveOutlineSnapshot(showFeedback = true) {
       if (!this.validOutlineItems.length) return
@@ -1712,7 +2279,8 @@ export default {
     },
     async prepareSlides() {
       const outlines = this.validOutlineItems
-      if (!outlines.length) {
+      if (outlines.length < 2) {
+        uni.showToast({ title: '至少保留两页大纲内容', icon: 'none' })
         this.currentStep = 3
         return
       }
@@ -1731,12 +2299,14 @@ export default {
           outline,
           sourceContent: this.fileContent,
           sourceFileId: this.sourceFileId,
+          sourceSupplement: this.sourceFileId ? this.manualSourceContent : '',
           settings: this.buildSettings(),
           sharedPrompt: this.sharedPrompt
         })
         const created = this.responseData(response)
         this.slideGenerationTaskId = String(created.taskId || '')
         if (!this.slideGenerationTaskId) throw new Error('服务端未返回逐页生成任务编号')
+        this.persistActiveTask('slides', this.slideGenerationTaskId)
         await this.followSlideGenerationTask(runId)
         if (runId !== this.slideGenerationRunId) return
         const result = this.responseData(await getPptTask(this.slideGenerationTaskId))
@@ -1760,7 +2330,14 @@ export default {
         if (result.sharedPrompt) this.sharedPrompt = String(result.sharedPrompt)
         this.pageCount = this.slides.length
         this.activeSlideIndex = 0
+        this.slidesDirty = false
+        this.clearActiveTaskStorage()
+        this.editorPreviewCache = {}
         this.currentStep = 5
+        this.$nextTick(() => {
+          this.ensureEditorLayoutPreview(0)
+          this.scheduleEditorPreview(true)
+        })
       } catch (error) {
         this.handlePptError(error, '页面内容生成失败')
       } finally {
@@ -1784,11 +2361,11 @@ export default {
       }
     },
     async pollSlideGenerationTask(runId) {
-      for (let attempt = 0; attempt < 7200 && runId === this.slideGenerationRunId; attempt += 1) {
+      for (let attempt = 0; attempt < 1200 && runId === this.slideGenerationRunId; attempt += 1) {
         const response = await getPptTask(this.slideGenerationTaskId)
         const task = this.responseData(response)
         this.applySlideGenerationSnapshot(task, runId)
-        if (['completed', 'failed', 'cancelled'].includes(String(task.status || ''))) return
+        if (['completed', 'failed', 'cancelled', 'timed_out'].includes(String(task.status || ''))) return
         await new Promise(resolve => setTimeout(resolve, 1000))
       }
       if (runId === this.slideGenerationRunId) throw new Error('逐页生成等待超时，可稍后重新进入查看')
@@ -1796,10 +2373,17 @@ export default {
     applySlideGenerationSnapshot(task, runId) {
       if (!task || runId !== this.slideGenerationRunId) return
       this.slideGenerationSnapshot = task
+      this.persistActiveTask('slides', this.slideGenerationTaskId)
       if (task.status === 'failed') {
+        this.clearActiveTaskStorage()
         throw new Error(task.error?.message || task.message || '逐页内容生成失败')
       }
+      if (task.status === 'timed_out') {
+        this.clearActiveTaskStorage()
+        throw new Error(task.error?.message || task.message || '逐页内容生成超时，请重试')
+      }
       if (task.status === 'cancelled') {
+        this.clearActiveTaskStorage()
         this.apiBusy = false
         throw new Error('逐页内容生成已取消')
       }
@@ -1818,23 +2402,96 @@ export default {
         })),
         sharedPrompt: this.sharedPrompt,
         settings: this.buildSettings(),
-        exportFormats: ['pptx', 'pdf']
+        exportFormats: ['pptx'],
+        generationWarnings: [...this.generationWarnings]
       }
     },
+    clonePptValue(value) {
+      if (value == null) return value
+      try {
+        return JSON.parse(JSON.stringify(value))
+      } catch (error) {
+        return value
+      }
+    },
+    captureSuccessfulResult() {
+      if (!this.taskId || String(this.taskResult?.status || '') !== 'completed') return null
+      return this.clonePptValue({
+        taskId: this.taskId,
+        taskResult: this.taskResult,
+        slides: this.slides,
+        pageCount: this.pageCount,
+        pptStyle: this.pptStyle,
+        settings: this.settings,
+        sharedPrompt: this.sharedPrompt,
+        outlineDocument: this.outlineDocument,
+        outlineItems: this.outlineItems,
+        outlineName: this.outlineName,
+        generationWarnings: this.generationWarnings,
+        exportFormat: this.exportFormat,
+        savedAt: Date.now()
+      })
+    },
+    saveSuccessfulResult() {
+      const result = this.captureSuccessfulResult()
+      if (!result) return
+      this.lastSuccessfulResult = result
+      this.editorDirty = false
+    },
+    restoreLastSuccessfulResult() {
+      const saved = this.lastSuccessfulResult
+      if (!saved?.taskId || !saved.taskResult) return false
+      this.taskId = String(saved.taskId)
+      this.taskResult = this.clonePptValue(saved.taskResult)
+      this.slides = this.clonePptValue(saved.slides || [])
+      this.pageCount = Number(saved.pageCount || this.slides.length || this.pageCount)
+      this.pptStyle = saved.pptStyle || this.pptStyle
+      this.settings = { ...this.settings, ...(saved.settings || {}) }
+      this.sharedPrompt = saved.sharedPrompt || this.sharedPrompt
+      this.outlineItems = this.normalizeOutlineItems(
+        Array.isArray(saved.outlineItems) ? this.clonePptValue(saved.outlineItems) : this.outlineItems
+      )
+      this.outlineDocument = saved.outlineDocument
+        ? { ...saved.outlineDocument, items: this.outlineItems }
+        : this.outlineDocument
+      this.outlineName = saved.outlineName || this.outlineName
+      this.generationWarnings = Array.isArray(saved.generationWarnings) ? [...saved.generationWarnings] : []
+      if (saved.exportFormat) this.exportFormat = saved.exportFormat
+      this.activeSlideIndex = Math.min(Math.max(0, this.activeSlideIndex), Math.max(0, this.slides.length - 1))
+      this.progress = 100
+      this.editorDirty = false
+      this.currentStep = 7
+      this.exportReady = false
+      this.previewImages = {}
+      this.loadPreviewImages()
+      return true
+    },
     canReuseCompletedTask() {
-      if (!this.taskId || String(this.taskResult?.status || '') !== 'completed') return false
-      if (!this.completedTaskFingerprint) return false
-      return JSON.stringify(this.buildTaskPayload()) === this.completedTaskFingerprint
+      return this.hasLastSuccessfulResult && !this.editorDirty
     },
     async startGeneration() {
       if (this.apiBusy || this.slides.length < 2) return
       // 任务已完成且内容未改：直接回看结果，不重复创建任务
       if (this.canReuseCompletedTask()) {
-        this.progress = 100
-        this.currentStep = 7
-        this.loadPreviewImages()
+        this.restoreLastSuccessfulResult()
         return
       }
+      if (this.hasLastSuccessfulResult && this.editorDirty) {
+        uni.showModal({
+          title: '确认重新生成',
+          content: '当前页面内容已修改，确认重新生成 PPT 吗？',
+          confirmText: '确认生成',
+          cancelText: '继续编辑',
+          success: result => {
+            if (result?.confirm) this.runGeneration()
+          }
+        })
+        return
+      }
+      await this.runGeneration()
+    },
+    async runGeneration() {
+      if (this.apiBusy || this.slides.length < 2) return
       this.clearTimers()
       const runId = ++this.generationRunId
       this.apiBusy = true
@@ -1842,6 +2499,7 @@ export default {
       this.lastPptError = ''
       this.currentStep = 6
       this.progress = 2
+      this.taskId = ''
       this.taskResult = null
       this.completedTaskFingerprint = ''
       this.previewImages = {}
@@ -1852,6 +2510,7 @@ export default {
         const created = this.responseData(response)
         this.taskId = String(created.taskId || '')
         if (!this.taskId) throw new Error('服务端未返回 PPT 任务编号')
+        this.persistActiveTask('final', this.taskId)
         this.apiBusy = false
         await this.followGenerationTask(runId)
       } catch (error) {
@@ -1878,6 +2537,7 @@ export default {
         const nextTaskId = String(created.taskId || '')
         if (!nextTaskId) throw new Error('服务端未返回重试任务编号')
         this.taskId = nextTaskId
+        this.persistActiveTask('final', this.taskId)
         this.taskResult = {
           ...created,
           status: created.status || 'queued',
@@ -1915,7 +2575,7 @@ export default {
         const response = await getPptTask(this.taskId)
         const task = this.responseData(response)
         this.applyTaskSnapshot(task, runId)
-        if (['completed', 'failed', 'cancelled'].includes(String(task.status || ''))) return
+        if (['completed', 'failed', 'cancelled', 'timed_out'].includes(String(task.status || ''))) return
         await new Promise(resolve => setTimeout(resolve, 1000))
       }
       if (runId === this.generationRunId) throw new Error('PPT 生成等待超时，可稍后重新进入查看')
@@ -1923,18 +2583,30 @@ export default {
     applyTaskSnapshot(task, runId) {
       if (!task || runId !== this.generationRunId) return
       this.taskResult = task
+      this.generationWarnings = Array.isArray(task.warnings) ? task.warnings : []
+      this.persistActiveTask('final', this.taskId)
       // 任务完成即固化本次提交内容指纹（含后台完成：用户已提前返回编辑页）
       if (String(task.status || '') === 'completed' && this.pendingTaskFingerprint) {
         this.completedTaskFingerprint = this.pendingTaskFingerprint
       }
       this.progress = Math.max(this.progress, Math.min(100, Number(task.progress || 0)))
       if (task.status === 'failed') {
+        this.clearActiveTaskStorage()
         const message = task.error?.message || task.message || 'PPT 生成失败'
         this.currentStep = 5
         this.progress = 0
         throw new Error(message)
       }
+      if (task.status === 'timed_out') {
+        this.clearActiveTaskStorage()
+        const message = task.error?.message || task.message || 'PPT 生成超时，请重试'
+        this.currentStep = 5
+        this.progress = 0
+        this.apiBusy = false
+        throw new Error(message)
+      }
       if (task.status === 'cancelled') {
+        this.clearActiveTaskStorage()
         this.currentStep = 5
         this.progress = 0
         this.apiBusy = false
@@ -1944,10 +2616,12 @@ export default {
         this.progress = 100
         const availableFormat = (task.attachments || []).some(item => item?.type === this.exportFormat)
           ? this.exportFormat
-          : (task.attachments || []).find(item => item?.type === 'pptx' || item?.type === 'pdf')?.type
+          : (task.attachments || []).find(item => item?.type === 'pptx')?.type
         if (availableFormat) this.exportFormat = availableFormat
         this.loadPreviewImages()
+        this.saveSuccessfulResult()
         this.recordGenerationHistory()
+        this.clearActiveTaskStorage()
         this.currentStep = 7
       }
     },
@@ -1960,7 +2634,11 @@ export default {
       if (index < this.activeGenerationIndex) return item.doneText
       return item.activeText
     },
-    async cancelGeneration() {
+    async cancelGeneration(options = {}) {
+      const hadPreviousResult = this.hasLastSuccessfulResult
+      const targetStep = this.currentStep === 3
+        ? 3
+        : (this.currentStep === 4 ? 4 : (this.currentStep === 6 ? 5 : this.currentStep))
       if (this.taskId) {
         try {
           await cancelPptTask(this.taskId)
@@ -1971,13 +2649,68 @@ export default {
           await cancelPptTask(this.slideGenerationTaskId)
         } catch (error) {}
       }
+      if (this.outlineGenerationTaskId) {
+        try {
+          await cancelPptTask(this.outlineGenerationTaskId)
+        } catch (error) {}
+      }
       this.clearTimers()
       this.generationRunId += 1
+      this.outlineGenerationRunId += 1
       this.slideGenerationRunId += 1
       this.progress = 0
-      this.currentStep = 5
+      this.apiBusy = false
+      this.clearActiveTaskStorage()
+      this.currentStep = targetStep
+      if (targetStep === 5) {
+        this.taskId = ''
+        this.taskResult = null
+        this.pendingTaskFingerprint = ''
+        this.completedTaskFingerprint = ''
+      }
+      if (targetStep === 3) {
+        this.outlineGenerationTaskId = ''
+        this.outlineGenerationSnapshot = null
+      }
+      if (targetStep === 4) {
+        this.slideGenerationTaskId = ''
+        this.slideGenerationSnapshot = null
+      }
+      if (hadPreviousResult && targetStep === 5 && !options?.silent) {
+        uni.showModal({
+          title: '生成已取消',
+          content: '是否返回上次成功生成的 PPT？',
+          confirmText: '返回成品',
+          cancelText: '继续编辑',
+          success: result => {
+            if (result?.confirm) this.restoreLastSuccessfulResult()
+          }
+        })
+      } else {
+        uni.showToast({ title: '已取消生成，可继续编辑', icon: 'none' })
+      }
     },
     restartFromSettings() {
+      uni.showModal({
+        title: '确认重新生成',
+        content: '重新生成会使用当前设置创建一份新的 PPT，是否继续？',
+        confirmText: '继续生成',
+        cancelText: '取消',
+        success: result => {
+          if (result?.confirm) this.goToSettingsForRegeneration()
+        }
+      })
+    },
+    goToSettingsForRegeneration() {
+      // 将编辑页里的单页提示词带回大纲，下一次页面内容生成时由后端明确传给模型。
+      if (this.slides.length) {
+        this.outlineItems = this.outlineItems.map((item, index) => ({
+          ...item,
+          privatePrompt: String(this.slides[index]?.privatePrompt || item.privatePrompt || '')
+        }))
+      }
+      this.markEditorDirty()
+      this.slidesDirty = true
       this.progress = 0
       this.exportReady = false
       this.currentStep = 4
@@ -2077,8 +2810,102 @@ export default {
       this.exportReady = false
     },
     returnToEditor() {
+      const status = String(this.taskResult?.status || '')
+      if (this.currentStep === 6 && !['completed', 'failed', 'cancelled', 'timed_out'].includes(status)) {
+        uni.showToast({ title: '生成仍在进行，请等待完成或取消生成', icon: 'none' })
+        return
+      }
       this.currentStep = 5
       this.exportReady = false
+      this.$nextTick(() => this.scheduleEditorPreview(true))
+    },
+    returnToLastSuccessfulResult() {
+      if (!this.hasLastSuccessfulResult) return
+      if (!this.editorDirty) {
+        this.restoreLastSuccessfulResult()
+        return
+      }
+      uni.showModal({
+        title: '返回上次成品',
+        content: '当前修改还没有重新生成，返回后将放弃这些修改，是否继续？',
+        confirmText: '返回成品',
+        cancelText: '继续编辑',
+        success: result => {
+          if (result?.confirm) this.restoreLastSuccessfulResult()
+        }
+      })
+    },
+    selectEditorSlide(index) {
+      const nextIndex = Number(index)
+      if (!Number.isInteger(nextIndex) || nextIndex < 0 || nextIndex >= this.slides.length) return
+      this.activeSlideIndex = nextIndex
+      const cachedPreview = this.editorPreviewCache[this.editorPreviewCacheKey(nextIndex)] || ''
+      this.editorPreviewImage = cachedPreview
+      this.editorPreviewSlideIndex = cachedPreview ? nextIndex : -1
+      this.editorPreviewError = ''
+      this.ensureEditorLayoutPreview(nextIndex)
+      this.$nextTick(() => this.scheduleEditorPreview(true))
+    },
+    onEditorContentInput() {
+      this.markEditorDirty()
+      this.applyManualTextOverride()
+      delete this.editorPreviewCache[this.editorPreviewCacheKey()]
+      this.editorPreviewImage = ''
+      this.editorPreviewSlideIndex = -1
+      this.editorPreviewError = ''
+      this.scheduleEditorPreview()
+    },
+    scheduleEditorPreview(immediate = false) {
+      if (this.editorPreviewTimer) {
+        clearTimeout(this.editorPreviewTimer)
+        this.editorPreviewTimer = null
+      }
+      if (this.editorPreviewLoading) {
+        this.editorPreviewQueued = true
+        return
+      }
+      const requestId = ++this.editorPreviewRequestId
+      const render = async () => {
+        this.editorPreviewTimer = null
+        const slide = this.activeSlide
+        if (!slide || !slide.ui || typeof slide.ui !== 'object') {
+          this.editorPreviewLoading = false
+          this.editorPreviewError = '当前页面暂无可视化预览'
+          return
+        }
+        const snapshot = JSON.parse(JSON.stringify(slide))
+        const previewSlideIndex = this.activeSlideIndex
+        snapshot.index = previewSlideIndex + 1
+        this.editorPreviewLoading = true
+        this.editorPreviewError = ''
+        try {
+          const response = await renderPptPreview({
+            templateId: this.pptStyle || 'general',
+            title: this.outlineName || this.resultName || '演示文稿',
+            settings: this.buildSettings(),
+            slide: snapshot
+          })
+          if (requestId !== this.editorPreviewRequestId) return
+          const result = this.responseData(response)
+           if (!result.imageBase64) throw new Error('服务端未返回预览图')
+           this.editorPreviewImage = `data:${result.mimeType || 'image/png'};base64,${result.imageBase64}`
+           this.editorPreviewSlideIndex = previewSlideIndex
+           this.editorPreviewCache[this.editorPreviewCacheKey(previewSlideIndex)] = this.editorPreviewImage
+        } catch (error) {
+          if (requestId !== this.editorPreviewRequestId) return
+          this.editorPreviewError = this.errorMessage(error, '最终预览暂不可用')
+        } finally {
+          if (requestId === this.editorPreviewRequestId) {
+            this.editorPreviewLoading = false
+            if (this.editorPreviewQueued) {
+              this.editorPreviewQueued = false
+              this.scheduleEditorPreview(true)
+            }
+          }
+        }
+      }
+      if (immediate) return render()
+      this.editorPreviewTimer = setTimeout(render, 500)
     },
     async prepareExport() {
       if (!this.taskId) {
@@ -2138,7 +2965,7 @@ export default {
       }
       const titleNode = textNodes.find(node => {
         const name = String(node.name || '').toLowerCase()
-        return /(headline|heading|title)/.test(name)
+        return /(headline|heading|title|main_title|main_heading|slide_headline|primary_heading)/.test(name)
           && !/(item|card|feature|metric|label|number|page|footer|badge|caption)/.test(name)
       })
       if (titleNode) setText(titleNode, slide.title)
@@ -2151,7 +2978,370 @@ export default {
       if (bodyNodes.length) {
         const lines = String(slide.content || '').split(/\r?\n/).map(line => line.trim()).filter(Boolean)
         if (bodyNodes.length === 1) setText(bodyNodes[0], lines.join('\n'))
-        else bodyNodes.slice(0, lines.length).forEach((node, index) => setText(node, lines[index]))
+        else bodyNodes.forEach((node, index) => setText(node, lines[index] || ''))
+      }
+    },
+    persistActiveTask(kind, taskId) {
+      if (!taskId) return
+      try {
+        uni.removeStorageSync('aiPptDraft')
+        uni.setStorageSync('aiPptActiveTask', {
+          savedAt: Date.now(),
+          kind,
+          taskId: String(taskId),
+          status: String(this.taskResult?.status || this[`${kind}GenerationSnapshot`]?.status || ''),
+          currentStep: this.currentStep,
+          fileInfo: this.fileInfo,
+          fileContent: this.sourceFileId ? '' : this.fileContent,
+          sourceFileId: this.sourceFileId,
+          manualSourceContent: this.manualSourceContent,
+          outlineMode: this.outlineMode,
+          outlineName: this.outlineName,
+          outlineItems: this.outlineItems,
+          outlineDocument: this.outlineDocument,
+          pageCount: this.pageCount,
+          pptStyle: this.pptStyle,
+          settings: this.settings,
+          contentLevel: this.contentLevel,
+          sharedPrompt: this.sharedPrompt,
+          slides: this.slides,
+          activeSlideIndex: this.activeSlideIndex,
+          slidesDirty: this.slidesDirty,
+          outlineSourceDirty: this.outlineSourceDirty,
+          editorDirty: this.editorDirty,
+          lastSuccessfulResult: this.lastSuccessfulResult,
+          templateThumbnailState: this.templateThumbnailState,
+          templateEntryMode: this.templateEntryMode,
+          templateCategory: this.templateCategory
+        })
+      } catch (error) {}
+    },
+    clearActiveTaskStorage() {
+      try { uni.removeStorageSync('aiPptActiveTask') } catch (error) {}
+    },
+    hasDraftContent(snapshot = {}) {
+      return Boolean(
+        snapshot.fileInfo
+        || String(snapshot.fileContent || '').trim()
+        || String(snapshot.manualSourceContent || '').trim()
+        || String(snapshot.sourceFileId || '').trim()
+        || (Array.isArray(snapshot.outlineItems) && snapshot.outlineItems.some(item => String(item?.title || '').trim()))
+        || (Array.isArray(snapshot.slides) && snapshot.slides.length)
+      )
+    },
+    readSavedWork() {
+      let activeTask = null
+      let draft = null
+      try {
+        activeTask = uni.getStorageSync('aiPptActiveTask') || null
+        draft = uni.getStorageSync('aiPptDraft') || null
+      } catch (error) {}
+      const terminal = ['completed', 'failed', 'cancelled', 'timed_out']
+      if (activeTask?.taskId && terminal.includes(String(activeTask.status || ''))) activeTask = null
+      return {
+        activeTask: activeTask?.taskId ? activeTask : null,
+        draft: this.hasDraftContent(draft) ? draft : null
+      }
+    },
+    scheduleDraftPersistence() {
+      if (this.restoringSavedWork) return
+      if (this.draftPersistTimer) clearTimeout(this.draftPersistTimer)
+      this.draftPersistTimer = setTimeout(() => {
+        this.draftPersistTimer = null
+        if (this.hasActivePptTask()) this.persistCurrentTaskSnapshot()
+        else this.persistDraft()
+      }, 180)
+    },
+    hasActivePptTask() {
+      const terminal = ['completed', 'failed', 'cancelled', 'timed_out']
+      const finalActive = this.taskId && !terminal.includes(String(this.taskResult?.status || ''))
+      const outlineActive = this.outlineGenerationTaskId && !terminal.includes(String(this.outlineGenerationSnapshot?.status || ''))
+      const slidesActive = this.slideGenerationTaskId && !terminal.includes(String(this.slideGenerationSnapshot?.status || ''))
+      return Boolean(finalActive || outlineActive || slidesActive)
+    },
+    persistCurrentTaskSnapshot() {
+      if (this.taskId) return this.persistActiveTask('final', this.taskId)
+      if (this.slideGenerationTaskId) return this.persistActiveTask('slides', this.slideGenerationTaskId)
+      if (this.outlineGenerationTaskId) return this.persistActiveTask('outline', this.outlineGenerationTaskId)
+    },
+    persistDraft() {
+      if (this.hasActivePptTask()) return
+      const snapshot = {
+        savedAt: Date.now(),
+        currentStep: this.currentStep,
+        fileInfo: this.fileInfo,
+        fileContent: this.sourceFileId ? '' : this.fileContent,
+        sourceFileId: this.sourceFileId,
+        manualSourceContent: this.manualSourceContent,
+        outlineMode: this.outlineMode,
+        outlineName: this.outlineName,
+        outlineItems: this.outlineItems,
+        outlineDocument: this.outlineDocument,
+        pageCount: this.pageCount,
+        pptStyle: this.pptStyle,
+        contentLevel: this.contentLevel,
+        settings: this.settings,
+        sharedPrompt: this.sharedPrompt,
+        slides: this.slides,
+        activeSlideIndex: this.activeSlideIndex,
+        slidesDirty: this.slidesDirty,
+        outlineSourceDirty: this.outlineSourceDirty,
+        taskId: this.taskId,
+        taskResult: this.taskResult,
+        generationWarnings: this.generationWarnings,
+        editorDirty: this.editorDirty,
+        lastSuccessfulResult: this.lastSuccessfulResult,
+        templateThumbnailState: this.templateThumbnailState,
+        templateEntryMode: this.templateEntryMode,
+        templateCategory: this.templateCategory
+      }
+      try {
+        if (this.hasDraftContent(snapshot)) uni.setStorageSync('aiPptDraft', snapshot)
+        else uni.removeStorageSync('aiPptDraft')
+      } catch (error) {}
+    },
+    restoreDraft(snapshot) {
+      if (!snapshot) return
+      this.restoringSavedWork = true
+      this.fileInfo = snapshot.fileInfo || null
+      this.fileContent = String(snapshot.fileContent || '')
+      this.sourceFileId = String(snapshot.sourceFileId || '')
+      this.manualSourceContent = String(snapshot.manualSourceContent || '')
+      this.outlineMode = snapshot.outlineMode || this.outlineMode
+      this.outlineName = snapshot.outlineName || ''
+      this.outlineItems = this.normalizeOutlineItems(
+        Array.isArray(snapshot.outlineItems) ? snapshot.outlineItems : []
+      )
+      this.outlineDocument = snapshot.outlineDocument
+        ? { ...snapshot.outlineDocument, items: this.outlineItems }
+        : null
+      // 兼容升级前缓存：旧版本把默认大纲上限持久化为 15；没有已生成页面时，
+      // 这只是旧默认值，不应继续把新的大纲任务锁回 15 页。
+      const draftPageCount = Number(snapshot.pageCount || 0)
+      this.pageCount = draftPageCount === 15 && !snapshot.slides?.length
+        ? DEFAULT_PPT_PAGE_COUNT
+        : (draftPageCount || this.pageCount)
+      this.pptStyle = snapshot.pptStyle || this.pptStyle
+      this.contentLevel = snapshot.contentLevel || this.contentLevel
+      this.settings = { ...this.settings, ...(snapshot.settings || {}) }
+      this.sharedPrompt = snapshot.sharedPrompt || this.sharedPrompt
+      this.slides = Array.isArray(snapshot.slides) ? snapshot.slides : []
+      this.activeSlideIndex = Math.min(Math.max(0, Number(snapshot.activeSlideIndex || 0)), Math.max(0, this.slides.length - 1))
+      this.slidesDirty = Boolean(snapshot.slidesDirty)
+      this.outlineSourceDirty = Boolean(snapshot.outlineSourceDirty)
+      this.taskId = String(snapshot.taskId || '')
+      this.taskResult = snapshot.taskResult || null
+      this.generationWarnings = Array.isArray(snapshot.generationWarnings) ? snapshot.generationWarnings : []
+      this.editorDirty = Boolean(snapshot.editorDirty)
+      this.lastSuccessfulResult = snapshot.lastSuccessfulResult || null
+      this.templateThumbnailState = snapshot.templateThumbnailState && typeof snapshot.templateThumbnailState === 'object'
+        ? { ...snapshot.templateThumbnailState }
+        : {}
+      if (snapshot.templateEntryMode) this.templateEntryMode = snapshot.templateEntryMode
+      if (snapshot.templateCategory) this.templateCategory = snapshot.templateCategory
+      const savedStep = Number(snapshot.currentStep)
+      if (Number.isInteger(savedStep) && savedStep >= 1 && savedStep <= this.stepMeta.length) this.currentStep = savedStep
+      this.restoringSavedWork = false
+    },
+    async promptSavedWork() {
+      const { activeTask, draft } = this.readSavedWork()
+      if (!activeTask && !draft) return
+      const savedAt = Number(activeTask?.savedAt || draft?.savedAt || 0)
+      const timeHint = savedAt ? `（保存于 ${new Date(savedAt).toLocaleString('zh-CN', { hour12: false })}）` : ''
+      const content = activeTask
+        ? `检测到上次有未完成的 PPT 任务${timeHint}。是否继续上次任务？`
+        : `检测到上次填写的资料和设置${timeHint}。是否继续上次编辑？`
+      const result = await new Promise(resolve => {
+        uni.showModal({
+          title: '发现未完成内容',
+          content,
+          confirmText: '继续',
+          cancelText: '重新输入',
+          success: resolve,
+          fail: () => resolve({ confirm: false })
+        })
+      })
+      if (result?.confirm) {
+        if (activeTask) await this.restoreActiveTask(activeTask)
+        else this.restoreDraft(draft)
+      } else {
+        await this.resetFlowState(true)
+      }
+    },
+    requestRestartFlow() {
+      uni.showModal({
+        title: '重新输入资料',
+        content: '重新输入会清空当前资料、大纲和页面设置，但不会删除历史记录。',
+        confirmText: '重新输入',
+        cancelText: '继续编辑',
+        success: result => {
+          if (result?.confirm) this.resetFlowState()
+        }
+      })
+    },
+    async resetFlowState(silent = false) {
+      const savedActiveTask = this.readSavedWork().activeTask
+      if (savedActiveTask?.taskId && !this.hasActivePptTask()) {
+        try { await cancelPptTask(String(savedActiveTask.taskId)) } catch (error) {}
+      }
+      if (this.hasActivePptTask()) await this.cancelGeneration({ silent: true })
+      this.clearTimers()
+      this.generationRunId += 1
+      this.outlineGenerationRunId += 1
+      this.slideGenerationRunId += 1
+      this.restoringSavedWork = true
+      this.clearTaskContext(false)
+      this.currentStep = this.templateFirstEnabled ? this.templateStepIndex : this.uploadStepIndex
+      this.templateEntryMode = this.templateFirstEnabled ? 'library' : 'upload'
+      this.fileInfo = null
+      this.fileContent = ''
+      this.manualSourceContent = ''
+      this.sourceFileId = ''
+      this.previewExpanded = false
+      this.outlineMode = 'ai_outline'
+      this.outlineName = ''
+      this.outlineItems = []
+      this.outlineDocument = null
+      this.outlineSourceDirty = false
+      this.layoutMarkdown = ''
+      this.outlineSavedAt = ''
+      this.contentLevel = 'standard'
+      this.slides = []
+      this.activeSlideIndex = 0
+      this.sharedPrompt = '保持资料内容准确，版面简洁清晰，突出核心知识点，使用清晰易读的视觉层级。'
+      this.settings = {
+        includeCover: true,
+        includeCatalog: true,
+        includeSection: true,
+        includeSummary: true,
+        includeVisuals: true,
+        imageMode: 'placeholder'
+      }
+      this.progress = 0
+      this.taskId = ''
+      this.taskResult = null
+      this.slideGenerationTaskId = ''
+      this.outlineGenerationTaskId = ''
+      this.slideGenerationSnapshot = null
+      this.outlineGenerationSnapshot = null
+      this.previewImages = {}
+      this.generationWarnings = []
+      this.lastPptError = ''
+      this.modelConfigError = false
+      this.exportReady = false
+      this.apiBusy = false
+      this.restoringSavedWork = false
+      try {
+        uni.removeStorageSync('aiPptActiveTask')
+        uni.removeStorageSync('aiPptDraft')
+      } catch (error) {}
+      if (!silent) uni.showToast({ title: '已清空，可重新输入', icon: 'none' })
+    },
+    async restoreActiveTask(savedState = null) {
+      let saved
+      try {
+        saved = savedState || uni.getStorageSync('aiPptActiveTask')
+      } catch (error) {
+        return
+      }
+      if (!saved?.taskId) return
+      this.fileInfo = saved.fileInfo || this.fileInfo
+      this.fileContent = String(saved.fileContent || '')
+      this.sourceFileId = String(saved.sourceFileId || '')
+      this.manualSourceContent = String(saved.manualSourceContent || '')
+      this.outlineMode = saved.outlineMode || this.outlineMode
+      this.outlineName = saved.outlineName || this.outlineName
+      this.outlineItems = this.normalizeOutlineItems(
+        Array.isArray(saved.outlineItems) ? saved.outlineItems : this.outlineItems
+      )
+      this.outlineDocument = saved.outlineDocument
+        ? { ...saved.outlineDocument, items: this.outlineItems }
+        : this.outlineDocument
+      const savedPageCount = Number(saved.pageCount || 0)
+      this.pageCount = saved.kind === 'outline' && savedPageCount === 15
+        ? DEFAULT_PPT_PAGE_COUNT
+        : (savedPageCount || this.pageCount)
+      this.pptStyle = saved.pptStyle || this.pptStyle
+      this.templateThumbnailState = saved.templateThumbnailState && typeof saved.templateThumbnailState === 'object'
+        ? { ...saved.templateThumbnailState }
+        : {}
+      if (saved.templateCategory) this.templateCategory = saved.templateCategory
+      this.settings = { ...this.settings, ...(saved.settings || {}) }
+      this.sharedPrompt = saved.sharedPrompt || this.sharedPrompt
+      this.slides = Array.isArray(saved.slides) ? saved.slides : this.slides
+      this.activeSlideIndex = Math.min(Math.max(0, Number(saved.activeSlideIndex || 0)), Math.max(0, this.slides.length - 1))
+      this.slidesDirty = Boolean(saved.slidesDirty)
+      this.outlineSourceDirty = Boolean(saved.outlineSourceDirty)
+      this.editorDirty = Boolean(saved.editorDirty)
+      this.lastSuccessfulResult = saved.lastSuccessfulResult || this.lastSuccessfulResult
+      if (saved.templateEntryMode) this.templateEntryMode = saved.templateEntryMode
+      const savedStep = Number(saved.currentStep)
+      const hasSavedStep = Number.isInteger(savedStep) && savedStep >= 1 && savedStep <= this.stepMeta.length
+      try {
+        const task = this.responseData(await getPptTask(String(saved.taskId)))
+        // 旧版本缓存可能把 pptStyle 留成 general，但任务结果记录了实际使用的模板。
+        // 以服务端任务结果为准，避免历史缓存把模板再次覆盖成默认值。
+        const taskTemplateId = String(task?.templateId || task?.settings?.templateId || '').trim()
+        if (taskTemplateId) this.pptStyle = taskTemplateId
+        const status = String(task?.status || '')
+        if (saved.kind === 'outline') {
+          this.outlineGenerationTaskId = String(saved.taskId)
+          this.outlineGenerationSnapshot = task
+          if (status === 'completed') {
+            const extracted = this.extractOutlineItems(task)
+            this.outlineItems = this.normalizeOutlineItems(extracted.items)
+            this.outlineDocument = { ...extracted.outline, items: this.outlineItems }
+            this.currentStep = hasSavedStep ? savedStep : 3
+            this.clearActiveTaskStorage()
+          } else if (!['failed', 'cancelled', 'timed_out'].includes(status)) {
+            this.currentStep = 3
+            const runId = ++this.outlineGenerationRunId
+            this.apiBusy = true
+            await this.followOutlineGenerationTask(runId)
+          }
+          return
+        }
+        if (saved.kind === 'slides') {
+          this.slideGenerationTaskId = String(saved.taskId)
+          this.slideGenerationSnapshot = task
+          const restoredSlides = Array.isArray(task.slides) && task.slides.length ? task.slides : saved.slides
+          if (status === 'completed' && Array.isArray(restoredSlides) && restoredSlides.length >= 2) {
+            this.slides = restoredSlides
+            this.pageCount = this.slides.length
+            this.currentStep = hasSavedStep ? savedStep : 5
+            this.generationWarnings = Array.isArray(task.warnings) ? task.warnings : []
+            this.clearActiveTaskStorage()
+          } else if (!['failed', 'cancelled', 'timed_out'].includes(status)) {
+            this.currentStep = 4
+            const runId = ++this.slideGenerationRunId
+            this.apiBusy = true
+            await this.followSlideGenerationTask(runId)
+          }
+          return
+        }
+        this.taskId = String(saved.taskId)
+        this.taskResult = task
+        this.generationWarnings = Array.isArray(task.warnings) ? task.warnings : []
+        this.progress = Number(task?.progress || 0)
+        if (status === 'completed') {
+          if (Array.isArray(task.slides) && task.slides.length) this.slides = task.slides
+          this.progress = 100
+          this.currentStep = hasSavedStep ? savedStep : 7
+          this.saveSuccessfulResult()
+          this.completedTaskFingerprint = JSON.stringify(this.buildTaskPayload())
+          this.clearActiveTaskStorage()
+          this.loadPreviewImages()
+        } else if (!['failed', 'cancelled', 'timed_out'].includes(status)) {
+          this.currentStep = 6
+          const runId = ++this.generationRunId
+          await this.followGenerationTask(runId)
+        } else {
+          this.currentStep = 5
+        }
+      } catch (error) {
+        this.apiBusy = false
+        this.lastPptError = this.errorMessage(error, '暂时无法读取上次任务，已保留本地内容，请稍后重试')
+        uni.showToast({ title: '暂时无法读取上次任务，缓存仍已保留', icon: 'none' })
       }
     },
     openHistory(tab) {
@@ -2164,32 +3354,59 @@ export default {
         name: this.resultName,
         createdAt: this.formatNow(),
         pageCount: this.pageCount,
-        scene: this.scene,
         pptStyle: this.pptStyle,
         contentLevel: this.contentLevel,
         outlineMode: this.outlineMode,
+        fileInfo: this.fileInfo,
+        sourceContent: this.sourceFileId ? '' : this.fileContent,
+        outlineName: this.outlineName,
+        outlineItems: this.validOutlineItems.map(item => ({ ...item })),
+        outlineDocument: this.outlineDocument,
         settings: { ...this.settings },
         sharedPrompt: this.sharedPrompt,
-        taskId: this.taskId
+        taskId: this.taskId,
+        lastSuccessfulResult: this.lastSuccessfulResult
       }
       this.generationHistory = [item, ...this.generationHistory].slice(0, 30)
       this.persistHistories()
     },
     reuseHistory(item) {
+      this.clearTimers()
+      this.clearTaskContext()
       if (this.historyTab === 'outline') {
         this.outlineName = item.name
         this.outlineMode = item.source
-        this.outlineItems = (item.items || []).map(entry => ({ ...entry, id: this.createOutlineItem().id }))
+        this.outlineItems = this.normalizeOutlineItems(
+          (item.items || []).map(entry => ({ ...entry, id: this.createOutlineItem().id }))
+        )
         this.currentStep = 3
       } else {
-        this.pageCount = Number(item.pageCount || 15)
-        this.scene = this.pptScenes.some(scene => scene.value === item.scene) ? item.scene : this.scene
+        this.pageCount = Number(item.pageCount || DEFAULT_PPT_PAGE_COUNT)
+        this.fileInfo = item.fileInfo || this.fileInfo
+        this.fileContent = String(item.sourceContent || '')
+        this.sourceFileId = ''
+        this.manualSourceContent = this.fileContent
+        this.outlineName = item.outlineName || this.outlineName
+        this.outlineItems = Array.isArray(item.outlineItems)
+          ? this.normalizeOutlineItems(item.outlineItems.map(entry => ({ ...entry, id: this.createOutlineItem().id })))
+          : this.outlineItems
+        this.outlineDocument = item.outlineDocument
+          ? { ...item.outlineDocument, items: this.outlineItems }
+          : this.outlineDocument
         this.pptStyle = item.pptStyle || 'general'
         this.contentLevel = item.contentLevel || 'standard'
         this.outlineMode = item.outlineMode || this.outlineMode
         this.settings = { ...this.settings, ...(item.settings || {}) }
         this.sharedPrompt = item.sharedPrompt || this.sharedPrompt
-        this.currentStep = this.validOutlineItems.length ? 4 : 3
+        this.lastSuccessfulResult = item.lastSuccessfulResult || null
+        if (this.hasLastSuccessfulResult && this.restoreLastSuccessfulResult()) {
+          this.currentStep = 7
+        } else if (!this.fileInfo || (!this.fileContent && !this.sourceFileId)) {
+          this.currentStep = this.uploadStepIndex
+          uni.showToast({ title: '历史记录未保留原始文件，请重新上传资料', icon: 'none' })
+        } else {
+          this.currentStep = this.validOutlineItems.length >= 2 ? 4 : 3
+        }
       }
       this.historyOpen = false
     },
@@ -2225,14 +3442,35 @@ export default {
         pageCount: this.pageCount,
         pptStyle: this.pptStyle,
         templateId: this.pptStyle,
-        scene: this.scene,
         contentLevel: this.contentLevel
       }
     },
+    editorPreviewCacheKey(index = this.activeSlideIndex) {
+      const slide = this.slides[index]
+      return `${this.pptStyle}:${slide?.id || index}`
+    },
+    editorLayoutIndex(index = this.activeSlideIndex) {
+      const layouts = this.selectedTemplateLayouts
+      if (!layouts.length) return -1
+      const slide = this.slides[index]
+      const slideLayoutId = String(slide?.templateLayoutId || slide?.layout || '')
+      const matchedIndex = layouts.findIndex(layout => String(layout?.id || '') === slideLayoutId)
+      return matchedIndex >= 0 ? matchedIndex : index % layouts.length
+    },
+    ensureEditorLayoutPreview(index = this.activeSlideIndex) {
+      const templateId = this.selectedTemplate?.id || this.pptStyle
+      const layoutIndex = this.editorLayoutIndex(index)
+      if (!templateId || layoutIndex < 0) return
+      this.ensureLayoutPreview(templateId, layoutIndex)
+    },
     responseData(response) {
-      return response && typeof response === 'object' && Object.prototype.hasOwnProperty.call(response, 'data')
-        ? (response.data || {})
-        : (response || {})
+      let value = response || {}
+      for (let depth = 0; depth < 4; depth += 1) {
+        if (!value || typeof value !== 'object' || Array.isArray(value)) break
+        if (!Object.prototype.hasOwnProperty.call(value, 'data') || value.data == null || value.data === value) break
+        value = value.data
+      }
+      return value || {}
     },
     errorMessage(error, fallback) {
       return String(error?.msg || error?.message || error?.data?.msg || fallback || '操作失败').slice(0, 80)
@@ -2297,10 +3535,16 @@ export default {
     },
     clearTimers() {
       this.stopOperationFeedback()
+      if (this.draftPersistTimer) {
+        clearTimeout(this.draftPersistTimer)
+        this.draftPersistTimer = null
+      }
       if (this.generationStream?.abort) this.generationStream.abort('ppt_generation_cancelled')
       this.generationStream = null
       if (this.slideGenerationStream?.abort) this.slideGenerationStream.abort('ppt_slide_generation_cancelled')
       this.slideGenerationStream = null
+      if (this.outlineGenerationStream?.abort) this.outlineGenerationStream.abort('ppt_outline_generation_cancelled')
+      this.outlineGenerationStream = null
       if (this.generationTimer) {
         clearInterval(this.generationTimer)
         clearTimeout(this.generationTimer)
@@ -2310,6 +3554,11 @@ export default {
         clearTimeout(this.exportTimer)
         this.exportTimer = null
       }
+      if (this.editorPreviewTimer) {
+        clearTimeout(this.editorPreviewTimer)
+        this.editorPreviewTimer = null
+      }
+      this.editorPreviewRequestId += 1
     }
   }
 }
@@ -2355,6 +3604,8 @@ export default {
 .editor-toolbar__title,.editor-toolbar__desc{display:block}
 .editor-toolbar__title{font-size:29rpx;font-weight:800}
 .editor-toolbar__desc{margin-top:7rpx;color:#8992a4;font-size:20rpx;line-height:1.45}
+.editor-toolbar__aside{display:flex;flex:none;align-items:flex-end;gap:10rpx;flex-direction:column}
+.editor-toolbar__result-link{color:#5c7a99;font-size:18rpx;font-weight:700}
 .outline-toolbar-actions{display:flex;flex:none;align-items:center;gap:10rpx}
 .outline-page-count{display:flex;height:48rpx;align-items:center;padding:0 15rpx;border-radius:999rpx;background:#eef0ff;color:#5062e8;font-size:18rpx;font-weight:800}
 .outline-history-button{display:flex;height:48rpx;align-items:center;padding:0 17rpx;border:1px solid #d7def4;border-radius:12rpx;color:#5062e9;font-size:20rpx;font-weight:700}
@@ -2390,6 +3641,10 @@ export default {
 .slide-tab--active{border-color:#586af3;background:#f2f3ff}
 .slide-tab--active text{color:#5263eb}
 .slide-editor__preview{position:relative;display:flex;min-height:270rpx;overflow:hidden;padding:32rpx;justify-content:center;flex-direction:column;border-left:7rpx solid #5265f5;border-radius:16rpx;background:#f6f8ff;box-sizing:border-box}
+.slide-editor__preview{aspect-ratio:16 / 9;min-height:0;padding:0;border-left:0;background:#eef1f7}
+.slide-editor__preview-image{display:block;width:100%;height:100%;background:#fff}
+.slide-editor__preview-fallback{position:relative;display:flex;width:100%;height:100%;padding:32rpx;justify-content:center;flex-direction:column;box-sizing:border-box}
+.slide-editor__preview-status{position:absolute;z-index:3;right:12rpx;bottom:12rpx;max-width:76%;padding:8rpx 13rpx;border-radius:99rpx;background:rgba(24,32,51,.76);color:#fff;font-size:17rpx;line-height:1.35}
 .slide-editor__preview--campus{border-left-color:#f1a653;background:#fff6e8}
 .slide-editor__preview--focus{border-left-color:#3eabbc;background:#172034;color:#fff}
 .slide-editor__preview-index,.slide-editor__preview-title,.slide-editor__preview-content{position:relative;z-index:1;display:block}
@@ -2488,13 +3743,20 @@ export default {
 .source-input-card__actions{display:flex;flex:none;align-items:center;gap:16rpx;color:#5265f5;font-size:20rpx;font-weight:700}
 .source-input-card__delete{color:#98a1b2}
 .source-textarea{width:100%;min-height:210rpx;padding:18rpx;border:0;background:#fff;color:#26384a;font-size:22rpx;line-height:1.55;box-sizing:border-box}
-.outline-mode-inline{display:flex;align-items:flex-start;justify-content:space-between;gap:18rpx;margin-top:18rpx;padding:18rpx;border:1px solid #e1e7ef;border-radius:16rpx;background:#fbfcff}
-.outline-mode-inline__title,.outline-mode-inline__desc{display:block}
-.outline-mode-inline__title{color:#172033;font-size:22rpx;font-weight:700}
-.outline-mode-inline__desc{margin-top:6rpx;color:#7c8798;font-size:18rpx;line-height:1.45}
-.outline-mode-inline__options{display:flex;flex:none;gap:8rpx}
-.outline-mode-chip{display:flex;height:46rpx;align-items:center;padding:0 16rpx;border:1px solid #dbe2ec;border-radius:999rpx;background:#fff;color:#64748b;font-size:18rpx;font-weight:700;white-space:nowrap}
-.outline-mode-chip--active{border-color:#5265f5;background:#eef1ff;color:#4658e7}
+.outline-mode-selector{margin-bottom:22rpx}
+.outline-mode-selector__head{display:flex;align-items:baseline;margin-bottom:12rpx}
+.outline-mode-selector__title{color:#26384a;font-size:25rpx;font-weight:800}
+.outline-mode-selector__options{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12rpx}
+.outline-mode-card{display:flex;min-width:0;min-height:150rpx;align-items:flex-start;gap:11rpx;padding:18rpx 15rpx;border:1px solid #dfe5ee;border-radius:16rpx;background:#fff;box-sizing:border-box;transition:border-color .2s,background-color .2s,box-shadow .2s}
+.outline-mode-card--selected{border-color:#6575e8;background:#f5f7ff;box-shadow:0 6rpx 18rpx rgba(82,101,245,.1)}
+.outline-mode-card__radio{display:flex;width:28rpx;height:28rpx;flex:none;align-items:center;justify-content:center;margin-top:2rpx;border:2rpx solid #b7c2d1;border-radius:50%;box-sizing:border-box}
+.outline-mode-card--selected .outline-mode-card__radio{border-color:#6575e8}
+.outline-mode-card__radio-dot{width:12rpx;height:12rpx;border-radius:50%;background:#6575e8}
+.outline-mode-card__copy{min-width:0;flex:1}
+.outline-mode-card__title,.outline-mode-card__desc{display:block}
+.outline-mode-card__title{color:#26384a;font-size:22rpx;font-weight:800;line-height:1.35}
+.outline-mode-card--selected .outline-mode-card__title{color:#4f60d8}
+.outline-mode-card__desc{margin-top:8rpx;color:#78869a;font-size:17rpx;line-height:1.5}
 .slide-task-card{margin-top:26rpx;padding:20rpx;border:1px solid #dfe7ef;border-radius:16rpx;background:#fff}
 .slide-task-card__head{display:flex;align-items:center;justify-content:space-between;color:#26384a;font-size:22rpx;font-weight:700}
 .slide-task-card__head text:first-child{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -2517,7 +3779,6 @@ export default {
 .format-status-row+.format-status-row{margin-top:12rpx}
 .format-status-row--disabled{background:#fbfcfe;opacity:.72}
 .format-status-row__icon{display:flex;width:50rpx;height:50rpx;flex:none;align-items:center;justify-content:center;border-radius:12rpx;background:#f07032;color:#fff;font-size:22rpx;font-weight:800}
-.format-status-row__icon--pdf{background:#ed4d4d;font-size:15rpx}
 .format-status-row__body{min-width:0;flex:1}
 .format-status-row__body text{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .format-status-row__body text:first-child{color:#26384a;font-size:22rpx;font-weight:700}
@@ -2597,12 +3858,12 @@ export default {
 .layout-cover__action{flex:none;padding:12rpx 22rpx;border-radius:999rpx;background:#5265f5}
 .layout-cover__action text{color:#fff;font-size:20rpx;font-weight:700}
 .layout-fullscreen{position:fixed;z-index:1400;inset:0;display:flex;flex-direction:column;background:#eceff3}
-.layout-fullscreen__bar{display:flex;align-items:center;justify-content:space-between;gap:18rpx;padding:calc(20rpx + env(safe-area-inset-top)) 24rpx 20rpx}
+.layout-fullscreen__bar{display:flex;align-items:center;gap:18rpx;padding:calc(20rpx + env(safe-area-inset-top)) 24rpx 20rpx}
+.layout-fullscreen__back{position:relative;display:flex;width:64rpx;height:64rpx;flex:none;align-items:center;justify-content:center;color:#172033}
+.layout-fullscreen__back::before{content:'';width:20rpx;height:20rpx;border-left:4rpx solid currentColor;border-bottom:4rpx solid currentColor;transform:rotate(45deg);border-radius:2rpx;box-sizing:border-box}
 .layout-fullscreen__bar-main{min-width:0;flex:1}
 .layout-fullscreen__title{display:block;overflow:hidden;color:#172033;font-size:27rpx;font-weight:800;text-overflow:ellipsis;white-space:nowrap}
 .layout-fullscreen__count{display:block;margin-top:5rpx;color:#667386;font-size:19rpx}
-.layout-fullscreen__close{display:flex;width:64rpx;height:64rpx;flex:none;align-items:center;justify-content:center;border-radius:50%;background:rgba(23,32,51,.08)}
-.layout-fullscreen__close text{color:#172033;font-size:40rpx;line-height:1}
 .layout-fullscreen__scroll{flex:1;height:100%;overflow:hidden}
 .layout-fullscreen__item{padding:0 16rpx}
 .layout-fullscreen__item+.layout-fullscreen__item{margin-top:12rpx}
@@ -2694,4 +3955,65 @@ export default {
 .stepper__item--done .stepper__state{color:#718094}
 @keyframes stepper-pulse{0%,100%{opacity:.55;box-shadow:0 0 0 4rpx rgba(82,101,245,.12)}50%{opacity:1;box-shadow:0 0 0 12rpx rgba(82,101,245,.2)}}
 @keyframes stepper-active{0%,100%{transform:scale(1)}50%{transform:scale(1.04)}}
+
+/* 视觉微调：保留原有结构，只把高饱和蓝紫、重阴影和脉冲感收敛为
+   校园应用统一的低饱和灰蓝层级。 */
+.ppt-flow{color:#1d1d1f}
+.flow-heading__eyebrow,.stepper-card__head>text{color:#5c7a99}
+.flow-heading__title{font-weight:700}
+.panel,.stepper-card{border-color:#e5e7eb;border-radius:16rpx;box-shadow:none}
+.primary-button{background:#5c7a99;box-shadow:none}
+.secondary-button{border-color:#d9dee3;color:#5c7a99}
+.single-action--floating,.bottom-actions{border-color:#e1e5e8;background:rgba(255,255,255,.98);box-shadow:0 -2rpx 16rpx rgba(40,55,70,.08);backdrop-filter:none}
+.stepper__track-value{background:#5c7a99}
+.stepper__track-pulse{display:none}
+.stepper__item--active,.stepper__item--done{color:#5c7a99}
+.stepper__item--active .stepper__number,.stepper__item--done .stepper__number{border-color:#5c7a99;background:#5c7a99;box-shadow:0 0 0 8rpx #eef2f4}
+.stepper__item--active .stepper__number{animation:none}
+.stepper__item--done .stepper__label,.stepper__item--active .stepper__label,.stepper__item--active .stepper__state{color:#5c7a99}
+.outline-page-count,.outline-history-button,.outline-level-picker{border-color:#dce2e6;background:#f7f9fa;color:#5c7a99}
+.outline-item{border-color:#e5e8eb;background:#fff;border-radius:13rpx}
+.outline-item__order{background:#eef2f4;color:#5c7a99}
+.outline-item__actions text,.template-category-tab--active{color:#5c7a99}
+.template-category-tab--active{border-color:#a9b8c3;background:#f1f4f5}
+.template-library-hero,.template-detail-card,.template-usage-card,.selected-template-strip{border-color:#e1e6e9;background:#fff;box-shadow:none}
+.template-library-hero__stack{opacity:.42}
+.template-library-hero__stack view{box-shadow:none;border-color:#d7e0e5}
+.template-library-hero__stack view:nth-child(1),.template-library-hero__stack view:nth-child(2),.template-library-hero__stack view:nth-child(3){transform:none}
+.template-library-card,.choice-card,.style-card,.export-choice{border-color:#e1e5e8;box-shadow:none}
+.template-library-card--selected,.choice-card--selected,.style-card--selected,.export-choice--selected{border-color:#8fa4b3;background:#f8fafb;box-shadow:none}
+.template-library-card__tag{background:#f0f3f4;color:#526a7b}
+.template-library-card__actions,.template-library-card__selected{color:#5c7a99}
+.segmented__item--active{color:#5c7a99;box-shadow:none}
+.operation-feedback,.slide-task-card,.progress-panel,.result-summary,.format-status-panel{box-shadow:none}
+.progress-ring{background:conic-gradient(#5c7a99 var(--progress),#e5e8eb 0);box-shadow:none}
+.generation-item__dot--active{background:#5c7a99;box-shadow:0 0 0 7rpx #eef2f4}
+.generation-item__dot--done{background:#6b9b7a}
+.loading-dots text{background:#5c7a99;animation:none;opacity:.7}
+.success-icon{background:#6b9b7a;box-shadow:none}
+.layout-cover__action,.layout-fullscreen__use{background:#5c7a99;box-shadow:none}
+.layout-fullscreen__loading-spinner{border-top-color:#5c7a99}
+
+/* 流程条配色：降低当前节点的视觉压迫感，统一为低饱和灰蓝层级。 */
+.stepper-card__head>text{color:#6f8497}
+.stepper__track{background:#e4e8eb}
+.stepper__track-value{background:#6f8497}
+.stepper__item{color:#a3adb5}
+.stepper__number{border-color:#d8dfe4;background:#fafbfb;color:#9aa5ad;box-shadow:0 0 0 8rpx #fff}
+.stepper__item--done{color:#78909f}
+.stepper__item--done .stepper__number{border-color:#8ea2af;background:#8ea2af;color:#fff;box-shadow:0 0 0 8rpx #f1f4f5}
+.stepper__item--active{color:#5f7587}
+.stepper__item--active .stepper__number{border-color:#6f8497;background:#6f8497;color:#fff;box-shadow:0 0 0 8rpx #eef2f4}
+.stepper__item--active .stepper__label,.stepper__item--done .stepper__label{color:#5f7587}
+.stepper__item--active .stepper__state{color:#6f8497}
+.stepper__item--done .stepper__state{color:#8a99a3}
+.stepper__item--clickable{cursor:pointer}
+.stepper__item--clickable:active{opacity:.72}
+.slide-preview-feed{height:820rpx;overflow:hidden;padding:2rpx 2rpx 24rpx;box-sizing:border-box}
+.slide-preview-feed__item{padding-bottom:24rpx}
+.slide-preview-feed__image{display:block;width:100%;height:auto;border:1px solid #dfe4ed;border-radius:12rpx;background:#fff;box-sizing:border-box}
+.slide-preview-feed__fallback{width:100%;aspect-ratio:16/9}
+.slide-preview-feed__meta{display:flex;align-items:center;justify-content:space-between;margin-top:8rpx;color:#7b8798;font-size:18rpx}
+.slide-preview-feed__meta text:last-child{min-width:0;margin-left:16rpx;overflow:hidden;color:#5265f5;font-weight:600;text-overflow:ellipsis;white-space:nowrap}
+.flow-heading{display:flex;align-items:center;justify-content:space-between}.flow-heading__copy{min-width:0}.flow-heading__actions{flex:none;margin-left:18rpx}.restart-input-button{display:flex;height:58rpx;align-items:center;padding:0 20rpx;border:1px solid #d7def4;border-radius:999rpx;background:#fff;color:#5265f5;font-size:21rpx;font-weight:700;line-height:1;box-shadow:0 5rpx 14rpx rgba(43,60,120,.06)}.restart-input-button:active{background:#f6f7ff;transform:scale(.97)}
 </style>

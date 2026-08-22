@@ -717,24 +717,6 @@
 					}
 				},
 				{
-					"path": "pptGenerate/pptGenerate",
-					"style": {
-						"navigationBarTitleText": "",
-						"navigationStyle": "custom",
-						"navigationBarBackgroundColor": "#FFFFFF",
-						"navigationBarTextStyle": "black"
-					}
-				},
-				{
-					"path": "pptPreview/pptPreview",
-					"style": {
-						"navigationBarTitleText": "",
-						"navigationStyle": "custom",
-						"navigationBarBackgroundColor": "#FFFFFF",
-						"navigationBarTextStyle": "black"
-					}
-				},
-				{
 					"path": "mindmapGenerate/mindmapGenerate",
 					"style": {
 						"navigationBarTitleText": "",
