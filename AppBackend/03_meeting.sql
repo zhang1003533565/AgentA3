@@ -15,6 +15,7 @@ CREATE TABLE IF NOT EXISTS meeting_session (
     meeting_type VARCHAR(20) NOT NULL DEFAULT 'quick' COMMENT '会议类型：quick-快速会议/reserved-预约会议',
     status VARCHAR(20) NOT NULL DEFAULT 'idle' COMMENT '会议状态：idle-未开始/active-进行中/paused-暂停/ended-已结束',
     scheduled_start_time DATETIME COMMENT '预约开始时间',
+    expected_duration_minutes INT DEFAULT 30 COMMENT '预计时长（分钟）',
     start_time DATETIME COMMENT '实际开始时间',
     end_time DATETIME COMMENT '结束时间',
     last_note VARCHAR(500) COMMENT '最后一段会议记录摘要',

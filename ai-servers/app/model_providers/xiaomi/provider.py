@@ -6,7 +6,12 @@ from fastapi import HTTPException
 from app.model_providers.base import ChatModelProvider
 from app.model_providers.deepseek.provider import to_llm_messages
 from app.model_providers.multimodal import build_multimodal_human_content
-from app.model_providers.runtime_config import LlmRuntimeConfig, resolve_llm_config
+from app.model_providers.runtime_config import (
+    LlmRuntimeConfig,
+    get_active_llm_timeout_seconds,
+    resolve_llm_config,
+)
+from app.observability.langfuse import langchain_callbacks
 from app.utils.logger import get_logger
 from app.utils.prompts import KEYWORD_EXTRACTION_PROMPT, build_search_facts_prompt
 from app.utils.text_utils import normalize_base_url, sanitize_keyword
@@ -42,9 +47,10 @@ class XiaomiProvider(ChatModelProvider):
             base_url=normalize_base_url(base_url),
             model=model,
             temperature=0.2,
-            timeout=60,
+            timeout=get_active_llm_timeout_seconds(),
             max_retries=1,
             default_headers={"api-key": api_key},
+            callbacks=langchain_callbacks(),
         )
 
     def complete(self, system_prompt: str, user_prompt: str) -> str:
@@ -54,7 +60,10 @@ class XiaomiProvider(ChatModelProvider):
             SystemMessage(content=system_prompt),
             HumanMessage(content=build_multimodal_human_content(user_prompt)),
         ])
-        return str(response.content or "").strip()
+        content = str(response.content or "").strip()
+        if not content and isinstance(getattr(response, "additional_kwargs", None), dict):
+            content = str(response.additional_kwargs.get("reasoning_content") or "").strip()
+        return content
 
     def stream_complete(self, system_prompt: str, user_prompt: str) -> Iterator[str]:
         from langchain_core.messages import HumanMessage, SystemMessage

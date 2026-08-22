@@ -21,6 +21,7 @@ export const portalGroups = [
       { path: '/forum/post', label: '帖子管理', icon: 'message', pageKey: 'forum-post' },
       { path: '/forum/comment', label: '评论管理', icon: 'comment', pageKey: 'forum-comment' },
       { path: '/forum/topic', label: '话题管理', icon: 'tag', pageKey: 'forum-topic' },
+      { path: '/forum/report', label: '举报管理', icon: 'warning', pageKey: 'forum-report' },
     ],
   },
   {
@@ -77,10 +78,12 @@ export const portalGroups = [
   {
     label: 'AI 模块',
     items: [
+      { path: '/ai', label: 'AI 智能助手', icon: 'robot', exact: true },
       { path: '/ai/model', label: '模型配置', icon: 'robot', pageKey: 'system-config' },
       { path: '/ai/agent-settings', label: '智能体设置', icon: 'setting' },
       { path: '/ai/rag/agents', label: '智能体测试', icon: 'robot' },
       { path: '/ai/agent-cache', label: '缓存监控', icon: 'line-chart' },
+      { path: '/ai/observability', label: '观测配置', icon: 'line-chart' },
       { path: '/ai/knowledge', label: '知识库管理', icon: 'file-search' },
       { path: '/admin/knowledge-chat', label: '知识库聊天', icon: 'message' },
       { path: '/ai/profile-rules', label: '画像规则', icon: 'pie-chart' },
@@ -160,6 +163,16 @@ const columns = {
     { title: '帖子数', dataIndex: 'postCount' },
     { title: '热门', dataIndex: 'isHot', type: 'status' },
     { title: '状态', dataIndex: 'status', type: 'status' },
+  ],
+  forumReport: [
+    { title: 'ID', dataIndex: 'id', width: 70 },
+    { title: '举报人', dataIndex: 'reporterName', width: 120 },
+    { title: '类型', dataIndex: 'targetType', width: 90, type: 'tag' },
+    { title: '被举报内容', dataIndex: 'targetTitle', width: 220, ellipsis: true },
+    { title: '作者', dataIndex: 'targetAuthor', width: 120 },
+    { title: '原因', dataIndex: 'reasonText', width: 160, ellipsis: true },
+    { title: '状态', dataIndex: 'status', width: 100, type: 'status' },
+    { title: '提交时间', dataIndex: 'createTime', width: 170 },
   ],
   facility: [
     { title: '设施名称', dataIndex: 'facilityName' },
@@ -364,6 +377,14 @@ export const workspacePages = {
     filters: ['全部'],
     emptyText: '暂无话题数据',
   }),
+  'forum-report': createPage({
+    title: '举报管理',
+    badge: '校园论坛',
+    description: '查看和处理用户对帖子、评论的举报，支持忽略举报或删除被举报内容。',
+    columns: columns.forumReport,
+    filters: ['全部', '待处理', '已处理', '已忽略'],
+    emptyText: '暂无举报数据',
+  }),
   'facility-canteen': createPage({
     title: '食堂管理',
     badge: '校园设施',
@@ -543,6 +564,24 @@ export const getBreadcrumbByPath = (path) => {
       '校园设施',
       { label: '食堂管理', path: '/facility/canteen' },
       { label: '档口管理' },
+    ]
+  }
+
+  if (/^\/facility\/teaching\/[^/]+$/.test(normalizedPath)) {
+    return [
+      '校园设施',
+      { label: '教学楼设置', path: '/facility/teaching' },
+      { label: '教学楼详情' },
+    ]
+  }
+
+  const teachingFloorMatch = normalizedPath.match(/^\/facility\/teaching\/([^/]+)\/floors\/[^/]+$/)
+  if (teachingFloorMatch) {
+    return [
+      '校园设施',
+      { label: '教学楼设置', path: '/facility/teaching' },
+      { label: '教学楼详情', path: `/facility/teaching/${teachingFloorMatch[1]}` },
+      { label: '房间管理' },
     ]
   }
 

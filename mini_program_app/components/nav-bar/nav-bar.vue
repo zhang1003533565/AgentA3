@@ -163,7 +163,7 @@ export default {
       if (this.showDefaultCapsule) {
         return '156rpx'
       }
-      return '112rpx'
+      return '0rpx'
     },
     rightActionStyle() {
       if (this.showDefaultCapsule) {
@@ -256,6 +256,7 @@ export default {
 
 .nav-center {
   min-width: 0;
+  overflow: hidden;
 }
 
 .nav-title-wrap {
@@ -264,10 +265,15 @@ export default {
   align-items: center;
   justify-content: center;
   min-width: 0;
+  width: 100%;
 }
 
 .nav-title {
+  display: block;
+  width: 100%;
   max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
   font-size: 32rpx;
   line-height: 1.2;
   font-weight: 700;

@@ -220,3 +220,10 @@
     overflow-x: auto;
   }
 }
+
+.agent-settings-binding-option-name {
+  margin-top: 2px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: #8c8c8c;
+}

@@ -14,6 +14,7 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import java.util.Map;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -44,6 +45,15 @@ class AppAiPptControllerTest {
                         .content("{\"sourceName\":\"a.txt\",\"outline\":{},\"slides\":[{},{}]}"))
                 .andExpect(status().isUnauthorized());
         mvc.perform(get("/api/app/ai/ppt/tasks/ppt_task_0123456789abcdef0123456789abcdef"))
+                .andExpect(status().isUnauthorized());
+        mvc.perform(post("/api/app/ai/ppt/tasks/ppt_task_0123456789abcdef0123456789abcdef/cancel"))
+                .andExpect(status().isUnauthorized());
+        mvc.perform(post("/api/app/ai/ppt/tasks/ppt_task_0123456789abcdef0123456789abcdef/retry"))
+                .andExpect(status().isUnauthorized());
+        mvc.perform(get("/api/app/ai/ppt/templates/general/thumbnail"))
+                .andExpect(status().isUnauthorized());
+        mvc.perform(multipart("/api/app/ai/ppt/files")
+                        .file("file", "material.pdf".getBytes(java.nio.charset.StandardCharsets.UTF_8)))
                 .andExpect(status().isUnauthorized());
     }
 
@@ -77,7 +87,7 @@ class AppAiPptControllerTest {
         private String authorization;
 
         @Override
-        public AiPptDTO.OptionsResponse getOptions(Long userId) {
+        public AiPptDTO.OptionsResponse getOptions(Long userId, String authorization) {
             this.userId = userId;
             AiPptDTO.SceneOption scene = new AiPptDTO.SceneOption();
             scene.setValue("review");
@@ -86,6 +96,12 @@ class AppAiPptControllerTest {
             response.setScenes(java.util.List.of(scene));
             response.setCacheTtlSeconds(86400);
             return response;
+        }
+
+        @Override
+        public Object uploadSourceFile(Long userId, org.springframework.web.multipart.MultipartFile file,
+                                       String authorization) {
+            return Map.of("fileId", "ppt_file_1");
         }
 
         @Override
@@ -115,6 +131,24 @@ class AppAiPptControllerTest {
         }
 
         @Override
+        public Object cancelTask(Long userId, String taskId, String authorization) {
+            return Map.of("taskId", taskId, "status", "cancelled");
+        }
+
+        @Override
+        public Object retryTask(Long userId, String taskId, String authorization) {
+            return Map.of("taskId", taskId, "status", "queued");
+        }
+
+        @Override
+        public Object replaceSlideImage(Long userId, String taskId, Integer slideIndex,
+                                        AiPptDTO.SlideImageRequest request, String authorization) {
+            this.userId = userId;
+            this.authorization = authorization;
+            return Map.of("taskId", taskId, "slideIndex", slideIndex);
+        }
+
+        @Override
         public SseEmitter streamTask(Long userId, String taskId, String authorization) {
             return new SseEmitter();
         }
@@ -128,6 +162,18 @@ class AppAiPptControllerTest {
         @Override
         public PythonAiProxyService.GeneratedExportResponse downloadPreview(
                 Long userId, String taskId, Integer slideIndex, String authorization) {
+            return new PythonAiProxyService.GeneratedExportResponse(new byte[0], MediaType.IMAGE_PNG, 0);
+        }
+
+        @Override
+        public PythonAiProxyService.GeneratedExportResponse downloadTemplateThumbnail(
+                Long userId, String templateId, String authorization) {
+            return new PythonAiProxyService.GeneratedExportResponse(new byte[0], MediaType.IMAGE_PNG, 0);
+        }
+
+        @Override
+        public PythonAiProxyService.GeneratedExportResponse downloadTemplateLayoutPreview(
+                Long userId, String templateId, Integer slideIndex, String authorization) {
             return new PythonAiProxyService.GeneratedExportResponse(new byte[0], MediaType.IMAGE_PNG, 0);
         }
     }

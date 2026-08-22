@@ -48,3 +48,11 @@ export function deleteMeeting(id) {
   return request({ url: `/api/meetings/${encodeURIComponent(id)}`, method: 'DELETE' })
 }
 
+export function getMeetingComments(sessionId) {
+  return request({ url: `/api/meetings/${encodeURIComponent(sessionId)}/comments`, method: 'GET' })
+}
+
+export function sendMeetingComment(sessionId, data) {
+  return request({ url: `/api/meetings/${encodeURIComponent(sessionId)}/comments`, method: 'POST', data })
+}
+

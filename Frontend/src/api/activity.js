@@ -22,6 +22,14 @@ export function getCategoryList() {
   })
 }
 
+export function getMyActivities(params = {}) {
+  return request({
+    url: '/api/activities/mine',
+    method: 'GET',
+    params,
+  })
+}
+
 export function getMyRegistrations(params = {}) {
   return request({
     url: '/api/registrations/my-registrations',

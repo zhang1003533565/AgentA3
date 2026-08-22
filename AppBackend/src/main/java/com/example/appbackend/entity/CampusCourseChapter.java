@@ -27,6 +27,9 @@ public class CampusCourseChapter {
     @Column(columnDefinition = "LONGTEXT")
     private String content;
 
+    @Column(name = "qa_json", columnDefinition = "LONGTEXT")
+    private String qaJson;
+
     /**
      * 引用的资料池 ID 数组，JSON 格式如 [1,2,3]。
      * 仅允许视频类型资料，且最多一个。由 CourseMaterialService 维护。

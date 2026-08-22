@@ -12,12 +12,12 @@ import {
   getMapPlaceDetail,
   getMapPlaceList,
 } from '../api/map'
+import { getDishes } from '../api/campusServices'
 import markerCanteen from '../assets/map/marker-canteen.svg'
 import markerDormitory from '../assets/map/marker-dormitory.svg'
 import markerOther from '../assets/map/marker-other.svg'
 import markerSports from '../assets/map/marker-sports.svg'
 import markerTeaching from '../assets/map/marker-teaching.svg'
-import firstCanteenFloorPlan from '../assets/map/first-canteen-floor.png'
 
 /* ── 高德地图配置 ── */
 const AMAP_KEY = 'e1790a70dfc91f2d3daf1895c0e9f87a'
@@ -27,13 +27,6 @@ const MAP_ZOOM = 17
 
 const mapPlaces = ref([])
 const placeLoading = ref(false)
-
-const demoDormitories = [
-  { id: 'demo-dorm-1', name: '紫藤宿舍楼', longitude: 114.89495, latitude: 40.75662, sceneType: 'DORMITORY', placeType: 'DORMITORY_BUILDING', description: '第一校区学生宿舍楼', locationDesc: '第一校区生活区', status: 'ENABLED', mapVisible: true },
-  { id: 'demo-dorm-2', name: '青松宿舍楼', longitude: 114.89608, latitude: 40.75474, sceneType: 'DORMITORY', placeType: 'DORMITORY_BUILDING', description: '第一校区学生宿舍楼', locationDesc: '第一校区生活区', status: 'ENABLED', mapVisible: true },
-  { id: 'demo-dorm-3', name: '明月宿舍楼', longitude: 114.89842, latitude: 40.75612, sceneType: 'DORMITORY', placeType: 'DORMITORY_BUILDING', description: '第二校区学生宿舍楼', locationDesc: '第二校区生活区', status: 'ENABLED', mapVisible: true },
-  { id: 'demo-dorm-4', name: '海棠宿舍楼', longitude: 114.89904, latitude: 40.75398, sceneType: 'DORMITORY', placeType: 'DORMITORY_BUILDING', description: '第三校区学生宿舍楼', locationDesc: '第三校区生活区', status: 'ENABLED', mapVisible: true },
-]
 
 const SCENE_META = {
   CANTEEN: { label: '食堂', color: '#f97316', icon: markerCanteen },
@@ -78,6 +71,7 @@ const toMapPoi = (place) => ({
   lng: toCoordinate(place.longitude),
   lat: toCoordinate(place.latitude),
   desc: place.description || place.locationDesc || '暂无详细介绍',
+  description: place.description || '',
   tag: place.placeType || sceneMeta(place.sceneType).label,
   sceneType: place.sceneType,
   placeType: place.placeType,
@@ -93,22 +87,10 @@ async function loadMapPlaces() {
     const response = await getMapPlaceList({ status: 'ENABLED' })
     const places = (Array.isArray(response?.data) ? response.data : [])
       .filter(place => place.mapVisible !== false)
-    const detailResponses = await Promise.all(places.map(async place => {
-      try {
-        const detail = await getMapPlaceDetail(place.id)
-        return detail?.data || place
-      } catch {
-        return place
-      }
-    }))
-    const resolvedPlaces = detailResponses
+    const resolvedPlaces = places
       .map(toMapPoi)
       .filter(place => Number.isFinite(place.lng) && Number.isFinite(place.lat))
-    const existingDormitoryCount = resolvedPlaces.filter(place => place.sceneType === 'DORMITORY').length
-    const supplementalDormitories = demoDormitories
-      .slice(0, Math.max(0, 4 - existingDormitoryCount))
-      .map(toMapPoi)
-    mapPlaces.value = [...resolvedPlaces, ...supplementalDormitories]
+    mapPlaces.value = resolvedPlaces
   } catch (error) {
     mapError.value = error.message || '校园点位加载失败'
     mapPlaces.value = []
@@ -120,56 +102,41 @@ async function loadMapPlaces() {
 const activePoi = ref(null)          /* 当前选中点位 */
 const activePoiScreen = ref({ x: 0, y: 0, panelX: 18, panelY: 18 })
 const mapViewport = ref({ width: 0, height: 0 })
+const canteenIntroOpen = ref(false)
 const selectedNotice = ref('')       /* 搜索选中提示 */
 const categoryExpanded = ref(false)
-const activeCategory = ref('all')
-const campusMenuOpen = ref(false)
-const activeCampus = ref('')
-const otherMenuOpen = ref(false)
-const activeOtherPlace = ref('')
+const selectedCategories = ref(new Set(['canteen', 'dormitory', 'teaching', 'sports']))
 const floorPreviewOpen = ref(false)
 const floorPreviewItems = ref([])
 let floorPreviewTimer = null
 const categoryItems = [
-  { key: 'campus', label: '校区', icon: '▦', sceneType: null },
   { key: 'canteen', label: '食堂', icon: '餐', sceneType: 'CANTEEN' },
   { key: 'dormitory', label: '宿舍楼', icon: '宿', sceneType: 'DORMITORY' },
   { key: 'teaching', label: '教学楼', icon: '学', sceneType: 'TEACHING' },
   { key: 'sports', label: '运动场', icon: '场', sceneType: 'SPORTS' },
-  { key: 'other', label: '其他', icon: '•••', sceneType: 'OTHER' },
 ]
-const campusItems = [
-  { key: 'campus-1', label: '第一校区', center: [114.89565, 40.75585] },
-  { key: 'campus-2', label: '第二校区', center: [114.89755, 40.75525] },
-  { key: 'campus-3', label: '第三校区', center: [114.89885, 40.75435] },
-]
-const otherItems = [
-  { key: 'landscape', label: '景观区', placeType: 'LANDSCAPE' },
-  { key: 'admin', label: '行政楼', placeType: 'ADMIN_BUILDING' },
-  { key: 'hospital', label: '校医院', placeType: 'HOSPITAL' },
-]
+const filterCategoryKeys = categoryItems.map(item => item.key)
+const allCategoriesSelected = computed(() =>
+  filterCategoryKeys.every(key => selectedCategories.value.has(key)),
+)
+const isCategorySelected = key => selectedCategories.value.has(key)
+
+const chineseFloorDigits = { 一: 1, 二: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9, 十: 10 }
+
+function getFloorNumber(floor) {
+  const name = String(floor?.name || '')
+  const arabicMatch = name.match(/-?\d+/)
+  if (arabicMatch) return Number(arabicMatch[0])
+  const chineseMatch = name.match(/[一二三四五六七八九十]/)
+  return chineseMatch ? chineseFloorDigits[chineseMatch[0]] : Number.POSITIVE_INFINITY
+}
 
 const displayedFloorPreview = computed(() => {
-  if (activePoi.value?.name === '第一食堂') {
-    return [
-      { id: 'first-1', code: '1F', name: '第一层', description: '综合餐饮区' },
-      { id: 'first-2', code: '2F', name: '第二层', description: '风味餐饮区' },
-      { id: 'first-3', code: '3F', name: '第三层', description: '休闲用餐区' },
-      { id: 'first-4', code: '4F', name: '第四层', description: '特色餐饮区' },
-    ]
-  }
-  return floorPreviewItems.value.length
-  ? floorPreviewItems.value.map((floor, index) => ({
+  return floorPreviewItems.value.map((floor, index) => ({
       id: floor.id,
-      code: `${index + 1}F`,
       name: floor.name || `第${index + 1}层`,
-      description: ['综合餐饮区', '风味餐饮区', '休闲用餐区'][index] || '餐饮服务区',
+      description: floor.description || '餐饮服务区',
     }))
-  : [
-      { id: 'fallback-1', code: '1F', name: '第一层', description: '综合餐饮区' },
-      { id: 'fallback-2', code: '2F', name: '第二层', description: '风味餐饮区' },
-      { id: 'fallback-3', code: '3F', name: '第三层', description: '休闲用餐区' },
-    ]
 })
 
 function updateActivePoiScreen() {
@@ -182,7 +149,7 @@ function updateActivePoiScreen() {
   const x = pixel.getX()
   const y = pixel.getY()
   const cardWidth = Math.min(360, width - 36)
-  const cardHeight = Math.min(520, height - 36)
+  const cardHeight = Math.min(activePoi.value.sceneType === 'CANTEEN' ? 430 : 520, height - 36)
   const gap = 48
   const margin = 18
   let panelX
@@ -225,8 +192,23 @@ const floorPreviewStyle = computed(() => {
   return { left: `${x}px`, top: `${y}px` }
 })
 
+const canteenIntroPopoverStyle = computed(() => {
+  const width = 320
+  const gap = 10
+  const margin = 18
+  const right = activePoiScreen.value.panelX + 360 + gap
+  const left = activePoiScreen.value.panelX - width - gap
+  const x = right + width <= mapViewport.value.width - margin ? right : Math.max(margin, left)
+  const y = Math.max(margin, Math.min(
+    activePoiScreen.value.panelY + 220,
+    mapViewport.value.height - 220 - margin,
+  ))
+  return { left: `${x}px`, top: `${y}px` }
+})
+
 function closeActivePoi() {
   activePoi.value = null
+  canteenIntroOpen.value = false
   floorPreviewOpen.value = false
 }
 
@@ -239,7 +221,8 @@ async function showFloorPreview(poi) {
     const response = await getMapPlaceList({ sceneType: 'CANTEEN', parentId: poi.id, status: 'ENABLED' })
     floorPreviewItems.value = (Array.isArray(response?.data) ? response.data : [])
       .filter(place => place.placeType === 'FLOOR')
-      .sort((left, right) => (left.sortOrder || 0) - (right.sortOrder || 0))
+      .sort((left, right) => getFloorNumber(left) - getFloorNumber(right)
+        || (left.sortOrder || 0) - (right.sortOrder || 0))
   } catch {
     floorPreviewItems.value = []
   }
@@ -255,19 +238,14 @@ function hideFloorPreview() {
   floorPreviewTimer = setTimeout(() => { floorPreviewOpen.value = false }, 500)
 }
 
-function selectCategory(item) {
-  activeCategory.value = item.key
-  campusMenuOpen.value = item.key === 'campus'
-  otherMenuOpen.value = item.key === 'other'
-  if (item.key !== 'campus') activeCampus.value = ''
-  if (item.key !== 'other') activeOtherPlace.value = ''
-  const visiblePlaces = item.sceneType === null
-    ? mapPlaces.value
-    : mapPlaces.value.filter(place => item.sceneType === 'OTHER'
-      ? !SCENE_META[place.sceneType]
-      : place.sceneType === item.sceneType)
+function applyCategoryFilters() {
+  const visiblePlaces = mapPlaces.value.filter((place) => {
+    const categoryKey = categoryItems.find(item => item.sceneType === place.sceneType)?.key
+    if (!categoryKey || !selectedCategories.value.has(categoryKey)) return false
+    return true
+  })
   const visibleIds = new Set(visiblePlaces.map(place => String(place.id)))
-  mapPlaces.value.forEach(place => {
+  mapPlaces.value.forEach((place) => {
     const visible = visibleIds.has(String(place.id))
     markerMap[place.id]?.[visible ? 'show' : 'hide']()
     fenceMap[place.id]?.[visible ? 'show' : 'hide']()
@@ -277,36 +255,19 @@ function selectCategory(item) {
   if (mapInstance && overlays.length) mapInstance.setFitView(overlays, false, [90, 90, 90, 190], 18)
 }
 
-function selectCampus(campus) {
-  activeCampus.value = campus.key
-  activeCategory.value = 'campus'
-  if (mapInstance) mapInstance.setZoomAndCenter(17, campus.center)
-}
-
-function selectOtherPlace(place) {
-  activeOtherPlace.value = place.key
-  activeCategory.value = 'other'
-  otherMenuOpen.value = true
-  const visiblePlaces = mapPlaces.value.filter(item => item.placeType === place.placeType)
-  const visibleIds = new Set(visiblePlaces.map(item => String(item.id)))
-  mapPlaces.value.forEach(item => {
-    const visible = visibleIds.has(String(item.id))
-    markerMap[item.id]?.[visible ? 'show' : 'hide']()
-    fenceMap[item.id]?.[visible ? 'show' : 'hide']()
-  })
-  if (activePoi.value && !visibleIds.has(String(activePoi.value.id))) closeActivePoi()
-  const overlays = visiblePlaces.flatMap(item => [markerMap[item.id], fenceMap[item.id]]).filter(Boolean)
-  if (mapInstance && overlays.length) mapInstance.setFitView(overlays, false, [90, 90, 90, 190], 18)
+function selectCategory(item) {
+  const nextSelection = new Set(selectedCategories.value)
+  if (allCategoriesSelected.value) nextSelection.clear()
+  if (nextSelection.has(item.key)) nextSelection.delete(item.key)
+  else nextSelection.add(item.key)
+  selectedCategories.value = nextSelection
+  applyCategoryFilters()
 }
 
 function selectAllCategories() {
   categoryExpanded.value = !categoryExpanded.value
-  selectCategory(categoryItems[0])
-  activeCategory.value = 'all'
-  campusMenuOpen.value = false
-  activeCampus.value = ''
-  otherMenuOpen.value = false
-  activeOtherPlace.value = ''
+  selectedCategories.value = new Set(filterCategoryKeys)
+  applyCategoryFilters()
 }
 
 /* ═══════════════════════════════════════
@@ -360,11 +321,15 @@ const indoorFloors = ref([])
 const indoorFloorId = ref(null)
 const indoorFloorPlan = ref(null)
 const indoorStalls = ref([])
+const indoorDishes = ref([])
 const indoorPositions = ref([])
 const indoorZoom = ref(1.12)
 const indoorSearch = ref('')
-const indoorCategory = ref('all')
+const selectedIndoorStallId = ref(null)
+const introPreview = ref(null)
+const indoorHistory = ref([])
 const indoorView = ref('map')
+const indoorPlanViewportRef = ref(null)
 const indoorDragging = ref(false)
 let indoorDragStartX = 0
 let indoorDragStartY = 0
@@ -373,117 +338,213 @@ let indoorDragScrollTop = 0
 let indoorDragViewport = null
 
 const indoorCategoryLabels = {
-  noodle: '面食类', soup: '汤羹类', rice: '炒饭盖饭', local: '地方小吃', drink: '饮品甜点',
+  noodle: '面食类', soup: '汤羹类', rice: '炒饭盖饭', local: '地方小吃', drink: '饮品甜点', light: '轻食类',
+}
+const stallStatusLabels = { 1: '营业中', 2: '休息中', 3: '已关闭' }
+const indoorCategoryKeys = Object.keys(indoorCategoryLabels)
+const selectedIndoorCategories = ref(new Set(indoorCategoryKeys))
+const allIndoorCategoriesSelected = computed(() =>
+  indoorCategoryKeys.every(key => selectedIndoorCategories.value.has(key)),
+)
+const isIndoorCategorySelected = category => selectedIndoorCategories.value.has(category)
+
+const categoryKeyByLabel = Object.fromEntries(
+  Object.entries(indoorCategoryLabels).map(([key, label]) => [label, key]),
+)
+
+function resolveIndoorCategory(value) {
+  const normalized = String(value || '').trim()
+  return indoorCategoryLabels[normalized] ? normalized : categoryKeyByLabel[normalized] || 'local'
 }
 
-const demoStalls = [
-  { id: 's1', name: '兰州拉面', category: 'noodle', x: 25, y: 28, color: '#ff7a35' },
-  { id: 's2', name: '一碗面', category: 'noodle', x: 34, y: 33, color: '#f97316' },
-  { id: 's3', name: '瓦罐汤', category: 'soup', x: 43, y: 27, color: '#eab308' },
-  { id: 's4', name: '牛肉炒饭', category: 'rice', x: 55, y: 35, color: '#e11d48' },
-  { id: 's5', name: '重庆小面', category: 'noodle', x: 66, y: 28, color: '#f59e0b' },
-  { id: 's6', name: '奶茶窗口', category: 'drink', x: 73, y: 42, color: '#0ea5e9' },
-  { id: 's7', name: '石锅拌饭', category: 'rice', x: 28, y: 48, color: '#ef4444' },
-  { id: 's8', name: '麻辣烫', category: 'local', x: 39, y: 55, color: '#8b5cf6' },
-  { id: 's9', name: '黄焖鸡米饭', category: 'rice', x: 52, y: 47, color: '#f59e0b' },
-  { id: 's10', name: '水饺馄饨', category: 'noodle', x: 66, y: 56, color: '#06b6d4' },
-  { id: 's11', name: '煎饼果子', category: 'local', x: 24, y: 66, color: '#14b8a6' },
-  { id: 's12', name: '冒菜香锅', category: 'local', x: 34, y: 72, color: '#dc2626' },
-  { id: 's13', name: '小碗菜', category: 'rice', x: 48, y: 64, color: '#22c55e' },
-  { id: 's14', name: '烘焙甜点', category: 'drink', x: 60, y: 73, color: '#ec4899' },
-  { id: 's15', name: '鲜榨果汁', category: 'drink', x: 70, y: 66, color: '#0ea5e9' },
-]
+const apiIndoorMenu = computed(() => indoorDishes.value
+  .map(dish => ({
+    ...dish,
+    stall: dish.stallName || '未命名档口',
+    displayStallId: dish.stallPlaceId,
+    category: resolveIndoorCategory(dish.category),
+    image: dish.imageUrl,
+  }))
+  .filter(dish => indoorStalls.value.some(stall => String(stall.id) === String(dish.displayStallId))))
 
-const demoFacilities = [
-  { id: 'f1', name: '楼梯', category: 'stairs', x: 72, y: 32, symbol: '↗', color: '#64748b' },
-  { id: 'f2', name: '消防栓', category: 'hydrant', x: 23, y: 44, symbol: '消', color: '#ef4444' },
-  { id: 'f3', name: '卫生间', category: 'toilet', x: 72, y: 68, symbol: 'WC', color: '#2563eb' },
-  { id: 'f4', name: '主入口', category: 'entrance', x: 48, y: 75, symbol: '入', color: '#10b981' },
-  { id: 'f5', name: '侧入口', category: 'entrance', x: 73, y: 52, symbol: '入', color: '#10b981' },
-]
+const demoFacilities = []
 
-const demoMenuItems = [
-  { id: 'm1', name: '牛肉小面', stall: '重庆小面', category: 'noodle', price: 14, image: 'https://images.unsplash.com/photo-1569718212165-3a8278d5f624?auto=format&fit=crop&w=600&q=80' },
-  { id: 'm2', name: '豌杂小面', stall: '重庆小面', category: 'noodle', price: 13, image: 'https://images.unsplash.com/photo-1612929633738-8fe44f7ec841?auto=format&fit=crop&w=600&q=80' },
-  { id: 'm3', name: '宜宾燃面', stall: '一碗面', category: 'noodle', price: 12, image: 'https://images.unsplash.com/photo-1552611052-33e04de081de?auto=format&fit=crop&w=600&q=80' },
-  { id: 'm4', name: '兰州牛肉面', stall: '兰州拉面', category: 'noodle', price: 15, image: 'https://images.unsplash.com/photo-1557872943-16a5ac26437e?auto=format&fit=crop&w=600&q=80' },
-  { id: 'm5', name: '鲜肉水饺', stall: '水饺馄饨', category: 'noodle', price: 13, image: 'https://images.unsplash.com/photo-1496116218417-1a781b1c416c?auto=format&fit=crop&w=600&q=80' },
-  { id: 'm6', name: '玉米排骨汤', stall: '瓦罐汤', category: 'soup', price: 10, image: 'https://images.unsplash.com/photo-1547592166-23ac45744acd?auto=format&fit=crop&w=600&q=80' },
-  { id: 'm7', name: '莲藕肉汤', stall: '瓦罐汤', category: 'soup', price: 9, image: 'https://images.unsplash.com/photo-1603105037880-880cd4edfb0d?auto=format&fit=crop&w=600&q=80' },
-  { id: 'm8', name: '牛肉炒饭', stall: '牛肉炒饭', category: 'rice', price: 16, image: 'https://images.unsplash.com/photo-1603133872878-684f208fb84b?auto=format&fit=crop&w=600&q=80' },
-  { id: 'm9', name: '黄焖鸡米饭', stall: '黄焖鸡米饭', category: 'rice', price: 18, image: 'https://images.unsplash.com/photo-1512058564366-18510be2db19?auto=format&fit=crop&w=600&q=80' },
-  { id: 'm10', name: '石锅拌饭', stall: '石锅拌饭', category: 'rice', price: 17, image: 'https://images.unsplash.com/photo-1590301157890-4810ed352733?auto=format&fit=crop&w=600&q=80' },
-  { id: 'm11', name: '麻辣香锅', stall: '冒菜香锅', category: 'local', price: 22, image: 'https://images.unsplash.com/photo-1563245372-f21724e3856d?auto=format&fit=crop&w=600&q=80' },
-  { id: 'm12', name: '经典煎饼果子', stall: '煎饼果子', category: 'local', price: 8, image: 'https://images.unsplash.com/photo-1565299507177-b0ac66763828?auto=format&fit=crop&w=600&q=80' },
-  { id: 'm13', name: '原味奶茶', stall: '奶茶窗口', category: 'drink', price: 8, image: 'https://images.unsplash.com/photo-1558857563-b371033873b8?auto=format&fit=crop&w=600&q=80' },
-  { id: 'm14', name: '鲜榨橙汁', stall: '鲜榨果汁', category: 'drink', price: 10, image: 'https://images.unsplash.com/photo-1621506289937-a8e4df240d0b?auto=format&fit=crop&w=600&q=80' },
-  { id: 'm15', name: '红豆蛋糕', stall: '烘焙甜点', category: 'drink', price: 12, image: 'https://images.unsplash.com/photo-1578985545062-69928b1d9587?auto=format&fit=crop&w=600&q=80' },
-]
-
-const demoClusters = [
-  { id: 'c1', count: 4, x: 36, y: 31, color: '#f97316' },
-  { id: 'c2', count: 2, x: 69, y: 35, color: '#0ea5e9' },
-  { id: 'c3', count: 4, x: 45, y: 52, color: '#8b5cf6' },
-  { id: 'c4', count: 3, x: 29, y: 69, color: '#14b8a6' },
-  { id: 'c5', count: 2, x: 65, y: 70, color: '#ec4899' },
-]
-
-const demoMediumPoints = [
-  { id: 'mc1', type: 'cluster', count: 3, x: 33, y: 30, color: '#f97316' },
-  { id: 'ms4', type: 'stall', stallId: 's4' },
-  { id: 'mc2', type: 'cluster', count: 2, x: 69, y: 35, color: '#0ea5e9' },
-  { id: 'mc3', type: 'cluster', count: 3, x: 40, y: 53, color: '#8b5cf6' },
-  { id: 'ms9', type: 'stall', stallId: 's9' },
-  { id: 'mc4', type: 'cluster', count: 2, x: 29, y: 69, color: '#14b8a6' },
-  { id: 'ms13', type: 'stall', stallId: 's13' },
-  { id: 'mc5', type: 'cluster', count: 2, x: 65, y: 70, color: '#ec4899' },
-]
-
-const resolvedMediumPoints = computed(() => demoMediumPoints.map(point => point.type === 'stall'
-  ? { ...point, stall: demoStalls.find(stall => stall.id === point.stallId) }
-  : point))
+const indoorStallColors = ['#ff7a35', '#f97316', '#eab308', '#e11d48', '#f59e0b', '#0ea5e9', '#ef4444', '#8b5cf6', '#f59e0b', '#06b6d4', '#14b8a6', '#dc2626', '#22c55e', '#ec4899', '#0ea5e9', '#22c55e']
+const resolvedIndoorStalls = computed(() => indoorStalls.value.map((stall, index) => {
+  const position = indoorPositionMap.value.get(String(stall.id))
+  const dishCategories = apiIndoorMenu.value
+    .filter(dish => String(dish.displayStallId) === String(stall.id))
+    .map(dish => dish.category)
+  return {
+    ...stall,
+    category: dishCategories[0] || resolveIndoorCategory(stall.description),
+    x: Number(position?.xRatio),
+    y: Number(position?.yRatio),
+    color: indoorStallColors[index % indoorStallColors.length],
+  }
+}).filter(stall => Number.isFinite(stall.x) && Number.isFinite(stall.y)))
 
 const filteredDemoStalls = computed(() => {
   const keyword = indoorSearch.value.trim().toLowerCase()
-  return demoStalls.filter(stall =>
-    (indoorCategory.value === 'all' || stall.category === indoorCategory.value)
+  return resolvedIndoorStalls.value.filter(stall =>
+    selectedIndoorCategories.value.has(stall.category)
+    && (!selectedIndoorStallId.value || String(stall.id) === String(selectedIndoorStallId.value))
     && (!keyword || stall.name.toLowerCase().includes(keyword)))
 })
 
-const filteredDemoFacilities = computed(() => demoFacilities.filter(item => indoorCategory.value === item.category))
+const filteredDemoFacilities = computed(() => demoFacilities.filter(item => selectedIndoorCategories.value.has(item.category)))
 const filteredDemoMenu = computed(() => {
   const keyword = indoorSearch.value.trim().toLowerCase()
-  return demoMenuItems.filter(item =>
-    (indoorCategory.value === 'all' || item.category === indoorCategory.value)
+  return apiIndoorMenu.value.filter(item =>
+    selectedIndoorCategories.value.has(item.category)
+    && (!selectedIndoorStallId.value || String(item.displayStallId) === String(selectedIndoorStallId.value))
     && (!keyword || `${item.name}${item.stall}`.toLowerCase().includes(keyword)))
 })
 
 function selectIndoorCategory(category) {
-  indoorCategory.value = category
-  if (['stairs', 'hydrant', 'toilet', 'entrance'].includes(category)) indoorView.value = 'map'
+  if (category === 'all') {
+    selectedIndoorCategories.value = new Set(indoorCategoryKeys)
+    return
+  }
+  const nextSelection = new Set(selectedIndoorCategories.value)
+  if (allIndoorCategoriesSelected.value) nextSelection.clear()
+  if (nextSelection.has(category)) nextSelection.delete(category)
+  else nextSelection.add(category)
+  selectedIndoorCategories.value = nextSelection
 }
 
-function showStallOnMap(stall) {
-  indoorCategory.value = stall.category
+function toggleIntroPreview(event, title, text) {
+  const content = event.currentTarget.querySelector('span')
+  if (!text || !content || content.scrollWidth <= content.clientWidth) return
+  if (introPreview.value?.text === text && introPreview.value?.title === title) {
+    introPreview.value = null
+    return
+  }
+  const triggerRect = event.currentTarget.getBoundingClientRect()
+  const dialog = event.currentTarget.closest('.indoor-guide-dialog')
+  const dialogRect = dialog?.getBoundingClientRect()
+  if (!dialogRect) return
+  const previewWidth = 340
+  const previewHeight = 220
+  const gap = 10
+  const margin = 16
+  const rightSideLeft = triggerRect.right - dialogRect.left + gap
+  const hasRightSpace = rightSideLeft + previewWidth <= dialogRect.width - margin
+  const left = hasRightSpace
+    ? rightSideLeft
+    : Math.max(margin, triggerRect.left - dialogRect.left - previewWidth - gap)
+  const top = Math.max(margin, Math.min(
+    triggerRect.top - dialogRect.top - 24,
+    dialogRect.height - previewHeight - margin,
+  ))
+  introPreview.value = { title, text, style: { left: `${left}px`, top: `${top}px` } }
+}
+
+function indoorSnapshot() {
+  const viewport = indoorPlanViewportRef.value
+  return {
+    view: indoorView.value,
+    search: indoorSearch.value,
+    categories: [...selectedIndoorCategories.value],
+    stallId: selectedIndoorStallId.value,
+    zoom: indoorZoom.value,
+    scrollLeft: viewport?.scrollLeft || 0,
+    scrollTop: viewport?.scrollTop || 0,
+  }
+}
+
+function pushIndoorHistory() {
+  indoorHistory.value.push(indoorSnapshot())
+}
+
+function openIndoorView(view) {
+  if (indoorView.value === view) return
+  pushIndoorHistory()
+  indoorView.value = view
+}
+
+async function focusIndoorStall(stall) {
+  await nextTick()
+  const viewport = indoorPlanViewportRef.value
+  const canvas = viewport?.querySelector('.indoor-plan-canvas')
+  if (!viewport || !canvas) return
+  const targetLeft = canvas.scrollWidth * stall.x / 100 - viewport.clientWidth / 2
+  const targetTop = canvas.scrollHeight * stall.y / 100 - viewport.clientHeight / 2
+  viewport.scrollTo({
+    left: Math.max(0, targetLeft),
+    top: Math.max(0, targetTop),
+    behavior: 'smooth',
+  })
+}
+
+async function showStallOnMap(stall) {
+  pushIndoorHistory()
+  selectedIndoorStallId.value = null
+  selectedIndoorCategories.value = new Set([stall.category])
   indoorSearch.value = stall.name
   indoorZoom.value = 1.7
   indoorView.value = 'map'
+  await focusIndoorStall(stall)
+}
+
+function openStallDetail(stall) {
+  pushIndoorHistory()
+  selectedIndoorStallId.value = stall.id
+  indoorSearch.value = ''
+  selectedIndoorCategories.value = new Set(indoorCategoryKeys)
+  indoorView.value = 'list'
 }
 
 function showStallMenu(stall) {
-  indoorCategory.value = stall.category
-  indoorSearch.value = stall.name
+  pushIndoorHistory()
+  selectedIndoorStallId.value = stall.id
+  const stallCategories = apiIndoorMenu.value
+    .filter(dish => String(dish.displayStallId) === String(stall.id))
+    .map(dish => dish.category)
+  selectedIndoorCategories.value = new Set(stallCategories.length ? stallCategories : [stall.category])
+  indoorSearch.value = ''
   indoorView.value = 'menu'
 }
 
-function openFloorDetail(floor) {
+function openIndoorList() {
+  if (indoorView.value !== 'list') pushIndoorHistory()
+  selectedIndoorStallId.value = null
+  indoorView.value = 'list'
+}
+
+async function goBackIndoor() {
+  const previous = indoorHistory.value.pop()
+  if (!previous) {
+    indoorOpen.value = false
+    floorPreviewOpen.value = true
+    return
+  }
+  indoorView.value = previous.view
+  indoorSearch.value = previous.search
+  selectedIndoorCategories.value = new Set(previous.categories)
+  selectedIndoorStallId.value = previous.stallId
+  indoorZoom.value = previous.zoom
+  await nextTick()
+  if (previous.view === 'map' && indoorPlanViewportRef.value) {
+    indoorPlanViewportRef.value.scrollTo({
+      left: previous.scrollLeft,
+      top: previous.scrollTop,
+      behavior: 'auto',
+    })
+  }
+}
+
+async function openFloorDetail(floor) {
   indoorOpen.value = true
   indoorCanteen.value = activePoi.value
   indoorFloorId.value = floor.id
   indoorZoom.value = 1.12
   indoorSearch.value = ''
-  indoorCategory.value = 'all'
+  selectedIndoorCategories.value = new Set(indoorCategoryKeys)
+  selectedIndoorStallId.value = null
+  indoorHistory.value = []
   indoorView.value = 'map'
+  await selectIndoorFloor(floor.id)
 }
 
 function adjustIndoorZoom(delta) {
@@ -525,11 +586,49 @@ function stopIndoorDrag() {
 const indoorPositionMap = computed(
   () => new Map(indoorPositions.value.map(position => [String(position.placeId), position])),
 )
+const selectedIndoorFloor = computed(() =>
+  indoorFloors.value.find(floor => String(floor.id) === String(indoorFloorId.value))
+  || floorPreviewItems.value.find(floor => String(floor.id) === String(indoorFloorId.value))
+  || null,
+)
+const indoorClusters = computed(() => {
+  const groups = new Map()
+  resolvedIndoorStalls.value.forEach((stall) => {
+    const column = Math.floor(stall.x / 25)
+    const row = Math.floor(stall.y / 25)
+    const key = `${column}-${row}`
+    const group = groups.get(key) || { id: key, count: 0, xTotal: 0, yTotal: 0, color: stall.color }
+    group.count += 1
+    group.xTotal += stall.x
+    group.yTotal += stall.y
+    groups.set(key, group)
+  })
+  return [...groups.values()].map(group => ({
+    id: group.id,
+    count: group.count,
+    x: group.xTotal / group.count,
+    y: group.yTotal / group.count,
+    color: group.color,
+  }))
+})
+
+async function loadIndoorDishes() {
+  try {
+    const dishes = await getDishes({ floorPlaceId: indoorFloorId.value })
+    indoorDishes.value = (Array.isArray(dishes) ? dishes : [])
+      .filter(dish => dish.isAvailable !== false)
+  } catch (error) {
+    indoorDishes.value = []
+    mapError.value = error.message || '菜品信息加载失败'
+  }
+}
 
 async function selectIndoorFloor(floorId) {
   indoorFloorId.value = floorId
+  introPreview.value = null
   indoorFloorPlan.value = null
   indoorStalls.value = []
+  indoorDishes.value = []
   indoorPositions.value = []
   if (!floorId) return
 
@@ -544,6 +643,7 @@ async function selectIndoorFloor(floorId) {
     indoorStalls.value = (Array.isArray(stallResponse?.data) ? stallResponse.data : [])
       .filter(place => place.placeType === 'CANTEEN_STALL')
       .sort((left, right) => (left.sortOrder || 0) - (right.sortOrder || 0))
+    await loadIndoorDishes()
     if (plan) {
       const positionResponse = await getFloorPlanPositions(plan.id)
       indoorPositions.value = Array.isArray(positionResponse?.data) ? positionResponse.data : []
@@ -557,11 +657,13 @@ async function selectIndoorFloor(floorId) {
 
 async function openIndoorGuide(poi) {
   indoorOpen.value = true
+  indoorHistory.value = []
   indoorCanteen.value = poi
   indoorFloors.value = []
   indoorFloorId.value = null
   indoorFloorPlan.value = null
   indoorStalls.value = []
+  indoorDishes.value = []
   indoorPositions.value = []
   indoorLoading.value = true
   try {
@@ -585,6 +687,7 @@ async function openIndoorGuide(poi) {
 
 function closeIndoorGuide() {
   indoorOpen.value = false
+  introPreview.value = null
 }
 
 function createInfoWindowContent(poi) {
@@ -623,6 +726,7 @@ async function selectPoi(poi, marker) {
   try {
     const response = await getMapPlaceDetail(poi.id)
     const detail = response?.data ? toMapPoi(response.data) : poi
+    canteenIntroOpen.value = false
     activePoi.value = detail
     /* 使用页面右侧的统一详情卡，避免同时出现高德默认信息窗。 */
     infoWindow?.close()
@@ -908,9 +1012,9 @@ onUnmounted(() => {
         </div>
       </div>
 
-      <!-- 左侧一级分类：默认收起，仅食堂分类响应点击 -->
+      <!-- 左侧一级分类：点击“全部”展开或收起 -->
       <aside class="category-rail" :class="{ expanded: categoryExpanded }">
-        <button class="category-all" type="button" @click="selectAllCategories">
+        <button class="category-all" :class="{ active: allCategoriesSelected }" type="button" :aria-pressed="allCategoriesSelected" @click="selectAllCategories">
           <span class="category-all-icon">⠿</span>
           <span>全部</span>
         </button>
@@ -920,7 +1024,8 @@ onUnmounted(() => {
             :key="item.key"
             type="button"
             class="category-item"
-            :class="[{ active: activeCategory === item.key }, `category-item--${item.key}`]"
+            :class="[{ active: isCategorySelected(item.key) }, `category-item--${item.key}`]"
+            :aria-pressed="isCategorySelected(item.key)"
             @click="selectCategory(item)"
           >
             <span class="category-item-icon">{{ item.icon }}</span>
@@ -928,21 +1033,6 @@ onUnmounted(() => {
           </button>
         </div>
       </aside>
-      <Transition name="campus-menu">
-        <nav v-if="categoryExpanded && campusMenuOpen" class="campus-submenu" aria-label="校区分类">
-          <button v-for="campus in campusItems" :key="campus.key" type="button" :class="{ active: activeCampus === campus.key }" @click="selectCampus(campus)">
-            <span>▦</span>{{ campus.label }}
-          </button>
-        </nav>
-      </Transition>
-      <Transition name="campus-menu">
-        <nav v-if="categoryExpanded && otherMenuOpen" class="other-submenu" aria-label="其他分类">
-          <button v-for="place in otherItems" :key="place.key" type="button" :class="{ active: activeOtherPlace === place.key }" @click="selectOtherPlace(place)">
-            <span>•</span>{{ place.label }}
-          </button>
-        </nav>
-      </Transition>
-
       <!-- 选中提示条 -->
       <Transition name="fade">
         <div v-if="selectedNotice" class="notice-bar">{{ selectedNotice }}</div>
@@ -974,27 +1064,31 @@ onUnmounted(() => {
           :style="{ left: `${activePoiScreen.panelX}px`, top: `${activePoiScreen.panelY}px` }"
         >
           <div class="poi-header canteen-header">
-            <span class="canteen-type-icon">餐</span>
-            <span class="canteen-heading">
-              <span class="poi-name">{{ activePoi.name }}</span>
-              <small>校园综合餐饮服务中心</small>
-            </span>
-            <span class="canteen-open">营业中</span>
+            <span class="poi-name">{{ activePoi.name }}</span>
             <button class="poi-close" @click="closeActivePoi">✕</button>
           </div>
-          <div class="canteen-badges"><span>食堂</span><span>共{{ displayedFloorPreview.length }}层</span></div>
-          <div class="canteen-meta"><b>⌖</b><span>{{ activePoi.locationDesc || '校园生活区' }}</span></div>
-          <div class="canteen-meta"><b>◷</b><span>06:30—21:00<small>早餐 06:30–09:00，午餐 10:30–14:00，晚餐 16:30–20:30</small></span></div>
-          <div class="canteen-meta"><b>¥</b><span>约12—20元</span></div>
-          <div class="canteen-intro">
-            <strong>餐厅简介</strong>
-            <p>{{ activePoi.desc || `${activePoi.name}提供日常早餐、午餐和晚餐服务，餐品丰富，价格适中。` }}</p>
-          </div>
-          <div class="canteen-services"><span>早餐供应</span><span>支持打包</span><span>校园卡</span><span>移动支付</span><span>无障碍通道</span></div>
+          <img
+            v-if="activePoi.images?.[0]?.imageUrl"
+            class="canteen-image"
+            :src="activePoi.images[0].imageUrl"
+            :alt="activePoi.name"
+            :style="{ objectPosition: `${activePoi.images[0].focusX ?? 50}% ${activePoi.images[0].focusY ?? 50}%` }"
+          />
+          <button v-if="activePoi.description" class="canteen-intro-line" type="button" @click="canteenIntroOpen = !canteenIntroOpen">
+            <strong>食堂介绍</strong><span>{{ activePoi.description }}</span><i>›</i>
+          </button>
           <div class="more-info-zone" @mouseenter="showFloorPreview(activePoi)" @mouseleave="hideFloorPreview">
             <button class="more-info-button" type="button" @click="showFloorPreview(activePoi)">查看更多信息</button>
           </div>
         </div>
+      </Transition>
+
+      <Transition name="intro-preview">
+        <aside v-if="activePoi?.sceneType === 'CANTEEN' && canteenIntroOpen" class="canteen-intro-popover" :style="canteenIntroPopoverStyle">
+          <strong>食堂介绍</strong>
+          <button type="button" aria-label="关闭食堂介绍" @click="canteenIntroOpen = false">×</button>
+          <p>{{ activePoi.description }}</p>
+        </aside>
       </Transition>
 
       <Transition name="fade">
@@ -1008,8 +1102,8 @@ onUnmounted(() => {
           <h3>选择楼层</h3>
           <p>进入对应室内地图</p>
           <div class="floor-preview-list">
-            <button v-for="(floor, index) in displayedFloorPreview" :key="floor.id" type="button" :class="{ active: index === 0 }" @click="openFloorDetail(floor)">
-              <b>{{ floor.code }}</b><span><strong>{{ floor.name }}</strong><small>{{ floor.description }}</small></span><i>›</i>
+            <button v-for="floor in displayedFloorPreview" :key="floor.id" type="button" :class="{ active: String(indoorFloorId) === String(floor.id) }" @click="openFloorDetail(floor)">
+              <span><strong>{{ floor.name }}</strong><small>{{ floor.description }}</small></span><i>›</i>
             </button>
           </div>
         </section>
@@ -1018,50 +1112,41 @@ onUnmounted(() => {
       <Transition name="fade">
         <div v-if="indoorOpen" class="indoor-guide-mask" @click.self="closeIndoorGuide">
           <section class="indoor-guide-dialog">
-            <div class="indoor-breadcrumb">智慧校园 <b>›</b> {{ indoorCanteen?.name || '第一食堂' }} <b>›</b> <strong>第一层</strong></div>
+            <div class="indoor-breadcrumb">智慧校园 <b>›</b> {{ indoorCanteen?.name || '食堂' }} <b>›</b> <strong>{{ selectedIndoorFloor?.name || '楼层' }}</strong></div>
             <button class="indoor-guide-close" type="button" @click="closeIndoorGuide">×</button>
 
             <header class="indoor-toolbar">
-              <h2>{{ indoorCanteen?.name || '第一食堂' }} · 第一层</h2>
+              <h2>{{ indoorCanteen?.name || '食堂' }} · {{ selectedIndoorFloor?.name || '楼层' }}</h2>
               <nav class="indoor-view-tabs">
-                <button :class="{ active: indoorView === 'map' }" @click="indoorView = 'map'">▱ 平面地图</button>
-                <button :class="{ active: indoorView === 'list' }" @click="indoorView = 'list'">☷ 档口列表</button>
-                <button :class="{ active: indoorView === 'menu' }" @click="indoorView = 'menu'">▤ 菜品菜单</button>
+                <button :class="{ active: indoorView === 'map' }" @click="openIndoorView('map')">▱ 平面地图</button>
+                <button :class="{ active: indoorView === 'list' }" @click="openIndoorList">☷ 档口列表</button>
+                <button :class="{ active: indoorView === 'menu' }" @click="openIndoorView('menu')">▤ 菜品菜单</button>
               </nav>
-              <label class="indoor-search"><span>⌕</span><input v-model="indoorSearch" :placeholder="indoorView === 'menu' ? '搜索第一层菜品' : '搜索第一层档口'" /></label>
+              <label class="indoor-search"><span>⌕</span><input v-model="indoorSearch" :placeholder="indoorView === 'menu' ? `搜索${selectedIndoorFloor?.name || '本层'}菜品` : `搜索${selectedIndoorFloor?.name || '本层'}档口`" /></label>
             </header>
 
             <nav class="indoor-categories">
-              <button :class="{ active: indoorCategory === 'all' }" @click="selectIndoorCategory('all')">全部</button>
-              <button :class="{ active: indoorCategory === 'noodle' }" @click="selectIndoorCategory('noodle')">面食类</button>
-              <button :class="{ active: indoorCategory === 'soup' }" @click="selectIndoorCategory('soup')">汤羹类</button>
-              <button :class="{ active: indoorCategory === 'rice' }" @click="selectIndoorCategory('rice')">炒饭盖饭</button>
-              <button :class="{ active: indoorCategory === 'local' }" @click="selectIndoorCategory('local')">地方小吃</button>
-              <button :class="{ active: indoorCategory === 'drink' }" @click="selectIndoorCategory('drink')">饮品甜点</button>
-              <button class="indoor-facility indoor-facility--first" :class="{ active: indoorCategory === 'stairs' }" @click="selectIndoorCategory('stairs')">楼梯</button>
-              <button class="indoor-facility" :class="{ active: indoorCategory === 'hydrant' }" @click="selectIndoorCategory('hydrant')">消防栓</button>
-              <button class="indoor-facility" :class="{ active: indoorCategory === 'toilet' }" @click="selectIndoorCategory('toilet')">卫生间</button>
-              <button class="indoor-facility" :class="{ active: indoorCategory === 'entrance' }" @click="selectIndoorCategory('entrance')">出入口</button>
+              <button :class="{ active: allIndoorCategoriesSelected }" :aria-pressed="allIndoorCategoriesSelected" @click="selectIndoorCategory('all')">全部</button>
+              <button v-for="(label, category) in indoorCategoryLabels" :key="category" :class="{ active: isIndoorCategorySelected(category) }" :aria-pressed="isIndoorCategorySelected(category)" @click="selectIndoorCategory(category)">{{ label }}</button>
+              <button class="indoor-back-map" type="button" @click="goBackIndoor">返回</button>
             </nav>
 
             <main v-if="indoorView === 'map'" class="indoor-map-stage">
-              <div class="indoor-plan-viewport" :class="{ dragging: indoorDragging }" @wheel.prevent="onIndoorWheel" @mousedown="startIndoorDrag">
+              <div ref="indoorPlanViewportRef" class="indoor-plan-viewport" :class="{ dragging: indoorDragging }" @wheel.prevent="onIndoorWheel" @mousedown="startIndoorDrag">
                 <div class="indoor-plan-canvas" :style="{ width: `${indoorZoom * 100}%` }">
-                  <img :src="firstCanteenFloorPlan" alt="第一食堂第一层平面图" draggable="false" />
+                  <img v-if="indoorFloorPlan?.imageUrl" :src="indoorFloorPlan.imageUrl" :alt="`${indoorCanteen?.name || '食堂'}${selectedIndoorFloor?.name || '楼层'}平面图`" draggable="false" />
+                  <p v-else class="indoor-empty">该楼层暂未上传平面图</p>
                   <template v-if="filteredDemoFacilities.length">
                     <span v-for="facility in filteredDemoFacilities" :key="facility.id" class="facility-map-marker" :style="{ left: `${facility.x}%`, top: `${facility.y}%`, '--facility-color': facility.color }"><i>{{ facility.symbol }}</i><b>{{ facility.name }}</b></span>
                   </template>
-                  <template v-else-if="indoorZoom < 1.35 && indoorCategory === 'all' && !indoorSearch">
-                    <span v-for="cluster in demoClusters" :key="cluster.id" class="stall-cluster" :style="{ left: `${cluster.x}%`, top: `${cluster.y}%`, background: cluster.color }">{{ cluster.count }}</span>
+                  <template v-else-if="indoorZoom < 1.35 && allIndoorCategoriesSelected && !indoorSearch">
+                    <span v-for="cluster in indoorClusters" :key="cluster.id" class="stall-cluster" :style="{ left: `${cluster.x}%`, top: `${cluster.y}%`, background: cluster.color }">{{ cluster.count }}</span>
                   </template>
-                  <template v-else-if="indoorZoom < 1.65 && indoorCategory === 'all' && !indoorSearch">
-                    <template v-for="point in resolvedMediumPoints" :key="point.id">
-                      <span v-if="point.type === 'cluster'" class="stall-cluster" :style="{ left: `${point.x}%`, top: `${point.y}%`, background: point.color }">{{ point.count }}</span>
-                      <span v-else-if="point.stall" class="demo-stall-marker" :style="{ left: `${point.stall.x}%`, top: `${point.stall.y}%`, '--stall-color': point.stall.color }"><i></i><b>{{ point.stall.name }}</b></span>
-                    </template>
+                  <template v-else-if="indoorZoom < 1.65 && allIndoorCategoriesSelected && !indoorSearch">
+                    <span v-for="stall in filteredDemoStalls" :key="stall.id" class="demo-stall-marker" :style="{ left: `${stall.x}%`, top: `${stall.y}%`, '--stall-color': stall.color }" @click.stop="openStallDetail(stall)"><i></i><b>{{ stall.name }}</b></span>
                   </template>
                   <template v-else>
-                    <span v-for="stall in filteredDemoStalls" :key="stall.id" class="demo-stall-marker" :style="{ left: `${stall.x}%`, top: `${stall.y}%`, '--stall-color': stall.color }">
+                    <span v-for="stall in filteredDemoStalls" :key="stall.id" class="demo-stall-marker" :style="{ left: `${stall.x}%`, top: `${stall.y}%`, '--stall-color': stall.color }" @click.stop="openStallDetail(stall)">
                       <i></i><b>{{ stall.name }}</b>
                     </span>
                   </template>
@@ -1076,10 +1161,21 @@ onUnmounted(() => {
             </main>
 
             <main v-else-if="indoorView === 'list'" class="indoor-content-view">
-              <div class="indoor-content-heading"><strong>第一层档口</strong><span>共{{ filteredDemoStalls.length }}个档口</span></div>
+              <div class="indoor-content-heading"><strong>{{ selectedIndoorFloor?.name || '本层' }}档口</strong><span>共{{ filteredDemoStalls.length }}个档口</span></div>
               <div class="indoor-stall-grid">
                 <article v-for="stall in filteredDemoStalls" :key="stall.id" class="indoor-stall-card">
-                  <div class="stall-card-title"><i :style="{ background: stall.color }">餐</i><span><strong>{{ stall.name }}</strong><small>{{ indoorCategoryLabels[stall.category] }}</small></span></div>
+                  <img v-if="stall.imageUrl" class="stall-card-image" :src="stall.imageUrl" :alt="stall.name" loading="lazy" />
+                  <span v-else class="stall-card-image-placeholder">▱</span>
+                  <div class="stall-card-title">
+                    <span><strong>{{ stall.name }}</strong><small>{{ indoorCategoryLabels[stall.category] }}</small></span>
+                    <em v-if="stallStatusLabels[stall.stallStatus]" :class="`status-${stall.stallStatus}`">{{ stallStatusLabels[stall.stallStatus] }}</em>
+                  </div>
+                  <div class="stall-card-meta-row">
+                    <small v-if="stall.businessHours">营业时间 {{ stall.businessHours }}</small>
+                  </div>
+                  <button v-if="stall.description" class="stall-card-intro" type="button" @click="toggleIntroPreview($event, '档口介绍', stall.description)">
+                    <strong>档口介绍</strong><span>{{ stall.description }}</span><i>›</i>
+                  </button>
                   <div class="stall-card-actions"><button @click="showStallOnMap(stall)">查看位置</button><button @click="showStallMenu(stall)">查看菜品</button></div>
                 </article>
                 <p v-if="!filteredDemoStalls.length" class="indoor-empty">当前筛选下暂无档口</p>
@@ -1087,18 +1183,30 @@ onUnmounted(() => {
             </main>
 
             <main v-else class="indoor-content-view">
-              <div class="indoor-content-heading"><strong>第一层菜品</strong><span>共{{ filteredDemoMenu.length }}道菜品</span></div>
+              <div class="indoor-content-heading"><strong>{{ selectedIndoorFloor?.name || '本层' }}菜品</strong><span>共{{ filteredDemoMenu.length }}道菜品</span></div>
               <div class="indoor-menu-grid">
                 <article v-for="dish in filteredDemoMenu" :key="dish.id" class="indoor-menu-card">
-                  <img :src="dish.image" :alt="dish.name" loading="lazy" />
-                  <div><strong>{{ dish.name }}</strong><small>{{ dish.stall }}</small><span>{{ indoorCategoryLabels[dish.category] }}</span></div>
-                  <b>¥{{ dish.price }}</b>
+                  <img v-if="dish.image" :src="dish.image" :alt="dish.name" loading="lazy" />
+                  <span v-else class="indoor-menu-card__placeholder">餐</span>
+                  <div class="indoor-menu-card__body">
+                    <strong>{{ dish.name }}</strong>
+                    <span class="dish-category">{{ indoorCategoryLabels[dish.category] }}</span>
+                    <button v-if="dish.description" class="dish-description" type="button" @click="toggleIntroPreview($event, '菜品介绍', dish.description)"><b>菜品介绍</b><span>{{ dish.description }}</span><i>›</i></button>
+                  </div>
+                  <div class="dish-card-footer"><span v-if="dish.taste">口味：{{ dish.taste }}</span><b>¥{{ dish.price }}</b></div>
                 </article>
                 <p v-if="!filteredDemoMenu.length" class="indoor-empty">当前筛选下暂无菜品</p>
               </div>
             </main>
 
-            <footer class="indoor-footer"><span>◷ 营业时间 <strong>06:30—21:00</strong></span><button>⌁ 到这去</button></footer>
+            <Transition name="intro-preview">
+              <aside v-if="introPreview" class="intro-preview-popover" :style="introPreview.style">
+                <strong>{{ introPreview.title }}</strong>
+                <button type="button" aria-label="关闭介绍" @click="introPreview = null">×</button>
+                <p>{{ introPreview.text }}</p>
+              </aside>
+            </Transition>
+
           </section>
         </div>
       </Transition>
@@ -1316,7 +1424,7 @@ onUnmounted(() => {
   background: rgba(255,255,255,.96); box-shadow: 0 12px 32px rgba(15,23,42,.14);
   transition: height .28s cubic-bezier(.4,0,.2,1); backdrop-filter: blur(14px);
 }
-.category-rail.expanded { height: 610px; }
+.category-rail.expanded { height: 430px; }
 .category-all, .category-item {
   width: 100%; border: 0; background: transparent; color: #4c5b70;
   display: flex; flex-direction: column; align-items: center; justify-content: center;
@@ -1326,29 +1434,12 @@ onUnmounted(() => {
 .category-all-icon { font-size: 28px; line-height: 22px; }
 .category-list { opacity: 0; transform: translateY(-10px); transition: opacity .18s, transform .24s; }
 .category-rail.expanded .category-list { opacity: 1; transform: translateY(0); }
-.category-item { height: 84px; border-bottom: 1px solid #edf1f5; }
+.category-item { height: 84px; border-bottom: 1px solid #edf1f5; cursor: pointer; }
 .category-item-icon {
   width: 34px; height: 34px; display: grid; place-items: center;
   border-radius: 11px; color: #2e75d2; background: #eef5ff; font-weight: 850;
 }
-.category-item--canteen { cursor: pointer; }
-.category-item--canteen .category-item-icon { color: #f97316; background: #fff1e8; }
 .category-item.active { color: #0758cf; background: #f4f8ff; }
-.campus-submenu, .other-submenu {
-  position: absolute; top: 214px; left: 136px; z-index: 13; display: flex; width: 156px;
-  flex-direction: column; overflow: hidden; border: 1px solid rgba(148,163,184,.28);
-  border-radius: 15px; background: rgba(255,255,255,.97); box-shadow: 0 12px 30px rgba(15,23,42,.16);
-  backdrop-filter: blur(14px);
-}
-.other-submenu { top: 634px; }
-.campus-submenu button, .other-submenu button { display: flex; height: 50px; align-items: center; gap: 10px; padding: 0 17px; border: 0; border-bottom: 1px solid #edf1f5; color: #405069; background: transparent; font-size: 14px; font-weight: 700; cursor: pointer; }
-.campus-submenu button:last-child, .other-submenu button:last-child { border-bottom: 0; }
-.campus-submenu button:hover, .campus-submenu button.active, .other-submenu button:hover, .other-submenu button.active { color: #0758cf; background: #f1f6ff; }
-.campus-submenu button span { color: #2e75d2; font-size: 18px; }
-.other-submenu { top: 634px; }
-.other-submenu button span { color: #64748b; font-size: 22px; line-height: 1; }
-.campus-menu-enter-active, .campus-menu-leave-active { transition: opacity .18s ease, transform .18s ease; }
-.campus-menu-enter-from, .campus-menu-leave-to { opacity: 0; transform: translateX(-8px); }
 
 /* ═══ 随机漫步 ═══ */
 .random-modal {
@@ -1403,25 +1494,17 @@ onUnmounted(() => {
   border: 1px solid rgba(148,163,184,.28); border-radius: 20px;
   background: rgba(255,255,255,.97); box-shadow: 0 16px 46px rgba(15,23,42,.2);
 }
-.canteen-header { justify-content: flex-start; gap: 12px; }
-.canteen-type-icon {
-  width: 46px; height: 46px; flex: 0 0 46px; display: grid; place-items: center;
-  border-radius: 12px; color: #fff; background: #fb873f; font-size: 15px; font-weight: 800;
-}
-.canteen-heading { min-width: 0; display: flex; flex: 1; flex-direction: column; gap: 3px; }
-.canteen-heading small { color: #7b8ba1; font-size: 12px; font-weight: 500; }
-.canteen-open { padding: 4px 9px; border-radius: 999px; color: #16a34a; background: #eaf9ef; font-size: 11px; font-weight: 700; }
-.canteen-badges, .canteen-services { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 18px; }
-.canteen-badges span { padding: 5px 10px; border-radius: 7px; color: #61738f; background: #edf3ff; font-size: 12px; }
-.canteen-meta { display: flex; align-items: flex-start; gap: 10px; margin-top: 16px; color: #3f4d61; font-size: 14px; line-height: 1.45; }
-.canteen-meta b { width: 20px; color: #3477d4; text-align: center; }
-.canteen-meta span { display: flex; flex-direction: column; }
-.canteen-meta small { margin-top: 2px; color: #78889d; font-size: 11px; }
-.canteen-intro { margin-top: 18px; }
-.canteen-intro strong { font-size: 14px; }
-.canteen-intro p { margin: 7px 0 0; color: #566579; font-size: 13px; line-height: 1.55; }
-.canteen-services span { padding: 4px 9px; border: 1px solid #dce5ef; border-radius: 999px; color: #687b94; font-size: 11px; }
-.more-info-zone { margin-top: 22px; padding-top: 2px; }
+.canteen-header { margin-bottom: 16px; }
+.canteen-image { width: 100%; height: 180px; display: block; border-radius: 12px; object-fit: cover; }
+.canteen-intro-line { width: 100%; margin-top: 16px; padding: 0; border: 0; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 8px; color: #64748b; background: transparent; text-align: left; cursor: pointer; }
+.canteen-intro-line strong { color: #334155; font-size: 13px; }
+.canteen-intro-line span { min-width: 0; overflow: hidden; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
+.canteen-intro-line i { color: #0758cf; font-size: 20px; font-style: normal; }
+.canteen-intro-popover { position: absolute; z-index: 13; width: 320px; max-height: 220px; padding: 20px; overflow-y: auto; border: 1px solid #cbd6e5; border-radius: 12px; background: #fff; box-shadow: 0 16px 42px rgba(15,23,42,.2); }
+.canteen-intro-popover > strong { color: #1d2a3d; font-size: 16px; }
+.canteen-intro-popover > button { position: absolute; top: 10px; right: 12px; width: 30px; height: 30px; border: 0; border-radius: 50%; color: #64748b; background: #f1f5f9; font-size: 20px; cursor: pointer; }
+.canteen-intro-popover p { margin: 12px 0 0; color: #566579; font-size: 14px; line-height: 1.8; white-space: pre-wrap; overflow-wrap: anywhere; }
+.more-info-zone { margin-top: 16px; padding-top: 2px; }
 .more-info-button { width: 100%; height: 48px; border: 0; border-radius: 10px; color: #fff; background: #0758cf; font-size: 15px; font-weight: 750; cursor: pointer; }
 
 .floor-preview {
@@ -1442,7 +1525,6 @@ onUnmounted(() => {
   display: flex; align-items: center; gap: 14px; color: #334155; background: transparent; text-align: left;
 }
 .floor-preview button.active { border-color: #8ab3f8; background: #edf4ff; color: #0758cf; }
-.floor-preview button > b { width: 34px; font-size: 17px; }
 .floor-preview button > span { display: flex; flex: 1; flex-direction: column; gap: 3px; }
 .floor-preview button strong { font-size: 14px; }
 .floor-preview button small { color: #78889d; font-size: 12px; font-weight: 500; }
@@ -1798,29 +1880,50 @@ onUnmounted(() => {
 .indoor-content-heading { display: flex; height: 58px; align-items: center; justify-content: space-between; padding: 0 24px; border-bottom: 1px solid #dce4ef; color: #263449; }
 .indoor-content-heading span { color: #74849a; font-size: 12px; }
 .indoor-stall-grid, .indoor-menu-grid { height: calc(100% - 58px); padding: 22px; overflow-y: auto; background: #f8faff; }
-.indoor-stall-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); align-content: start; gap: 18px; }
-.indoor-stall-card { min-height: 132px; padding: 18px; border: 1px solid #cbd6e5; border-radius: 11px; background: #fff; box-shadow: 0 2px 6px rgba(31,55,88,.04); }
-.stall-card-title { display: flex; align-items: center; gap: 12px; }
-.stall-card-title > i { display: grid; width: 46px; height: 46px; flex: 0 0 auto; place-items: center; border-radius: 10px; color: #fff; font-style: normal; font-weight: 800; }
-.stall-card-title span { display: flex; min-width: 0; flex-direction: column; gap: 6px; }
-.stall-card-title strong { overflow: hidden; color: #1d2a3d; font-size: 15px; text-overflow: ellipsis; white-space: nowrap; }
-.stall-card-title small { width: fit-content; padding: 2px 7px; border-radius: 5px; color: #f97316; background: #fff0e7; }
-.stall-card-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; margin-top: 16px; }
+.indoor-stall-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); grid-auto-rows: minmax(330px, auto); align-content: start; gap: 18px; }
+.indoor-stall-card { min-height: 330px; overflow: hidden; border: 1px solid #cbd6e5; border-radius: 11px; background: #fff; box-shadow: 0 2px 6px rgba(31,55,88,.04); }
+.stall-card-image, .stall-card-image-placeholder { width: 100%; height: 126px; display: block; background: #eef2f7; }
+.stall-card-image { object-fit: cover; }
+.stall-card-image-placeholder { display: grid; place-items: center; color: #9aa9bb; font-size: 48px; }
+.stall-card-title { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 15px 16px 0; }
+.stall-card-title > span { min-width: 0; display: flex; align-items: center; gap: 8px; }
+.stall-card-title strong { min-width: 0; overflow: hidden; color: #1d2a3d; font-size: 15px; text-overflow: ellipsis; white-space: nowrap; }
+.stall-card-title small { flex: 0 0 auto; padding: 2px 7px; border-radius: 5px; color: #f97316; background: #fff0e7; font-size: 10px; }
+.stall-card-title em { flex: 0 0 auto; padding: 3px 8px; border: 1px solid currentColor; border-radius: 6px; font-size: 11px; font-style: normal; }
+.stall-card-title em.status-1 { color: #16a34a; background: #f0fdf4; }
+.stall-card-title em.status-2 { color: #d97706; background: #fffbeb; }
+.stall-card-title em.status-3 { color: #64748b; background: #f8fafc; }
+.stall-card-meta-row { display: flex; min-height: 24px; align-items: center; justify-content: space-between; gap: 12px; padding: 9px 16px 0; }
+.stall-card-meta-row small { min-width: 0; overflow: hidden; color: #64748b; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.stall-card-meta-row b { flex: 0 0 auto; color: #e5484d; font-size: 13px; }
+.stall-card-intro { width: calc(100% - 32px); margin: 13px 16px 0; padding: 0; border: 0; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 7px; color: #64748b; background: transparent; text-align: left; cursor: pointer; }
+.stall-card-intro strong { color: #334155; font-size: 12px; }
+.stall-card-intro span { overflow: hidden; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.stall-card-intro i { color: #0758cf; font-size: 18px; font-style: normal; }
+.stall-card-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; margin: 16px; }
 .stall-card-actions button { height: 36px; border: 1px solid #0758cf; border-radius: 7px; color: #0758cf; background: #fff; font-weight: 700; cursor: pointer; }
 .stall-card-actions button:last-child { color: #fff; background: #0758cf; }
-.indoor-menu-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); grid-auto-rows: 242px; align-content: start; gap: 18px; }
-.indoor-menu-card { position: relative; min-height: 242px; overflow: hidden; border: 1px solid #cbd6e5; border-radius: 11px; background: #fff; box-shadow: 0 2px 7px rgba(31,55,88,.06); }
+.intro-preview-popover { position: absolute; z-index: 8; width: min(340px, calc(100% - 32px)); max-height: 60%; padding: 20px; overflow-y: auto; border: 1px solid #cbd6e5; border-radius: 12px; background: #fff; box-shadow: 0 16px 42px rgba(15,23,42,.2); }
+.intro-preview-popover strong { color: #1d2a3d; font-size: 16px; }
+.intro-preview-popover > button { position: absolute; top: 10px; right: 12px; width: 30px; height: 30px; border: 0; border-radius: 50%; color: #64748b; background: #f1f5f9; font-size: 20px; cursor: pointer; }
+.intro-preview-popover p { margin: 12px 0 0; color: #566579; font-size: 14px; line-height: 1.8; white-space: pre-wrap; overflow-wrap: anywhere; }
+.intro-preview-enter-active, .intro-preview-leave-active { transition: opacity .18s ease, transform .18s ease; }
+.intro-preview-enter-from, .intro-preview-leave-to { opacity: 0; transform: translateX(8px); }
+.indoor-menu-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); grid-auto-rows: 290px; align-content: start; gap: 18px; }
+.indoor-menu-card { position: relative; min-height: 290px; overflow: hidden; border: 1px solid #cbd6e5; border-radius: 11px; background: #fff; box-shadow: 0 2px 7px rgba(31,55,88,.06); }
 .indoor-menu-card > img { display: block; width: 100%; height: 142px; object-fit: cover; background: #e9f0fb; }
-.indoor-menu-card > div { display: flex; padding: 13px 14px 16px; flex-direction: column; gap: 5px; }
+.indoor-menu-card__placeholder { width: 100%; height: 142px; display: grid; place-items: center; color: #9aa9bb; background: #eef2f7; font-size: 32px; }
+.indoor-menu-card__body { display: flex; padding: 13px 14px 42px; flex-direction: column; gap: 5px; }
 .indoor-menu-card strong { color: #1d2a3d; font-size: 15px; }
-.indoor-menu-card small { color: #65758c; }
-.indoor-menu-card span { width: fit-content; padding: 2px 7px; border-radius: 5px; color: #f97316; background: #fff0e7; font-size: 10px; }
-.indoor-menu-card > b { position: absolute; right: 13px; bottom: 16px; color: #ef4444; font-size: 15px; }
+.dish-category { width: fit-content; padding: 2px 7px; border-radius: 5px; color: #f97316; background: #fff0e7; font-size: 10px; }
+.dish-description { width: 100%; min-width: 0; margin: 4px 0 0; padding: 0; border: 0; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 7px; color: #64748b; background: transparent; font-size: 11px; text-align: left; cursor: pointer; }
+.dish-description b { color: #334155; }
+.dish-description span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dish-description i { color: #0758cf; font-size: 15px; font-style: normal; }
+.dish-card-footer { position: absolute; right: 13px; bottom: 16px; left: 13px; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.dish-card-footer span { min-width: 0; overflow: hidden; color: #64748b; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.dish-card-footer b { flex: 0 0 auto; color: #ef4444; font-size: 15px; }
 .indoor-empty { grid-column: 1 / -1; padding: 70px 0; color: #7a889b; text-align: center; }
-.indoor-footer { display: flex; min-height: 68px; align-items: center; justify-content: space-between; padding: 0 28px; border-top: 1px solid #dce4ef; }
-.indoor-footer span { color: #4e5c70; font-size: 12px; }
-.indoor-footer span strong { display: block; margin-left: 22px; color: #1f2c3e; font-size: 14px; }
-.indoor-footer button { width: 150px; height: 44px; border: 0; border-radius: 9px; color: #fff; background: #0758cf; font-size: 15px; font-weight: 750; }
 
 /* ═══ 响应式 ═══ */
 @media (max-width: 480px) {
@@ -1834,15 +1937,14 @@ onUnmounted(() => {
   .random-modal { width: calc(100% - 48px); padding: 20px; }
 }
 @media (max-width: 760px) {
-  .campus-submenu { left: 124px; }
   .indoor-guide-mask { padding: 12px; }
   .indoor-guide-dialog { width: 100%; height: 92vh; min-width: 0; }
   .indoor-toolbar { grid-template-columns: 1fr; gap: 10px; overflow-y: auto; }
   .indoor-map-stage { padding: 16px; }
   .indoor-content-view { margin: 12px; }
   .indoor-stall-grid, .indoor-menu-grid { grid-template-columns: 1fr; padding: 14px; }
-  .indoor-menu-grid { grid-auto-rows: 270px; }
-  .indoor-menu-card { min-height: 270px; }
+  .indoor-menu-grid { grid-auto-rows: 310px; }
+  .indoor-menu-card { min-height: 310px; }
   .indoor-menu-card > img { height: 150px; }
   .indoor-guide-header { padding: 18px; }
   .indoor-guide-body {

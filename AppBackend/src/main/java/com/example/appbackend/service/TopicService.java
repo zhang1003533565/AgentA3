@@ -13,6 +13,7 @@ public interface TopicService {
     TopicResponse updateTopic(Long id, TopicRequest request);
 
     void deleteTopic(Long id);
+    void batchDeleteTopics(List<Long> ids);
 
     TopicResponse getTopicById(Long id);
 

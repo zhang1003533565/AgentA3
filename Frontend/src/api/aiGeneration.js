@@ -124,3 +124,17 @@ export function streamLeaderAgent(data, handlers = {}) {
 }
 
 export const getProfileRadar = () => unwrap(request({ url: '/api/profile/radar/my' }))
+
+export const getLeaderSessions = (params = {}) => unwrap(request({
+  url: '/api/ai/leader/sessions',
+  params,
+}))
+
+export const getLeaderSessionDetail = (sessionId) => unwrap(request({
+  url: `/api/ai/leader/sessions/${encodeURIComponent(sessionId)}`,
+}))
+
+export const deleteLeaderSession = (sessionId) => unwrap(request({
+  url: `/api/ai/leader/sessions/${encodeURIComponent(sessionId)}`,
+  method: 'DELETE',
+}))

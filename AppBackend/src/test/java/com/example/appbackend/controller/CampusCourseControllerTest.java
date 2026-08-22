@@ -3,6 +3,7 @@ package com.example.appbackend.controller;
 import com.example.appbackend.dto.CampusCourseDTO;
 import com.example.appbackend.exception.GlobalExceptionHandler;
 import com.example.appbackend.service.CampusCourseService;
+import com.example.appbackend.service.CourseMaterialService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.web.servlet.MockMvc;
@@ -17,12 +18,14 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 class CampusCourseControllerTest {
     private CampusCourseService service;
+    private CourseMaterialService materialService;
     private MockMvc adminMvc;
     private MockMvc appMvc;
 
     @BeforeEach
     void setUp() {
         service = mock(CampusCourseService.class);
+        materialService = mock(CourseMaterialService.class);
         when(service.adminList()).thenReturn(List.of());
         CampusCourseDTO.CourseSummary course = new CampusCourseDTO.CourseSummary();
         course.setId(8L);
@@ -32,7 +35,7 @@ class CampusCourseControllerTest {
         adminMvc = MockMvcBuilders.standaloneSetup(new AdminCampusCourseController(service))
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .build();
-        appMvc = MockMvcBuilders.standaloneSetup(new AppCampusCourseController(service))
+        appMvc = MockMvcBuilders.standaloneSetup(new AppCampusCourseController(service, materialService))
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .build();
     }

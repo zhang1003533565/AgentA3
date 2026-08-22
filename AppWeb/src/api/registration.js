@@ -18,6 +18,24 @@ export const removeRegistrationByManager = (id) => {
   })
 }
 
+// 管理端为学生手动添加报名
+export const adminAddRegistration = (activityId, userId) => {
+  return request({
+    url: '/api/registrations/admin/add',
+    method: 'post',
+    params: { activityId, userId }
+  })
+}
+
+// 获取全部报名列表（管理端，可筛选）
+export const getAllRegistrations = (params = {}) => {
+  return request({
+    url: '/api/registrations',
+    method: 'get',
+    params
+  })
+}
+
 // 审核报名
 export const auditRegistration = (id, auditStatus, remark) => {
   return request({

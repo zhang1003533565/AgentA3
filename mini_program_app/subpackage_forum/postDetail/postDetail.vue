@@ -118,10 +118,6 @@
                 <text class="action-icon">💬</text>
                 <text class="action-count">回复</text>
               </view>
-              <view class="action-item" @click="reportComment(item)">
-                <text class="action-icon">⚠️</text>
-                <text class="action-count">举报</text>
-              </view>
             </view>
 
             <!-- 子评论 -->
@@ -144,6 +140,44 @@
       </view>
     </view>
 
+    <!-- 回复评论弹窗 -->
+    <view class="reply-popup-mask" v-if="showReplyPopup" @click="closeReplyPopup" @touchmove.stop.prevent>
+      <view class="reply-popup-content" @click.stop>
+        <view class="reply-popup-header">
+          <text class="reply-popup-title">回复 {{ replyTarget ? replyTarget.userName : '' }}</text>
+          <view class="reply-popup-close" @click="closeReplyPopup">
+            <text>×</text>
+          </view>
+        </view>
+        <textarea
+          class="reply-textarea"
+          v-model="replyContent"
+          placeholder="写下你的回复..."
+          :focus="showReplyPopup"
+          :maxlength="500"
+          auto-height
+        />
+        <!-- 待发送的回复图片预览 -->
+        <view class="reply-preview-list" v-if="replyImages.length">
+          <view v-for="(img, index) in replyImages" :key="index" class="reply-preview-item">
+            <image class="reply-preview-img" :src="img" mode="aspectFill" />
+            <view class="reply-preview-remove" @click="removeReplyImage(index)">
+              <text>×</text>
+            </view>
+          </view>
+        </view>
+        <view class="reply-popup-actions">
+          <view class="reply-image-btn" @click="chooseReplyImage">
+            <image class="reply-image-icon" src="/static/icons/proicons--photo.svg" mode="aspectFit" />
+          </view>
+          <text class="reply-char-count">{{ replyContent.length }}/500</text>
+          <view class="reply-send-btn" :class="{ disabled: !canSendReply }" @click="submitReply">
+            <text>发送</text>
+          </view>
+        </view>
+      </view>
+    </view>
+
     <!-- 底部操作栏 -->
     <view class="bottom-bar">
       <view class="comment-input-wrap">
@@ -153,7 +187,7 @@
         <input
           class="comment-input"
           v-model="commentContent"
-          :placeholder="replyTarget ? `回复 ${replyTarget.userName}...` : '说点什么吧...'"
+          placeholder="说点什么吧..."
           confirm-type="send"
           @confirm="submitComment"
         />
@@ -180,7 +214,6 @@
 <script>
 import NavBar from '@/components/nav-bar/nav-bar.vue'
 import {
-  createReport,
   createComment,
   deletePost,
   getCommentList,
@@ -227,6 +260,9 @@ export default {
       commentContent: '',
       commentImages: [],
       replyTarget: null,
+      showReplyPopup: false,
+      replyContent: '',
+      replyImages: [],
       currentUserId: ''
     }
   },
@@ -236,6 +272,9 @@ export default {
     },
     canSendComment() {
       return !!(this.commentContent && this.commentContent.trim()) || this.commentImages.length > 0
+    },
+    canSendReply() {
+      return !!(this.replyContent && this.replyContent.trim()) || this.replyImages.length > 0
     },
     sortedComments() {
       const list = [...this.commentList]
@@ -360,42 +399,6 @@ export default {
         this.postDetail.likeCount = Number(res?.data?.likeCount ?? this.postDetail.likeCount)
       } catch (error) {}
     },
-    chooseReportReason() {
-      return new Promise((resolve) => {
-        uni.showActionSheet({
-          itemList: ['垃圾广告', '虚假信息', '人身攻击', '低俗违规', '其他'],
-          success: (res) => {
-            const reasons = [
-              { reasonType: 1, reasonText: '垃圾广告' },
-              { reasonType: 2, reasonText: '虚假信息' },
-              { reasonType: 3, reasonText: '人身攻击' },
-              { reasonType: 4, reasonText: '低俗违规' },
-              { reasonType: 5, reasonText: '其他' }
-            ]
-            resolve(reasons[res.tapIndex])
-          },
-          fail: () => resolve(null)
-        })
-      })
-    },
-    async submitReport(targetType, targetId) {
-      const reason = await this.chooseReportReason()
-      if (!reason) return
-      try {
-        await createReport({
-          targetType,
-          targetId,
-          reasonType: reason.reasonType,
-          reasonText: reason.reasonText
-        })
-        uni.showToast({ title: '举报已提交', icon: 'success' })
-      } catch (error) {
-        uni.showToast({ title: error?.message || '举报提交失败', icon: 'none' })
-      }
-    },
-    reportComment(item) {
-      this.submitReport(2, item.id)
-    },
     openPostMenu() {
       if (this.isAuthorSelf) {
         // 帖主：显示删除操作
@@ -446,10 +449,64 @@ export default {
     hideCommentInput() {
       this.commentContent = ''
       this.commentImages = []
-      this.replyTarget = null
     },
     replyComment(item) {
       this.replyTarget = item
+      this.replyContent = ''
+      this.replyImages = []
+      this.showReplyPopup = true
+    },
+    closeReplyPopup() {
+      this.showReplyPopup = false
+      this.replyTarget = null
+      this.replyContent = ''
+      this.replyImages = []
+    },
+    chooseReplyImage() {
+      const remaining = 9 - this.replyImages.length
+      if (remaining <= 0) {
+        uni.showToast({ title: '最多上传9张图片', icon: 'none' })
+        return
+      }
+      uni.chooseImage({
+        count: remaining,
+        sizeType: ['compressed'],
+        sourceType: ['album', 'camera'],
+        success: async (res) => {
+          const files = res.tempFilePaths
+          try {
+            const urls = await uploadImages(files)
+            this.replyImages = [...this.replyImages, ...urls]
+          } catch (error) {
+            uni.showToast({ title: error?.msg || '图片上传失败', icon: 'none' })
+          }
+        }
+      })
+    },
+    removeReplyImage(index) {
+      this.replyImages.splice(index, 1)
+    },
+    async submitReply() {
+      if (!this.canSendReply) {
+        uni.showToast({ title: '请输入回复内容', icon: 'none' })
+        return
+      }
+      if (!this.replyTarget) return
+      try {
+        await createComment({
+          postId: this.postId,
+          content: (this.replyContent || '').trim(),
+          parentId: this.replyTarget.id,
+          replyToId: this.replyTarget.userId,
+          images: this.replyImages
+        })
+        uni.showToast({ title: '回复成功', icon: 'success' })
+        this.closeReplyPopup()
+        this.loadPostDetail()
+        this.loadComments()
+      } catch (error) {
+        uni.showToast({ title: error?.message || '回复失败', icon: 'none' })
+      }
     },
     chooseCommentImage() {
       const remaining = 9 - this.commentImages.length
@@ -499,8 +556,6 @@ export default {
         await createComment({
           postId: this.postId,
           content: (this.commentContent || '').trim(),
-          parentId: this.replyTarget ? this.replyTarget.id : null,
-          replyToId: this.replyTarget ? this.replyTarget.userId : null,
           images: this.commentImages
         })
         uni.showToast({ title: '评论成功', icon: 'success' })
@@ -941,6 +996,151 @@ export default {
           font-size: 24rpx;
         }
       }
+    }
+  }
+}
+
+/* 回复评论弹窗 */
+.reply-popup-mask {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: flex-end;
+  z-index: 9999;
+}
+
+.reply-popup-content {
+  width: 100%;
+  background-color: #FFFFFF;
+  border-radius: 24rpx 24rpx 0 0;
+  padding: 24rpx;
+  padding-bottom: calc(24rpx + env(safe-area-inset-bottom));
+}
+
+.reply-popup-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 20rpx;
+
+  .reply-popup-title {
+    font-size: 30rpx;
+    font-weight: 600;
+    color: #1D1D1F;
+  }
+
+  .reply-popup-close {
+    width: 56rpx;
+    height: 56rpx;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    text {
+      font-size: 40rpx;
+      color: #8E8E93;
+    }
+  }
+}
+
+.reply-textarea {
+  width: 100%;
+  min-height: 120rpx;
+  max-height: 240rpx;
+  background-color: #F5F5F7;
+  border-radius: 12rpx;
+  padding: 20rpx;
+  font-size: 28rpx;
+  color: #1D1D1F;
+  line-height: 1.6;
+  box-sizing: border-box;
+}
+
+.reply-preview-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12rpx;
+  margin-top: 16rpx;
+
+  .reply-preview-item {
+    position: relative;
+    width: 120rpx;
+    height: 120rpx;
+
+    .reply-preview-img {
+      width: 100%;
+      height: 100%;
+      border-radius: 12rpx;
+    }
+
+    .reply-preview-remove {
+      position: absolute;
+      top: -10rpx;
+      right: -10rpx;
+      width: 36rpx;
+      height: 36rpx;
+      background-color: rgba(0, 0, 0, 0.6);
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+
+      text {
+        color: #FFFFFF;
+        font-size: 24rpx;
+      }
+    }
+  }
+}
+
+.reply-popup-actions {
+  display: flex;
+  align-items: center;
+  margin-top: 20rpx;
+
+  .reply-image-btn {
+    width: 64rpx;
+    height: 64rpx;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    .reply-image-icon {
+      width: 44rpx;
+      height: 44rpx;
+      color: #5C7A99;
+    }
+  }
+
+  .reply-char-count {
+    flex: 1;
+    font-size: 22rpx;
+    color: #8E8E93;
+    text-align: right;
+    margin-right: 16rpx;
+  }
+
+  .reply-send-btn {
+    padding: 0 40rpx;
+    height: 64rpx;
+    border-radius: 32rpx;
+    background-color: #5C7A99;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    text {
+      font-size: 28rpx;
+      color: #FFFFFF;
+      font-weight: 600;
+    }
+
+    &.disabled {
+      opacity: 0.5;
     }
   }
 }

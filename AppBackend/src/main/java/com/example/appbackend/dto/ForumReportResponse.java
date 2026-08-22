@@ -15,6 +15,7 @@ public class ForumReportResponse {
     private Integer targetType;
     private Long targetId;
     private String targetTitle;
+    private String targetContent;
     private Long targetAuthorId;
     private String targetAuthor;
     private Integer reasonType;

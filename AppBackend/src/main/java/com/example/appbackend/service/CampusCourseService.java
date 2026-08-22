@@ -9,11 +9,17 @@ import com.example.appbackend.repository.*;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.security.SecureRandom;
 import java.time.LocalDateTime;
 import java.util.*;
 
 @Service
 public class CampusCourseService {
+
+    private static final Set<String> FIXED_MAJOR_CATEGORIES = Set.of(
+            "哲学类", "经济学类", "法学类", "教育学类", "文学类", "历史学类",
+            "理学类", "工学类", "农学类", "医学类", "管理学类", "艺术学类", "军事学类", "交叉学科类"
+    );
     private final CampusCourseRepository courseRepository;
     private final CampusCourseChapterRepository chapterRepository;
     private final CampusCourseExamRepository courseExamRepository;
@@ -25,6 +31,7 @@ public class CampusCourseService {
     private final MaterialIdsCodec materialIdsCodec;
     private final WordParsingService wordParsingService;
     private final CampusCourseMaterialRepository materialRepository;
+    private final CampusCourseTypeRepository typeRepository;
 
     public CampusCourseService(
             CampusCourseRepository courseRepository,
@@ -37,7 +44,8 @@ public class CampusCourseService {
             CourseMaterialService materialService,
             MaterialIdsCodec materialIdsCodec,
             WordParsingService wordParsingService,
-            CampusCourseMaterialRepository materialRepository
+            CampusCourseMaterialRepository materialRepository,
+            CampusCourseTypeRepository typeRepository
     ) {
         this.courseRepository = courseRepository;
         this.chapterRepository = chapterRepository;
@@ -50,6 +58,73 @@ public class CampusCourseService {
         this.materialIdsCodec = materialIdsCodec;
         this.wordParsingService = wordParsingService;
         this.materialRepository = materialRepository;
+        this.typeRepository = typeRepository;
+    }
+
+    @Transactional(readOnly = true)
+    public List<CampusCourseDTO.CourseTypeView> listCourseTypes() {
+        List<CampusCourseDTO.CourseTypeView> types = typeRepository.findAllByOrderBySortOrderAscIdAsc().stream()
+                .map(this::courseTypeView)
+                .toList();
+        System.out.println("[DEBUG] listCourseTypes: total=" + types.size()
+                + " CUSTOM=" + types.stream().filter(t -> "CUSTOM".equals(t.getCategory())).count()
+                + " BUILTIN=" + types.stream().filter(t -> "BUILTIN".equals(t.getCategory())).count());
+        return types;
+    }
+
+    @Transactional
+    public CampusCourseDTO.CourseTypeView createCourseType(CampusCourseDTO.CourseTypeSaveRequest request) {
+        // 只允许输入类型名称，id 由数据库自增分配，typeCode 由后端自动生成
+        String name = required(request.getTypeName(), "类型名称", 20);
+        if (typeRepository.existsByTypeName(name)) {
+            throw new BusinessException(400, "类型名称已存在，请勿重复创建");
+        }
+        CampusCourseType type = new CampusCourseType();
+        type.setTypeCode(generateTypeCode());
+        type.setTypeName(name);
+        type.setCategory(CampusCourseType.CATEGORY_CUSTOM);
+        type.setSortOrder(value(request.getSortOrder(), 0));
+        return courseTypeView(typeRepository.save(type));
+    }
+
+    @Transactional
+    public void deleteCourseType(String typeCode) {
+        CampusCourseType type = typeRepository.findByTypeCode(typeCode)
+                .orElseThrow(() -> new BusinessException(404, "课程分类不存在"));
+        if (!CampusCourseType.CATEGORY_CUSTOM.equals(type.getCategory())
+                || FIXED_MAJOR_CATEGORIES.contains(type.getTypeName())) {
+            throw new BusinessException(400, "固定专业大类不可删除");
+        }
+        typeRepository.delete(type);
+    }
+
+    /**
+     * 自动生成不重复的类型代码：CT + 6 位大写字母数字，冲突时重试，数据库唯一索引兜底。
+     */
+    private String generateTypeCode() {
+        SecureRandom random = new SecureRandom();
+        String chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+        for (int attempt = 0; attempt < 5; attempt++) {
+            StringBuilder code = new StringBuilder("CT");
+            for (int i = 0; i < 6; i++) {
+                code.append(chars.charAt(random.nextInt(chars.length())));
+            }
+            String candidate = code.toString();
+            if (!typeRepository.existsByTypeCode(candidate)) {
+                return candidate;
+            }
+        }
+        throw new BusinessException(500, "类型代码生成失败，请重试");
+    }
+
+    private CampusCourseDTO.CourseTypeView courseTypeView(CampusCourseType type) {
+        CampusCourseDTO.CourseTypeView view = new CampusCourseDTO.CourseTypeView();
+        view.setId(type.getId());
+        view.setTypeCode(type.getTypeCode());
+        view.setTypeName(type.getTypeName());
+        view.setCategory(type.getCategory());
+        view.setSortOrder(type.getSortOrder());
+        return view;
     }
 
     @Transactional(readOnly = true)
@@ -177,6 +252,30 @@ public class CampusCourseService {
                 .toList();
     }
 
+    /**
+     * 分页获取已发布课程（前端下拉加载更多）。
+     * page 从 1 开始。返回 { "list": [...], "hasMore": true/false }
+     */
+    @Transactional(readOnly = true)
+    public Map<String, Object> studentPage(Long userId, int page, int pageSize, String customType) {
+        User user = requireUser(userId);
+        List<CampusCourse> all = courseRepository
+                .findByPublishStatusOrderBySortOrderAscPublishTimeDesc(CampusCourse.STATUS_PUBLISHED);
+        List<CampusCourseDTO.CourseSummary> accessible = all.stream()
+                .filter(course -> accessible(course, user))
+                .filter(course -> customType == null || customType.isBlank()
+                        || parseCustomTypes(course.getCustomCourseTypes()).contains(customType.trim()))
+                .map(course -> summary(course, userId))
+                .toList();
+        int total = accessible.size();
+        int from = (page - 1) * pageSize;
+        if (from >= total) {
+            return Map.of("list", List.of(), "hasMore", false);
+        }
+        int to = Math.min(from + pageSize, total);
+        return Map.of("list", accessible.subList(from, to), "hasMore", to < total);
+    }
+
     @Transactional(readOnly = true)
     public CampusCourseDTO.CourseDetail studentDetail(Long courseId, Long userId) {
         CampusCourse course = requireCourse(courseId);
@@ -196,6 +295,7 @@ public class CampusCourseService {
         if (!CampusCourse.STATUS_PUBLISHED.equals(course.getPublishStatus()) || !accessible(course, user)) {
             throw new BusinessException(403, "无权学习该课程");
         }
+        requireEnrolled(courseId, userId);
         requireChapter(courseId, chapterId);
         CampusCourseProgress progress = progressRepository
                 .findByCourseIdAndChapterIdAndUserId(courseId, chapterId, userId)
@@ -235,6 +335,12 @@ public class CampusCourseService {
         enrollmentRepository.deleteByUserIdAndCourseId(userId, courseId);
     }
 
+    private void requireEnrolled(Long courseId, Long userId) {
+        if (!enrollmentRepository.existsByUserIdAndCourseId(userId, courseId)) {
+            throw new BusinessException(403, "请先加入课程后再学习");
+        }
+    }
+
     @Transactional(readOnly = true)
     public List<CampusCourseDTO.CourseSummary> myEnrolledCourses(Long userId) {
         requireUser(userId);
@@ -256,14 +362,16 @@ public class CampusCourseService {
         if (!CampusCourse.STATUS_PUBLISHED.equals(course.getPublishStatus()) || !accessible(course, user)) {
             throw new BusinessException(404, "课程不存在或尚未发布");
         }
+        requireEnrolled(courseId, userId);
         CampusCourseChapter chapterEntity = requireChapter(courseId, chapterId);
         CampusCourseProgress progress = progressRepository
                 .findByCourseIdAndChapterIdAndUserId(courseId, chapterId, userId)
                 .orElse(null);
         CampusCourseDTO.ChapterView chapterView = chapterView(chapterEntity, progress);
-        List<MaterialDTO.MaterialView> materials = materialService.getChapterMaterials(courseId, chapterId);
-        List<MaterialDTO.MaterialView> additionalMaterials = materialService.getChapterAdditionalMaterials(courseId, chapterId);
-        List<MaterialDTO.MaterialView> wordMaterials = materialService.getChapterWordMaterials(courseId, chapterId);
+        // 材料元数据不携带 fileUrl，前端按需通过 GET .../materials/{id}/url 接口获取实际 URL
+        List<MaterialDTO.MaterialView> materials = stripFileUrls(materialService.getChapterMaterials(courseId, chapterId));
+        List<MaterialDTO.MaterialView> additionalMaterials = stripFileUrls(materialService.getChapterAdditionalMaterials(courseId, chapterId));
+        List<MaterialDTO.MaterialView> wordMaterials = stripFileUrls(materialService.getChapterWordMaterials(courseId, chapterId));
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("courseName", course.getName());
         result.put("courseId", course.getId());
@@ -285,6 +393,7 @@ public class CampusCourseService {
         if (!CampusCourse.STATUS_PUBLISHED.equals(course.getPublishStatus()) || !accessible(course, user)) {
             throw new BusinessException(404, "课程不存在或尚未发布");
         }
+        requireEnrolled(courseId, userId);
         CampusCourseChapter chapter = requireChapter(courseId, chapterId);
         Map<String, Boolean> result = new LinkedHashMap<>();
         result.put("hasVideo", !materialIdsCodec.parse(chapter.getMaterialIds()).isEmpty());
@@ -305,6 +414,7 @@ public class CampusCourseService {
         if (!CampusCourse.STATUS_PUBLISHED.equals(course.getPublishStatus()) || !accessible(course, user)) {
             throw new BusinessException(404, "课程不存在或尚未发布");
         }
+        requireEnrolled(courseId, userId);
         CampusCourseChapter chapter = requireChapter(courseId, chapterId);
         List<Long> wordIds = materialIdsCodec.parse(chapter.getWordMaterialIds());
         if (!wordIds.contains(materialId)) {
@@ -353,6 +463,8 @@ public class CampusCourseService {
         view.setId(course.getId());
         view.setName(course.getName());
         view.setBookTitle(course.getBookTitle());
+        view.setTeacherName(course.getTeacherName());
+        view.setLevel(course.getLevel());
         view.setCoverUrl(course.getCoverUrl());
         view.setDisplayImageUrl(course.getDisplayImageUrl());
         view.setDescription(course.getDescription());
@@ -364,6 +476,9 @@ public class CampusCourseService {
                 .orElse("管理员"));
         view.setOwnerType(course.getOwnerType());
         view.setCourseType(course.getCourseType());
+        List<String> customTypeCodes = parseCustomTypes(course.getCustomCourseTypes());
+        view.setCustomCourseTypes(customTypeCodes);
+        view.setCustomCourseTypeNames(resolveCustomTypeNames(customTypeCodes));
         view.setAudienceType(course.getAudienceType());
         view.setAudienceValues(course.getAudienceValues());
         view.setPublishStatus(course.getPublishStatus());
@@ -390,6 +505,7 @@ public class CampusCourseService {
         view.setTitle(chapter.getTitle());
         view.setSummary(chapter.getSummary());
         view.setContent(chapter.getContent());
+        view.setQaJson(chapter.getQaJson());
         view.setEstimatedMinutes(chapter.getEstimatedMinutes());
         view.setRequired(chapter.getRequired());
         view.setSortOrder(chapter.getSortOrder());
@@ -415,12 +531,26 @@ public class CampusCourseService {
     }
 
     private void apply(CampusCourse course, CampusCourseDTO.SaveRequest request) {
+        System.out.println("[DEBUG] apply: customCourseTypes=" + request.getCustomCourseTypes());
         course.setName(required(request.getName(), "课程名称", 120));
         course.setBookTitle(required(request.getBookTitle(), "课程书名称", 160));
+        course.setTeacherName(required(request.getTeacherName(), "课程老师", 80));
+        course.setLevel(null);
         course.setCoverUrl(trim(request.getCoverUrl(), 500));
         course.setDisplayImageUrl(trim(request.getDisplayImageUrl(), 500));
         course.setDescription(trim(request.getDescription(), 2000));
-        course.setCourseType(trim(request.getCourseType(), 30));
+        String courseType = trim(request.getCourseType(), 10);
+        if (courseType == null) courseType = CampusCourse.COURSE_TYPE_PUBLIC;
+        boolean builtin = typeRepository.findByTypeCode(courseType)
+                .map(type -> CampusCourseType.CATEGORY_BUILTIN.equals(type.getCategory()))
+                .orElse(false);
+        if (!builtin) {
+            throw new BusinessException(400, "必选课程类型不存在或不是内置类型");
+        }
+        course.setCourseType(courseType);
+        String resolved = resolveCustomCourseTypes(request.getCustomCourseTypes());
+        System.out.println("[DEBUG] apply: resolved customCourseTypes=" + resolved);
+        course.setCustomCourseTypes(resolved);
         course.setSemester(null);
         course.setEstimatedHours(null);
         course.setAudienceType(CampusCourse.AUDIENCE_ALL);
@@ -428,10 +558,59 @@ public class CampusCourseService {
         course.setSortOrder(value(request.getSortOrder(), 0));
     }
 
+    /**
+     * 校验并拼接自定义课程类型：仅允许已存在的 CUSTOM 类型，去重且最多 20 个，逗号分隔存储。
+     */
+    private String resolveCustomCourseTypes(List<String> codes) {
+        System.out.println("[DEBUG] resolveCustomCourseTypes: input=" + codes);
+        if (codes == null || codes.isEmpty()) return null;
+        Set<String> seen = new LinkedHashSet<>();
+        for (String code : codes) {
+            String value = trim(code, 10);
+            if (value == null) continue;
+            if (seen.size() >= 20) {
+                throw new BusinessException(400, "自定义课程类型最多选择 20 个");
+            }
+            if (!seen.add(value)) continue;
+            boolean custom = FIXED_MAJOR_CATEGORIES.contains(value) || typeRepository.findByTypeCode(value)
+                    .map(type -> CampusCourseType.CATEGORY_CUSTOM.equals(type.getCategory()))
+                    .orElse(false);
+            if (!custom) {
+                throw new BusinessException(400, "自定义课程类型不存在：" + value);
+            }
+        }
+        return seen.isEmpty() ? null : String.join(",", seen);
+    }
+
+    private List<String> parseCustomTypes(String raw) {
+        if (raw == null || raw.isBlank()) return List.of();
+        return Arrays.stream(raw.split(","))
+                .map(String::trim)
+                .filter(s -> !s.isEmpty())
+                .toList();
+    }
+
+    /**
+     * 将类型代码列表批量查表映射为名称，供前端直接渲染，不依赖类型字典接口单独请求。
+     * 若某代码在字典中已不存在（如被删除），兜底回退为原始代码。
+     */
+    private List<String> resolveCustomTypeNames(List<String> codes) {
+        if (codes == null || codes.isEmpty()) return List.of();
+        Map<String, String> nameMap = typeRepository.findByTypeCodeIn(codes).stream()
+                .collect(java.util.stream.Collectors.toMap(
+                        CampusCourseType::getTypeCode,
+                        CampusCourseType::getTypeName,
+                        (a, b) -> a));
+        return codes.stream()
+                .map(code -> nameMap.getOrDefault(code, code))
+                .toList();
+    }
+
     private void apply(CampusCourseChapter chapter, CampusCourseDTO.ChapterSaveRequest request) {
         chapter.setTitle(required(request.getTitle(), "章节标题", 160));
         chapter.setSummary(trim(request.getSummary(), 1000));
         chapter.setContent(request.getContent() == null ? null : request.getContent().trim());
+        chapter.setQaJson(request.getQaJson() == null ? null : request.getQaJson().trim());
         chapter.setEstimatedMinutes(request.getEstimatedMinutes());
         chapter.setRequired(request.getRequired() == null || request.getRequired());
         chapter.setSortOrder(value(request.getSortOrder(), 0));
@@ -471,6 +650,8 @@ public class CampusCourseService {
         target.setId(source.getId());
         target.setName(source.getName());
         target.setBookTitle(source.getBookTitle());
+        target.setTeacherName(source.getTeacherName());
+        target.setLevel(source.getLevel());
         target.setCoverUrl(source.getCoverUrl());
         target.setDisplayImageUrl(source.getDisplayImageUrl());
         target.setDescription(source.getDescription());
@@ -480,6 +661,8 @@ public class CampusCourseService {
         target.setOwnerName(source.getOwnerName());
         target.setOwnerType(source.getOwnerType());
         target.setCourseType(source.getCourseType());
+        target.setCustomCourseTypes(source.getCustomCourseTypes());
+        target.setCustomCourseTypeNames(source.getCustomCourseTypeNames());
         target.setAudienceType(source.getAudienceType());
         target.setAudienceValues(source.getAudienceValues());
         target.setPublishStatus(source.getPublishStatus());
@@ -495,7 +678,23 @@ public class CampusCourseService {
     private String required(String text, String label, int max) {
         String value = trim(text, max);
         if (value == null) throw new BusinessException(400, label + "不能为空");
+        validateNoGarbled(value, label);
         return value;
+    }
+
+    /**
+     * 校验文本不包含 Unicode 替换字符（U+FFFD），该字符出现说明数据在传输过程中编码受损。
+     * 同时拒绝仅由 ? 组成的乱码字符串。
+     */
+    private void validateNoGarbled(String text, String label) {
+        if (text.indexOf('\uFFFD') >= 0) {
+            throw new BusinessException(400, label + "包含无法识别的字符（编码异常），请重新输入");
+        }
+        // 若去除非中英文/数字后仅剩连续 ? 字符，视为乱码（正常中文不会出现连续大量 ?）
+        String printable = text.replaceAll("[\\u4e00-\\u9fa5a-zA-Z0-9_\\-\\s（）()【】、，。,.]+", "");
+        if (!printable.isEmpty() && printable.trim().matches("^[?？]+$")) {
+            throw new BusinessException(400, label + "包含乱码字符，请重新输入");
+        }
     }
 
     private String trim(String text, int max) {
@@ -511,5 +710,25 @@ public class CampusCourseService {
 
     private String firstNonBlank(String first, String second) {
         return first == null || first.isBlank() ? second : first;
+    }
+
+    /** 剥离材料列表中的 fileUrl，前端按需通过 materials/{id}/url 接口获取。 */
+    private List<MaterialDTO.MaterialView> stripFileUrls(List<MaterialDTO.MaterialView> views) {
+        if (views == null) return List.of();
+        return views.stream().map(v -> {
+            MaterialDTO.MaterialView copy = new MaterialDTO.MaterialView();
+            copy.setId(v.getId());
+            copy.setCourseId(v.getCourseId());
+            copy.setFileName(v.getFileName());
+            copy.setFileUrl(null);
+            copy.setFileSize(v.getFileSize());
+            copy.setFileType(v.getFileType());
+            copy.setMimeType(v.getMimeType());
+            copy.setDurationSeconds(v.getDurationSeconds());
+            copy.setDeleted(v.getDeleted());
+            copy.setUploadBatchId(v.getUploadBatchId());
+            copy.setCreatedAt(v.getCreatedAt());
+            return copy;
+        }).toList();
     }
 }

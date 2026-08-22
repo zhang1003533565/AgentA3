@@ -2,9 +2,8 @@
 import { onMounted, ref, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import AppTabBar from '../components/AppTabBar.vue'
-import { getActivityDetail } from '../api/activity'
+import { getActivityDetail, registerActivity } from '../api/activity'
 import { getUserInfo } from '../utils/auth'
-import { mockActivities } from '../mock/activityData'
 
 const route = useRoute()
 const router = useRouter()
@@ -12,6 +11,8 @@ const activity = ref(null)
 const loading = ref(true)
 const submitting = ref(false)
 const showSuccess = ref(false)
+const loadError = ref('')
+const submitError = ref('')
 
 const userInfo = computed(() => getUserInfo() || {})
 
@@ -24,13 +25,13 @@ const form = ref({
 
 async function load() {
   loading.value = true
+  loadError.value = ''
   try {
     const id = route.params.activityId
     const res = await getActivityDetail(id)
     activity.value = res.data
-  } catch {
-    const id = Number(route.params.activityId)
-    activity.value = mockActivities.find(a => a.id === id) || mockActivities[0]
+  } catch (e) {
+    loadError.value = e?.message || '活动不存在或加载失败'
   } finally {
     loading.value = false
     fillUserInfo()
@@ -58,13 +59,19 @@ function closeModal() {
   })
 }
 
-function handleSubmit() {
+async function handleSubmit() {
   if (!form.value.agreed) return
+  submitError.value = ''
   submitting.value = true
-  setTimeout(() => {
-    submitting.value = false
+  try {
+    const id = activity.value?.id || Number(route.params.activityId)
+    await registerActivity(id)
     showSuccess.value = true
-  }, 800)
+  } catch (e) {
+    submitError.value = e?.message || '报名失败，请稍后重试'
+  } finally {
+    submitting.value = false
+  }
 }
 
 function confirmSuccess() {
@@ -91,6 +98,11 @@ onMounted(load)
         <p>加载中...</p>
       </div>
 
+      <div v-else-if="loadError" class="loading-state">
+        <p>{{ loadError }}</p>
+        <button class="retry-btn" @click="load">重新加载</button>
+      </div>
+
       <template v-else>
         <div class="modal-overlay">
           <div class="modal-card" role="dialog" aria-modal="true">
@@ -105,15 +117,15 @@ onMounted(load)
             <div class="activity-card">
               <div class="activity-thumb">
                 <img v-if="activity.coverImage" :src="activity.coverImage" :alt="activity.title" />
-                <div v-else class="thumb-placeholder">📅</div>
+                <div v-else class="thumb-placeholder"><svg class="thumb-placeholder__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg></div>
               </div>
               <div class="activity-info">
                 <h3 class="activity-title">{{ activity.title }}</h3>
                 <p class="activity-meta">
-                  <span class="meta-item">📍 {{ activity.location || '线上活动' }}</span>
+                  <span class="meta-item"><svg class="meta-item__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>{{ activity.location || '线上活动' }}</span>
                 </p>
                 <p class="activity-meta">
-                  <span class="meta-item">🕐 {{ formatDate(activity.startTime) }}</span>
+                  <span class="meta-item"><svg class="meta-item__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>{{ formatDate(activity.startTime) }}</span>
                 </p>
               </div>
             </div>
@@ -151,6 +163,8 @@ onMounted(load)
                   required
                 />
               </div>
+
+              <p v-if="submitError" class="submit-error">{{ submitError }}</p>
 
               <label class="agreement">
                 <input
@@ -324,11 +338,11 @@ onMounted(load)
 .success-dialog {
   width: min(360px, calc(100% - 48px));
   background: #ffffff;
-  border-radius: 16px;
-  padding: 36px 28px 28px;
+  border-radius: 20px;
+  padding: 40px 28px 28px;
   text-align: center;
-  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.25);
-  animation: dialogPop 0.35s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.2), 0 0 0 1px rgba(255, 255, 255, 0.1);
+  animation: dialogPop 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
 }
 
 @keyframes dialogPop {
@@ -343,15 +357,21 @@ onMounted(load)
 }
 
 .success-icon-wrap {
-  width: 72px;
-  height: 72px;
+  width: 80px;
+  height: 80px;
   border-radius: 50%;
-  background: linear-gradient(135deg, #22c55e, #16a34a);
+  background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);
   display: flex;
   align-items: center;
   justify-content: center;
-  margin: 0 auto 20px;
-  box-shadow: 0 8px 24px rgba(34, 197, 94, 0.3);
+  margin: 0 auto 24px;
+  box-shadow: 0 12px 32px rgba(34, 197, 94, 0.35);
+  animation: iconPulse 2s ease-in-out infinite;
+}
+
+@keyframes iconPulse {
+  0%, 100% { box-shadow: 0 12px 32px rgba(34, 197, 94, 0.35); }
+  50% { box-shadow: 0 12px 40px rgba(34, 197, 94, 0.5); }
 }
 
 .success-check-icon {
@@ -390,22 +410,27 @@ onMounted(load)
 
 .success-confirm-btn {
   width: 100%;
-  padding: 12px;
+  padding: 13px;
   border: none;
-  border-radius: 10px;
-  background: linear-gradient(135deg, #3b82f6, #2563eb);
+  border-radius: 12px;
+  background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
   color: #ffffff;
   font-size: 15px;
   font-weight: 600;
   cursor: pointer;
-  transition: all 0.25s;
-  box-shadow: 0 4px 14px rgba(59, 130, 246, 0.3);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 4px 16px rgba(59, 130, 246, 0.3);
+  letter-spacing: 0.5px;
 }
 
 .success-confirm-btn:hover {
-  background: linear-gradient(135deg, #2563eb, #1d4ed8);
-  transform: translateY(-1px);
-  box-shadow: 0 6px 20px rgba(59, 130, 246, 0.4);
+  background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(59, 130, 246, 0.4);
+}
+
+.success-confirm-btn:active {
+  transform: translateY(0);
 }
 
 @keyframes fadeInUp {
@@ -447,6 +472,12 @@ onMounted(load)
   font-size: 28px;
 }
 
+.thumb-placeholder__icon {
+  width: 28px;
+  height: 28px;
+  color: #94a3b8;
+}
+
 .activity-info {
   flex: 1;
   min-width: 0;
@@ -480,6 +511,14 @@ onMounted(load)
   text-overflow: ellipsis;
 }
 
+.meta-item__icon {
+  width: 14px;
+  height: 14px;
+  color: #94a3b8;
+  vertical-align: -2px;
+  margin-right: 4px;
+}
+
 .signup-form {
   display: flex;
   flex-direction: column;
@@ -500,18 +539,19 @@ onMounted(load)
 
 .form-group input {
   padding: 10px 14px;
-  border: 1px solid #e2e8f0;
+  border: 1.5px solid #e2e8f0;
   border-radius: 10px;
   font-size: 14px;
   color: #0f172a;
   background: #ffffff;
-  transition: border-color 0.2s, box-shadow 0.2s;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
   outline: none;
 }
 
 .form-group input:focus {
   border-color: #3b82f6;
-  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.12);
+  box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.12), 0 2px 8px rgba(59, 130, 246, 0.08);
+  background: #fafcff;
 }
 
 .form-group input::placeholder {
@@ -550,21 +590,27 @@ onMounted(load)
   width: 100%;
   padding: 13px;
   border: none;
-  border-radius: 10px;
-  background: linear-gradient(135deg, #3b82f6, #2563eb);
+  border-radius: 12px;
+  background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
   color: #ffffff;
   font-size: 15px;
   font-weight: 600;
   cursor: pointer;
-  transition: all 0.25s;
-  box-shadow: 0 4px 14px rgba(59, 130, 246, 0.3);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 4px 16px rgba(59, 130, 246, 0.3);
   margin-top: 4px;
+  letter-spacing: 0.5px;
 }
 
 .submit-btn:hover:not(:disabled) {
-  background: linear-gradient(135deg, #2563eb, #1d4ed8);
-  transform: translateY(-1px);
-  box-shadow: 0 6px 20px rgba(59, 130, 246, 0.4);
+  background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(59, 130, 246, 0.4);
+}
+
+.submit-btn:active:not(:disabled) {
+  transform: translateY(0);
+  box-shadow: 0 2px 8px rgba(59, 130, 246, 0.3);
 }
 
 .submit-btn:disabled {
@@ -579,6 +625,29 @@ onMounted(load)
 
 .btn-loading {
   display: inline-block;
+}
+
+.submit-error {
+  margin: 0 0 14px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  color: #b91c1c;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.retry-btn {
+  margin-top: 10px;
+  padding: 8px 20px;
+  border: 1px solid #3b82f6;
+  border-radius: 9px;
+  background: #ffffff;
+  color: #2563eb;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
 }
 
 @media (max-width: 520px) {

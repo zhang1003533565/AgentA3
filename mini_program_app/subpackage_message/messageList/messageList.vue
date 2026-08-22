@@ -28,8 +28,9 @@
 
 <script>
 	import NavBar from '@/components/nav-bar/nav-bar.vue'
-	import { getCommentList, getPostList, getTopicPosts } from '@/api/forum.js'
-	import { getCurrentUserId, markForumCategoryRead, isForumCategoryRead } from '@/utils/storage.js'
+	import { getForumMessageUnread } from '@/api/forum.js'
+	import { markAppMessagesReadByCategory } from '@/api/message.js'
+	import { markForumCategoryRead, isForumCategoryRead } from '@/utils/storage.js'
 	export default {
 		components: { NavBar },
 		data() {
@@ -56,45 +57,34 @@
 		},
 		methods: {
 			async loadUnreadStats() {
-				// 与消息列表页同源：真实统计帖子评论/点赞/公告，已读状态覆盖
-				const uid = getCurrentUserId()
-				let commentCount = 0
-				let likeCount = 0
-				let myPosts = []
+				// 聚合接口一次返回三类未读数，避免逐个帖子请求评论的 N+1 问题
+				let stats = { comment: 0, like: 0, system: 0 }
 				try {
-					const res = await getPostList({ userId: uid, pageNum: 1, pageSize: 20 })
-					myPosts = res?.data?.records || []
+					const res = await getForumMessageUnread()
+					stats = {
+						comment: Number(res?.data?.commentCount || 0),
+						like: Number(res?.data?.likeCount || 0),
+						system: Number(res?.data?.systemCount || 0)
+					}
 				} catch (error) {
-					myPosts = []
+					stats = { comment: 0, like: 0, system: 0 }
 				}
-				for (const post of myPosts) {
-					if (post.likeCount > 0) likeCount += 1
-					try {
-						const res = await getCommentList({ postId: post.id, pageNum: 1, pageSize: 20 })
-						const comments = res?.data?.records || []
-						for (const comment of comments) {
-							if (String(comment.userId) !== String(uid)) commentCount += 1
-						}
-					} catch (error) {}
-				}
-				let systemCount = 0
-				try {
-					const res = await getTopicPosts(3, { pageNum: 1, pageSize: 20 })
-					systemCount = (res?.data?.records || []).length
-				} catch (error) {
-					systemCount = 0
-				}
-				// 已读状态覆盖未读数
+				// 点赞未读数来自后端真实未读消息（已读后归零，新点赞重新出现红点）
 				this.unreadStats = {
-					like: isForumCategoryRead('like') ? 0 : likeCount,
-					comment: isForumCategoryRead('comment') ? 0 : commentCount,
-					system: isForumCategoryRead('system') ? 0 : systemCount
+					like: stats.like,
+					// 评论/系统通知暂无后端消息记录，沿用本地已读标记兼容
+					comment: isForumCategoryRead('comment') ? 0 : stats.comment,
+					system: isForumCategoryRead('system') ? 0 : stats.system
 				}
 			},
 			goToSection(section) {
 				// 点击即标记该分类已读：立即持久化并清零本地计数，返回后不再显示红点
 				markForumCategoryRead(section.key)
 				this.unreadStats[section.key] = 0
+				// 点赞消息基于后端 app_message：同步标记后端已读，保证返回后红点不再出现
+				if (section.key === 'like') {
+					markAppMessagesReadByCategory({ moduleType: 'FORUM', eventTypes: ['POST_LIKE'] }).catch(() => {})
+				}
 				// 每个板块跳转到独立的分类消息列表页
 				uni.navigateTo({
 					url: `/subpackage_message/messageCategory/messageCategory?type=${section.key}`

@@ -53,9 +53,7 @@
 <script>
 import CommonPageHeader from '@/components/common-page-header/common-page-header.vue'
 import MarketBottomBar from '@/components/market-bottom-bar/market-bottom-bar.vue'
-import { getChatSessions, getTradeNotificationUnreadCount } from '@/api/secondhand'
-import { getEnabledAnnouncements } from '@/api/notice'
-import { getMessageState, refreshMessageState, subscribeMessageStore } from '@/utils/messageStore'
+import { getMessageState, refreshChatListState, subscribeMessageStore } from '@/utils/messageStore'
 import { buildDefaultAvatar, pickOtherAvatar } from '@/subpackage_lostfound/utils/avatar.js'
 
 function normalizeSession(item) {
@@ -77,24 +75,18 @@ export default {
   data() {
     return {
       sessions: [],
-      unreadAnnounceCount: 0,
-      unreadTradeCount: 0,
       refreshing: false,
       unsubscribeMessageStore: null
     }
   },
-  async onLoad() {
+  onLoad() {
     this.applyMessageState(getMessageState())
-    this.unsubscribeMessageStore = subscribeMessageStore((state, reason) => {
+    this.unsubscribeMessageStore = subscribeMessageStore((state) => {
       this.applyMessageState(state)
-      if (reason !== 'subscribe') {
-        this.loadSessionsFromStore(state)
-      }
     })
-    await this.loadData()
   },
   async onShow() {
-    await refreshMessageState('message-page-show')
+    await refreshChatListState('message-page-show')
   },
   onUnload() {
     if (this.unsubscribeMessageStore) {
@@ -106,54 +98,23 @@ export default {
     onBackToApp() {
       uni.reLaunch({ url: '/pages/index/index' })
     },
-    async loadData() {
-      await Promise.all([
-        this.loadSessions(),
-        this.loadTradeRecords(),
-        this.checkAnnouncements()
-      ])
-      await refreshMessageState('message-page-load')
-    },
     async refreshPage() {
       if (this.refreshing) return
       this.refreshing = true
       try {
-        await this.loadData()
+        await refreshChatListState('message-page-refresh')
         uni.showToast({ title: '已刷新', icon: 'none', duration: 900 })
       } finally {
         this.refreshing = false
       }
     },
     applyMessageState(state = {}) {
-      this.unreadTradeCount = Number(state.unreadTradeCount || 0)
-      this.loadSessionsFromStore(state)
-    },
-    loadSessionsFromStore(state = {}) {
       if (Array.isArray(state.sessions)) {
         this.sessions = state.sessions.map(normalizeSession)
       }
     },
     handleSessionAvatarError(session) {
       if (session) session.otherAvatar = ''
-    },
-    async loadSessions() {
-      try {
-        const res = await getChatSessions({ current: 1, size: 100 })
-        const records = Array.isArray(res?.data?.records) ? res.data.records : []
-        this.sessions = records.map(normalizeSession)
-      } catch (e) {
-        console.error('加载消息列表失败', e)
-      }
-    },
-    async checkAnnouncements() {
-      try {
-        const res = await getEnabledAnnouncements()
-        const list = Array.isArray(res?.data) ? res.data : (Array.isArray(res?.data?.records) ? res.data.records : [])
-        const lastSeenId = uni.getStorageSync('marketLastSeenAnnounceId') || 0
-        this.unreadAnnounceCount = list.filter(a => (a.id || 0) > lastSeenId).length
-      } catch (e) {
-        console.error('加载公告失败', e)
-      }
     },
     fmt(ts) {
       if (!ts) return ''
@@ -164,14 +125,6 @@ export default {
       if (diff < 3600000) return Math.floor(diff / 60000) + '分钟前'
       if (diff < 86400000) return Math.floor(diff / 3600000) + '小时前'
       return `${d.getMonth() + 1}/${d.getDate()}`
-    },
-    async loadTradeRecords() {
-      try {
-        const res = await getTradeNotificationUnreadCount()
-        this.unreadTradeCount = Number(res?.data || 0)
-      } catch (e) {
-        console.error('加载交易记录失败', e)
-      }
     },
     openChat(session) {
       const params = [`sessionId=${session.id}`]

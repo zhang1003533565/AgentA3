@@ -224,6 +224,16 @@ public class ChatServiceImpl implements ChatService {
     }
 
     @Override
+    @Transactional(readOnly = true)
+    public ChatDTO.MessageSummaryVO getMessageSummary(Long userId, Integer current, Integer size) {
+        ChatDTO.MessageSummaryVO summary = new ChatDTO.MessageSummaryVO();
+        summary.setSessions(getSessionList(userId, current, size));
+        summary.setChatUnreadCount(getUnreadCount(userId));
+        summary.setTradeUnreadCount(countUnreadTradeNotifications(userId));
+        return summary;
+    }
+
+    @Override
     public void markTradeNotificationRead(Long id, Long userId) {
         ChatMessage message = messageRepository.findById(id)
                 .orElseThrow(() -> new BusinessException(404, "交易通知不存在"));

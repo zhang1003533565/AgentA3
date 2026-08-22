@@ -2,27 +2,12 @@
   <view class="page">
     <nav-bar
       :title="architectureData.title || 'AI 架构图'"
-      :subtitle="architectureData.subtitle || ''"
       :showBack="true"
       :border="false"
       :fixed="true"
       :placeholder="true"
       titleAlign="center"
-    >
-      <template #right>
-        <view class="nav-history-action" @tap="share">
-          <text class="nav-share-text">分享</text>
-        </view>
-      </template>
-    </nav-bar>
-
-    <!-- 缩放控制（悬浮右上角） -->
-    <view class="zoom-controls">
-      <view class="zoom-btn" @tap="zoomOut"><text class="zoom-btn-text">−</text></view>
-      <text class="zoom-value">{{ Math.round(scale * 100) }}%</text>
-      <view class="zoom-btn" @tap="zoomIn"><text class="zoom-btn-text">＋</text></view>
-      <view class="zoom-btn" @tap="zoomFit"><text class="zoom-btn-text">⤢</text></view>
-    </view>
+    />
 
     <view class="canvas-wrapper" :class="{ 'canvas-wrapper--dragging': isDragging }">
       <scroll-view
@@ -44,6 +29,7 @@
         >
           <view
             class="diagram-stage"
+            :class="relationStageClass"
             :style="stageStyle"
           >
             <view class="diagram-wrap">
@@ -59,27 +45,96 @@
                       <text class="layer-label-text" :style="{ color: layer.color }">{{ layer.name }}</text>
                     </view>
 
-                    <!-- 层内卡片 -->
-                    <view class="layer-cards">
-                      <view
-                        v-for="node in layer.nodes"
-                        :key="node.name"
-                        class="arch-card"
-                        @tap="onCardTap(layer, node)"
-                        @mousedown.stop
-                      >
-                        <view class="arch-card-icon" :style="{ color: layer.color }">
-                          <arch-icon :iconKey="node.iconKey || defaultIconKey(layer)" :color="layer.color" :size="56" />
+                    <!-- 层内结构 -->
+                    <view class="layer-body">
+                      <view v-if="layerHasGroups(layer)" class="layer-groups">
+                        <view
+                          v-for="group in visibleLayerGroups(layer)"
+                          :key="group.id || group.name"
+                          class="layer-group"
+                          :style="layerGroupStyle(layer)"
+                        >
+                          <view class="layer-group-head">
+                            <text class="layer-group-title" :style="{ color: layer.color }">{{ group.name }}</text>
+                            <text v-if="group.description" class="layer-group-desc">{{ group.description }}</text>
+                          </view>
+                          <view class="layer-group-cards">
+                            <view
+                              v-for="node in group.nodes"
+                              :key="node.id || node.name"
+                              class="arch-card arch-card--nested"
+                              :class="{ 'arch-card--has-children': nodeChildren(node).length }"
+                              @tap="onCardTap(layer, node)"
+                              @mousedown.stop
+                            >
+                              <view class="arch-card-icon" :style="{ color: layer.color }">
+                                <arch-icon :iconKey="node.iconKey || defaultIconKey(layer)" :color="layer.color" :size="50" />
+                              </view>
+                              <text class="arch-card-name">{{ node.name }}</text>
+                              <text v-if="node.description" class="arch-card-desc">{{ node.description }}</text>
+                              <view v-if="node.tech && node.tech.length" class="arch-card-tech">
+                                <text
+                                  v-for="t in node.tech"
+                                  :key="t"
+                                  class="arch-card-tech-item"
+                                  :style="{ color: layer.color, borderColor: layer.color + '55' }"
+                                >{{ t }}</text>
+                              </view>
+                              <view v-if="nodeChildren(node).length" class="node-children">
+                                <view
+                                  v-for="child in nodeChildren(node)"
+                                  :key="child.id || child.name"
+                                  class="node-child"
+                                  :style="{ borderColor: layer.color + '33', background: layer.bg }"
+                                >
+                                  <text class="node-child-dot" :style="{ background: layer.color }"></text>
+                                  <view class="node-child-copy">
+                                    <text class="node-child-name">{{ child.name }}</text>
+                                    <text v-if="child.description" class="node-child-desc">{{ child.description }}</text>
+                                  </view>
+                                </view>
+                              </view>
+                            </view>
+                          </view>
                         </view>
-                        <text class="arch-card-name">{{ node.name }}</text>
-                        <text v-if="node.description" class="arch-card-desc">{{ node.description }}</text>
-                        <view v-if="node.tech && node.tech.length" class="arch-card-tech">
-                          <text
-                            v-for="t in node.tech"
-                            :key="t"
-                            class="arch-card-tech-item"
-                            :style="{ color: layer.color, borderColor: layer.color + '55' }"
-                          >{{ t }}</text>
+                      </view>
+
+                      <view v-else class="layer-cards">
+                        <view
+                          v-for="node in layer.nodes"
+                          :key="node.id || node.name"
+                          class="arch-card"
+                          :class="{ 'arch-card--has-children': nodeChildren(node).length }"
+                          @tap="onCardTap(layer, node)"
+                          @mousedown.stop
+                        >
+                          <view class="arch-card-icon" :style="{ color: layer.color }">
+                            <arch-icon :iconKey="node.iconKey || defaultIconKey(layer)" :color="layer.color" :size="56" />
+                          </view>
+                          <text class="arch-card-name">{{ node.name }}</text>
+                          <text v-if="node.description" class="arch-card-desc">{{ node.description }}</text>
+                          <view v-if="node.tech && node.tech.length" class="arch-card-tech">
+                            <text
+                              v-for="t in node.tech"
+                              :key="t"
+                              class="arch-card-tech-item"
+                              :style="{ color: layer.color, borderColor: layer.color + '55' }"
+                            >{{ t }}</text>
+                          </view>
+                          <view v-if="nodeChildren(node).length" class="node-children">
+                            <view
+                              v-for="child in nodeChildren(node)"
+                              :key="child.id || child.name"
+                              class="node-child"
+                              :style="{ borderColor: layer.color + '33', background: layer.bg }"
+                            >
+                              <text class="node-child-dot" :style="{ background: layer.color }"></text>
+                              <view class="node-child-copy">
+                                <text class="node-child-name">{{ child.name }}</text>
+                                <text v-if="child.description" class="node-child-desc">{{ child.description }}</text>
+                              </view>
+                            </view>
+                          </view>
                         </view>
                       </view>
                     </view>
@@ -105,6 +160,25 @@
             </view>
 
             <!-- 底部特性展示 -->
+            <view class="relation-panel" :class="relationPanelClass">
+              <view class="relation-panel-head">
+                <text class="relation-panel-title">{{ relationModeLabel }}</text>
+                <text class="relation-panel-desc">{{ relationModeDescription }}</text>
+              </view>
+              <view v-if="relationEdges.length" class="relation-edge-list">
+                <view
+                  v-for="edge in relationEdges"
+                  :key="`${edge.source}-${edge.target}-${edge.label}`"
+                  class="relation-edge"
+                >
+                  <text class="relation-node">{{ edge.sourceName }}</text>
+                  <text class="relation-arrow">{{ relationArrow }}</text>
+                  <text class="relation-node">{{ edge.targetName }}</text>
+                  <text v-if="edge.label" class="relation-label">{{ edge.label }}</text>
+                </view>
+              </view>
+            </view>
+
             <view v-if="architectureData.features && architectureData.features.length" class="features-row">
               <view
                 v-for="(feat, fIdx) in architectureData.features"
@@ -126,8 +200,24 @@
     <!-- 底部操作栏 -->
     <AiResultBar
       @export="exportImage"
-      @optimize="regenerate"
+      @optimize="openOptimizeSheet"
       @share="share"
+    />
+
+    <OptimizeMindMapSheet
+      title="优化架构图"
+      :visible="showOptimizeSheet"
+      :currentMindMap="currentArchitectureData"
+      @close="showOptimizeSheet = false"
+      @optimize="onOptimize"
+    />
+
+    <AiThinkWindow
+      :visible="showThinkWindow"
+      type="architecture"
+      :doneSub="optimizeDoneSub"
+      :done="thinkDone"
+      @view="onThinkView"
     />
   </view>
 </template>
@@ -137,8 +227,11 @@ import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
 import NavBar from '@/components/nav-bar/nav-bar.vue'
 import ArchIcon from './ArchIcon.vue'
 import AiResultBar from '../components/AiResultBar.vue'
+import AiThinkWindow from '../components/AiThinkWindow.vue'
+import OptimizeMindMapSheet from '../mindmapViewer/OptimizeMindMapSheet.vue'
 import { DEFAULT_ARCHITECTURE_DATA } from './architectureData.js'
-import { getArchitectureDetail, normalizeArchitectureResult } from '@/api/architecture.js'
+import { buildArchitecturePayload, deleteArchitectureHistory, generateArchitecture, getArchitectureDetail, normalizeArchitectureResult } from '@/api/architecture.js'
+import { getErrorMessage } from '@/api/aiDiagram.js'
 // #ifdef H5
 import { domToPng } from '../components/domToPng.js'
 // #endif
@@ -146,9 +239,17 @@ import { domToPng } from '../components/domToPng.js'
 // 缩放参数（参考 mindmapViewer）
 const MIN_SCALE = 0.4
 const MAX_SCALE = 2.5
+const CANVAS_TOP_BUFFER_RPX = 96
+const CANVAS_BOTTOM_BUFFER_RPX = 360
 
 // 架构数据（默认匹配截图）
 const architectureData = ref(JSON.parse(JSON.stringify(DEFAULT_ARCHITECTURE_DATA)))
+const showOptimizeSheet = ref(false)
+const showThinkWindow = ref(false)
+const thinkDone = ref(false)
+const optimizeDoneSub = ref('结构已更新')
+const optimizePending = ref(null)
+const currentArchitectureData = ref({})
 
 // 缩放/滚动状态
 const scale = ref(1)
@@ -157,6 +258,10 @@ const scrollLeft = ref(0)
 const canvasSize = ref({ width: 0, height: 0 })
 const canvasRef = ref(null)
 const stageSize = ref({ width: 0, height: 0 })
+const resultId = ref('')
+const isDeleting = ref(false)
+const autoExportImage = ref(false)
+let autoExportDone = false
 
 // 鼠标拖动状态
 const isDragging = ref(false)
@@ -187,6 +292,27 @@ function defaultIconKey(layer) {
   return layer.iconKey
 }
 
+function nodeChildren(node) {
+  return Array.isArray(node?.children) ? node.children : []
+}
+
+function layerHasGroups(layer) {
+  return visibleLayerGroups(layer).length > 0
+}
+
+function visibleLayerGroups(layer) {
+  return Array.isArray(layer?.groups)
+    ? layer.groups.filter(group => Array.isArray(group?.nodes) && group.nodes.length)
+    : []
+}
+
+function layerGroupStyle(layer) {
+  return {
+    borderColor: layer.border,
+    background: layer.bg,
+  }
+}
+
 // 第三方服务图标颜色
 const THIRD_PARTY_PALETTE = [
   { main: '#3B82F6', light: '#EFF6FF', border: '#BFDBFE' },
@@ -205,10 +331,19 @@ function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value))
 }
 
+function rpxToPx(value) {
+  const sys = uni.getSystemInfoSync()
+  return value * ((sys.windowWidth || 750) / 750)
+}
+
+const canvasTopBuffer = computed(() => rpxToPx(CANVAS_TOP_BUFFER_RPX))
+const canvasBottomBuffer = computed(() => rpxToPx(CANVAS_BOTTOM_BUFFER_RPX))
+
 // stage 缩放样式
 const stageStyle = computed(() => ({
   width: `${stageSize.value.width}px`,
   height: `${stageSize.value.height}px`,
+  top: `${canvasTopBuffer.value}px`,
   transform: `scale(${scale.value})`,
   transformOrigin: '0 0',
 }))
@@ -216,10 +351,73 @@ const stageStyle = computed(() => ({
 // canvas-content 尺寸 = stage × scale（决定 scroll-view 可滚动范围）
 const contentStyle = computed(() => ({
   width: `${Math.max(1, stageSize.value.width * scale.value)}px`,
-  height: `${Math.max(1, stageSize.value.height * scale.value)}px`,
+  height: `${Math.max(1, stageSize.value.height * scale.value + canvasTopBuffer.value + canvasBottomBuffer.value)}px`,
 }))
 
 // scroll-view 滚动同步
+const resolvedRelationMode = computed(() => {
+  const mode = architectureData.value.resolvedRelationMode || architectureData.value.relationMode || 'MODULE'
+  const normalized = String(mode || 'MODULE').toUpperCase()
+  if (normalized === 'DATA_FLOW' || normalized === 'CALL' || normalized === 'MODULE') return normalized
+  return 'MODULE'
+})
+
+const relationStageClass = computed(() => ({
+  'diagram-stage--module': resolvedRelationMode.value === 'MODULE',
+  'diagram-stage--data-flow': resolvedRelationMode.value === 'DATA_FLOW',
+  'diagram-stage--call': resolvedRelationMode.value === 'CALL',
+}))
+
+const relationPanelClass = computed(() => ({
+  'relation-panel--module': resolvedRelationMode.value === 'MODULE',
+  'relation-panel--data-flow': resolvedRelationMode.value === 'DATA_FLOW',
+  'relation-panel--call': resolvedRelationMode.value === 'CALL',
+}))
+
+const relationModeLabel = computed(() => ({
+  MODULE: '模块关系',
+  DATA_FLOW: '数据流向',
+  CALL: '调用关系',
+}[resolvedRelationMode.value] || '模块关系'))
+
+const relationModeDescription = computed(() => ({
+  MODULE: '突出系统层级、模块归属与结构连接',
+  DATA_FLOW: '突出数据从入口到服务再到存储的流动路径',
+  CALL: '突出服务或模块之间的调用依赖',
+}[resolvedRelationMode.value] || '突出系统层级、模块归属与结构连接'))
+
+const relationArrow = computed(() => (resolvedRelationMode.value === 'MODULE' ? '—' : '→'))
+
+const nodeNameMap = computed(() => {
+  const map = new Map()
+  const collectNode = (node) => {
+    const id = node?.id || node?.name
+    if (id) map.set(String(id), node.name || id)
+    ;(node?.children || []).forEach(collectNode)
+  }
+  ;(architectureData.value.nodes || []).forEach(node => {
+    if (node?.id) map.set(String(node.id), node.name || node.id)
+  })
+  ;(architectureData.value.layers || []).forEach(layer => {
+    ;(layer.groups || []).forEach(group => {
+      const groupId = group?.id || group?.name
+      if (groupId) map.set(String(groupId), group.name || groupId)
+      ;(group?.nodes || []).forEach(collectNode)
+    })
+    ;(layer.nodes || []).forEach(collectNode)
+  })
+  return map
+})
+
+const relationEdges = computed(() => {
+  const edges = Array.isArray(architectureData.value.edges) ? architectureData.value.edges : []
+  return edges.slice(0, 12).map(edge => ({
+    ...edge,
+    sourceName: nodeNameMap.value.get(String(edge.source || '')) || edge.source || '',
+    targetName: nodeNameMap.value.get(String(edge.target || '')) || edge.target || '',
+  }))
+})
+
 function onScroll(event) {
   const detail = event?.detail || {}
   if (typeof detail.scrollLeft === 'number') scrollLeft.value = detail.scrollLeft
@@ -307,18 +505,7 @@ function centerStage() {
   const stageW = stageSize.value.width * scale.value
   const stageH = stageSize.value.height * scale.value
   scrollLeft.value = Math.max(0, Math.round((stageW - width) / 2))
-  scrollTop.value = Math.max(0, Math.round((stageH - height) / 2))
-}
-
-function zoomIn() {
-  scale.value = clamp(Number((scale.value + 0.1).toFixed(2)), MIN_SCALE, MAX_SCALE)
-}
-function zoomOut() {
-  scale.value = clamp(Number((scale.value - 0.1).toFixed(2)), MIN_SCALE, MAX_SCALE)
-}
-function zoomFit() {
-  scale.value = getFitScale()
-  nextTick(centerStage)
+  scrollTop.value = Math.max(0, Math.round(canvasTopBuffer.value + (stageH - height) / 2))
 }
 
 // 测量画布与 stage 尺寸
@@ -353,7 +540,195 @@ function onCardTap(layer, node) {
 }
 
 function share() { uni.showToast({ title: '分享能力预留', icon: 'none' }) }
-function regenerate() { uni.navigateBack() }
+
+function leaveAfterDelete() {
+  const pages = getCurrentPages()
+  if (pages.length > 1) {
+    uni.navigateBack({ delta: 1 })
+    return
+  }
+  uni.redirectTo({ url: '/subpackage_ai/architectureGenerate/architectureGenerate' })
+}
+
+function deleteCurrentArchitecture() {
+  if (!resultId.value || isDeleting.value) {
+    uni.showToast({ title: '暂无可删除记录', icon: 'none' })
+    return
+  }
+  uni.showModal({
+    title: '删除记录',
+    content: `确定删除“${architectureData.value.title || 'AI 架构图'}”吗？删除后不可恢复。`,
+    confirmText: '删除',
+    confirmColor: '#EF4444',
+    success: async (res) => {
+      if (!res.confirm) return
+      isDeleting.value = true
+      try {
+        await deleteArchitectureHistory(resultId.value)
+        uni.removeStorageSync(`aiArchitectureResult:${resultId.value}`)
+        uni.showToast({ title: '已删除', icon: 'none' })
+        setTimeout(leaveAfterDelete, 220)
+      } catch (error) {
+        uni.showToast({ title: getErrorMessage(error, '删除失败'), icon: 'none' })
+      } finally {
+        isDeleting.value = false
+      }
+    }
+  })
+}
+
+function collectNodeNames(nodes = [], target = []) {
+  nodes.forEach(node => {
+    const name = node?.name || node?.label
+    if (name) target.push(name)
+    collectNodeNames(node?.children || [], target)
+  })
+  return target
+}
+
+function describeCurrentArchitecture() {
+  const layerText = (architectureData.value.layers || [])
+    .map(layer => {
+      const names = collectNodeNames([...(layer.nodes || []), ...(layer.groups || []).flatMap(group => group.nodes || [])])
+        .slice(0, 8)
+        .join('、')
+      return names ? `${layer.name}：${names}` : ''
+    })
+    .filter(Boolean)
+    .join('\n')
+  const edgeText = (architectureData.value.edges || [])
+    .map(edge => {
+      const label = edge.label ? `（${edge.label}）` : ''
+      return `${edge.source} -> ${edge.target}${label}`
+    })
+    .filter(Boolean)
+    .slice(0, 24)
+    .join('；')
+
+  return [
+    `当前系统类型：${architectureData.value.systemType || 'WEB'}`,
+    `当前关系表达：${architectureData.value.resolvedRelationMode || architectureData.value.relationMode || 'MODULE'}`,
+    layerText ? `当前分层与模块：\n${layerText}` : '',
+    edgeText ? `当前连接关系：${edgeText}` : ''
+  ].filter(Boolean).join('\n')
+}
+
+function buildOptimizeDescription(base, userInstruction) {
+  const original = base.content || architectureData.value.title || ''
+  return [
+    '请基于当前架构图进行优化，不要重新生成无关架构。',
+    original ? `原始需求：${original}` : '',
+    describeCurrentArchitecture(),
+    userInstruction ? `优化要求：${userInstruction}` : ''
+  ].filter(Boolean).join('\n\n')
+}
+
+function firstText(...values) {
+  return values.find(value => String(value || '').trim()) || ''
+}
+
+function firstFile(files) {
+  return Array.isArray(files) && files.length ? files[0] : null
+}
+
+function extractOriginalRequirement(value = '') {
+  const text = String(value || '')
+  const match = text.match(/原始需求[:：]\s*([\s\S]*?)(?:\n\s*当前系统类型|\n\s*当前关系表达|\n\s*当前分层与模块|\n\s*当前连接关系|\n\s*优化要求|【文档内容】|文件解析内容[:：]|$)/)
+  return match ? match[1].trim() : ''
+}
+
+function buildSourceContext(base = {}) {
+  const current = architectureData.value || {}
+  const files = Array.isArray(current.files) && current.files.length
+    ? current.files
+    : (Array.isArray(base.files) ? base.files : [])
+  const file = firstFile(files)
+  return {
+    content: firstText(current.content, base.content, extractOriginalRequirement(current.description), extractOriginalRequirement(base.description), current.title),
+    files,
+    sourceText: firstText(current.sourceText, base.sourceText, file?.text),
+    fileId: firstText(current.fileId, base.fileId, file?.fileId, file?.id),
+    sourceFile: firstText(current.sourceFile, base.sourceFile, file?.sourceFile, file?.url),
+    fileSummary: firstText(current.fileSummary, current.summary, base.fileSummary, base.summary, file?.summary)
+  }
+}
+
+function buildOptimizePayload(userInstruction) {
+  const base = uni.getStorageSync('aiArchitecturePendingPayload') || {}
+  const source = buildSourceContext(base)
+  const optimizedDescription = buildOptimizeDescription(source, userInstruction)
+  const relationMode = architectureData.value.requestedRelationMode || base.relationMode || base.relationType || 'AUTO'
+  const architectureLayers = architectureData.value.architectureLayers?.length
+    ? architectureData.value.architectureLayers
+    : (base.architectureLayers || base.layers || [])
+  const focusContents = architectureData.value.focusContents?.length
+    ? architectureData.value.focusContents
+    : (base.focusContents || base.displayContent || [])
+
+  return buildArchitecturePayload({
+    ...base,
+    ...source,
+    content: source.content,
+    description: optimizedDescription,
+    systemType: architectureData.value.systemType || base.systemType || 'WEB',
+    autoArchitectureLayers: architectureData.value.autoArchitectureLayers !== false,
+    architectureLayers,
+    layers: architectureLayers,
+    focusContents,
+    displayContent: focusContents,
+    relationMode,
+    relationType: relationMode,
+    hierarchyMode: architectureData.value.requestedHierarchyMode || base.hierarchyMode || 'STRUCTURED',
+    sourceText: source.sourceText || '',
+    fileId: source.fileId || '',
+    sourceFile: source.sourceFile || '',
+    files: source.files
+  })
+}
+
+function openOptimizeSheet() {
+  currentArchitectureData.value = {
+    title: architectureData.value.title,
+    nodes: architectureData.value.nodes,
+    edges: architectureData.value.edges,
+    layers: architectureData.value.layers,
+    thirdParty: architectureData.value.thirdParty,
+    features: architectureData.value.features
+  }
+  showOptimizeSheet.value = true
+}
+
+async function onOptimize(payload) {
+  showOptimizeSheet.value = false
+  optimizePending.value = null
+  thinkDone.value = false
+  showThinkWindow.value = true
+  try {
+    const userInstruction = String(payload.userInstruction || '').trim()
+    const nextPayload = buildOptimizePayload(userInstruction)
+    const result = await generateArchitecture(nextPayload)
+    uni.setStorageSync('aiArchitecturePendingPayload', nextPayload)
+    uni.setStorageSync(`aiArchitectureResult:${result.id}`, result)
+    optimizePending.value = result
+    optimizeDoneSub.value = `已更新「${result.title || '架构图'}」`
+    thinkDone.value = true
+  } catch (error) {
+    showThinkWindow.value = false
+    thinkDone.value = false
+    uni.showToast({ title: getErrorMessage(error, '优化失败'), icon: 'none' })
+  }
+}
+
+function onThinkView() {
+  showThinkWindow.value = false
+  thinkDone.value = false
+  const result = optimizePending.value
+  if (!result?.id) return
+  uni.redirectTo({
+    url: `/subpackage_ai/architecturePreview/architecturePreview?recordId=${encodeURIComponent(result.id)}&title=${encodeURIComponent(result.title || '')}`
+  })
+}
+
 function exportImage() {
   // #ifdef H5
   if (!architectureData.value.layers?.length) {
@@ -382,13 +757,28 @@ function exportImage() {
   // #endif
 }
 
+function isAutoExport(value) {
+  return ['1', 'true', 'image', 'png'].includes(String(value || '').trim().toLowerCase())
+}
+
+function queueAutoExport() {
+  if (!autoExportImage.value || autoExportDone) return
+  if (!architectureData.value.layers?.length) return
+  autoExportDone = true
+  setTimeout(exportImage, 160)
+}
+
 // 加载后端数据
 async function loadArchitecture() {
   try {
     const pages = getCurrentPages()
     const current = pages[pages.length - 1] || {}
     const options = current.options || current.$page?.options || {}
-    const id = options.recordId ? decodeURIComponent(options.recordId) : ''
+    autoExportImage.value = isAutoExport(options.autoExport || options.exportImage)
+    const id = options.recordId
+      ? decodeURIComponent(options.recordId)
+      : (options.id ? decodeURIComponent(options.id) : '')
+    resultId.value = id
 
     let normalized = null
     if (id) {
@@ -406,7 +796,10 @@ async function loadArchitecture() {
     nextTick(() => {
       measureAll(() => {
         scale.value = getFitScale()
-        nextTick(centerStage)
+        nextTick(() => {
+          centerStage()
+          queueAutoExport()
+        })
       })
     })
   }
@@ -426,6 +819,25 @@ function mergeWithDefaults(normalized) {
     subtitle: normalized.subtitle || base.subtitle,
     style: normalized.style || base.style,
     createTime: normalized.createTime || base.createTime,
+    systemType: normalized.systemType || base.systemType || 'WEB',
+    autoArchitectureLayers: normalized.autoArchitectureLayers !== false,
+    architectureLayers: Array.isArray(normalized.architectureLayers) ? normalized.architectureLayers : [],
+    focusContents: Array.isArray(normalized.focusContents) ? normalized.focusContents : [],
+    requestedRelationMode: normalized.requestedRelationMode || normalized.relationMode || 'AUTO',
+    resolvedRelationMode: normalized.resolvedRelationMode || normalized.relationMode || 'MODULE',
+    relationMode: normalized.resolvedRelationMode || normalized.relationMode || 'MODULE',
+    requestedHierarchyMode: normalized.requestedHierarchyMode || normalized.hierarchyMode || 'STRUCTURED',
+    resolvedHierarchyMode: normalized.resolvedHierarchyMode || normalized.hierarchyMode || 'STRUCTURED',
+    description: normalized.description || '',
+    content: normalized.content || '',
+    files: Array.isArray(normalized.files) ? normalized.files : [],
+    sourceText: normalized.sourceText || '',
+    fileId: normalized.fileId || '',
+    sourceFile: normalized.sourceFile || '',
+    summary: normalized.summary || normalized.fileSummary || '',
+    fileSummary: normalized.fileSummary || normalized.summary || '',
+    nodes: Array.isArray(normalized.nodes) ? normalized.nodes : [],
+    edges: Array.isArray(normalized.edges) ? normalized.edges : [],
     layers: [],
     thirdParty: [],
     features: [],
@@ -440,21 +852,26 @@ function mergeWithDefaults(normalized) {
       if (l && l.key) normalizedLayersMap.set(l.key, l)
     })
   }
-  // 每层的最小节点数（默认层节点数 = 该层期望规模）
-  const MIN_NODES = { client: 3, gateway: 1, service: 4, dao: 1, storage: 2, infra: 3 }
   // 按默认顺序输出
   base.layers.forEach(defaultLayer => {
     const nl = normalizedLayersMap.get(defaultLayer.key)
-    const minRequired = MIN_NODES[defaultLayer.key] || 1
-    if (nl && Array.isArray(nl.nodes) && nl.nodes.length >= minRequired) {
-      // 后端该层节点数达标，用后端数据
+    const hasLayerContent = Boolean(
+      nl &&
+        (
+          (Array.isArray(nl.nodes) && nl.nodes.length) ||
+          (Array.isArray(nl.groups) && nl.groups.some(group => Array.isArray(group?.nodes) && group.nodes.length))
+        )
+    )
+    if (hasLayerContent) {
+      // 后端该层有有效结构，用后端数据；不再按默认节点数强行替换。
       result.layers.push({
         ...defaultLayer,
         ...nl,
-        nodes: nl.nodes
+        groups: Array.isArray(nl.groups) ? nl.groups : [],
+        nodes: Array.isArray(nl.nodes) ? nl.nodes : []
       })
     } else {
-      // 后端该层缺失或节点不足，用默认数据补全
+      // 后端该层完全缺失时，用默认数据兜底
       result.layers.push(JSON.parse(JSON.stringify(defaultLayer)))
     }
   })
@@ -526,25 +943,22 @@ loadArchitecture()
   color: #1C2E48;
 }
 
-.nav-history-action {
+.nav-delete-action {
   display: flex;
   align-items: center;
   justify-content: center;
   width: 64rpx;
   height: 64rpx;
   border-radius: 999rpx;
-  transition: background-color 0.18s ease, transform 0.12s ease;
 }
 
-.nav-history-action:active {
+.nav-delete-action:active {
   background: rgba(15, 23, 42, 0.06);
-  transform: scale(0.96);
 }
 
-.nav-share-text {
-  font-size: 26rpx;
-  color: #1D1D1F;
-  font-weight: 600;
+.nav-delete-icon {
+  width: 34rpx;
+  height: 34rpx;
 }
 
 /* ===== 画布区域（可缩放/可滚动/可拖动） ===== */
@@ -656,6 +1070,62 @@ loadArchitecture()
   align-content: flex-start;
 }
 
+.layer-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.layer-groups {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 16rpx;
+  min-width: 0;
+}
+
+.layer-group {
+  min-width: 280rpx;
+  max-width: 520rpx;
+  flex: 1 1 320rpx;
+  border: 1rpx solid;
+  border-radius: 18rpx;
+  padding: 14rpx;
+  box-sizing: border-box;
+}
+
+.layer-group-head {
+  display: flex;
+  align-items: baseline;
+  gap: 12rpx;
+  min-width: 0;
+  margin-bottom: 12rpx;
+}
+
+.layer-group-title {
+  font-size: 23rpx;
+  font-weight: 800;
+  line-height: 1.25;
+  white-space: nowrap;
+}
+
+.layer-group-desc {
+  min-width: 0;
+  color: #64748B;
+  font-size: 19rpx;
+  line-height: 1.3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.layer-group-cards {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 12rpx;
+  align-content: flex-start;
+}
+
 .arch-card {
   flex: 1 1 0;
   min-width: 140rpx;
@@ -670,6 +1140,16 @@ loadArchitecture()
   align-items: center;
   box-shadow: 0 4rpx 12rpx rgba(15, 23, 42, 0.05);
   cursor: pointer;
+}
+
+.arch-card--nested {
+  min-width: 160rpx;
+  max-width: 230rpx;
+  padding-top: 16rpx;
+}
+
+.arch-card--has-children {
+  max-width: 280rpx;
 }
 
 .arch-card:active {
@@ -719,6 +1199,64 @@ loadArchitecture()
   border-radius: 999rpx;
   border: 1rpx solid;
   line-height: 1.3;
+}
+
+.node-children {
+  width: 100%;
+  margin-top: 12rpx;
+  padding-top: 10rpx;
+  border-top: 1rpx solid #EEF1F4;
+  display: flex;
+  flex-direction: column;
+  gap: 8rpx;
+}
+
+.node-child {
+  display: flex;
+  align-items: flex-start;
+  gap: 8rpx;
+  width: 100%;
+  padding: 8rpx 10rpx;
+  border: 1rpx solid;
+  border-radius: 10rpx;
+  box-sizing: border-box;
+}
+
+.node-child-dot {
+  width: 8rpx;
+  height: 8rpx;
+  border-radius: 50%;
+  margin-top: 9rpx;
+  flex-shrink: 0;
+}
+
+.node-child-copy {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+.node-child-name {
+  max-width: 190rpx;
+  color: #1F2937;
+  font-size: 19rpx;
+  line-height: 1.25;
+  font-weight: 800;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.node-child-desc {
+  max-width: 190rpx;
+  margin-top: 2rpx;
+  color: #6B7280;
+  font-size: 17rpx;
+  line-height: 1.25;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .third-party {
@@ -779,6 +1317,111 @@ loadArchitecture()
 }
 
 /* ===== 底部特性标签（居中胶囊） ===== */
+.relation-panel {
+  margin: 0 24rpx 12rpx;
+  padding: 18rpx 22rpx;
+  border: 2rpx solid #e5e7eb;
+  border-radius: 16rpx;
+  background: #ffffff;
+  box-shadow: 0 2rpx 8rpx rgba(15, 23, 42, 0.04);
+}
+
+.relation-panel--module {
+  border-color: #ddd6fe;
+  background: #faf9ff;
+}
+
+.relation-panel--data-flow {
+  border-color: #bfdbfe;
+  background: #f8fbff;
+}
+
+.relation-panel--call {
+  border-color: #c7d2fe;
+  background: #f8f7ff;
+}
+
+.relation-panel-head {
+  display: flex;
+  align-items: baseline;
+  gap: 16rpx;
+}
+
+.relation-panel-title {
+  color: #1f2937;
+  font-size: 25rpx;
+  font-weight: 800;
+  line-height: 1.25;
+}
+
+.relation-panel-desc {
+  color: #6b7280;
+  font-size: 21rpx;
+  line-height: 1.35;
+}
+
+.relation-edge-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10rpx;
+  margin-top: 14rpx;
+}
+
+.relation-edge {
+  display: flex;
+  align-items: center;
+  max-width: 100%;
+  gap: 8rpx;
+  padding: 8rpx 12rpx;
+  border: 1rpx solid #e5e7eb;
+  border-radius: 999rpx;
+  background: #ffffff;
+}
+
+.relation-node,
+.relation-label {
+  max-width: 160rpx;
+  overflow: hidden;
+  color: #374151;
+  font-size: 20rpx;
+  font-weight: 700;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.relation-arrow {
+  color: #8b5cf6;
+  font-size: 22rpx;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.relation-label {
+  padding-left: 8rpx;
+  color: #6b7280;
+  font-weight: 600;
+}
+
+.relation-panel--data-flow .relation-arrow,
+.diagram-stage--data-flow .arch-card-name {
+  color: #2563eb;
+}
+
+.relation-panel--call .relation-arrow,
+.diagram-stage--call .arch-card-name {
+  color: #6d5df4;
+}
+
+.diagram-stage--data-flow .arch-card {
+  box-shadow: 0 6rpx 16rpx rgba(37, 99, 235, 0.08);
+}
+
+.diagram-stage--call .arch-card {
+  border-style: dashed;
+  box-shadow: 0 6rpx 16rpx rgba(109, 93, 244, 0.08);
+}
+
 .features-row {
   display: flex;
   flex-direction: row;
@@ -810,12 +1453,9 @@ loadArchitecture()
 .feature-text { font-size: 22rpx; color: #374151; font-weight: 600; }
 .feature-dot { display: none; }
 
-/* ===== 缩放控制（悬浮右上角） ===== */
-.zoom-controls { position: fixed; top: 200rpx; right: 24rpx; z-index: 90; display: flex; flex-direction: column; align-items: center; gap: 10rpx; background: #fff; border-radius: 16rpx; padding: 12rpx 10rpx; box-shadow: 0 4rpx 20rpx rgba(0, 0, 0, 0.08); }
-.zoom-btn { width: 52rpx; height: 52rpx; border-radius: 12rpx; background: #f1f4f8; display: flex; align-items: center; justify-content: center; }
-.zoom-btn-text { font-size: 30rpx; color: #58728c; line-height: 1; }
-.zoom-value { font-size: 20rpx; color: #8290a1; }
-
 /* 底部操作栏样式已抽到 subpackage_ai/components/AiResultBar.vue
    这里不再写底部栏 CSS，由组件提供 */
+.page { background: #F6F7FB; }
+.canvas-wrapper, .canvas, .diagram-stage { background: #F6F7FB; }
+.canvas-content { padding: 28rpx 24rpx 200rpx; }
 </style>

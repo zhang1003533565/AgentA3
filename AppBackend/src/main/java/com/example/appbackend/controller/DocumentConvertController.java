@@ -42,9 +42,10 @@ public class DocumentConvertController {
     public Result<DocumentConvertDTO.TaskAccepted> createTask(
             @RequestParam("file") MultipartFile file,
             @RequestParam("convertType") String convertType,
+            @RequestParam(value = "convertMode", required = false) String convertMode,
             HttpServletRequest request) {
         return Result.success(documentConvertService.createTask(
-                file, convertType, requireUserId(request), request.getHeader("Authorization")));
+                file, convertType, convertMode, requireUserId(request), request.getHeader("Authorization")));
     }
 
     @GetMapping("/tasks/{taskId}")

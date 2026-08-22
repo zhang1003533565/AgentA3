@@ -39,8 +39,11 @@ public class MapPlaceController {
     }
 
     @GetMapping("/{id}")
-    public Result<MapPlaceResponse> detail(@PathVariable Long id) {
-        return Result.success(mapPlaceService.detail(id));
+    public Result<MapPlaceResponse> detail(
+            @PathVariable Long id,
+            @RequestParam(defaultValue = "true") boolean includeChildren
+    ) {
+        return Result.success(mapPlaceService.detail(id, includeChildren));
     }
 
     @PostMapping
@@ -125,7 +128,7 @@ public class MapPlaceController {
     }
 
     @GetMapping("/floor-plans/{floorPlanId}/positions")
-    public Result<List<MapPlaceIndoorPosition>> positions(@PathVariable Long floorPlanId) {
+    public Result<List<MapIndoorPositionResponse>> positions(@PathVariable Long floorPlanId) {
         return Result.success(mapPlaceService.listPositions(floorPlanId));
     }
 

@@ -23,7 +23,9 @@ from app.model_providers.multimodal import (
     collect_request_image_references,
 )
 from app.model_providers.runtime_config import build_llm_runtime_config, reset_active_llm_config, set_active_llm_config
+from app.observability.langfuse import observe_request, settings_from_headers, use_settings
 from app.multi_agents.catalog import (
+    INTERNAL_ONLY_AGENT_NAMES,
     LEADER_CALLABLE_AGENT_ORDER,
     get_agent_catalog,
     get_agent_detail,
@@ -36,12 +38,15 @@ from app.multi_agents.leader_agent.agent import LeaderPlan, leader_agent
 from app.multi_agents.question_bank_schema import review_question_bank_payload
 from app.multi_agents.runner import run_specialist_agent
 from app.multi_agents.textbook_knowledge_agent import resolve_knowledge_source_mode
+from app.multi_agents.tool_intent_router_agent import TOOL_INTENT_ROUTER_TOOL, tool_intent_router_agent
+from app.services.tool_index import tool_index
+from app.services.file_format_registry import get_detectable_extensions, get_file_format_registry, get_output_aliases, resolve_file_format
 from app.learning_workflow import (
     LearningWorkflowRequest,
     export_learning_resources,
     run_learning_workflow,
 )
-from app.rag.document_conversion import PdfConversionError, PptConversionError, convert_pdf, convert_ppt_to_docx, export_generated_answer, materialize_generated_image_answer
+from app.rag.document_conversion import DocxConversionError, PdfConversionError, PptConversionError, convert_docx_to_pdf, convert_docx_to_ppt, convert_pdf, convert_ppt_to_docx, convert_ppt_to_pdf, export_generated_answer, materialize_generated_image_answer
 from app.rag.document_conversion.generated_exporter import GeneratedExportAccessError, open_generated_export
 from app.rag.structured.text_to_sql import TextToSqlService
 from app.services.assistant_resource_builder import (
@@ -131,6 +136,8 @@ VISUAL_GENERATION_TOOLS = [
 VISUAL_GENERATION_TOOL_NAMES = frozenset(VISUAL_GENERATION_TOOL_CONFIG)
 IMAGE_RECOGNITION_TOOL_NAME = "recognize_image_tool"
 IMAGE_RECOGNITION_AGENT_NAME = "vision_agent"
+FILE_CONTENT_PLANNER_AGENT_NAME = "file_content_planner_agent"
+TOOL_BOUND_UNBOUND_MARKER = "-"
 IMAGE_RECOGNITION_TOOL = {
     "name": IMAGE_RECOGNITION_TOOL_NAME,
     "zhName": "图片识别工具",
@@ -194,6 +201,7 @@ GENERATED_CONTENT_TOOLS = [
         "trigger": "专业智能体返回 markdown/question_bank/mermaid，或用户要求 md/Markdown 文件版。",
         "outputs": ["md"],
         "status": "implemented",
+        "boundAgent": FILE_CONTENT_PLANNER_AGENT_NAME,
     },
     {
         "name": "docx_export_tool",
@@ -204,6 +212,7 @@ GENERATED_CONTENT_TOOLS = [
         "trigger": "用户要求 Word/DOCX/文档版/文件版，或内容适合沉淀为资料。",
         "outputs": ["docx"],
         "status": "implemented",
+        "boundAgent": FILE_CONTENT_PLANNER_AGENT_NAME,
     },
     {
         "name": "excel_export_tool",
@@ -214,6 +223,7 @@ GENERATED_CONTENT_TOOLS = [
         "trigger": "题库 JSON、知识清单、用户要求 Excel/表格。",
         "outputs": ["xlsx"],
         "status": "implemented",
+        "boundAgent": FILE_CONTENT_PLANNER_AGENT_NAME,
     },
     {
         "name": "pptx_export_tool",
@@ -330,6 +340,19 @@ CAMPUS_SERVICE_TOOLS = [
 
 SERVICE_TOOL_NAMES = {tool["name"] for tool in CAMPUS_SERVICE_TOOLS}
 
+TOOL_CAPABILITY_QUERY_NAME = "tool_capability_query"
+TOOL_CAPABILITY_QUERY = {
+    "name": TOOL_CAPABILITY_QUERY_NAME,
+    "zhName": "工具能力查询",
+    "displayName": "工具能力查询（tool_capability_query）",
+    "category": "capability_query",
+    "purpose": "查询当前后台已启用的系统工具能力，并以用户可理解的方式返回。",
+    "trigger": "用户询问系统能做什么、有哪些工具或支持哪些能力时调用。",
+    "outputs": ["capability_list"],
+    "status": "implemented",
+    "configurable": False,
+}
+
 LEADER_CALLABLE_TOOLS = [
     IMAGE_RECOGNITION_TOOL,
     *VISUAL_GENERATION_TOOLS,
@@ -345,6 +368,7 @@ LEADER_CALLABLE_TOOLS = [
         "configurable": True,
     },
     *CAMPUS_SERVICE_TOOLS,
+    TOOL_CAPABILITY_QUERY,
     {
         "name": "generated_export_tools",
         "zhName": "内容整理工具",
@@ -363,11 +387,19 @@ class PdfConvertRequest(BaseModel):
     fileName: str = Field(min_length=1, max_length=255)
     contentBase64: str = Field(min_length=1)
     targetFormat: str = Field(min_length=1, max_length=16)
+    convertMode: str = Field(default="image", max_length=16)
 
 
 class PptConvertRequest(BaseModel):
     fileName: str = Field(min_length=1, max_length=255)
     contentBase64: str = Field(min_length=1)
+    convertMode: str = Field(default="reflow", max_length=16)
+
+
+class DocxConvertRequest(BaseModel):
+    fileName: str = Field(min_length=1, max_length=255)
+    contentBase64: str = Field(min_length=1)
+    convertMode: str = Field(default="smart", max_length=16)
 
 
 class AgentExampleInputUpdateRequest(BaseModel):
@@ -464,6 +496,7 @@ def get_rag_capabilities(
             "internalAgentsExposedToLeader": False,
             "imageProviderEntry": "image_agent",
         },
+        "internalTools": [TOOL_INTENT_ROUTER_TOOL],
         "profileSummary": {
             "agent": "profile_summary_agent",
             "purpose": "把 Java 画像快照总结为强项、欠缺、置信依据和补证建议；不修改画像分数。",
@@ -609,6 +642,8 @@ def list_rag_agents(
     catalog["serviceTools"] = CAMPUS_SERVICE_TOOLS
     catalog["leaderCallableCatalog"] = _build_leader_callable_catalog()
     catalog["generatedTools"] = GENERATED_CONTENT_TOOLS
+    catalog["internalTools"] = [TOOL_INTENT_ROUTER_TOOL]
+    catalog["fileFormats"] = get_file_format_registry()
     return catalog
 
 
@@ -679,6 +714,10 @@ def run_rag_query(
     x_ai_base_url: Optional[str] = Header(default=None, alias="X-AI-Base-Url"),
     x_ai_api_key: Optional[str] = Header(default=None, alias="X-AI-Api-Key"),
     x_ai_model: Optional[str] = Header(default=None, alias="X-AI-Model"),
+    x_langfuse_enabled: Optional[str] = Header(default=None, alias="X-Langfuse-Enabled"),
+    x_langfuse_base_url: Optional[str] = Header(default=None, alias="X-Langfuse-Base-Url"),
+    x_langfuse_public_key: Optional[str] = Header(default=None, alias="X-Langfuse-Public-Key"),
+    x_langfuse_secret_key: Optional[str] = Header(default=None, alias="X-Langfuse-Secret-Key"),
 ) -> RagQueryResponse:
     request_started_at = time.perf_counter()
     _require_authorization(authorization)
@@ -690,9 +729,8 @@ def run_rag_query(
         model=x_ai_model,
     )
     logger.info(
-        "rag query request received agent=%s rag_strategy=%s input_len=%s provider=%s base_url=%s model=%s api_key_len=%s api_key_suffix=%s api_key_sha256_8=%s",
+        "rag query request received agent=%s input_len=%s provider=%s base_url=%s model=%s api_key_len=%s api_key_suffix=%s api_key_sha256_8=%s",
         request.agentName or "-",
-        request.ragStrategy or "-",
         len(request.input or ""),
         audit["provider"],
         audit["base_url"],
@@ -708,7 +746,16 @@ def run_rag_query(
         model=x_ai_model,
     ))
     try:
-        response = _run_rag_query_core(request, authorization or "")
+        with use_settings(settings_from_headers(x_langfuse_enabled, x_langfuse_base_url, x_langfuse_public_key, x_langfuse_secret_key)):
+            with observe_request(
+                "internal.rag.query",
+                session_id=str((request.metadata or {}).get("sessionId") or "") or None,
+                metadata={
+                    "agentName": request.agentName or "leader_agent",
+                    "streaming": False,
+                },
+            ):
+                response = _run_rag_query_core(request, authorization or "")
         finalization_started_at = time.perf_counter()
         response = _finalize_rag_response(request, response)
         finalization_ms = _elapsed_ms(finalization_started_at)
@@ -746,6 +793,10 @@ async def run_rag_query_stream(
     x_ai_api_key: Optional[str] = Header(default=None, alias="X-AI-Api-Key"),
     x_ai_model: Optional[str] = Header(default=None, alias="X-AI-Model"),
     x_user_id: Optional[str] = Header(default=None, alias="X-User-Id"),
+    x_langfuse_enabled: Optional[str] = Header(default=None, alias="X-Langfuse-Enabled"),
+    x_langfuse_base_url: Optional[str] = Header(default=None, alias="X-Langfuse-Base-Url"),
+    x_langfuse_public_key: Optional[str] = Header(default=None, alias="X-Langfuse-Public-Key"),
+    x_langfuse_secret_key: Optional[str] = Header(default=None, alias="X-Langfuse-Secret-Key"),
 ):
     request_started_at = time.perf_counter()
     _require_authorization(authorization)
@@ -760,6 +811,18 @@ async def run_rag_query_stream(
 
     async def event_stream():
         stream_started_at = request_started_at
+        settings_scope = use_settings(settings_from_headers(x_langfuse_enabled, x_langfuse_base_url, x_langfuse_public_key, x_langfuse_secret_key))
+        settings_scope.__enter__()
+        observation_scope = observe_request(
+            "internal.rag.query",
+            session_id=str((request.metadata or {}).get("sessionId") or "") or None,
+            user_id=int(x_user_id) if x_user_id and x_user_id.isdigit() else None,
+            metadata={
+                "agentName": request.agentName or "leader_agent",
+                "streaming": True,
+            },
+        )
+        observation_scope.__enter__()
         token = set_active_llm_config(llm_config)
         generation_started = False
         plan = None
@@ -778,6 +841,11 @@ async def run_rag_query_stream(
             requested_agent = normalize_leader_request_agent(request.agentName)
             if request.agentName and not requested_agent:
                 raise HTTPException(status_code=400, detail="智能体不存在")
+            if requested_agent in INTERNAL_ONLY_AGENT_NAMES and not (
+                isinstance(request.metadata, dict)
+                and request.metadata.get("testFrom") == "admin_agent_console"
+            ):
+                raise HTTPException(status_code=400, detail="该智能体仅由系统内部工具自动调用，不能直接执行")
 
             active_agent = requested_agent or "leader_agent"
             if active_agent == "leader_agent":
@@ -793,7 +861,7 @@ async def run_rag_query_stream(
                         plan = await asyncio.to_thread(
                             leader_agent.plan,
                             request.input,
-                            request.ragStrategy or "",
+                            "",
                             profile_context=profile_context,
                             callable_catalog=callable_catalog,
                             conversation_context=conversation_context,
@@ -913,6 +981,8 @@ async def run_rag_query_stream(
                 yield build_sse("error", _build_stream_error_payload(request, exc, llm_config))
         finally:
             reset_active_llm_config(token)
+            observation_scope.__exit__(None, None, None)
+            settings_scope.__exit__(None, None, None)
 
     return StreamingResponse(
         event_stream(),
@@ -955,7 +1025,7 @@ async def _stream_learning_workflow(
 
     plan = leader_agent.plan(
         request.input,
-        request.ragStrategy or "",
+        "",
         learning_context={
             "courseKey": metadata.get("courseKey"),
             "intent": request.intent,
@@ -1222,6 +1292,11 @@ def _run_rag_query_core(request: RagQueryRequest, authorization: str) -> RagQuer
     requested_agent = normalize_leader_request_agent(request.agentName)
     if request.agentName and not requested_agent:
         raise HTTPException(status_code=400, detail="智能体不存在")
+    if requested_agent in INTERNAL_ONLY_AGENT_NAMES and not (
+        isinstance(request.metadata, dict)
+        and request.metadata.get("testFrom") == "admin_agent_console"
+    ):
+        raise HTTPException(status_code=400, detail="该智能体仅由系统内部工具自动调用，不能直接执行")
 
     active_agent = requested_agent or "leader_agent"
     if active_agent == "leader_agent":
@@ -1396,7 +1471,7 @@ def _run_leader_orchestration(request: RagQueryRequest, authorization: str) -> R
     if plan is None:
         plan = leader_agent.plan(
             request.input,
-            request.ragStrategy or "",
+            "",
             profile_context=profile_context,
             callable_catalog=callable_catalog,
             conversation_context=conversation_context,
@@ -1415,9 +1490,22 @@ def _run_leader_orchestration(request: RagQueryRequest, authorization: str) -> R
 
 
 def _requested_image_recognition_plan(request: RagQueryRequest) -> Optional[LeaderPlan]:
+    if isinstance(request.metadata, dict) and request.metadata.get("uploadOnly") is True:
+        return None
     image_urls = collect_request_image_references(request)
     if not image_urls:
         return None
+    if not _is_tool_enabled(request, IMAGE_RECOGNITION_TOOL_NAME):
+        return LeaderPlan(
+            intent="image_understanding",
+            target_agent="leader_agent",
+            need_retrieval=False,
+            rag_strategy="",
+            answer="图片识别工具当前已关闭，请先在后台开启后再试。",
+            action="direct_answer",
+            route_reason="检测到图片资源，但图片识别工具已关闭，未执行工具调用。",
+            route_mode="tool_disabled",
+        )
     return LeaderPlan(
         intent="image_understanding",
         target_agent=IMAGE_RECOGNITION_AGENT_NAME,
@@ -1434,13 +1522,24 @@ def _requested_file_transform_plan(request: RagQueryRequest) -> Optional[LeaderP
     metadata = request.metadata if isinstance(request.metadata, dict) else {}
     interaction_type = str(metadata.get("interactionType") or "").strip().lower()
     requested_output_type = str(metadata.get("requestedOutputType") or "").strip().lower()
-    supported_file_types = {"document", "file", "docx", "word", "xlsx", "excel", "md", "markdown", "ppt", "pptx", "mmd", "zip"}
+    supported_file_types = get_output_aliases()
     if requested_output_type not in supported_file_types:
         return None
     if interaction_type == "transform" and (
         not metadata.get("sourceMessageId") or not str(metadata.get("sourceMessageContent") or "").strip()
     ):
         return None
+    if not _is_tool_enabled(request, "generated_export_tools"):
+        return LeaderPlan(
+            intent="document_export",
+            target_agent="leader_agent",
+            need_retrieval=False,
+            rag_strategy="",
+            answer="内容导出工具当前已关闭，请先在后台开启后再试。",
+            action="direct_answer",
+            route_reason="用户请求文件导出，但内容导出工具已关闭，未执行工具调用。",
+            route_mode="tool_disabled",
+        )
     return LeaderPlan(
         intent="document_export",
         target_agent="leader_agent",
@@ -1734,6 +1833,8 @@ def _execute_leader_plan(
     if plan.action == "call_tool":
         if not _is_tool_enabled(request, plan.tool_name):
             return _run_disabled_tool_response(request, plan.tool_name, leader_plan=plan)
+        if plan.tool_name == TOOL_CAPABILITY_QUERY_NAME:
+            return _run_tool_capability_query(request, plan)
         if plan.tool_name == "text_to_sql":
             return _run_text_to_sql_tool(request, plan)
         if plan.tool_name in SERVICE_TOOL_NAMES:
@@ -1746,20 +1847,13 @@ def _execute_leader_plan(
             return _run_visual_generation_tool(request, plan)
         raise HTTPException(status_code=502, detail=f"Leader 选择了未注册工具：{plan.tool_name or '空'}，已停止执行。")
 
-    agent_profile = get_agent_profile(plan.target_agent)
-    if not agent_profile:
-        raise HTTPException(status_code=502, detail=f"Leader 路由到了不存在的目标智能体：{plan.target_agent}")
-    if not _is_agent_enabled(request, plan.target_agent):
-        return _run_disabled_agent_response(request, plan.target_agent, leader_plan=plan)
-    if not agent_profile.get("needRetrieval", True):
-        return _run_direct_agent(request, agent_profile, leader_plan=plan)
-    return _run_agent_without_local_retrieval(request, plan.target_agent, leader_plan=plan)
+    raise HTTPException(status_code=502, detail=f"Leader 只允许直接回答或调用系统工具，已拒绝动作：{plan.action}")
 
 
 def _should_emit_generation_start(request: RagQueryRequest, agent_name: Optional[str], plan=None) -> bool:
     if plan is not None and getattr(plan, "action", "") == "call_tool":
         tool_name = str(getattr(plan, "tool_name", "") or "").strip()
-        return tool_name in VISUAL_GENERATION_TOOL_NAMES and _visual_tool_dependencies_enabled(request, tool_name)
+        return tool_name in VISUAL_GENERATION_TOOL_NAMES and _is_tool_enabled(request, tool_name)
     return False
 
 
@@ -1855,6 +1949,9 @@ def _is_agent_enabled(request: RagQueryRequest, agent_name: Optional[str]) -> bo
     normalized = normalize_agent_name(agent_name)
     if not normalized or normalized == "leader_agent":
         return True
+    if normalized in INTERNAL_ONLY_AGENT_NAMES:
+        # 系统必经的内部智能体不受普通智能体开关控制；模型配置校验由执行阶段统一给出明确错误。
+        return True
     toggles = _agent_toggles_from_request(request)
     if normalized in toggles and not _parse_agent_enabled_value(toggles.get(normalized)):
         return False
@@ -1896,11 +1993,19 @@ def _tool_toggles_from_request(request: RagQueryRequest) -> Dict[str, Any]:
 def _is_tool_enabled(request: RagQueryRequest, tool_name: str) -> bool:
     normalized = str(tool_name or "").strip()
     if not normalized:
+        return False
+    if normalized == TOOL_CAPABILITY_QUERY_NAME:
         return True
     toggles = _tool_toggles_from_request(request)
     if normalized not in toggles:
-        return True
-    return _parse_agent_enabled_value(toggles.get(normalized))
+        enabled = True
+    else:
+        enabled = _parse_agent_enabled_value(toggles.get(normalized))
+    if not enabled:
+        return False
+    # 绑定智能体属于工具内部实现细节，不再作为 Leader 工具目录的二次开关。
+    # Leader 是否可以调用，只由后台的工具开关决定。
+    return True
 
 
 def _require_tool_enabled(request: RagQueryRequest, tool_name: str) -> None:
@@ -1910,30 +2015,173 @@ def _require_tool_enabled(request: RagQueryRequest, tool_name: str) -> None:
 
 
 def _build_leader_callable_catalog(request: Optional[RagQueryRequest] = None) -> Dict[str, Any]:
-    agents = [
-        _leader_callable_agent_item(agent_name, request)
-        for agent_name in LEADER_CALLABLE_AGENT_ORDER
+    # 所有能力统一进入 tools；内容导出工具只通过 category=content_export 区分。
+    tool_by_name = {str(tool.get("name") or "").strip(): tool for tool in LEADER_CALLABLE_TOOLS}
+    for tool in GENERATED_CONTENT_TOOLS:
+        tool_by_name.setdefault(str(tool.get("name") or "").strip(), tool)
+    # 运行时目录只暴露当前已启用的工具；禁用项留在后台管理接口，不进入 Leader 上下文。
+    available_tools = [
+        _leader_callable_tool_item(tool, request)
+        for tool in tool_by_name.values()
+        if tool.get("name") and (
+            request is None or _is_tool_enabled(request, str(tool.get("name") or "").strip())
+        )
     ]
-    agents = [item for item in agents if item]
-    tools = [_leader_callable_tool_item(tool, request) for tool in LEADER_CALLABLE_TOOLS]
-    content_tools = [_leader_callable_tool_item(tool, request) for tool in GENERATED_CONTENT_TOOLS]
-    return {
-        "routingActions": ["direct_answer", "delegate_agent", "call_tool"],
-        "agents": agents,
-        "tools": tools,
-        "contentTools": content_tools,
-        "summary": {
-            "agentCount": len(agents),
-            "enabledAgentCount": sum(1 for item in agents if item.get("enabled") is not False),
-            "disabledAgentCount": sum(1 for item in agents if item.get("enabled") is False),
-            "toolCount": len(tools),
-            "enabledToolCount": sum(1 for item in tools if item.get("enabled") is not False),
-            "disabledToolCount": sum(1 for item in tools if item.get("enabled") is False),
-            "contentToolCount": len(content_tools),
-            "enabledContentToolCount": sum(1 for item in content_tools if item.get("enabled") is not False),
-        },
-        "routingRule": "Leader 只能从 enabled=true 的 agents 和 tools 中选择；关闭项只允许展示为不可用，不允许继续调用或兜底改调。",
+    selection = {
+        "intent": "",
+        "keywords": [],
+        "entities": {},
+        "constraints": [],
+        "queryVariants": [],
+        "candidateTools": available_tools,
+        "candidateCount": len(available_tools),
+        "topK": len(available_tools),
     }
+    if request is not None:
+        intent_result = tool_intent_router_agent.extract(getattr(request, "input", ""))
+        metadata = request.metadata if isinstance(request.metadata, dict) else {}
+        model_configs = metadata.get("agentModelConfigs") if isinstance(metadata.get("agentModelConfigs"), dict) else {}
+        router_config = model_configs.get("tool_intent_router_agent") if isinstance(model_configs, dict) else None
+        if isinstance(router_config, dict) and router_config.get("tested") is True:
+            try:
+                model_answer, _ = _run_specialist_agent_with_bound_model(
+                    request,
+                    "tool_intent_router_agent",
+                    getattr(request, "input", ""),
+                    [],
+                )
+                parsed_result = tool_intent_router_agent.parse_model_result(model_answer)
+                if parsed_result:
+                    intent_result = parsed_result
+            except Exception as exc:
+                logger.warning("tool intent model extraction failed; using local extraction: %s", exc)
+        # 能力询问是系统级固定路由，不能因为模型输出了不完整或错误的 intent
+        # 就退回旧的 Leader 直接回答逻辑。
+        if tool_intent_router_agent.is_capability_query(getattr(request, "input", "")):
+            intent_result = {
+                **intent_result,
+                "intent": "capability_inquiry",
+            }
+        selection = tool_index.search(
+            getattr(request, "input", ""),
+            available_tools,
+            intent_result=intent_result,
+            retrieval_profiles=metadata.get("toolRetrievalProfiles") if isinstance(metadata.get("toolRetrievalProfiles"), dict) else {},
+            top_k=3,
+        )
+    is_capability_inquiry = selection.get("intent") == "capability_inquiry"
+    # 能力询问由系统固定工具路由，不把工具本身或业务工具清单发送给 Leader。
+    # 普通问题仍只保留索引后的少量候选工具。
+    tools = [] if is_capability_inquiry else (selection.get("candidateTools") or [])
+    return {
+        "routingActions": ["direct_answer", "call_tool"],
+        "tools": tools,
+        "toolSelection": {
+            "intent": selection.get("intent") or "direct_answer",
+            "keywords": selection.get("keywords") or [],
+            "entities": selection.get("entities") or {},
+            "constraints": selection.get("constraints") or [],
+            "queryVariants": selection.get("queryVariants") or [],
+            "candidateCount": len(tools),
+            "fixedRoute": TOOL_CAPABILITY_QUERY_NAME if is_capability_inquiry else "",
+        },
+        "summary": {
+        "toolCount": len(tools),
+        "fixedRoute": TOOL_CAPABILITY_QUERY_NAME if is_capability_inquiry else "",
+        },
+        "routingRule": "普通问题由 Leader 从 tools 候选中选择系统工具；能力询问由 toolSelection.fixedRoute 固定调用能力查询工具；专业智能体不作为独立路由目标。",
+    }
+
+
+def _run_tool_capability_query(request: RagQueryRequest, leader_plan) -> RagQueryResponse:
+    """查询后台开关后的能力，不把完整工具目录交给 Leader。"""
+    tool_by_name = {
+        str(tool.get("name") or "").strip(): tool
+        for tool in [*LEADER_CALLABLE_TOOLS, *GENERATED_CONTENT_TOOLS]
+        if str(tool.get("name") or "").strip()
+    }
+    enabled_tools = [
+        tool
+        for name, tool in tool_by_name.items()
+        if name != TOOL_CAPABILITY_QUERY_NAME and _is_tool_enabled(request, name)
+    ]
+    documents: List[Dict[str, Any]] = []
+    for tool in enabled_tools:
+        name = str(tool.get("name") or "").strip()
+        item = {
+            "name": name,
+            "displayName": tool.get("zhName") or tool.get("displayName") or _tool_display_name(name),
+            "category": str(tool.get("category") or "other").strip(),
+            "purpose": str(tool.get("purpose") or "").strip(),
+            "outputs": tool.get("outputs") or [],
+        }
+        documents.append({
+            "id": f"capability:{name}",
+            "type": "tool_capability",
+            "title": item["displayName"],
+            "content": item["purpose"],
+            "metadata": item,
+        })
+
+    tool_result = {
+        "type": "tool_capability_result",
+        "enabledToolCount": len(enabled_tools),
+        "enabledTools": enabled_tools,
+    }
+    try:
+        answer = leader_agent.summarize_tool_result(
+            input_text=request.input,
+            plan=leader_plan,
+            tool_display_name=_tool_display_name(TOOL_CAPABILITY_QUERY_NAME),
+            tool_results=[tool_result],
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail="模型未能总结工具能力查询结果，已禁止直接透传工具内容。") from exc
+    if not str(answer or "").strip():
+        raise HTTPException(status_code=502, detail="模型返回空的工具能力总结，已禁止直接透传工具内容。")
+
+    metadata = {
+        "agentName": "leader_agent",
+        "targetAgent": TOOL_CAPABILITY_QUERY_NAME,
+        "executedAgent": TOOL_CAPABILITY_QUERY_NAME,
+        "intent": "capability_inquiry",
+        "needRetrieval": False,
+        "retrievalSkipped": True,
+        "leaderAction": "call_tool",
+        "leaderActionLabel": _leader_action_label("call_tool"),
+        "toolName": TOOL_CAPABILITY_QUERY_NAME,
+        "toolDisplayName": _tool_display_name(TOOL_CAPABILITY_QUERY_NAME),
+        "routeReason": getattr(leader_plan, "route_reason", "用户询问系统能力，调用能力查询工具。"),
+        "strategyLabel": "工具能力查询",
+        "executionMode": "leader_call_tool",
+        "executionModeLabel": "调用工具查询当前已启用能力",
+        "answerType": "capability_list",
+        "toolResultSummarized": True,
+        "toolResultSummaryMode": "model",
+        "toolToggles": _tool_toggles_from_request(request),
+        "enabledToolCount": len(enabled_tools),
+        "retrievalCandidateCount": 1,
+    }
+    metadata.update(_context_metadata_from_request(request))
+    return _decorate_output_response(RagQueryResponse(
+        strategy=TOOL_CAPABILITY_QUERY_NAME,
+        answer=answer,
+        answerType="capability_list",
+        documents=[_tool_result_to_document(item, index) for index, item in enumerate(documents, start=1)],
+        trace=[
+            RagTraceResponse(stage="leader_route", detail=_leader_plan_detail(leader_plan)),
+            RagTraceResponse(stage="tool_call", detail={
+                "toolName": TOOL_CAPABILITY_QUERY_NAME,
+                "enabledToolCount": len(enabled_tools),
+                "retrievalSkipped": True,
+            }),
+            RagTraceResponse(stage="tool_result_summary", detail={
+                "toolResultSummaryMode": "model",
+                "answerLength": len(answer),
+            }),
+        ],
+        metadata=metadata,
+    ))
 
 
 def _leader_callable_agent_item(agent_name: str, request: Optional[RagQueryRequest]) -> Dict[str, Any]:
@@ -1958,25 +2206,15 @@ def _leader_callable_agent_item(agent_name: str, request: Optional[RagQueryReque
 
 def _leader_callable_tool_item(tool: Dict[str, Any], request: Optional[RagQueryRequest]) -> Dict[str, Any]:
     name = str(tool.get("name") or "").strip()
-    enabled = True if request is None else _is_tool_enabled(request, name)
-    if enabled and request is not None and name in VISUAL_GENERATION_TOOL_NAMES:
-        enabled = _visual_tool_dependencies_enabled(request, name)
-    if enabled and request is not None and name == IMAGE_RECOGNITION_TOOL_NAME:
-        enabled = _is_agent_enabled(request, IMAGE_RECOGNITION_AGENT_NAME)
     return {
-        **tool,
+        "name": name,
         "zhName": tool.get("zhName") or _tool_zh_name(name),
         "displayName": tool.get("displayName") or _tool_display_name(name),
-        "enabled": enabled,
+        "category": tool.get("category") or "",
+        "purpose": tool.get("purpose") or "",
+        "trigger": tool.get("trigger") or "",
+        "outputs": tool.get("outputs") or [],
     }
-
-
-def _visual_tool_dependencies_enabled(request: RagQueryRequest, tool_name: str) -> bool:
-    config = VISUAL_GENERATION_TOOL_CONFIG.get(str(tool_name or "").strip())
-    if not config or not _is_agent_enabled(request, "image_agent"):
-        return False
-    prompt_agent = str(config.get("promptAgent") or "").strip()
-    return not prompt_agent or _is_agent_enabled(request, prompt_agent)
 
 
 def _leader_agent_category(agent_name: str) -> str:
@@ -2373,9 +2611,6 @@ def _run_image_recognition_tool(
     image_urls = collect_request_image_references(request)
     if not image_urls:
         raise HTTPException(status_code=400, detail="图片识别工具需要至少一个图片资源。")
-    if not _is_agent_enabled(request, IMAGE_RECOGNITION_AGENT_NAME):
-        return _run_disabled_tool_response(request, IMAGE_RECOGNITION_TOOL_NAME, leader_plan=leader_plan)
-
     answer, model_metadata = _run_specialist_agent_with_bound_model(
         request,
         IMAGE_RECOGNITION_AGENT_NAME,
@@ -2880,17 +3115,30 @@ def _run_service_tool(request: RagQueryRequest, authorization: str, leader_plan)
         "toolCacheHitCount": int(tool_cache.get("hitCount") or 0),
         "toolCacheMissCount": int(tool_cache.get("missCount") or 0),
     }
-    documents = [_tool_result_to_document(item, index) for index, item in enumerate(results, start=1)]
     backend_failure = _service_tool_backend_failure(cache_meta) if not results else {}
-    summary_results = results
     if backend_failure:
-        summary_results = [{
+        tool_results = [{
             "type": "tool_execution_error",
             "status": backend_failure.get("status"),
             "reason": backend_failure.get("reason"),
             "statusCode": backend_failure.get("statusCode"),
             "message": "工具调用失败，当前结果不能用于判断是否存在业务数据。",
         }]
+        result_status = "error"
+    elif not results:
+        tool_results = [{
+            "type": "tool_empty_result",
+            "status": "empty",
+            "reason": "no_data",
+            "message": "工具调用成功，但没有查询到匹配数据。",
+        }]
+        result_status = "empty"
+    else:
+        tool_results = results
+        result_status = "ok"
+    # 空结果和错误也作为工具结果返回，避免前端或 Langfuse 看到空数组而无法判断发生了什么。
+    documents = [_tool_result_to_document(item, index) for index, item in enumerate(tool_results, start=1)]
+    summary_results = tool_results
     summary_started_at = time.perf_counter()
     try:
         answer = leader_agent.summarize_tool_result(
@@ -2928,6 +3176,9 @@ def _run_service_tool(request: RagQueryRequest, authorization: str, leader_plan)
         "toolResultSummaryMode": summary_mode,
         "serviceToolBackendStatus": str(backend_failure.get("status") or "ok"),
         "serviceToolBackendFailure": bool(backend_failure),
+        "toolResultStatus": result_status,
+        "toolResultCount": len(tool_results),
+        "toolResultEmpty": result_status == "empty",
         "toolToggles": _tool_toggles_from_request(request),
         **retrieval_meta,
     }
@@ -2945,6 +3196,8 @@ def _run_service_tool(request: RagQueryRequest, authorization: str, leader_plan)
                 "planningAnswer": planning_answer,
                 "toolMs": tool_ms,
                 **retrieval_meta,
+                "resultStatus": result_status,
+                "resultCount": len(tool_results),
             }),
             RagTraceResponse(stage="tool_result_summary", detail={
                 "agentName": "leader_agent",
@@ -3091,7 +3344,6 @@ def _follow_up_actions_for_output(answer_type: str, metadata: Dict[str, Any], ou
         "meeting_summary_agent",
         "meeting_resource_recommendation_agent",
         "ppt_outline_agent",
-        "ppt_layout_agent",
         "diagram_mind_map_agent",
         "diagram_flowchart_agent",
         "diagram_activity_agent",
@@ -3149,8 +3401,12 @@ def _file_format_follow_up_actions(answer_type: str, metadata: Dict[str, Any], a
 def _metadata_tool_enabled(metadata: Dict[str, Any], tool_name: str) -> bool:
     toggles = metadata.get("toolToggles") if isinstance(metadata, dict) else None
     if not isinstance(toggles, dict) or tool_name not in toggles:
-        return True
-    return _parse_agent_enabled_value(toggles.get(tool_name))
+        enabled = True
+    else:
+        enabled = _parse_agent_enabled_value(toggles.get(tool_name))
+    if not enabled:
+        return False
+    return True
 
 
 def _follow_up_action(label: str, prompt: str, output_type: str, style: str) -> Dict[str, Any]:
@@ -3194,8 +3450,9 @@ def _extract_response_attachments(answer: str) -> List[Dict[str, Any]]:
     if parsed:
         attachments.extend(_attachments_from_json_payload(parsed))
 
+    extensions = "|".join(re.escape(value) for value in get_detectable_extensions())
     markdown_pattern = re.compile(
-        r"!?\[([^\]]+)\]\(((?:https?://|/uploads/)[^\s\"'<>，。！？；、)]+?\.(?:png|jpe?g|gif|webp|bmp|mp4|mov|m4v|webm|ogg|pdf|docx?|pptx?|xlsx?|csv|md|mmd|zip)(?:\?[^\s\"'<>，。！？；、)]*)?)\)",
+        rf"!?\[([^\]]+)\]\(((?:https?://|/uploads/)[^\s\"'<>，。！？；、)]+?\.(?:{extensions})(?:\?[^\s\"'<>，。！？；、)]*)?)\)",
         re.IGNORECASE,
     )
     for match in markdown_pattern.finditer(content):
@@ -3203,7 +3460,7 @@ def _extract_response_attachments(answer: str) -> List[Dict[str, Any]]:
 
     plain_text = markdown_pattern.sub("", content)
     url_pattern = re.compile(
-        r"(?:https?://|/uploads/)[^\s\"'<>，。！？；、]+?\.(?:png|jpe?g|gif|webp|bmp|mp4|mov|m4v|webm|ogg|pdf|docx?|pptx?|xlsx?|csv|md|mmd|zip)(?:\?[^\s\"'<>，。！？；、]*)?",
+        rf"(?:https?://|/uploads/)[^\s\"'<>，。！？；、]+?\.(?:{extensions})(?:\?[^\s\"'<>，。！？；、]*)?",
         re.IGNORECASE,
     )
     for match in url_pattern.finditer(plain_text):
@@ -3273,18 +3530,13 @@ def _build_attachment(url: str, name: str = "", type_hint: str = "") -> Dict[str
     ext = _file_ext(name or normalized_url)
     hinted = str(type_hint or "").lower()
     attachment_type = "file"
-    if "image" in hinted or ext in {"png", "jpg", "jpeg", "gif", "webp", "bmp"}:
+    registered = resolve_file_format(ext, hinted)
+    if registered:
+        attachment_type = str(registered.get("type") or attachment_type)
+    elif "image" in hinted:
         attachment_type = "image"
-    elif "video" in hinted or ext in {"mp4", "mov", "m4v", "webm", "ogg"}:
+    elif "video" in hinted:
         attachment_type = "video"
-    elif ext == "pdf":
-        attachment_type = "pdf"
-    elif ext in {"doc", "docx"}:
-        attachment_type = "docx"
-    elif ext in {"ppt", "pptx"}:
-        attachment_type = "ppt"
-    elif ext in {"xls", "xlsx", "csv"}:
-        attachment_type = "excel"
     elif hinted in {"document", "file"}:
         attachment_type = "file"
     if attachment_type == "file" and not ext:
@@ -3330,6 +3582,7 @@ def _tool_result_to_document(item: Dict[str, Any], index: int) -> RagDocumentRes
         str(item.get("classSessions") or "").strip(),
         " ".join(str(value) for value in item.get("scheduleItems", [])[:3]) if isinstance(item.get("scheduleItems"), list) else "",
         str(item.get("description") or "").strip(),
+        str(item.get("message") or "").strip(),
     ]
     content = " ".join(part for part in content_parts if part) or str(item)
     return RagDocumentResponse(
@@ -3353,7 +3606,6 @@ def _leader_plan_detail(plan) -> Dict[str, Any]:
 def _leader_action_label(action: str) -> str:
     labels = {
         "direct_answer": "直接回答",
-        "delegate_agent": "调用专业智能体",
         "call_tool": "调用接口/工具",
     }
     return labels.get(action or "", action or "未知动作")
@@ -3362,6 +3614,7 @@ def _leader_action_label(action: str) -> str:
 def _strategy_label(strategy_name: str) -> str:
     custom_labels = {
         "leader_direct_answer": "Leader 直接回答",
+        TOOL_CAPABILITY_QUERY_NAME: "工具能力查询",
         "direct_agent": "直接处理",
         "java_schedule_api": "课表查询工具",
         "java_activity_api": "活动查询工具",
@@ -3384,6 +3637,7 @@ def _strategy_label(strategy_name: str) -> str:
 
 def _tool_zh_name(tool_name: str) -> str:
     labels = {
+        TOOL_CAPABILITY_QUERY_NAME: "工具能力查询",
         IMAGE_RECOGNITION_TOOL_NAME: "图片识别工具",
         "text_to_sql": "结构化查询工具",
         "java_schedule_api": "课表查询工具",
@@ -3427,7 +3681,7 @@ def _answer_type_for_agent(agent_name: str) -> str:
         "diagram_architecture_agent": "mermaid_architecture",
         "textbook_knowledge_agent": "markdown",
         "ppt_outline_agent": "ppt_outline",
-        "ppt_layout_agent": "ppt_layout",
+        "ppt_structure_agent": "ppt_structure",
         "ppt_review_agent": "ppt_review",
         "ppt_image_agent": "ppt_image_prompt",
         "ppt_to_docx_agent": "document_conversion",
@@ -3461,7 +3715,7 @@ def convert_pdf_document(
         len(pdf_bytes),
     )
     try:
-        result = convert_pdf(pdf_bytes, filename, request.targetFormat)
+        result = convert_pdf(pdf_bytes, filename, request.targetFormat, request.convertMode)
         logger.info(
             "pdf convert success filename=%s output=%s content_length=%s images=%s",
             filename,
@@ -3491,7 +3745,7 @@ def convert_ppt_document(
         raise HTTPException(status_code=400, detail="PPTX Base64 内容无效") from exc
     logger.info("ppt convert request filename=%s size=%s", filename, len(ppt_bytes))
     try:
-        result = convert_ppt_to_docx(ppt_bytes, filename)
+        result = convert_ppt_to_docx(ppt_bytes, filename, request.convertMode)
         logger.info(
             "ppt convert success filename=%s output=%s content_length=%s images=%s slides=%s",
             filename,
@@ -3503,6 +3757,97 @@ def convert_ppt_document(
         return result
     except PptConversionError as exc:
         logger.warning("ppt convert failed filename=%s reason=%s", filename, exc)
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+
+@router.post("/ppt/to-pdf")
+def convert_ppt_to_pdf_document(
+    request: PptConvertRequest,
+    authorization: Optional[str] = Header(default=None, alias="Authorization"),
+) -> Dict[str, Any]:
+    _require_authorization(authorization)
+    filename = request.fileName or "presentation.pptx"
+    lower_name = filename.lower()
+    if not lower_name.endswith(".ppt") and not lower_name.endswith(".pptx"):
+        raise HTTPException(status_code=400, detail="仅支持上传 PPT/PPTX 文件")
+    try:
+        import base64
+        ppt_bytes = base64.b64decode(request.contentBase64, validate=True)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="PPT Base64 内容无效") from exc
+    logger.info("ppt to pdf request filename=%s size=%s", filename, len(ppt_bytes))
+    try:
+        result = convert_ppt_to_pdf(ppt_bytes, filename)
+        logger.info(
+            "ppt to pdf success filename=%s output=%s content_length=%s pages=%s",
+            filename,
+            result.get("fileName"),
+            result.get("contentLength"),
+            result.get("pageCount"),
+        )
+        return result
+    except PptConversionError as exc:
+        logger.warning("ppt to pdf failed filename=%s reason=%s", filename, exc)
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+
+@router.post("/docx/to-pdf")
+def convert_docx_to_pdf_document(
+    request: DocxConvertRequest,
+    authorization: Optional[str] = Header(default=None, alias="Authorization"),
+) -> Dict[str, Any]:
+    _require_authorization(authorization)
+    filename = request.fileName or "document.docx"
+    if not filename.lower().endswith(".docx"):
+        raise HTTPException(status_code=400, detail="仅支持上传 DOCX 文件")
+    try:
+        import base64
+        docx_bytes = base64.b64decode(request.contentBase64, validate=True)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="DOCX Base64 内容无效") from exc
+    logger.info("docx to pdf request filename=%s size=%s", filename, len(docx_bytes))
+    try:
+        result = convert_docx_to_pdf(docx_bytes, filename)
+        logger.info(
+            "docx to pdf success filename=%s output=%s content_length=%s pages=%s",
+            filename,
+            result.get("fileName"),
+            result.get("contentLength"),
+            result.get("pageCount"),
+        )
+        return result
+    except DocxConversionError as exc:
+        logger.warning("docx to pdf failed filename=%s reason=%s", filename, exc)
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+
+@router.post("/docx/to-ppt")
+def convert_docx_to_ppt_document(
+    request: DocxConvertRequest,
+    authorization: Optional[str] = Header(default=None, alias="Authorization"),
+) -> Dict[str, Any]:
+    _require_authorization(authorization)
+    filename = request.fileName or "document.docx"
+    if not filename.lower().endswith(".docx"):
+        raise HTTPException(status_code=400, detail="仅支持上传 DOCX 文件")
+    try:
+        import base64
+        docx_bytes = base64.b64decode(request.contentBase64, validate=True)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="DOCX Base64 内容无效") from exc
+    logger.info("docx to ppt request filename=%s size=%s", filename, len(docx_bytes))
+    try:
+        result = convert_docx_to_ppt(docx_bytes, filename, request.convertMode)
+        logger.info(
+            "docx to ppt success filename=%s output=%s content_length=%s pages=%s",
+            filename,
+            result.get("fileName"),
+            result.get("contentLength"),
+            result.get("pageCount"),
+        )
+        return result
+    except (DocxConversionError, PdfConversionError) as exc:
+        logger.warning("docx to ppt failed filename=%s reason=%s", filename, exc)
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 
 

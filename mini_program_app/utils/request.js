@@ -1,8 +1,20 @@
 /**
  * 网络请求封装：统一 baseURL、Token、错误与 401 处理
  */
-import { BASE_URL } from './config.js'
+import { getApiBaseUrl } from './config.js'
 import { getToken, clearAuth } from './storage.js'
+
+const compactPayload = (payload) => {
+  if (payload == null || typeof payload !== 'object' || Array.isArray(payload)) return payload
+  const next = {}
+  Object.keys(payload).forEach((key) => {
+    const value = payload[key]
+    if (value === undefined || value === null || value === '') return
+    if (value === 'undefined' || value === 'null') return
+    next[key] = value
+  })
+  return next
+}
 
 /**
  * @param {Object} options - { url, method, data, header }
@@ -10,12 +22,15 @@ import { getToken, clearAuth } from './storage.js'
  * 返回 res.data（接口 body）；仍可直接 await，并可在需要时中止底层 uni.request。
  */
 export function request(options) {
-  const url = options.url.startsWith('http') ? options.url : BASE_URL + options.url
+  const baseUrl = getApiBaseUrl()
+  const url = options.url.startsWith('http') ? options.url : baseUrl + options.url
   const token = getToken()
-  const payload = options.data !== undefined ? options.data : options.params
+  const payload = compactPayload(options.data !== undefined ? options.data : options.params)
   const showError = options.showError !== false
   const header = {
     'Content-Type': 'application/json',
+    'Cache-Control': 'no-cache',
+    Pragma: 'no-cache',
     ...(options.header || {})
   }
   if (token) {
@@ -38,18 +53,28 @@ export function request(options) {
         if (settled) return
         if (res.statusCode >= 200 && res.statusCode < 300) {
           const data = res.data
-          if (data.code === 200) {
+          if (typeof data === 'string' && /^\s*</.test(data)) {
+            const msg = `API 返回了网页而非 JSON（请确认后端已启动：${baseUrl}）`
+            if (showError) {
+              uni.showToast({ title: msg, icon: 'none' })
+            }
+            settled = true
+            reject(new Error(msg))
+            return
+          }
+          if (data && typeof data === 'object' && data.code === 200) {
             settled = true
             resolve(data)
           } else {
-            if (data.code === 401) {
+            if (data && data.code === 401) {
               clearAuth()
             }
+            const msg = (data && (data.msg || data.message)) || '请求失败'
             if (showError) {
-              uni.showToast({ title: data.msg || data.message || '请求失败', icon: 'none' })
+              uni.showToast({ title: msg, icon: 'none' })
             }
             settled = true
-            reject(data)
+            reject(data || new Error(msg))
           }
         } else {
           if (res.statusCode === 401) {

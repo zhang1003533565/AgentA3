@@ -54,7 +54,13 @@ public class LibreOfficePreviewConverter {
         if (pathValue != null) {
             for (String directory : pathValue.split(java.util.regex.Pattern.quote(File.pathSeparator))) {
                 if (directory.isBlank()) continue;
-                Path candidate = Path.of(directory).resolve(configured);
+                Path candidate;
+                try {
+                    candidate = Path.of(directory).resolve(configured);
+                } catch (InvalidPathException ex) {
+                    // PATH 中可能存在非法条目（如 IDE 注入的残缺路径），跳过而不是让启动失败
+                    continue;
+                }
                 if (Files.isRegularFile(candidate) && Files.isExecutable(candidate)) return candidate.toString();
             }
         }

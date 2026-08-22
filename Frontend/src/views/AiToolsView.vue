@@ -6,13 +6,9 @@ import examHero from '../assets/ai-tools/exam-hero.png'
 import campusIllustrations from '../assets/ai-tools/campus-illustrations-strip.png'
 import toolIllustrations from '../assets/ai-tools/tool-illustrations-strip.png'
 import { getCampusCourses } from '../api/campusCourse'
-import { getUserInfo } from '../utils/auth'
+import AppTabBar from '../components/AppTabBar.vue'
 
 const router = useRouter()
-const userInfo = computed(() => getUserInfo() || {})
-const displayName = computed(() => userInfo.value.realName || userInfo.value.username || '同学')
-const avatarUrl = computed(() => userInfo.value.avatar || '')
-const avatarText = computed(() => displayName.value.slice(0, 1).toUpperCase())
 
 const heroIndex = ref(0)
 const activeCategory = ref('hot')
@@ -284,36 +280,7 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="ai-tools-page">
-    <header class="tools-header">
-      <div class="tools-header__inner">
-        <RouterLink class="campus-brand" to="/home" aria-label="智慧校园首页">
-          <span class="campus-brand__mark">A3</span>
-          <span>
-            <strong>智慧校园</strong>
-            <em>让学习，更有方法</em>
-          </span>
-        </RouterLink>
-
-        <nav class="tools-nav" aria-label="AI工具页导航">
-          <RouterLink to="/home">首页</RouterLink>
-          <RouterLink to="/map">校园地图</RouterLink>
-          <RouterLink to="/meetings">会议</RouterLink>
-          <RouterLink to="/ai">AI助手</RouterLink>
-          <RouterLink class="active" to="/ai-tools">AI工具</RouterLink>
-          <RouterLink to="/mine">我的页面</RouterLink>
-          <RouterLink to="/resume">我的简历</RouterLink>
-        </nav>
-
-        <RouterLink class="user-entry" to="/mine">
-          <span class="user-avatar">
-            <img v-if="avatarUrl" :src="avatarUrl" alt="" />
-            <span v-else>{{ avatarText }}</span>
-          </span>
-          <span>你好，{{ displayName }}</span>
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 10 5 5 5-5" /></svg>
-        </RouterLink>
-      </div>
-    </header>
+    <AppTabBar />
 
     <main>
       <section
@@ -475,6 +442,7 @@ onBeforeUnmount(() => {
 .ai-tools-page {
   --ink: #17191f;
   min-height: 100vh;
+  padding-top: 60px;
   overflow: hidden;
   color: var(--ink);
   background:

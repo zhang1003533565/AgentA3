@@ -11,8 +11,10 @@
 			<view class="field-block">
 				<text class="field-title">请输入会议号</text>
 				<view class="input-wrap">
-					<input v-model="roomCode" class="join-input" maxlength="11" placeholder="请输入9–11位会议号" placeholder-class="placeholder" />
-					<view v-if="roomCode" class="clear" @click="roomCode = ''">×</view>
+					<input v-model="roomCode" class="join-input" type="text" maxlength="12" placeholder="请输入会议号" placeholder-class="placeholder" />
+					<view v-if="roomCode" class="clear-btn" @click="roomCode = ''">
+						<text class="clear-icon">×</text>
+					</view>
 				</view>
 			</view>
 
@@ -64,7 +66,18 @@ export default {
 		this.displayName = getCurrentDisplayName()
 	},
 	methods: {
-		back() { uni.navigateBack() },
+		back() {
+			// 输入框聚焦时先失焦并隐藏键盘，避免焦点层拦截返回点击
+			// #ifdef H5
+			if (document.activeElement && document.activeElement.tagName === 'INPUT') {
+				document.activeElement.blur()
+			}
+			// #endif
+			// #ifndef H5
+			uni.hideKeyboard()
+			// #endif
+			uni.navigateBack()
+		},
 		clearDisplayName() { this.displayName = '' },
 		async joinNow() {
 			const compactCode = this.roomCode.replace(/\s+/g, '')
@@ -99,7 +112,6 @@ export default {
 .input-wrap { height: 88rpx; border-radius: 16rpx; background: #f7f7f7; display: flex; align-items: center; padding: 0 18rpx 0 24rpx; gap: 18rpx; }
 .join-input { flex: 1; height: 88rpx; font-size: 26rpx; color: #1c272d; }
 .placeholder { color: #b0b6ba; }
-.clear { width: 30rpx; height: 30rpx; border-radius: 50%; border: 2rpx solid #a9b0b4; color: #a9b0b4; display: flex; align-items: center; justify-content: center; font-size: 26rpx; line-height: 1; }
 .name-input-wrap { height: 88rpx; border-radius: 16rpx; background: #f7f7f7; display: flex; align-items: center; padding: 0 18rpx 0 24rpx; gap: 18rpx; }
 .name-input { flex: 1; height: 88rpx; font-size: 27rpx; color: #1b252b; }
 .clear-btn {

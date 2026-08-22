@@ -13,10 +13,14 @@ import {
 } from 'antd'
 import SidePanel from '../../components/SidePanel/SidePanel'
 import {
+  AppstoreOutlined,
+  CheckCircleOutlined,
   DeleteOutlined,
   EditOutlined,
+  FolderOutlined,
   PlusOutlined,
   SearchOutlined,
+  StopOutlined,
 } from '@ant-design/icons'
 import {
   getMerchantCategoryList,
@@ -79,15 +83,14 @@ export default function CategoryManage() {
 
   const columns = [
     {
-      title: '编号',
-      dataIndex: 'id',
-      width: 80,
-      render: (id) => <span className="category-id">#{id}</span>,
-    },
-    {
       title: '分类名称',
       dataIndex: 'categoryName',
-      render: (text) => <span className="category-name">{text}</span>,
+      render: (text) => (
+        <span className="category-name">
+          <FolderOutlined style={{ marginRight: 8, color: '#409EFF' }} />
+          {text}
+        </span>
+      ),
     },
     {
       title: '状态',
@@ -152,16 +155,25 @@ export default function CategoryManage() {
 
       <div className="discount-stats">
         <button type="button" className="stat-item active">
-          <span className="stat-label">分类总数</span>
-          <span className="stat-number">{data.length}</span>
+          <div className="stat-icon-circle blue"><AppstoreOutlined /></div>
+          <div className="stat-text-group">
+            <span className="stat-number">{data.length}</span>
+            <span className="stat-label">分类总数</span>
+          </div>
         </button>
         <button type="button" className="stat-item">
-          <span className="stat-label">已启用</span>
-          <span className="stat-number">{enabledCount}</span>
+          <div className="stat-icon-circle green"><CheckCircleOutlined /></div>
+          <div className="stat-text-group">
+            <span className="stat-number">{enabledCount}</span>
+            <span className="stat-label">已启用</span>
+          </div>
         </button>
         <button type="button" className="stat-item">
-          <span className="stat-label">已停用</span>
-          <span className="stat-number">{disabledCount}</span>
+          <div className="stat-icon-circle slate"><StopOutlined /></div>
+          <div className="stat-text-group">
+            <span className="stat-number">{disabledCount}</span>
+            <span className="stat-label">已停用</span>
+          </div>
         </button>
       </div>
 
@@ -176,9 +188,6 @@ export default function CategoryManage() {
             pagination={false}
           />
         </Spin>
-        <div className="table-footer">
-          <span>共 {data.length} 条分类</span>
-        </div>
       </div>
 
       <CategoryEditor

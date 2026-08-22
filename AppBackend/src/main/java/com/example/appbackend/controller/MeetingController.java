@@ -9,6 +9,8 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
+
+import java.util.List;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -82,6 +84,21 @@ public class MeetingController {
         return Result.success(meetingService.getMeeting(currentUserId(httpRequest), sessionId));
     }
 
+    @GetMapping("/{sessionId}/comments")
+    @Operation(summary = "会议评论列表")
+    public Result<List<MeetingDTO.CommentItem>> listComments(@PathVariable String sessionId,
+                                                             HttpServletRequest httpRequest) {
+        return Result.success(meetingService.listComments(currentUserId(httpRequest), sessionId));
+    }
+
+    @PostMapping("/{sessionId}/comments")
+    @Operation(summary = "发表会议评论")
+    public Result<MeetingDTO.CommentItem> addComment(@PathVariable String sessionId,
+                                                     @Valid @RequestBody MeetingDTO.CommentRequest request,
+                                                     HttpServletRequest httpRequest) {
+        return Result.success(meetingService.addComment(currentUserId(httpRequest), sessionId, request));
+    }
+
     @PostMapping("/{sessionId}/start")
     @Operation(summary = "开始会议")
     public Result<MeetingDTO.SessionDetail> start(@PathVariable String sessionId,
@@ -98,6 +115,22 @@ public class MeetingController {
                 sessionId,
                 httpRequest.getHeader("Authorization")
         ));
+    }
+
+    @PostMapping("/{sessionId}/leave")
+    @Operation(summary = "离开会议")
+    public Result<Void> leave(@PathVariable String sessionId,
+                              HttpServletRequest httpRequest) {
+        meetingService.leaveMeeting(currentUserId(httpRequest), sessionId);
+        return Result.success();
+    }
+
+    @PostMapping("/{sessionId}/transfer-host")
+    @Operation(summary = "转交主持人")
+    public Result<MeetingDTO.SessionDetail> transferHost(@PathVariable String sessionId,
+                                                         @Valid @RequestBody MeetingDTO.TransferHostRequest request,
+                                                         HttpServletRequest httpRequest) {
+        return Result.success(meetingService.transferHost(currentUserId(httpRequest), sessionId, request.getNewHostName()));
     }
 
     @PostMapping("/{sessionId}/organize")
@@ -149,6 +182,17 @@ public class MeetingController {
                 currentUserId(httpRequest),
                 sessionId,
                 request,
+                httpRequest.getHeader("Authorization")
+        ));
+    }
+
+    @PostMapping("/{sessionId}/ai-minutes")
+    @Operation(summary = "会后任务分工 AI 分析", description = "根据完整会议记录、弹幕/聊天和参会人信息，执行会后任务分工智能体分析")
+    public Result<MeetingDTO.AIMinutesResult> aiMinutes(@PathVariable String sessionId,
+                                                        HttpServletRequest httpRequest) {
+        return Result.success(meetingService.aiMinutesAnalysis(
+                currentUserId(httpRequest),
+                sessionId,
                 httpRequest.getHeader("Authorization")
         ));
     }

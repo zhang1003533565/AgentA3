@@ -115,8 +115,8 @@
 import NavBar from '@/components/nav-bar/nav-bar.vue'
 import { getAppMessages, getAppMessageUnreadCount, markAppMessageRead, markAppMessagesReadByCategory } from '@/api/message'
 import { refreshMessageState } from '@/utils/messageStore'
-import { getCommentList, getPostList, getTopicPosts } from '@/api/forum.js'
-import { getCurrentUserId, markForumCategoryRead, isForumCategoryRead } from '@/utils/storage.js'
+import { getForumMessageUnread } from '@/api/forum.js'
+import { markForumCategoryRead, isForumCategoryRead } from '@/utils/storage.js'
 
 const LOST_FOUND_TRADE_EVENTS = ['TRADE_INTENT', 'TRADE_CONFIRM', 'TRADE_COMPLETE', 'TRADE_CANCEL']
 
@@ -269,44 +269,32 @@ export default {
         console.error('加载未读数量失败', e)
       }
     },
-    // 统计论坛三类消息的未读数（与消息通知页同源：真实的帖子评论/点赞/公告）
+    // 统计论坛三类消息的未读数（聚合接口一次返回，避免 N+1 查询）
     async loadForumMessages() {
-      const uid = getCurrentUserId()
-      let myPosts = []
-      let commentCount = 0
-      let likeCount = 0
+      let stats = { comment: 0, like: 0, system: 0 }
       try {
-        const res = await getPostList({ userId: uid, pageNum: 1, pageSize: 20 })
-        myPosts = res?.data?.records || []
+        const res = await getForumMessageUnread()
+        stats = {
+          comment: Number(res?.data?.commentCount || 0),
+          like: Number(res?.data?.likeCount || 0),
+          system: Number(res?.data?.systemCount || 0)
+        }
       } catch (error) {
-        myPosts = []
+        stats = { comment: 0, like: 0, system: 0 }
       }
-      for (const post of myPosts) {
-        if (post.likeCount > 0) likeCount += 1
-        try {
-          const res = await getCommentList({ postId: post.id, pageNum: 1, pageSize: 20 })
-          const comments = res?.data?.records || []
-          for (const comment of comments) {
-            if (String(comment.userId) !== String(uid)) commentCount += 1
-          }
-        } catch (error) {}
-      }
-      // 公告话题帖数
-      let systemCount = 0
-      try {
-        const res = await getTopicPosts(3, { pageNum: 1, pageSize: 20 })
-        systemCount = (res?.data?.records || []).length
-      } catch (error) {
-        systemCount = 0
-      }
-      // 已读状态覆盖未读数
-      this.forumCommentCount = isForumCategoryRead('comment') ? 0 : commentCount
-      this.forumLikeCount = isForumCategoryRead('like') ? 0 : likeCount
-      this.forumSystemCount = isForumCategoryRead('system') ? 0 : systemCount
+      // 点赞未读数来自后端真实未读消息（已读后归零，新点赞重新出现红点）
+      this.forumLikeCount = stats.like
+      // 评论/系统通知暂无后端消息记录，沿用本地已读标记兼容
+      this.forumCommentCount = isForumCategoryRead('comment') ? 0 : stats.comment
+      this.forumSystemCount = isForumCategoryRead('system') ? 0 : stats.system
     },
     openForumCategory(entry) {
       if (entry.type === 'comment') this.forumCommentCount = 0
-      if (entry.type === 'like') this.forumLikeCount = 0
+      if (entry.type === 'like') {
+        this.forumLikeCount = 0
+        // 点赞消息基于后端 app_message，标记后端已读，返回后 onShow 重新统计不再显示红点
+        markAppMessagesReadByCategory({ moduleType: 'FORUM', eventTypes: ['POST_LIKE'] }).catch(() => {})
+      }
       if (entry.type === 'system') this.forumSystemCount = 0
       // 点击即标记该分类已读：立即持久化，返回后 onShow 统计不再显示红点
       markForumCategoryRead(entry.type)

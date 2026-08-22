@@ -25,6 +25,7 @@ class LlmRuntimeConfig:
 
 
 _active_llm_config: ContextVar[Optional[LlmRuntimeConfig]] = ContextVar("active_llm_config", default=None)
+_active_llm_timeout_seconds: ContextVar[int] = ContextVar("active_llm_timeout_seconds", default=60)
 
 
 def build_llm_runtime_config(
@@ -54,6 +55,18 @@ def set_active_llm_config(config: Optional[LlmRuntimeConfig]) -> Token:
 
 def reset_active_llm_config(token: Token) -> None:
     _active_llm_config.reset(token)
+
+
+def set_active_llm_timeout(seconds: int) -> Token:
+    return _active_llm_timeout_seconds.set(max(1, int(seconds)))
+
+
+def reset_active_llm_timeout(token: Token) -> None:
+    _active_llm_timeout_seconds.reset(token)
+
+
+def get_active_llm_timeout_seconds() -> int:
+    return _active_llm_timeout_seconds.get()
 
 
 def require_active_llm_config() -> LlmRuntimeConfig:

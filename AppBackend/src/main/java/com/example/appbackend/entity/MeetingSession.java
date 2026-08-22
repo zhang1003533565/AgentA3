@@ -48,6 +48,9 @@ public class MeetingSession {
     @Column(name = "scheduled_start_time", columnDefinition = "DATETIME COMMENT '预约开始时间'")
     private LocalDateTime scheduledStartTime;
 
+    @Column(name = "expected_duration_minutes", columnDefinition = "INT DEFAULT 30 COMMENT '预计时长（分钟）'")
+    private Integer expectedDurationMinutes = 30;
+
     @Column(name = "start_time", columnDefinition = "DATETIME COMMENT '实际开始时间'")
     private LocalDateTime startTime;
 
@@ -84,6 +87,9 @@ public class MeetingSession {
         }
         if (resultCount == null) {
             resultCount = 0;
+        }
+        if (expectedDurationMinutes == null) {
+            expectedDurationMinutes = 30;
         }
     }
 

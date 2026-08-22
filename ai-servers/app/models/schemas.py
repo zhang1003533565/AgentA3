@@ -8,7 +8,7 @@ class ChatRequest(BaseModel):
     prompt: Optional[str] = Field(default=None, max_length=2000)
     ragStrategy: Optional[str] = Field(default=None, max_length=64)
     agentName: Optional[str] = Field(default=None, max_length=64)
-    input: str = Field(min_length=1, max_length=4000)
+    input: str = Field(min_length=0, max_length=4000)
     imageUrls: List[str] = Field(default_factory=list, max_length=8)
     images: List[str] = Field(default_factory=list, max_length=8)
     imageDataUrls: List[str] = Field(default_factory=list, max_length=8)
@@ -35,7 +35,7 @@ class RagQueryRequest(BaseModel):
     # Full textbook chapters are accepted by the trusted question-generation
     # flow. The RAG routes keep the original 4,000-character limit for every
     # ordinary request.
-    input: str = Field(min_length=1, max_length=210000)
+    input: str = Field(min_length=0, max_length=210000)
     keyword: Optional[str] = Field(default=None, max_length=128)
     intent: str = Field(default="campus_search", max_length=64)
     ragStrategy: Optional[str] = Field(default=None, max_length=64)

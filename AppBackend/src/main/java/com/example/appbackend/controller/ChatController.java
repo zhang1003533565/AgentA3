@@ -111,6 +111,17 @@ public class ChatController {
         return Result.success(chatService.countUnreadTradeNotifications(getUserId(httpRequest)));
     }
 
+    @GetMapping("/messages/summary")
+    @Operation(summary = "消息概览", description = "聚合返回聊天会话列表、聊天未读数、交易通知未读数，减少前端请求次数")
+    public Result<ChatDTO.MessageSummaryVO> getMessageSummary(
+            @Parameter(description = "当前页码")
+            @RequestParam(defaultValue = "1") Integer current,
+            @Parameter(description = "每页条数")
+            @RequestParam(defaultValue = "30") Integer size,
+            HttpServletRequest httpRequest) {
+        return Result.success(chatService.getMessageSummary(getUserId(httpRequest), current, size));
+    }
+
     @PutMapping("/trade-notifications/{id}/read")
     @Operation(summary = "标记交易通知已读")
     public Result<Void> markTradeNotificationRead(

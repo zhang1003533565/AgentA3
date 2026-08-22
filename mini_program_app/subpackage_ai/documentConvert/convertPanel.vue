@@ -1,5 +1,11 @@
 <template>
   <view class="convert-panel">
+    <!-- 转换模式选择 -->
+    <view class="section-card" v-if="modes.length > 0">
+      <view class="section-title">转换模式</view>
+      <conversion-mode-selector v-model="selectedMode" :modes="modes" />
+    </view>
+
     <!-- 文件选择 -->
     <view class="section-card">
       <view class="section-title">选择文件</view>
@@ -106,11 +112,14 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { createTask, getTask, getHistory, downloadResult, deleteConvertTasks } from '@/api/documentConvert.js'
+import ConversionModeSelector from './ConversionModeSelector.vue'
 
 const props = defineProps({
   convertType: { type: String, required: true },
   typeLabel: { type: String, default: '' },
-  acceptExtensions: { type: Array, default: () => [] }
+  acceptExtensions: { type: Array, default: () => [] },
+  convertMode: { type: String, default: 'image' },
+  modes: { type: Array, default: () => [] }
 })
 
 const STATUS_TEXT = {
@@ -130,6 +139,7 @@ const result = ref({ fileName: '', fileSize: 0 })
 const historyList = ref([])
 const selectedIds = ref([])
 const processing = ref(false)
+const selectedMode = ref(props.convertMode)
 
 let pollTimer = null
 let submitLocked = false
@@ -142,6 +152,25 @@ const acceptText = computed(() => {
 const canStart = computed(() => !!selectedFile.value && !processing.value)
 const showProgress = computed(() => processing.value || ['SUCCEEDED', 'FAILED'].includes(taskStatus.value))
 const statusText = computed(() => STATUS_TEXT[taskStatus.value] || '等待处理')
+
+/**
+ * 将后端/技术错误翻译为用户可读文案，仅影响展示，不影响转换链路。
+ */
+const friendlyError = (raw) => {
+  const text = String(raw || '').trim()
+  if (!text) return '转换失败，请稍后重试'
+  const lower = text.toLowerCase()
+  if (/(databufferlimitexception|exceeded limit|max bytes|maximum allowed|文件过大|超过.*大小|too large|size limit)/.test(lower)) {
+    return '文件过大，暂时无法处理，请尝试压缩文件或减少页数'
+  }
+  if (/(unsupported|not supported|invalid format|格式不支持|不支持.*格式|仅支持转换|无法识别.*格式|无效的转换类型)/.test(lower)) {
+    return '暂不支持该文件格式，请选择支持的文件'
+  }
+  if (/(timeout|connection|ai服务调用失败|exception|服务异常|超时|暂时异常)/.test(lower)) {
+    return '转换服务暂时异常，请稍后重试'
+  }
+  return text.length > 60 ? `${text.slice(0, 60)}...` : text
+}
 
 const chooseFile = () => {
   const choose = uni.chooseMessageFile || uni.chooseFile
@@ -188,7 +217,7 @@ const startConvert = async () => {
   processing.value = true
 
   try {
-    const res = await createTask(selectedFile.value, props.convertType)
+    const res = await createTask(selectedFile.value, props.convertType, selectedMode.value)
     const data = res.data || {}
     if (!data.taskId) {
       throw new Error('创建任务失败')
@@ -201,7 +230,7 @@ const startConvert = async () => {
   } catch (error) {
     processing.value = false
     taskStatus.value = 'FAILED'
-    errorMessage.value = error?.msg || error?.message || '创建任务失败'
+    errorMessage.value = friendlyError(error?.msg || error?.message || '创建任务失败')
   } finally {
     submitLocked = false
   }
@@ -230,7 +259,7 @@ const startPolling = (id) => {
       } else if (data.status === 'FAILED') {
         stopPolling()
         processing.value = false
-        errorMessage.value = data.errorMessage || '转换失败'
+        errorMessage.value = friendlyError(data.errorMessage || '转换失败')
       }
     } catch (error) {
       pollingErrorCount += 1

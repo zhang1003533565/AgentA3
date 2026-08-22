@@ -30,6 +30,7 @@ public class SecondhandServiceImpl implements SecondhandService {
     @Autowired private SecondhandCategoryRepository categoryRepository;
     @Autowired private SecondhandItemRepository itemRepository;
     @Autowired private SecondhandFavoriteRepository favoriteRepository;
+    @Autowired private SecondhandBrowseHistoryRepository browseHistoryRepository;
     @Autowired private ChatSessionRepository chatSessionRepository;
     @Autowired private ChatMessageRepository chatMessageRepository;
     @Autowired private TradeRecordRepository tradeRecordRepository;
@@ -188,15 +189,31 @@ public class SecondhandServiceImpl implements SecondhandService {
     }
 
     @Override
-    public PageResponse<SecondhandDTO.ItemVO> getMyItems(Long userId, Integer current, Integer size, Integer status) {
+    public PageResponse<SecondhandDTO.ItemVO> getMyItems(Long userId, Integer current, Integer size, Integer status, String tradeType) {
         if (current == null) current = 1;
         if (size == null) size = 10;
         Page<SecondhandItem> page;
-        if (status == null) {
-            page = itemRepository.findByUserId(userId, PageRequest.of(current - 1, size, Sort.by(Sort.Direction.DESC, "id")));
+        Sort sort = Sort.by(Sort.Direction.DESC, "id");
+        if (status != null && tradeType != null) {
+            page = itemRepository.findByUserIdAndStatusAndTradeType(userId, status, tradeType, PageRequest.of(current - 1, size, sort));
+        } else if (status != null) {
+            page = itemRepository.findByUserIdAndStatus(userId, status, PageRequest.of(current - 1, size, sort));
+        } else if (tradeType != null) {
+            page = itemRepository.findByUserIdAndTradeType(userId, tradeType, PageRequest.of(current - 1, size, sort));
         } else {
-            page = itemRepository.findByUserIdAndStatus(userId, status, PageRequest.of(current - 1, size, Sort.by(Sort.Direction.DESC, "id")));
+            page = itemRepository.findByUserId(userId, PageRequest.of(current - 1, size, sort));
         }
+        List<SecondhandDTO.ItemVO> records = page.getContent().stream().map(this::toItemVO).collect(Collectors.toList());
+        return new PageResponse<>(records, page.getTotalElements(), current, size);
+    }
+
+    @Override
+    public PageResponse<SecondhandDTO.ItemVO> getUserPublicItems(Long userId, Integer current, Integer size) {
+        if (current == null) current = 1;
+        if (size == null) size = 10;
+        List<Integer> publicStatuses = Arrays.asList(2, 3);
+        Page<SecondhandItem> page = itemRepository.findByUserIdAndStatusIn(userId, publicStatuses,
+                PageRequest.of(current - 1, size, Sort.by(Sort.Direction.DESC, "id")));
         List<SecondhandDTO.ItemVO> records = page.getContent().stream().map(this::toItemVO).collect(Collectors.toList());
         return new PageResponse<>(records, page.getTotalElements(), current, size);
     }
@@ -303,6 +320,65 @@ public class SecondhandServiceImpl implements SecondhandService {
                 .map(this::toItemVO)
                 .collect(Collectors.toList());
         return new PageResponse<>(records, page.getTotalElements(), current, size);
+    }
+
+    // ========== 浏览历史 ==========
+
+    @Override
+    public void recordBrowseHistory(Long userId, Long itemId) {
+        if (!itemRepository.existsById(itemId)) return;
+        Optional<SecondhandBrowseHistory> existing = browseHistoryRepository.findByUserIdAndItemId(userId, itemId);
+        if (existing.isPresent()) {
+            browseHistoryRepository.updateBrowseTime(userId, itemId, LocalDateTime.now());
+        } else {
+            SecondhandBrowseHistory history = new SecondhandBrowseHistory();
+            history.setUserId(userId);
+            history.setItemId(itemId);
+            browseHistoryRepository.save(history);
+        }
+    }
+
+    @Override
+    public PageResponse<SecondhandDTO.BrowseHistoryVO> getBrowseHistory(Long userId, Integer current, Integer size) {
+        if (current == null) current = 1;
+        if (size == null) size = 20;
+        Page<SecondhandBrowseHistory> page = browseHistoryRepository.findByUserIdOrderByBrowseTimeDesc(
+                userId, PageRequest.of(current - 1, size));
+        List<SecondhandDTO.BrowseHistoryVO> records = page.getContent().stream()
+                .map(this::toBrowseHistoryVO)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toList());
+        return new PageResponse<>(records, page.getTotalElements(), current, size);
+    }
+
+    @Override
+    public void clearBrowseHistory(Long userId) {
+        browseHistoryRepository.deleteByUserId(userId);
+    }
+
+    private SecondhandDTO.BrowseHistoryVO toBrowseHistoryVO(SecondhandBrowseHistory history) {
+        SecondhandItem item = itemRepository.findById(history.getItemId()).orElse(null);
+        if (item == null) return null;
+        SecondhandDTO.BrowseHistoryVO vo = new SecondhandDTO.BrowseHistoryVO();
+        vo.setId(history.getId());
+        vo.setItemId(item.getId());
+        vo.setTitle(item.getTitle());
+        vo.setImages(fromJson(item.getImages()));
+        vo.setPrice(item.getPrice());
+        vo.setTradeType(item.getTradeType());
+        vo.setStatus(item.getStatus());
+        vo.setLocation(item.getLocation());
+        vo.setCampusName(item.getCampusName());
+        vo.setTradeLocation(item.getTradeLocation());
+        vo.setPickupPoint(item.getPickupPoint());
+        vo.setSellerId(item.getUserId());
+        if (item.getUser() != null) {
+            vo.setSellerName(item.getUser().getUsername());
+            vo.setSellerAvatar(item.getUser().getAvatar());
+        }
+        vo.setBrowseTime(history.getBrowseTime() != null ? history.getBrowseTime().format(FMT) : null);
+        vo.setCreateTime(item.getCreateTime() != null ? item.getCreateTime().format(FMT) : null);
+        return vo;
     }
 
     // ========== 统计 ==========

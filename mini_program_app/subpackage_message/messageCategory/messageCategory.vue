@@ -36,7 +36,8 @@
 
 <script>
 	import NavBar from '@/components/nav-bar/nav-bar.vue'
-	import { getCommentList, getPostList, getPostDetail, getTopicPosts, getUserLikes, parseImageList } from '@/api/forum.js'
+	import { getPostList, getReceivedComments, getTopicPosts, parseImageList } from '@/api/forum.js'
+	import { getAppMessages, markAppMessagesReadByCategory } from '@/api/message.js'
 	import { getCurrentUserId, markForumCategoryRead, isForumCategoryRead } from '@/utils/storage.js'
 	export default {
 		components: { NavBar },
@@ -62,6 +63,10 @@
 			this.initConfig()
 			// 进入页面瞬间即标记该分类已读（同步持久化，不依赖异步数据加载）
 			markForumCategoryRead(this.type)
+			// 点赞消息基于后端 app_message：同步标记后端已读，保证消息中心红点消失
+			if (this.type === 'like') {
+				markAppMessagesReadByCategory({ moduleType: 'FORUM', eventTypes: ['POST_LIKE'] }).catch(() => {})
+			}
 			this.loadList()
 		},
 		methods: {
@@ -95,68 +100,61 @@
 				// 进入列表页即视为已读：持久化标记并通知来源页清除红点（静默，不弹提示）
 				this.autoMarkRead()
 			},
-			// 收到的评论：别人在我帖子下的真实评论
+			// 收到的评论：别人在我帖子下的真实评论（聚合接口一次返回，避免 N+1 查询）
 			async loadCommentMessages() {
-				const uid = this.currentUserId
-				// 拉取我的帖子
-				let myPosts = []
+				let items = []
 				try {
-					const res = await getPostList({ userId: uid, pageNum: 1, pageSize: 20 })
-					myPosts = res?.data?.records || []
+					const res = await getReceivedComments()
+					const records = res?.data || []
+					items = records.map((comment) => ({
+						id: comment.id,
+						name: comment.username || '匿名用户',
+						avatar: comment.avatar || '',
+						action: `评论了你的帖子「${comment.postTitle || ''}」`,
+						desc: comment.content || '',
+						time: this.formatTime(comment.createTime),
+						isRead: false,
+						bgColor: '#E8F5E9',
+						target: 'post',
+						postId: comment.postId
+					}))
 				} catch (error) {
-					myPosts = []
-				}
-				const items = []
-				for (const post of myPosts) {
-					try {
-						const res = await getCommentList({ postId: post.id, pageNum: 1, pageSize: 20 })
-						const comments = res?.data?.records || []
-						for (const comment of comments) {
-							// 排除自己评论自己的
-							if (String(comment.userId) === String(uid)) continue
-							items.push({
-								id: comment.id,
-								name: comment.username || '匿名用户',
-								avatar: comment.avatar || '',
-								action: '评论了你的帖子',
-								desc: comment.content || '',
-								time: this.formatTime(comment.createTime),
-								isRead: false,
-								bgColor: '#E8F5E9',
-								target: 'post',
-								postId: post.id
-							})
-						}
-					} catch (error) {}
+					items = []
 				}
 				items.sort((a, b) => String(b.time).localeCompare(String(a.time)))
 				this.list = items
 			},
-			// 收到的点赞：我的帖子被点赞的真实记录
+			// 收到的点赞：真实点赞消息记录（来自消息中心 FORUM/POST_LIKE 消息）
 			async loadLikeMessages() {
-				const uid = this.currentUserId
-				let myPosts = []
+				let items = []
 				try {
-					const res = await getPostList({ userId: uid, pageNum: 1, pageSize: 20 })
-					myPosts = res?.data?.records || []
+					const res = await getAppMessages({ current: 1, size: 100 })
+					const records = res?.data?.records || []
+					items = records
+						.filter((msg) => msg.moduleType === 'FORUM' && msg.eventType === 'POST_LIKE')
+						.map((msg) => {
+							let postId = ''
+							try {
+								const params = msg.targetParams ? JSON.parse(msg.targetParams) : {}
+								postId = params.id || ''
+							} catch (e) {
+								postId = ''
+							}
+							return {
+								id: `like_${msg.id}`,
+								name: msg.title || '系统',
+								avatar: '',
+								action: '赞了你的帖子',
+								desc: msg.content || '',
+								time: this.formatTime(msg.createTime),
+								isRead: !!msg.isRead,
+								bgColor: '#FDE8E8',
+								target: 'post',
+								postId
+							}
+						})
 				} catch (error) {
-					myPosts = []
-				}
-				const items = []
-				for (const post of myPosts) {
-					if (!post.likeCount || post.likeCount <= 0) continue
-					items.push({
-						id: `like_${post.id}`,
-						name: '系统',
-						avatar: '',
-						action: `你的帖子收到 ${post.likeCount} 个赞`,
-						desc: post.title || post.content || '',
-						time: this.formatTime(post.createTime),
-						isRead: false,
-						bgColor: '#FDE8E8',
-						target: 'post',
-						postId: post.id
-					})
+					items = []
 				}
 				items.sort((a, b) => String(b.time).localeCompare(String(a.time)))
 				this.list = items

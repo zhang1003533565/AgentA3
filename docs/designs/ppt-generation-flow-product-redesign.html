@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>PPT 生成流程产品化重构设计</title>
+  <style>
+    *{box-sizing:border-box}
+    body{margin:0;background:#eef2f7;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#07152a}
+    .wrap{max-width:1120px;margin:0 auto;padding:28px}
+    h1{margin:0 0 8px;font-size:28px}
+    .lead{margin:0 0 22px;color:#667386;line-height:1.6}
+    .grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px}
+    .card{min-height:230px;padding:18px;border:1px solid #dfe7ef;border-radius:14px;background:#fff}
+    .step{display:flex;width:34px;height:34px;align-items:center;justify-content:center;border-radius:10px;background:#eef0ff;color:#5262e8;font-weight:850}
+    .card h2{margin:14px 0 8px;font-size:18px}
+    .card p{margin:0;color:#667386;font-size:14px;line-height:1.55}
+    .keep,.remove,.add{margin-top:14px;padding:10px;border-radius:10px;font-size:13px;line-height:1.45}
+    .keep{background:#f0fdf4;color:#35634a}.remove{background:#fff1f2;color:#854044}.add{background:#f0f7ff;color:#335c88}
+    .flow{display:flex;align-items:center;gap:10px;margin:24px 0;padding:14px;border:1px solid #dfe7ef;border-radius:14px;background:#fff}
+    .flow span{padding:8px 11px;border-radius:999px;background:#f4f7fb;font-size:13px;font-weight:700}
+    .flow i{color:#9aa5b7;font-style:normal}
+  </style>
+</head>
+<body>
+  <main class="wrap">
+    <h1>AI PPT 生成流程重构</h1>
+    <p class="lead">参考 Gamma、Canva、Tome、Beautiful.ai 的共性：入口少、控制点前置、大纲可编辑、生成后再细修、导出清晰。</p>
+    <div class="flow">
+      <span>导入资料/选模板</span><i>→</i><span>确认大纲</span><i>→</i><span>设置生成</span><i>→</i><span>生成</span><i>→</i><span>预览编辑</span><i>→</i><span>导出</span>
+    </div>
+    <section class="grid">
+      <div class="card"><div class="step">1</div><h2>模板/资料入口</h2><p>支持模板优先和内容优先，但进入流程后不重复选择。</p><div class="keep">保留：模板详情、真实预览、上传/粘贴。</div></div>
+      <div class="card"><div class="step">2</div><h2>大纲确认</h2><p>大纲来源不再独立成页，作为导入资料时的轻量选项。</p><div class="remove">删除：单独“大纲来源”页面。</div></div>
+      <div class="card"><div class="step">3</div><h2>生成设置</h2><p>只放页数、详细程度、配图方式、页面组成和当前模板摘要。</p><div class="remove">删除：设置页内重复模板列表。</div></div>
+      <div class="card"><div class="step">4</div><h2>生成进度</h2><p>展示当前页、版式、阶段和可取消操作。</p><div class="keep">保留：任务状态、失败重试、返回编辑。</div></div>
+      <div class="card"><div class="step">5</div><h2>结果预览</h2><p>生成后先看页面预览，再进入逐页编辑或导出。</p><div class="add">新增：结果页作为编辑回环入口。</div></div>
+      <div class="card"><div class="step">6</div><h2>导出</h2><p>只强调可用格式、失败格式、下载状态。</p><div class="keep">保留：PPTX、PDF、预览。</div></div>
+    </section>
+  </main>
+</body>
+</html>

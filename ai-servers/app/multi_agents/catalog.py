@@ -31,7 +31,8 @@ MEETING_AGENT_SPECS = {
 
 PPT_AGENT_SPECS = {
     "ppt_outline_agent": ("PPT 大纲智能体", "ppt_outline", "负责生成 PPT 整体大纲、页序、每页标题、讲解目标和内容要点。", "根据数据结构中栈与队列的知识点生成 6 页 PPT 大纲"),
-    "ppt_layout_agent": ("PPT 布局智能体", "ppt_layout", "负责根据大纲规划逐页版式、视觉层级、组件摆放和页面动线。", "根据这份 PPT 大纲设计每页布局、版式和视觉层级"),
+    "ppt_structure_agent": ("PPT 结构智能体", "ppt_structure", "按照 Presenton 的结构选择契约，为每一页选择模板中的布局组件。", "根据确认后的 PPT 大纲和模板布局目录选择逐页 layoutId"),
+    "ppt_content_agent": ("PPT 逐页内容智能体", "ppt_content", "根据确认后的大纲和原始资料撰写逐页标题、要点、解释与视觉建议。", "根据确认后的大纲生成逐页可展示内容"),
     "ppt_review_agent": ("PPT 审查智能体", "ppt_review", "负责审查 PPT 内容、布局和教学适配度，并输出问题清单与置信度评分。", "审查这份 PPT 大纲和布局，给出问题清单、修改建议和置信度"),
     "ppt_image_agent": ("PPT 配图提示词智能体", "ppt_image", "只负责为 PPT 封面、插图、示意图生成图片提示词和视觉素材建议，不直接调用图片模型。", "根据这份 PPT 大纲生成封面图和关键页面插图提示词"),
     "ppt_to_docx_agent": ("PPT 转 DOCX 智能体", "ppt_to_docx", "负责将 PPTX 文件转换为 DOCX，按幻灯片顺序重排内容并保留图片。", "上传 PPTX 文件后转换为 DOCX，保留图片并允许 Word 重新排版"),
@@ -94,6 +95,7 @@ DIAGRAM_AGENT_SPECS = {
 
 AGENT_ORDER = [
     "leader_agent",
+    "tool_intent_router_agent",
     "profile_summary_agent",
     "vision_agent",
     "architecture_prompt_agent",
@@ -126,10 +128,12 @@ INTERNAL_VISUAL_AGENTS = frozenset({
     "ppt_image_agent",
 })
 FILE_EXPORT_INTERNAL_AGENTS = frozenset({"file_content_planner_agent"})
+INTERNAL_ONLY_AGENT_NAMES = frozenset({"tool_intent_router_agent"})
 LEADER_CALLABLE_AGENT_ORDER = tuple(
     agent_name
     for agent_name in AGENT_ORDER
     if agent_name != "leader_agent"
+    and agent_name not in INTERNAL_ONLY_AGENT_NAMES
     and agent_name not in LEARNING_WORKFLOW_INTERNAL_AGENTS
     and agent_name not in DIAGRAM_SOURCE_AGENTS
     and agent_name not in INTERNAL_VISUAL_AGENTS
@@ -213,7 +217,8 @@ def _learning_workflow_agent_profile(
 def _ppt_profile(agent_name: str, role: str, intent: str, purpose: str, example_input: str) -> Dict[str, Any]:
     output_type = {
         "ppt_outline_agent": "ppt_outline_markdown",
-        "ppt_layout_agent": "ppt_layout_markdown",
+        "ppt_structure_agent": "presenton_structure_json",
+        "ppt_content_agent": "slide_json",
         "ppt_review_agent": "ppt_review_markdown",
         "ppt_image_agent": "ppt_image_prompt_markdown",
         "ppt_to_docx_agent": "docx_file",
@@ -335,6 +340,25 @@ AGENT_PROFILES: Dict[str, Dict[str, Any]] = {
         "aliases": ["file_content_planner_agent", "文件内容编排智能体", "Word知识转换智能体", "文件知识转换智能体"],
         "exampleInput": "把刚才关于 Python 发展历史的内容整理成 Word 文档",
         "requiredModelModalities": TEXT_MODEL_MODALITY,
+    },
+    "tool_intent_router_agent": {
+        "role": "工具意图识别智能体",
+        "purpose": "在 Leader 路由前强制提取用户意图、关键词、实体、约束和查询变体；不由 Leader 作为业务智能体路由，但允许后台单独测试和绑定模型。",
+        "inputs": ["user_query", "enabled_tools"],
+        "outputs": ["intent", "keywords", "entities", "constraints", "query_variants"],
+        "skills": ["intent extraction", "keyword extraction", "entity extraction", "query rewriting"],
+        "intent": "tool_intent_routing",
+        "needRetrieval": False,
+        "executionMode": "internal_tool",
+        "executionModeLabel": "生产环境由 tool_intent_router 强制自动调用；后台可单独测试",
+        "defaultRagStrategy": "",
+        "supportedRagStrategies": [],
+        "aliases": ["tool_intent_router", "tool_intent_router_agent", "工具意图识别", "意图识别智能体"],
+        "exampleInput": "从用户问题中提取意图、关键词、实体、约束和最多三个查询变体",
+        "requiredModelModalities": TEXT_MODEL_MODALITY,
+        "internalOnly": True,
+        "mandatory": True,
+        "toolName": "tool_intent_router",
     },
     "vision_agent": {
         "role": "图片识别智能体",
@@ -561,7 +585,11 @@ def normalize_agent_name(agent_name: Optional[str]) -> Optional[str]:
 
 def normalize_leader_request_agent(agent_name: Optional[str]) -> Optional[str]:
     normalized = normalize_agent_name(agent_name)
-    if normalized == "leader_agent" or normalized in LEADER_CALLABLE_AGENT_ORDER:
+    if (
+        normalized == "leader_agent"
+        or normalized in LEADER_CALLABLE_AGENT_ORDER
+        or normalized in INTERNAL_ONLY_AGENT_NAMES
+    ):
         return normalized
     return None
 
@@ -589,6 +617,9 @@ def _build_agent(agent_name: str, include_documents: bool) -> Dict[str, Any]:
         "needRetrieval": profile["needRetrieval"],
         "executionMode": profile["executionMode"],
         "executionModeLabel": profile["executionModeLabel"],
+        "internalOnly": bool(profile.get("internalOnly", False)),
+        "mandatory": bool(profile.get("mandatory", False)),
+        "toolName": profile.get("toolName"),
         "defaultRagStrategy": profile["defaultRagStrategy"],
         "supportedRagStrategies": profile["supportedRagStrategies"],
         "requiredModelModalities": profile.get("requiredModelModalities", TEXT_MODEL_MODALITY),

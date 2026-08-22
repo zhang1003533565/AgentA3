@@ -21,6 +21,8 @@ public class MapPlaceResponse {
     private String name;
     @JsonInclude(JsonInclude.Include.NON_NULL)
     private String description;
+    private String usagePurpose;
+    private String usageStatus;
     private String status;
     private BigDecimal longitude;
     private BigDecimal latitude;
