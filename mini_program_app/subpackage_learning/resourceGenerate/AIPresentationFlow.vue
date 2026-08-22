@@ -871,6 +871,7 @@ export default {
       lastSuccessfulResult: null,
       previewImages: {},
       generationWarnings: [],
+      contentQuality: null,
       modelConfigError: false,
       lastPptError: '',
       apiBusy: false,
@@ -1875,6 +1876,7 @@ export default {
       this.outlineGenerationSnapshot = null
       this.slideGenerationSnapshot = null
       this.generationWarnings = []
+      this.contentQuality = null
       this.previewImages = {}
       this.editorPreviewCache = {}
       this.editorPreviewImage = ''
@@ -2289,6 +2291,7 @@ export default {
       this.modelConfigError = false
       this.lastPptError = ''
       this.slideGenerationSnapshot = null
+      this.contentQuality = null
       try {
         const outline = {
           ...(this.outlineDocument || {}),
@@ -2311,6 +2314,9 @@ export default {
         if (runId !== this.slideGenerationRunId) return
         const result = this.responseData(await getPptTask(this.slideGenerationTaskId))
         this.generationWarnings = Array.isArray(result.warnings) ? result.warnings : []
+        this.contentQuality = result.contentQuality && typeof result.contentQuality === 'object'
+          ? this.clonePptValue(result.contentQuality)
+          : null
         const slides = Array.isArray(result.slides) ? result.slides : []
         if (result.presentationId) {
           this.outlineDocument = {
@@ -2403,7 +2409,8 @@ export default {
         sharedPrompt: this.sharedPrompt,
         settings: this.buildSettings(),
         exportFormats: ['pptx'],
-        generationWarnings: [...this.generationWarnings]
+        generationWarnings: [...this.generationWarnings],
+        contentQuality: this.slidesDirty ? null : this.clonePptValue(this.contentQuality)
       }
     },
     clonePptValue(value) {
@@ -2428,6 +2435,7 @@ export default {
         outlineItems: this.outlineItems,
         outlineName: this.outlineName,
         generationWarnings: this.generationWarnings,
+        contentQuality: this.contentQuality,
         exportFormat: this.exportFormat,
         savedAt: Date.now()
       })
@@ -2456,6 +2464,9 @@ export default {
         : this.outlineDocument
       this.outlineName = saved.outlineName || this.outlineName
       this.generationWarnings = Array.isArray(saved.generationWarnings) ? [...saved.generationWarnings] : []
+      this.contentQuality = saved.contentQuality && typeof saved.contentQuality === 'object'
+        ? this.clonePptValue(saved.contentQuality)
+        : null
       if (saved.exportFormat) this.exportFormat = saved.exportFormat
       this.activeSlideIndex = Math.min(Math.max(0, this.activeSlideIndex), Math.max(0, this.slides.length - 1))
       this.progress = 100
@@ -3005,6 +3016,7 @@ export default {
           contentLevel: this.contentLevel,
           sharedPrompt: this.sharedPrompt,
           slides: this.slides,
+          contentQuality: this.contentQuality,
           activeSlideIndex: this.activeSlideIndex,
           slidesDirty: this.slidesDirty,
           outlineSourceDirty: this.outlineSourceDirty,
@@ -3089,6 +3101,7 @@ export default {
         taskId: this.taskId,
         taskResult: this.taskResult,
         generationWarnings: this.generationWarnings,
+        contentQuality: this.contentQuality,
         editorDirty: this.editorDirty,
         lastSuccessfulResult: this.lastSuccessfulResult,
         templateThumbnailState: this.templateThumbnailState,
@@ -3132,6 +3145,9 @@ export default {
       this.taskId = String(snapshot.taskId || '')
       this.taskResult = snapshot.taskResult || null
       this.generationWarnings = Array.isArray(snapshot.generationWarnings) ? snapshot.generationWarnings : []
+      this.contentQuality = snapshot.contentQuality && typeof snapshot.contentQuality === 'object'
+        ? this.clonePptValue(snapshot.contentQuality)
+        : null
       this.editorDirty = Boolean(snapshot.editorDirty)
       this.lastSuccessfulResult = snapshot.lastSuccessfulResult || null
       this.templateThumbnailState = snapshot.templateThumbnailState && typeof snapshot.templateThumbnailState === 'object'
@@ -3310,6 +3326,9 @@ export default {
             this.pageCount = this.slides.length
             this.currentStep = hasSavedStep ? savedStep : 5
             this.generationWarnings = Array.isArray(task.warnings) ? task.warnings : []
+            this.contentQuality = task.contentQuality && typeof task.contentQuality === 'object'
+              ? this.clonePptValue(task.contentQuality)
+              : null
             this.clearActiveTaskStorage()
           } else if (!['failed', 'cancelled', 'timed_out'].includes(status)) {
             this.currentStep = 4
@@ -3322,6 +3341,9 @@ export default {
         this.taskId = String(saved.taskId)
         this.taskResult = task
         this.generationWarnings = Array.isArray(task.warnings) ? task.warnings : []
+        this.contentQuality = task.contentQuality && typeof task.contentQuality === 'object'
+          ? this.clonePptValue(task.contentQuality)
+          : null
         this.progress = Number(task?.progress || 0)
         if (status === 'completed') {
           if (Array.isArray(task.slides) && task.slides.length) this.slides = task.slides

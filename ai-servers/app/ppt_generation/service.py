@@ -32,6 +32,12 @@ from app.ppt_generation.consistency_validator import (
     validate_presentation,
     write_qa_report,
 )
+from app.ppt_generation.content_quality_validator import (
+    assess_content_quality,
+    assess_outline_quality,
+    build_source_trace,
+    quality_warning_messages,
+)
 from app.ppt_generation.content_fitter import REWRITE_SYSTEM_PROMPT, build_rewrite_user_prompt
 from app.ppt_generation.embedded_config import EmbeddedPptConfig
 from app.ppt_generation.layout_validator import validate_slide
@@ -825,6 +831,17 @@ class PptGenerationService:
             "items": items,
             "outlineMarkdown": markdown,
         }
+        source_trace = build_source_trace(
+            str(request.get("sourceName") or topic),
+            source,
+            str(request.get("sourceFileId") or ""),
+        )
+        outline_quality = assess_outline_quality(
+            source,
+            {"title": topic, "items": items},
+        )
+        result["sourceTrace"] = source_trace
+        result["contentQuality"] = {"outline": outline_quality}
         if recovery_reason:
             if topic_only:
                 result["generationMode"] = "topic_recovery"
@@ -834,6 +851,9 @@ class PptGenerationService:
                 result["warnings"] = ["模型服务暂时不可用，已依据上传资料生成可编辑大纲；内容未补造事实。"]
         else:
             result["generationMode"] = "ai"
+        result.setdefault("warnings", []).extend(
+            quality_warning_messages(outline_quality)
+        )
         return result
 
     def generate_slides(
@@ -1008,9 +1028,9 @@ class PptGenerationService:
                 "processingSlides": [],
                 "message": "布局已确定，准备逐页生成内容",
             })
+        source = self._resolve_source_text(request, user_id)
         if self._embedded_config.enabled:
             try:
-                source = self._resolve_source_text(request, user_id)
                 enriched_slides = self._generate_presenton_ui_slides(
                     outline=outline,
                     items=items,
@@ -1112,16 +1132,42 @@ class PptGenerationService:
                 }
             except Exception as exc:
                 logger.warning("PPT slide %d QA validation failed: %s", index, _safe_error_message(exc))
+        source_trace = build_source_trace(
+            str(request.get("sourceName") or outline.get("title") or "演示文稿"),
+            source,
+            str(request.get("sourceFileId") or ""),
+        )
+        content_quality = assess_content_quality(
+            source,
+            {"title": outline.get("title") or "", "items": items},
+            slides,
+            source_trace=source_trace,
+        )
+        generation_warnings.extend(quality_warning_messages(content_quality))
+        for index, slide in enumerate(slides):
+            if not isinstance(slide.get("_qa"), Mapping):
+                slide["_qa"] = {}
+            slide["_qa"]["contentQuality"] = (
+                content_quality.get("slides") or [{}]
+            )[index] if index < len(content_quality.get("slides") or []) else {}
         consistency_issues = validate_presentation(slides, models_by_layout)
         if consistency_issues:
             logger.warning("PPT presentation consistency issues: %s", consistency_issues)
-        qa_report = build_qa_report(slides, consistency_issues, models_by_layout, template_id)
+        qa_report = build_qa_report(
+            slides,
+            consistency_issues,
+            models_by_layout,
+            template_id,
+            content_quality=content_quality,
+        )
         report_path = write_qa_report(qa_report, template_id)
         logger.debug("PPT QA report:\n%s", qa_report)
         return {
             "slides": slides,
             "sharedPrompt": str(request.get("sharedPrompt") or "简洁、清晰"),
             "warnings": generation_warnings,
+            "sourceTrace": source_trace,
+            "contentQuality": content_quality,
             "qa": {
                 "consistencyIssues": consistency_issues,
                 "reportPath": report_path or "",
@@ -1265,6 +1311,8 @@ class PptGenerationService:
                 outlineMarkdown=result.get("outlineMarkdown") or "",
                 generationMode=result.get("generationMode") or "ai",
                 warnings=result.get("warnings") or [],
+                sourceTrace=result.get("sourceTrace") or {},
+                contentQuality=result.get("contentQuality") or {},
             )
         except PptTaskStopped:
             return
@@ -1322,6 +1370,8 @@ class PptGenerationService:
                 sharedPrompt=result.get("sharedPrompt") or "",
                 layoutMarkdown=result.get("layoutMarkdown") or "",
                 warnings=result.get("warnings") or [],
+                sourceTrace=result.get("sourceTrace") or {},
+                contentQuality=result.get("contentQuality") or {},
                 currentSlide=total,
                 totalSlides=total,
                 completedSlides=total,
@@ -1687,6 +1737,7 @@ class PptGenerationService:
             "sourceName": str(request.get("sourceName") or "演示文稿"),
             "sharedPrompt": str(request.get("sharedPrompt") or ""),
             "settings": copy.deepcopy(request.get("settings") or {}),
+            "contentQuality": copy.deepcopy(request.get("contentQuality") or {}),
             "exportFormats": list(request.get("exportFormats") or ["pptx"]),
             "generationWarnings": list(request.get("generationWarnings") or []),
             "previews": [],
@@ -1767,6 +1818,7 @@ class PptGenerationService:
             "slides": slides,
             "sharedPrompt": task.get("sharedPrompt") or "",
             "generationWarnings": list(task.get("generationWarnings") or []),
+            "contentQuality": copy.deepcopy(task.get("contentQuality") or {}),
             "settings": {**(task.get("settings") or {}), "imageMode": "placeholder"},
             "exportFormats": task.get("exportFormats") or ["pptx"],
         }
@@ -1797,6 +1849,7 @@ class PptGenerationService:
             "slides": task.get("slides") or [],
             "sharedPrompt": task.get("sharedPrompt") or "",
             "settings": task.get("settings") or {},
+            "contentQuality": copy.deepcopy(task.get("contentQuality") or {}),
             "exportFormats": task.get("exportFormats") or ["pptx"],
         }, llm_config)
 
@@ -1875,6 +1928,24 @@ class PptGenerationService:
                 task_id,
             )
             request["slides"] = slides
+            content_quality = request.get("contentQuality")
+            if not isinstance(content_quality, Mapping) or not content_quality:
+                content_quality = assess_content_quality(
+                    "",
+                    outline,
+                    slides,
+                    source_trace={
+                        "version": 1,
+                        "sourceName": str(request.get("sourceName") or title or "演示文稿"),
+                        "sourceFileId": "",
+                        "sha256": "",
+                        "charCount": 0,
+                        "chapterTitles": [],
+                        "snapshotStored": False,
+                        "snapshotPath": "",
+                    },
+                )
+                request["contentQuality"] = content_quality
             if quality_errors:
                 self._update(
                     task_id,
@@ -1923,12 +1994,13 @@ class PptGenerationService:
                     + ", ".join(sorted(requested))
                 )
             warnings = [str(value) for value in (request.get("generationWarnings") or []) if str(value).strip()]
+            warnings.extend(quality_warning_messages(content_quality))
             warnings.extend([
                 f"第{item['slide']}页已自动压缩内容（{item['repairCount']}次修复），请检查预览"
                 for item in (qa.get("repairWarnings") or [])
             ])
             warnings.extend(f"{key}: {value}" for key, value in format_errors.items())
-            quality_status = "partial" if warnings or any(
+            quality_status = "partial" if warnings or str(content_quality.get("status") or "") != "complete" or any(
                 isinstance(slide.get("_qa"), Mapping)
                 and str(slide.get("_qa", {}).get("finalStatus") or "") != "clean"
                 for slide in slides
@@ -1959,6 +2031,7 @@ class PptGenerationService:
                 requiresReview=quality_status == "partial",
                 slides=slides,
                 qa=qa,
+                contentQuality=content_quality,
                 engine="presenton-embedded",
                 templateId=template_id,
             )

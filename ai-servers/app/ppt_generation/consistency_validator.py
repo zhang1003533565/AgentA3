@@ -98,6 +98,7 @@ def build_qa_report(
     presentation_issues: List[Dict[str, Any]],
     models: Dict[str, SlideLayoutModel],
     template_id: str,
+    content_quality: Mapping[str, Any] | None = None,
 ) -> str:
     lines = [
         "# PPT QA Report",
@@ -136,6 +137,28 @@ def build_qa_report(
                 f"- {issue['kind']} {issue['element']}: {issue['detail']} "
                 f"slides={issue.get('slides')} sizes={issue.get('sizes')}"
             )
+        lines.append("")
+    if isinstance(content_quality, Mapping):
+        lines.append("## Content quality")
+        lines.append(
+            f"- status: {content_quality.get('status') or 'unknown'} | "
+            f"errors: {content_quality.get('errorCount') or 0} | "
+            f"warnings: {content_quality.get('warningCount') or 0}"
+        )
+        source_trace = content_quality.get("sourceTrace")
+        if isinstance(source_trace, Mapping):
+            lines.append(
+                f"- source: {source_trace.get('sourceName') or ''} | "
+                f"sha256: {str(source_trace.get('sha256') or '')[:16]} | "
+                f"chars: {source_trace.get('charCount') or 0}"
+            )
+        for issue in content_quality.get("issues") or []:
+            if isinstance(issue, Mapping):
+                slide = f" slide={issue.get('slide')}" if issue.get("slide") else ""
+                lines.append(
+                    f"- [{issue.get('severity') or 'warning'}] {issue.get('code') or 'QUALITY'}{slide}: "
+                    f"{issue.get('message') or ''}"
+                )
         lines.append("")
     return "\n".join(lines)
 

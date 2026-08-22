@@ -39,6 +39,7 @@ class SlidesRequest(BaseModel):
     sharedPrompt: Optional[str] = Field(default="", max_length=2000)
     audience: Optional[str] = Field(default="", max_length=64)
     tone: Optional[str] = Field(default="", max_length=32)
+    contentQuality: Optional[Dict[str, Any]] = None
 
 
 class TaskRequest(BaseModel):
@@ -48,6 +49,7 @@ class TaskRequest(BaseModel):
     sharedPrompt: str = Field(default="", max_length=2000)
     settings: Dict[str, Any] = Field(default_factory=dict)
     exportFormats: List[str] = Field(default_factory=lambda: ["pptx"], max_length=1)
+    contentQuality: Optional[Dict[str, Any]] = None
 
 
 class FileUploadRequest(BaseModel):
