@@ -58,6 +58,11 @@ def _normalize(value: str) -> Dict[str, Any]:
             # 组件内容映射（组件name->文本/表格/图表数据），由 service 合并进模板版式。
             # 之前白名单漏掉该字段导致 ui 永远是模板原件。
             "componentContent": item.get("componentContent") if isinstance(item.get("componentContent"), dict) else None,
+            # 版式拒绝信号（第 94 节）：内容与当前版式不兼容时由 AI 主动上报，
+            # service 记录到 QA 并继续用压缩后的内容填充，不重新设计版式。
+            "layoutMismatch": item.get("layoutMismatch")
+            if isinstance(item.get("layoutMismatch"), dict)
+            else None,
         })
     return {"slides": normalized}
 

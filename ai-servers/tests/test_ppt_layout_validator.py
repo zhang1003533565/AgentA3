@@ -210,3 +210,59 @@ def test_card_balance_flags_extreme_difference(catalog):
     errors = _errors(validate_slide(tree, model).issues)
     # 全部填充成短内容后不应失衡
     assert not any(e[0] == "UNBALANCED_CARDS" for e in errors)
+
+
+def test_template_native_overlap_is_not_a_quality_error(catalog):
+    """模板原本的标题/图片叠放不应阻断最终导出。"""
+    layout = catalog.get_layout("dynamic", "title_chart_right_info_panel_2580")
+    model = parse_slide_layout(layout)
+    result = validate_slide({"components": copy.deepcopy(layout["components"])}, model)
+    assert not any(
+        issue.error_type == "ELEMENT_OVERLAP" and issue.severity == "error"
+        for issue in result.issues
+    )
+
+
+def test_unbalanced_cards_are_a_warning_not_a_blocker(catalog):
+    layout = catalog.get_layout("general", "title_metrics_description")
+    model = parse_slide_layout(layout)
+    tree = {"components": copy.deepcopy(layout["components"])}
+
+    def set_all(node, name, text):
+        if isinstance(node, list):
+            for item in node:
+                set_all(item, name, text)
+            return
+        if isinstance(node, dict):
+            if node.get("name") == name:
+                node["text"] = text
+                node["runs"] = [{"text": text, "font": dict(node.get("font") or {})}]
+            for key in ("elements", "components", "children"):
+                if key in node:
+                    set_all(node[key], name, text)
+
+    set_all(tree, "metric_value", "指标")
+    body_index = 0
+
+    def set_unbalanced_body(node):
+        nonlocal body_index
+        if isinstance(node, list):
+            for item in node:
+                set_unbalanced_body(item)
+            return
+        if isinstance(node, dict):
+            if node.get("name") == "metric_description":
+                text = "短" if body_index == 0 else "用于说明数据组织、访问方式和适用场景的详细知识内容。"
+                body_index += 1
+                node["text"] = text
+                node["runs"] = [{"text": text, "font": dict(node.get("font") or {})}]
+            for key in ("elements", "components", "children"):
+                if key in node:
+                    set_unbalanced_body(node[key])
+
+    set_unbalanced_body(tree)
+    result = validate_slide(tree, model)
+    warnings = [issue for issue in result.issues if issue.error_type == "UNBALANCED_CARDS"]
+    assert warnings
+    assert all(issue.severity == "warning" for issue in warnings)
+    assert not any(issue.severity == "error" and issue.error_type == "UNBALANCED_CARDS" for issue in result.issues)

@@ -33,6 +33,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Base64;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -295,6 +296,11 @@ public class PythonAiProxyService {
                 requirePptGenerationModel());
     }
 
+    public Object createPptOutlineTask(Map<String, Object> request, String authorization) {
+        return postPptObject("/internal/rag/ppt-generation/outlines/tasks", request, authorization,
+                requirePptGenerationModel());
+    }
+
     public Object getPptOptions(String authorization) {
         return getPythonAuthObject("/internal/rag/ppt-generation/options",
                 authorization, "PPT 配置查询失败");
@@ -324,6 +330,10 @@ public class PythonAiProxyService {
     public Object generatePptSlides(Map<String, Object> request, String authorization) {
         return postPptObject("/internal/rag/ppt-generation/slides", request, authorization,
                 requirePptGenerationModel());
+    }
+
+    public Object renderPptPreview(Map<String, Object> request, String authorization) {
+        return postPptObject("/internal/rag/ppt-generation/previews", request, authorization, null);
     }
 
     public Object createPptSlidesTask(Map<String, Object> request, String authorization) {
@@ -478,7 +488,8 @@ public class PythonAiProxyService {
                 resolveAgentBoundModel(DEFAULT_AGENT_NAME),
                 firstTestedTextConfigPrefix(),
                 firstCompleteTextConfigPrefix(),
-                hasCompleteTextConfig(LEGACY_TEXT_CONFIG_PREFIX) ? LEGACY_TEXT_CONFIG_PREFIX : ""
+                hasCompleteTextConfig(LEGACY_TEXT_CONFIG_PREFIX) && isFreeTextConfig(LEGACY_TEXT_CONFIG_PREFIX)
+                        ? LEGACY_TEXT_CONFIG_PREFIX : ""
         );
         if (!StringUtils.hasText(model)) {
             throw new BusinessException(Result.ERROR_CODE, "PPT 生成模型尚未配置");
@@ -982,6 +993,7 @@ public class PythonAiProxyService {
                     .headers(headers -> applyPythonAuthHeaders(headers, authorization, userId))
                     .retrieve()
                     .bodyToMono(Object.class)
+                    .timeout(Duration.ofSeconds(timeoutSeconds))
                     .block();
         } catch (WebClientResponseException e) {
             throw new BusinessException(Result.ERROR_CODE, errorPrefix + ": " + extractRemoteMessage(e));
@@ -1221,7 +1233,16 @@ public class PythonAiProxyService {
         headers.set("X-AI-Provider", requireAiConfig(configPrefix, "provider", "模型服务商"));
         headers.set("X-AI-Base-Url", requireAiConfig(configPrefix, "base-url", "模型服务地址"));
         headers.set("X-AI-Api-Key", requireAiConfig(configPrefix, "api-key", "模型服务密钥"));
-        headers.set("X-AI-Model", requireAiConfig(configPrefix, "model", "模型 ID"));
+        String provider = requireAiConfig(configPrefix, "provider", "模型服务商");
+        String configuredModel = requireAiConfig(configPrefix, "model", "模型 ID");
+        String model = AiModelPolicy.effectiveFreeTextModel(provider, configuredModel);
+        if (!StringUtils.hasText(model)) {
+            throw new BusinessException(
+                    Result.ERROR_CODE,
+                    "当前文本模型不在免费额度清单内，请在模型绑定中改用 " + AiModelPolicy.defaultTextModel()
+            );
+        }
+        headers.set("X-AI-Model", model);
     }
 
     private void applyPythonAuthHeaders(HttpHeaders headers, String authorization, Long userId) {
@@ -1264,7 +1285,10 @@ public class PythonAiProxyService {
         String normalizedAgent = StringUtils.hasText(agentName) ? agentName.trim() : DEFAULT_AGENT_NAME;
         String key = AGENT_MODEL_BINDING_PREFIX + normalizedAgent + ".model";
         String value = systemConfigService.getValue(key, "");
-        return StringUtils.hasText(value) ? value.trim() : null;
+        if (!StringUtils.hasText(value) || !isFreeTextConfig(value.trim())) {
+            return null;
+        }
+        return value.trim();
     }
 
     private String resolveArchitectureModelConfigPrefix() {
@@ -1273,7 +1297,8 @@ public class PythonAiProxyService {
                 resolveAgentBoundModel(DEFAULT_AGENT_NAME),
                 firstTestedTextConfigPrefix(),
                 firstCompleteTextConfigPrefix(),
-                hasCompleteTextConfig(LEGACY_TEXT_CONFIG_PREFIX) ? LEGACY_TEXT_CONFIG_PREFIX : ""
+                hasCompleteTextConfig(LEGACY_TEXT_CONFIG_PREFIX) && isFreeTextConfig(LEGACY_TEXT_CONFIG_PREFIX)
+                        ? LEGACY_TEXT_CONFIG_PREFIX : ""
         );
     }
 
@@ -1291,7 +1316,8 @@ public class PythonAiProxyService {
                 .filter(config -> StringUtils.hasText(config.getConfigValue()))
                 .map(config -> removeSuffix(config.getConfigKey(), ".tested-fingerprint"))
                 .filter(this::hasCompleteTextConfig)
-                .sorted()
+                .filter(this::isFreeTextConfig)
+                .sorted(Comparator.comparingInt(this::textConfigPriority).thenComparing(String::toString))
                 .findFirst()
                 .orElse("");
     }
@@ -1302,9 +1328,24 @@ public class PythonAiProxyService {
                 .filter(config -> config.getConfigKey() != null && config.getConfigKey().endsWith(".model"))
                 .map(config -> removeSuffix(config.getConfigKey(), ".model"))
                 .filter(this::hasCompleteTextConfig)
-                .sorted()
+                .filter(this::isFreeTextConfig)
+                .sorted(Comparator.comparingInt(this::textConfigPriority).thenComparing(String::toString))
                 .findFirst()
                 .orElse("");
+    }
+
+    private boolean isFreeTextConfig(String configPrefix) {
+        return StringUtils.hasText(AiModelPolicy.effectiveFreeTextModel(
+                systemConfigService.getValue(configPrefix + ".provider", ""),
+                systemConfigService.getValue(configPrefix + ".model", "")
+        ));
+    }
+
+    private int textConfigPriority(String configPrefix) {
+        return AiModelPolicy.priority(AiModelPolicy.effectiveFreeTextModel(
+                systemConfigService.getValue(configPrefix + ".provider", ""),
+                systemConfigService.getValue(configPrefix + ".model", "")
+        ));
     }
 
     private String firstText(String... values) {

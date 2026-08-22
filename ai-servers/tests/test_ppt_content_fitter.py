@@ -120,3 +120,32 @@ def test_chinese_momentum_title_shrinks_before_truncating():
     assert result.shrink_scale is not None
     assert result.shrink_scale <= 0.72 + 1e-6
     assert result.fits
+
+
+def test_single_line_title_tolerates_template_rounding_after_shrink():
+    layout = EmbeddedTemplateCatalog().get_layout(
+        "dynamic", "large_title_bottom_image_3101"
+    )
+    model = parse_slide_layout(layout)
+    element = model.element("primary_heading")
+    result = fit_text(
+        "人工智能发展趋势与应用实践",
+        element,
+        llm_rewrite=None,
+        llm_call_budget=0,
+        current_font_size=element.font_size,
+    )
+    assert result.fits
+
+
+def test_formal_title_is_semantically_shortened_without_ellipsis():
+    layout = EmbeddedTemplateCatalog().get_layout(
+        "dynamic", "large_title_bottom_image_3101"
+    )
+    model = parse_slide_layout(layout)
+    element = model.element("primary_heading")
+    result = fit_text("复杂系统的关键机制与实施路径", element, llm_rewrite=None, llm_call_budget=0)
+    assert result.fits
+    assert "…" not in result.text
+    assert "..." not in result.text
+    assert result.text != "复杂系统的关键机制与实施路径"

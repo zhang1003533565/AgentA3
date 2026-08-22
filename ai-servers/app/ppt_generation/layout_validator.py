@@ -37,7 +37,7 @@ OVERLAP_AREA_RATIO = 0.02
 GEOMETRY_TOLERANCE = 0.5
 
 # 参与重叠检测的元素类型（装饰/背景不参与）
-_OVERLAP_TYPES = {"text", "image", "table", "chart"}
+_OVERLAP_TYPES = {"text", "text-list", "image", "table", "chart"}
 
 
 @dataclass
@@ -67,6 +67,15 @@ def _node_text(node: Mapping[str, Any]) -> str:
     runs = node.get("runs")
     if isinstance(runs, list) and runs and isinstance(runs[0], Mapping):
         return str(runs[0].get("text") or "")
+    items = node.get("items")
+    if isinstance(items, list):
+        values = []
+        for item in items:
+            if isinstance(item, list):
+                values.extend(str(run.get("text") or "") for run in item if isinstance(run, Mapping))
+            elif isinstance(item, Mapping):
+                values.append(str(item.get("text") or ""))
+        return "\n".join(value for value in values if value)
     return ""
 
 
@@ -251,7 +260,7 @@ def _validate_element(
         return
 
     # 可写文本元素：溢出与字号下限
-    if element.element_type == "text" and element.constraint is not None:
+    if element.element_type in {"text", "text-list"} and element.constraint is not None:
         text = _node_text(node)
         font_size = _node_font_size(node) or element.font_size
         if font_size > 0 and font_size < element.constraint.min_font_size - 0.05:
@@ -273,7 +282,7 @@ def _validate_element(
                 exceeds_char_cap
                 and not (
                     font_size < element.constraint.preferred_font_size
-                    and element.role in {"title", "subtitle"}
+                    and element.semantic_role in {"page_title", "section_title", "page_subtitle"}
                 )
             ):
                 result.issues.append(ValidationIssue(
@@ -285,15 +294,15 @@ def _validate_element(
             # 否则校验仍按模板原字号测量，合法的缩字结果会被误判为溢出。
             lines, vertical, horizontal = estimate_lines(text, element, font_size=font_size)
             if vertical or horizontal:
-                # 模板显式声明过 max_length 的槽位：模板作者已确认该字数适配，
-                # 几何估算只作参考（降为 warning），避免与模板意图冲突
-                severity = "warning" if element.max_length > 0 else "error"
                 result.issues.append(ValidationIssue(
                     error_type="TEXT_OVERFLOW",
                     element_id=name,
                     detail=f"文本溢出 lines={lines} 上限={element.constraint.max_lines} "
                            f"垂直={'是' if vertical else '否'} 水平={'是' if horizontal else '否'}",
-                    severity=severity,
+                    # 显式 max_length 不能覆盖真实几何：模板元数据可能比
+                    # 实际字体度量更宽松。真实渲染仍会裁切/溢出，因此必须
+                    # 进入 RepairEngine，而不是以 warning 继续导出。
+                    severity="error",
                 ))
 
 
@@ -323,6 +332,29 @@ def _check_overlaps(nodes: Dict[str, List[Tuple[Dict[str, Any], float, float]]],
             smaller = min(box_a[2] * box_a[3], box_b[2] * box_b[3])
             if smaller <= 0:
                 continue
+            # 模板本身可能把标题压在卡片、图片或装饰层上，这是设计关系，
+            # 不是内容生成后产生的碰撞。只要当前节点几何没有被改动，
+            # GEOMETRY_CHANGED 会负责保护模板位置；这里跳过与模板快照
+            # 已经存在的同类重叠，避免把正常版式误报为“无法排版”。
+            template_box_a = (
+                element_a.x,
+                element_a.y,
+                element_a.width,
+                element_a.height,
+            )
+            template_box_b = (
+                element_b.x,
+                element_b.y,
+                element_b.width,
+                element_b.height,
+            )
+            template_area = _intersection_area(template_box_a, template_box_b)
+            template_smaller = min(
+                element_a.width * element_a.height,
+                element_b.width * element_b.height,
+            )
+            if template_smaller > 0 and template_area / template_smaller > OVERLAP_AREA_RATIO:
+                continue
             if area / smaller > OVERLAP_AREA_RATIO:
                 result.issues.append(ValidationIssue(
                     error_type="ELEMENT_OVERLAP",
@@ -336,7 +368,7 @@ def _check_card_balance(nodes: Dict[str, List[Tuple[Dict[str, Any], float, float
         lengths: List[Tuple[str, int]] = []
         for name, index in members:
             element = model.element(name, index)
-            if element is None or element.element_type != "text":
+            if element is None or element.element_type not in {"text", "text-list"}:
                 continue
             entries = nodes.get(name) or []
             if index >= len(entries):
@@ -360,6 +392,9 @@ def _check_card_balance(nodes: Dict[str, List[Tuple[Dict[str, Any], float, float
                 error_type="UNBALANCED_CARDS",
                 element_id=lengths[-1][0],
                 detail=f"卡片内容长度失衡 max/min={ratio:.1f} ({lengths[0][1]} vs {lengths[-1][1]} 字)",
+                # 卡片长短不一致影响观感，但不会证明页面无法渲染；
+                # 交给 QA/前端提示，不阻断 PPTX 生成。
+                severity="warning",
             ))
 
 
@@ -380,7 +415,7 @@ def _check_density(nodes: Dict[str, List[Tuple[Dict[str, Any], float, float]]], 
     for name, model_elements in model.elements.items():
         tree_entries = nodes.get(name) or []
         for index, element in enumerate(model_elements):
-            if element.element_type != "text" or element.locked or element.width <= 0 or element.height <= 0:
+            if element.element_type not in {"text", "text-list"} or element.locked or element.width <= 0 or element.height <= 0:
                 continue
             if index >= len(tree_entries):
                 continue

@@ -231,6 +231,11 @@ def render_presenton_html(
         "outputRoot": _DOCKER_RUNTIME_ROOT if use_docker else str(runtime_root.resolve()),
         "pngOnly": preview_only,
         "pptxOnly": pptx_only,
+        # HTML-to-PPTX conversion is editable but not pixel-stable for the
+        # template's nested spans, SVG decorations and browser-only CSS.
+        # Fidelity mode makes the already-rendered slide image the PPTX slide
+        # artwork, preventing a second layout engine from dropping content.
+        "pptxExportMode": str(os.getenv("PPTX_EXPORT_RENDER_MODE") or "hybrid").strip().lower(),
     }
     if use_docker:
         payload = _dockerize_payload(payload, template_id, runtime_root)

@@ -58,6 +58,79 @@ function resolveFontAssets(value) {
   return value;
 }
 
+const HYBRID_COMPLEX_TYPES = new Set(["svg", "chart", "infographic"]);
+
+function isHybridComplexVisual(node) {
+  if (!node || typeof node !== "object") return false;
+  const type = String(node.type || "").toLowerCase();
+  if (HYBRID_COMPLEX_TYPES.has(type)) return true;
+  if (type !== "image") return false;
+  return Boolean(
+    node.isIcon ||
+    node.is_icon ||
+    node.clipPath ||
+    node.clip_path ||
+    node.clippath ||
+    Number(node.crop_scale ?? node.cropScale ?? 1) > 1
+  );
+}
+
+function selectHybridLayer(value, layer) {
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => selectHybridLayer(item, layer))
+      .filter((item) => item != null);
+  }
+  if (!value || typeof value !== "object") return value;
+
+  const node = structuredClone(value);
+  if (isHybridComplexVisual(node)) {
+    return layer === "graphics" ? node : null;
+  }
+
+  let hasSelectedDescendant = false;
+  for (const key of ["elements", "components", "children"]) {
+    if (!Array.isArray(node[key])) continue;
+    const selected = selectHybridLayer(node[key], layer);
+    node[key] = selected;
+    hasSelectedDescendant ||= selected.length > 0;
+  }
+  if (node.child && typeof node.child === "object") {
+    const selectedChild = selectHybridLayer(node.child, layer);
+    if (selectedChild == null) delete node.child;
+    else {
+      node.child = selectedChild;
+      hasSelectedDescendant = true;
+    }
+  }
+
+  // The top-level UI record is structural and must retain its background.
+  if (!node.type) return node;
+  if (layer === "graphics" && !hasSelectedDescendant) return null;
+  return node;
+}
+
+function hybridNativeUi(ui) {
+  const selected = selectHybridLayer(ui, "native");
+  if (!selected || typeof selected !== "object") return ui;
+  // The graphics PNG owns the slide background. Keeping the native layer
+  // transparent prevents its root from covering the rasterized decoration.
+  selected.background = "transparent";
+  return selected;
+}
+
+function hybridGraphicsUi(ui) {
+  return selectHybridLayer(ui, "graphics");
+}
+
+function hasHybridGraphics(ui) {
+  if (!ui || typeof ui !== "object") return false;
+  for (const key of ["elements", "components", "children"]) {
+    if (Array.isArray(ui[key]) && ui[key].length > 0) return true;
+  }
+  return Boolean(ui.child && typeof ui.child === "object");
+}
+
 function flattenInlineTextSpansForPptx(html) {
   // The browser preview renders nested text spans correctly. The bundled
   // Presenton PPTX extractor, however, reads innerHTML for inline-only text
@@ -75,6 +148,40 @@ function flattenInlineTextSpansForPptx(html) {
   return normalized;
 }
 
+function buildFidelityExportHtml(slideCount, outputRoot, taskId) {
+  // The browser has already resolved fonts, CSS transforms, gradients, SVG
+  // decorations and nested text spans. Re-running those through an
+  // HTML-to-PPTX layout engine is the source of the export-only drift. A
+  // high-resolution slide artwork keeps the downloaded PPTX visually identical
+  // to the verified preview, while the editable HTML path remains available
+  // through PPTX_EXPORT_RENDER_MODE=editable for callers that explicitly need
+  // native PowerPoint text boxes.
+  const pages = [];
+  for (let index = 1; index <= slideCount; index += 1) {
+    const imagePath = pathToFileURL(path.join(outputRoot, `${taskId}-${index}.png`)).href;
+    pages.push(
+      `<div class="slide" data-slide-index="${index}" style="width:1280px;height:720px;overflow:hidden;position:relative">` +
+      `<img src="${imagePath}" width="1280" height="720" style="display:block;width:1280px;height:720px" />` +
+      `</div>`
+    );
+  }
+  return `<!doctype html><html><head><meta charset="utf-8"><style>html,body{margin:0;padding:0;background:#fff}#presentation-slides-wrapper{width:1280px}.slide{page-break-after:always}.slide:last-child{page-break-after:auto}</style></head><body><main id="presentation-slides-wrapper"><div><div><div><div>${pages.join("")}</div></div></div></div></main></body></html>`;
+}
+
+function buildHybridExportHtml(pages, outputRoot, taskId) {
+  const slides = pages.map((page, offset) => {
+    const index = offset + 1;
+    const graphicPath = page.hasGraphics
+      ? pathToFileURL(path.join(outputRoot, `${taskId}-graphics-${index}.png`)).href
+      : null;
+    const graphics = graphicPath
+      ? `<img class="hybrid-graphics" src="${graphicPath}" width="1280" height="720" style="position:absolute;inset:0;z-index:0;display:block;width:1280px;height:720px" />`
+      : "";
+    return `<div class="slide" data-slide-index="${page.index}" style="width:1280px;height:720px;overflow:hidden;position:relative">${graphics}<div class="hybrid-native" style="position:relative;z-index:1;width:1280px;height:720px">${page.nativeBody}</div></div>`;
+  });
+  return `<!doctype html><html><head><meta charset="utf-8"><style>html,body{margin:0;padding:0;background:#fff}#presentation-slides-wrapper{width:1280px}.slide{page-break-after:always}.slide:last-child{page-break-after:auto}.hybrid-native{pointer-events:none}</style></head><body><main id="presentation-slides-wrapper"><div><div><div><div>${slides.join("")}</div></div></div></div></main></body></html>`;
+}
+
 const awaitExists = new Set();
 for (const spec of input.slides || []) {
   const fileList = await fs.readdir(path.resolve(templateRoot, "static"), { recursive: true }).catch(() => []);
@@ -82,6 +189,12 @@ for (const spec of input.slides || []) {
   break;
 }
 
+const pptxOnly = input.pptxOnly === true;
+const pptxExportMode = String(input.pptxExportMode || process.env.PPTX_EXPORT_RENDER_MODE || "hybrid").toLowerCase();
+const fidelityExport = pptxOnly && ["fidelity", "raster", "image"].includes(pptxExportMode);
+// `hybrid` is the product default. Keep `editable` as an explicit pure-native
+// escape hatch for diagnostics and callers that prefer zero raster fallback.
+const hybridExport = pptxOnly && pptxExportMode === "hybrid";
 const pages = [];
 let originalHead = "";
 for (const spec of input.slides || []) {
@@ -103,14 +216,53 @@ for (const spec of input.slides || []) {
   const bodyMatch = originalHtml.match(/<body>([\s\S]*?)<\/body>/i);
   if (!bodyMatch) throw new Error(`Presenton HTML body missing for slide ${spec.index}`);
   if (!originalHead && headMatch) originalHead = headMatch[1];
-  pages.push(`<div class="slide" data-slide-index="${spec.index}" style="width:1280px;height:720px">${bodyMatch[1]}</div>`);
+  let nativeBody = bodyMatch[1];
+  let graphicsBody = "";
+  if (hybridExport) {
+    const nativeHtml = templateV2UiToHtml(hybridNativeUi(ui), {
+      width: 1280,
+      height: 720,
+      fonts: resolveFontAssets(input.template.fonts || {}),
+    });
+    const nativeMatch = nativeHtml?.match(/<body>([\s\S]*?)<\/body>/i);
+    nativeBody = nativeMatch ? nativeMatch[1] : "";
+
+    const graphicsUi = hybridGraphicsUi(ui);
+    if (hasHybridGraphics(graphicsUi)) {
+      const graphicsHtml = templateV2UiToHtml(graphicsUi, {
+        width: 1280,
+        height: 720,
+        fonts: resolveFontAssets(input.template.fonts || {}),
+      });
+      const graphicsMatch = graphicsHtml?.match(/<body>([\s\S]*?)<\/body>/i);
+      if (graphicsMatch) graphicsBody = graphicsMatch[1];
+    }
+  }
+  pages.push({
+    index: spec.index,
+    preview: `<div class="slide" data-slide-index="${spec.index}" style="width:1280px;height:720px">${bodyMatch[1]}</div>`,
+    nativeBody,
+    graphicsBody,
+    hasGraphics: Boolean(graphicsBody),
+  });
 }
 
 // Keep the wrapper shape expected by Presenton's official PPTX exporter:
 // #presentation-slides-wrapper > div > div > div > div > .slide.
-const html = `<!doctype html><html><head><meta charset="utf-8">${originalHead}<style>html,body{margin:0;padding:0;background:#fff}#presentation-slides-wrapper{width:1280px}.slide{page-break-after:always;overflow:hidden;position:relative}.slide:last-child{page-break-after:auto}</style></head><body><main id="presentation-slides-wrapper"><div><div><div><div>${pages.join("")}</div></div></div></div></main></body></html>`;
+const html = `<!doctype html><html><head><meta charset="utf-8">${originalHead}<style>html,body{margin:0;padding:0;background:#fff}#presentation-slides-wrapper{width:1280px}.slide{page-break-after:always;overflow:hidden;position:relative}.slide:last-child{page-break-after:auto}</style></head><body><main id="presentation-slides-wrapper"><div><div><div><div>${pages.map((page) => page.preview).join("")}</div></div></div></div></main></body></html>`;
 const htmlPath = path.join(outputRoot, `${input.taskId}.html`);
 await fs.writeFile(htmlPath, html, "utf8");
+
+const graphicsHtmlPath = hybridExport && pages.some((page) => page.hasGraphics)
+  ? path.join(outputRoot, `${input.taskId}.graphics.html`)
+  : null;
+if (graphicsHtmlPath) {
+  const graphicsPages = pages.map((page) =>
+    `<div class="graphics-slide" data-slide-index="${page.index}" style="width:1280px;height:720px;overflow:hidden;position:relative">${page.graphicsBody}</div>`
+  ).join("");
+  const graphicsHtml = `<!doctype html><html><head><meta charset="utf-8">${originalHead}<style>html,body{margin:0;padding:0;background:#fff}#presentation-slides-wrapper{width:1280px}.graphics-slide{page-break-after:always}.graphics-slide:last-child{page-break-after:auto}</style></head><body><main id="presentation-slides-wrapper"><div><div><div><div>${graphicsPages}</div></div></div></div></main></body></html>`;
+  await fs.writeFile(graphicsHtmlPath, graphicsHtml, "utf8");
+}
 
 // Chromium 启动：--disable-gpu 避免多实例并发时 NVIDIA DXCache/GPU 上下文
 // 冲突导致 Chrome 崩溃（PPT 任务线程池有 2 并发，同时起两个 Chrome）；
@@ -131,7 +283,7 @@ const launchBrowser = async () => {
         headless: true,
         executablePath: explicit,
         viewport: { width: 1280, height: 720 },
-        deviceScaleFactor: 1,
+        deviceScaleFactor: fidelityExport || hybridExport ? 2 : 1,
         args: LAUNCH_ARGS,
       });
     } catch (exc) {
@@ -141,7 +293,7 @@ const launchBrowser = async () => {
   return chromium.launchPersistentContext(userDataDir, {
     headless: true,
     viewport: { width: 1280, height: 720 },
-    deviceScaleFactor: 1,
+    deviceScaleFactor: fidelityExport || hybridExport ? 2 : 1,
     args: LAUNCH_ARGS,
   });
 };
@@ -160,7 +312,6 @@ await page.waitForTimeout(700);
 // pngOnly is used by preview rendering. The product only exposes editable PPTX
 // files, so this runtime only creates the artifacts required by this flow.
 const pngOnly = input.pngOnly === true;
-const pptxOnly = input.pptxOnly === true;
 slideCount = pages.length;
 for (let index = 1; index <= slideCount; index += 1) {
   const target = path.join(outputRoot, `${input.taskId}-${index}.png`);
@@ -168,6 +319,21 @@ for (let index = 1; index <= slideCount; index += 1) {
     await page.locator(`[data-slide-index="${index}"]`).screenshot({ path: target, timeout: 60_000 });
   } catch (exc) {
     throw new Error(`slide ${index} screenshot failed: ${exc.message}`);
+  }
+}
+if (graphicsHtmlPath) {
+  const graphicsPage = await browser.newPage();
+  try {
+    await graphicsPage.goto(pathToFileURL(graphicsHtmlPath).href, { waitUntil: "load" });
+    await graphicsPage.waitForTimeout(700);
+    for (let index = 1; index <= slideCount; index += 1) {
+      const target = path.join(outputRoot, `${input.taskId}-graphics-${index}.png`);
+      const page = pages[index - 1];
+      if (!page.hasGraphics) continue;
+      await graphicsPage.locator(`[data-slide-index="${page.index}"]`).screenshot({ path: target, timeout: 60_000 });
+    }
+  } finally {
+    await graphicsPage.close().catch(() => {});
   }
 }
 } finally {
@@ -184,7 +350,12 @@ const exportEntrypoint = await fs.stat(path.join(exportRoot, "index.cjs")).then(
 const exportConverter = process.env.BUILT_PYTHON_MODULE_PATH || path.join(exportRoot, "py", "convert-linux-current");
 if (!input.pngOnly && process.env.PRESENTON_ENABLE_PPTX === "true" && await fs.stat(exportEntrypoint).then(() => true).catch(() => false)) {
   const exportHtmlPath = path.join(outputRoot, `${input.taskId}.export.html`);
-  await fs.writeFile(exportHtmlPath, flattenInlineTextSpansForPptx(html), "utf8");
+  const exportHtml = fidelityExport
+    ? buildFidelityExportHtml(slideCount, outputRoot, input.taskId)
+    : hybridExport
+      ? flattenInlineTextSpansForPptx(buildHybridExportHtml(pages, outputRoot, input.taskId))
+    : flattenInlineTextSpansForPptx(html);
+  await fs.writeFile(exportHtmlPath, exportHtml, "utf8");
   const exportTask = path.join(outputRoot, `${input.taskId}.export.json`);
   const exportResponse = path.join(outputRoot, `${input.taskId}.export.response.json`);
   await fs.writeFile(exportTask, JSON.stringify({

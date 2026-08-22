@@ -31,7 +31,12 @@ _CARD_PATTERN = re.compile(r"(?i)card|item|feature|point|metric|stat|highlight")
 _LABEL_PATTERN = re.compile(r"(?i)label|tag|badge|caption|note|kicker|eyebrow")
 _LOGO_PATTERN = re.compile(r"(?i)logo|brand|icon")
 _PAGE_PATTERN = re.compile(r"(?i)page|pagenum|footer|slide_number")
-_DECORATION_PATTERN = re.compile(r"(?i)decoration|decor|accent|divider|shape|line|vector|bg|background|canvas|overlay|shadow")
+# 组件名按 token 判断装饰，不能用简单子串：headline/headline_text_block
+# 都包含 "line"，但它们是可编辑内容区，不是线条装饰。
+_DECORATION_PATTERN = re.compile(
+    r"(?i)(?:^|[_\-\s])(?:decoration|decor|accent|divider|shape|line|vector|"
+    r"bg|background|canvas|overlay|shadow)(?:$|[_\-\s])"
+)
 _LOCKED_TYPES = {"vector", "shape", "line", "divider", "accent", "polygon", "rect", "circle"}
 
 # 同角色最小字号缩水比：中文标题不能沿用“只缩小 10%”的英文版式假设。
@@ -40,8 +45,19 @@ _LOCKED_TYPES = {"vector", "shape", "line", "divider", "accent", "polygon", "rec
 _ROLE_MIN_FONT_RATIO = {
     "title": 0.60,
     "subtitle": 0.75,
+    "page_title": 0.60,
+    "section_title": 0.65,
+    "page_subtitle": 0.75,
     "body": 0.85,
     "card": 0.85,
+    "card_title": 0.85,
+    "card_body": 0.85,
+    "bullet_body": 0.85,
+    "metric_value": 0.85,
+    "metric_label": 0.85,
+    "metric_description": 0.85,
+    "card_value": 0.85,
+    "card_value_label": 0.85,
     "label": 0.85,
     "default": 0.85,
 }
@@ -96,6 +112,7 @@ class TemplateElementModel:
     parent_x: float = 0.0
     parent_y: float = 0.0
     constraint: Optional[TextConstraint] = None
+    semantic_role: str = "body"
 
 
 @dataclass
@@ -173,7 +190,9 @@ def estimate_lines(
     effective_font_size = font_size or element.font_size or 12.0
     lines, max_width = measure_text(text, effective_font_size, element.width, element.line_height)
     line_h = effective_font_size * (element.line_height if element.line_height >= 0.4 else 1.2)
-    vertical = element.height > 0 and lines * line_h > element.height + 1.0
+    # Chromium/PPT 字体实际绘制的字形边界会比 line-height 略紧，模板中常见
+    # 1~2px 的取整误差不应把已经缩到下限的单行标题判成溢出。
+    vertical = element.height > 0 and lines * line_h > element.height + 2.0
     horizontal = max_width > element.width + 1.0
     return lines, vertical, horizontal
 
@@ -202,6 +221,101 @@ def _role_for(name: str, element_type: str, decorative: bool) -> str:
     return "body"
 
 
+def _semantic_role_for(
+    name: str,
+    component_id: str,
+    element_type: str,
+    font_size: float,
+    x: float,
+    y: float,
+    width: float,
+    height: float,
+    decorative: bool,
+) -> str:
+    """Infer the content contract from role, geometry and container semantics.
+
+    ``role`` remains the coarse compatibility role used by the existing fitter.
+    This second layer prevents metric slots and card bodies from being treated
+    as interchangeable text boxes while keeping the first-round guards intact.
+    """
+    if decorative or element_type in _LOCKED_TYPES:
+        return "decorative_text"
+    key = str(name or "").strip().lower()
+    component = str(component_id or "").strip().lower()
+    if _PAGE_PATTERN.search(key):
+        return "page_number"
+    if _LOGO_PATTERN.search(key):
+        return "logo"
+    if element_type == "text-list":
+        return "bullet_body"
+
+    # Metric/value slots are checked before the generic card/title patterns.
+    if re.search(r"(?:^|[_-])(metric|kpi|stat)(?:[_-]|$)", key):
+        if re.search(r"(?:^|[_-])(value|number|amount|price|count)(?:[_-]|$)", key):
+            return "metric_value"
+        if re.search(r"(?:^|[_-])(label|name|title)(?:[_-]|$)", key):
+            return "metric_label"
+        if re.search(r"(?:^|[_-])(detail|description|delta|change|note)(?:[_-]|$)", key):
+            return "metric_description"
+        return "metric_description"
+    if re.search(r"(?:^|[_-])card[_-]value[_-]label(?:[_-]|$)", key):
+        return "card_value_label"
+    if re.search(r"(?:^|[_-])card[_-](?:large[_-])?(?:value|price|number)(?:[_-]|$)", key):
+        return "card_value"
+
+    # Repeated callout/card headings are local card titles, not the page title.
+    # This check must precede the generic ``heading`` rule below; otherwise a
+    # three-card layout receives the full page title in every small callout.
+    if re.search(r"(?:^|[_-])(?:card|callout|feature|item|point|step)[_-](?:title|heading|name|label)(?:[_-]|$)", key):
+        return "card_title"
+    if re.search(r"(?:^|[_-])(?:card|feature|item)[_-](?:title|heading|name|label)(?:[_-]|$)", key):
+        return "card_title"
+    if re.search(r"(?:^|[_-])(?:card|feature|item)[_-](?:body|description|detail|copy|text)(?:[_-]|$)", key):
+        return "card_body"
+    if "attribution" in component or re.search(r"(?:author|presenter|person[_-]?name|profile[_-]?name)", key):
+        return "author"
+    if re.search(r"(?:date|person[_-]?role|profile[_-]?(?:role|metadata))", key):
+        return "date"
+    if re.search(r"(?:badge|tag|kicker|eyebrow)", key):
+        return "badge"
+    if y > 540 and re.search(r"(?:supporting|note|caption|footer)", key):
+        return "footer"
+    if re.search(r"(?:section[_-]?title|chapter[_-]?title)", key):
+        return "section_title"
+    if re.search(r"(?:subtitle|subheading)", key) or ("supporting" in key and y <= 300):
+        return "page_subtitle"
+    if re.search(r"(?:^|[_-])(?:title|headline|heading|subject)(?:[_-]|$)", key):
+        return "page_title"
+    # Some real templates use names such as main_header_text. A large, high
+    # text box near the top is a page title unless it belongs to a card.
+    if font_size >= 38 and y <= 250 and not re.search(r"(?:card|metric|item|feature)", key + component):
+        return "page_title"
+    if font_size >= 28 and y <= 250 and "header" in key:
+        return "page_title"
+    return "body"
+
+
+def semantic_content_contract(role: str) -> Dict[str, Any]:
+    """Return the small, model-facing contract for a semantic slot."""
+    contracts = {
+        "page_title": {"kind": "title", "maxLines": 2, "bullet": False, "short": False},
+        "section_title": {"kind": "title", "maxLines": 2, "bullet": False, "short": False},
+        "page_subtitle": {"kind": "subtitle", "maxLines": 2, "bullet": False, "short": True},
+        "card_title": {"kind": "short_title", "maxLines": 2, "bullet": False, "short": True},
+        "card_body": {"kind": "body", "maxLines": 5, "bullet": True, "short": False},
+        "bullet_body": {"kind": "bullet_body", "maxLines": 6, "bullet": True, "short": False},
+        "metric_value": {"kind": "metric_value", "maxLines": 1, "bullet": False, "short": True},
+        "metric_label": {"kind": "metric_label", "maxLines": 2, "bullet": False, "short": True},
+        "metric_description": {"kind": "metric_description", "maxLines": 2, "bullet": False, "short": True},
+        "card_value": {"kind": "card_value", "maxLines": 1, "bullet": False, "short": True},
+        "card_value_label": {"kind": "card_label", "maxLines": 2, "bullet": False, "short": True},
+        "badge": {"kind": "badge", "maxLines": 1, "bullet": False, "short": True},
+        "author": {"kind": "author", "maxLines": 1, "bullet": False, "short": True},
+        "date": {"kind": "metadata", "maxLines": 1, "bullet": False, "short": True},
+    }
+    return dict(contracts.get(role, {"kind": "body", "maxLines": 6, "bullet": True, "short": False}))
+
+
 def parse_slide_layout(layout_json: Mapping[str, Any]) -> SlideLayoutModel:
     """把 Presenton layout JSON 解析成平面元素模型（绝对坐标）。
 
@@ -226,6 +340,7 @@ def parse_slide_layout(layout_json: Mapping[str, Any]) -> SlideLayoutModel:
             base_y=base_y,
             component_locked=component_locked,
         )
+    _normalize_card_groups(model)
     return model
 
 
@@ -279,11 +394,24 @@ def _collect_elements(
                 bold = bool(run_font.get("bold")) or bold
                 line_height = _to_float(run_font.get("line_height"))
 
+    semantic_role = _semantic_role_for(
+        name, component_id, element_type, font_size, x, y, width, height, decorative
+    )
+    if semantic_role in {"page_title", "section_title"}:
+        role = "title"
+    elif semantic_role == "page_subtitle":
+        role = "subtitle"
+    elif semantic_role in {"metric_label", "card_value_label", "badge"}:
+        role = "label"
+    elif semantic_role in {"metric_value", "metric_description", "card_value", "card_title", "card_body", "bullet_body"}:
+        role = "card" if semantic_role not in {"card_title"} else "title"
+
     if name:
         element = TemplateElementModel(
             name=name,
             element_type=element_type,
             role=role,
+            semantic_role=semantic_role,
             x=x,
             y=y,
             width=width,
@@ -302,16 +430,25 @@ def _collect_elements(
             parent_x=base_x,
             parent_y=base_y,
         )
-        if element_type == "text" and element.font_size > 0:
+        if element_type in {"text", "text-list"} and element.font_size > 0:
             element.constraint = _build_text_constraint(element)
-        if element_type == "text":
+        if element_type in {"text", "text-list"}:
             runs = nodes.get("runs")
             if isinstance(runs, list) and runs and isinstance(runs[0], Mapping):
                 element.original_text = str(runs[0].get("text") or "")
             elif isinstance(nodes.get("text"), str):
                 element.original_text = nodes["text"]
-        if element_type == "text" and mutable_text and element.role == "card" and component_id:
-            # 卡片平衡只比较真正的卡片成员（避免把同组件内的标题/正文拉进来）
+            elif element_type == "text-list":
+                items = nodes.get("items") or []
+                values = []
+                for item in items:
+                    if isinstance(item, list):
+                        values.extend(str(run.get("text") or "") for run in item if isinstance(run, Mapping))
+                element.original_text = "\n".join(value for value in values if value)
+        if element_type in {"text", "text-list"} and mutable_text and component_id and semantic_role in {
+            "card_title", "card_body", "bullet_body", "metric_value", "metric_label", "metric_description", "card_value", "card_value_label"
+        }:
+            # 先按组件+语义层级收集；parse_slide_layout 最后只保留同类可比较组。
             occurrence_index = len(model.elements.get(name) or [])
             model.card_groups.setdefault(component_id, []).append((name, occurrence_index))
         model.elements.setdefault(name, []).append(element)
@@ -328,9 +465,27 @@ def _collect_elements(
         _collect_elements(nodes["child"], model, component_id, child_base_x, child_base_y, component_locked)
 
 
+def _normalize_card_groups(model: SlideLayoutModel) -> None:
+    normalized: Dict[str, List[Tuple[str, int]]] = {}
+    for component_id, members in model.card_groups.items():
+        by_role: Dict[str, List[Tuple[str, int]]] = {}
+        for name, index in members:
+            element = model.element(name, index)
+            if element is None:
+                continue
+            by_role.setdefault(element.semantic_role, []).append((name, index))
+        for semantic_role, same_role in by_role.items():
+            if len(same_role) >= 2:
+                normalized[f"{component_id}:{semantic_role}"] = same_role
+    model.card_groups = normalized
+
+
 def _build_text_constraint(element: TemplateElementModel) -> TextConstraint:
     preferred = element.font_size or 12.0
-    ratio = _ROLE_MIN_FONT_RATIO.get(element.role, _ROLE_MIN_FONT_RATIO["default"])
+    ratio = _ROLE_MIN_FONT_RATIO.get(
+        element.semantic_role,
+        _ROLE_MIN_FONT_RATIO.get(element.role, _ROLE_MIN_FONT_RATIO["default"]),
+    )
     min_font = round(preferred * ratio, 1)
     line_h = element.line_height if element.line_height >= 0.4 else 1.2
     # 与 measure_text 的字符宽度口径一致（中文≈字号），且向下取整，
@@ -358,7 +513,9 @@ def _build_text_constraint(element: TemplateElementModel) -> TextConstraint:
         hard_max_chars=hard,
         allow_font_shrink=True,
         max_shrink_ratio=ratio,
-        allow_ellipsis=max_lines <= 1,
+        # Formal page/section titles must be adapted semantically or reported
+        # as unfit; an ellipsis is not acceptable user-facing PPT copy.
+        allow_ellipsis=(max_lines <= 1 and element.semantic_role not in {"page_title", "section_title", "page_subtitle"}),
     )
 
 
@@ -400,7 +557,7 @@ def text_fits(
     if (
         font_size is not None
         and font_size < element.constraint.preferred_font_size
-        and element.role in {"title", "subtitle"}
+        and element.semantic_role in {"page_title", "section_title", "page_subtitle"}
     ):
         return True
     return count_content_chars(text) <= element.constraint.hard_max_chars

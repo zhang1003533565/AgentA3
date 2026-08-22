@@ -20,8 +20,9 @@ database, or administrator account is required.
    in Chromium. This preserves the template's CSS, SVG, fonts, charts, and
    component hierarchy without an AgentA3-side hydration layer.
 7. The pinned `presenton-export` runtime converts the rendered presentation to
-   PPTX in the Linux container; the same Chromium page creates the PDF and
-   previews.
+    PPTX in the Linux export environment; the same Chromium page creates the
+    previews. Windows preview rendering does not fall back to a different PPTX
+    writer, because that would make the downloadable deck visually diverge.
 8. AgentA3's existing task and capability-token stores protect generated files.
 
 ## API surface
@@ -34,7 +35,7 @@ the internal Python routes below:
 - `GET /tasks/{taskId}`, `/tasks/{taskId}/stream`
 - `POST /tasks/{taskId}/cancel`, `/retry`, and
   `/slides/{slideIndex}/image` for user-supplied image replacement
-- `GET /tasks/{taskId}/files/{pptx|pdf}` and
+- `GET /tasks/{taskId}/files/pptx` and
   `/tasks/{taskId}/previews/{slideIndex}`
 
 The public `/slides` route and the explicit `/slides/tasks` alias both start the
@@ -63,11 +64,10 @@ owns the runtime implementation; upstream account, database, API, and editor
 code are not used.
 
 The dedicated PPT flow always uses the in-process Presenton HTML/Chromium and
-export runtime. There is no separate Presenton service to start, and the old
-python-pptx rendering path has been removed.
+the pinned export runtime. There is no separate Presenton service to start,
+and the low-fidelity python-pptx fallback is intentionally disabled.
 
-For local development, PDF and PNG previews work with the bundled runtime. PPTX
-requires the pinned `presenton-export` bundle; the Dockerfile downloads it at
-image build time. If that bundle is unavailable, the task remains usable and
-returns a `formatErrors.pptx` explanation instead of silently falling back to a
-different renderer.
+For local development, PNG previews work with the bundled runtime. PPTX
+requires the pinned `presenton-export` bundle in a Linux, WSL, or Docker export
+environment. If that bundle is unavailable, the task fails with an explicit
+exporter error instead of silently returning a visually different deck.

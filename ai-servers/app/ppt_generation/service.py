@@ -1,3 +1,4 @@
+import base64
 import copy
 import json
 import logging
@@ -12,16 +13,28 @@ from typing import Any, Callable, Dict, List, Mapping, Optional
 
 from fastapi import HTTPException
 
+from app.model_providers.factory import get_chat_model_provider
 from app.model_providers.runtime_config import (
     reset_active_llm_config,
+    reset_active_max_output_tokens,
     reset_active_llm_timeout,
+    reset_active_reasoning_effort,
     set_active_llm_config,
+    set_active_max_output_tokens,
     set_active_llm_timeout,
+    set_active_reasoning_effort,
 )
 from app.multi_agents.image_agent.agent import image_agent
 from app.multi_agents.ppt_structure_agent.agent import normalize_structure_answer
 from app.multi_agents.runner import run_specialist_agent
+from app.ppt_generation.consistency_validator import (
+    build_qa_report,
+    validate_presentation,
+    write_qa_report,
+)
+from app.ppt_generation.content_fitter import REWRITE_SYSTEM_PROMPT, build_rewrite_user_prompt
 from app.ppt_generation.embedded_config import EmbeddedPptConfig
+from app.ppt_generation.layout_validator import validate_slide
 from app.ppt_generation.presenton_html_renderer import render_presenton_html
 from app.ppt_generation.presenton_generation_prompts import (
     PRESENTON_CONTENT_RULES,
@@ -30,10 +43,16 @@ from app.ppt_generation.presenton_generation_prompts import (
 from app.ppt_generation.ppt_mapper import (
     template_for_settings,
 )
+from app.ppt_generation.repair_engine import RepairEngine
 from app.ppt_generation.task_store import PptTaskStore
 from app.ppt_generation.source_file_store import PptSourceFileStore
 from app.ppt_generation.source_parser import PptSourceParseError, extract_source_text
 from app.ppt_generation.template_catalog import EmbeddedTemplateCatalog
+from app.ppt_generation.template_model import (
+    SlideLayoutModel,
+    parse_slide_layout,
+    semantic_content_contract,
+)
 from app.ppt_generation.template_preview import (
     get_template_layout_preview,
     warm_up_previews,
@@ -44,16 +63,62 @@ from app.rag.document_conversion import generated_exporter
 _PAGE_HEADING = re.compile(r"###\s*第\s*(\d+)\s*页", re.IGNORECASE)
 _FIELD = re.compile(r"^-\s*([^：:]+)[：:]\s*(.*)$")
 logger = logging.getLogger(__name__)
-PPT_PAGE_LLM_TIMEOUT_SECONDS = max(60, int(os.getenv("PPT_PAGE_LLM_TIMEOUT_SECONDS") or 300))
+# 内容批次单次调用的超时上限：完整槽位输出（componentContent+speakerNote）
+# 输出已设置硬 token 上限；默认 150s 覆盖正常长输出，同时避免异常代理无限等待。
+PPT_PAGE_LLM_TIMEOUT_SECONDS = max(30, min(180, int(os.getenv("PPT_PAGE_LLM_TIMEOUT_SECONDS") or 150)))
+PPT_OUTLINE_LLM_TIMEOUT_SECONDS = max(30, min(180, int(os.getenv("PPT_OUTLINE_LLM_TIMEOUT_SECONDS") or 120)))
+PPT_TASK_TIMEOUT_SECONDS = max(180, min(30 * 60, int(os.getenv("PPT_TASK_TIMEOUT_SECONDS") or 15 * 60)))
+PPT_OUTLINE_TASK_TIMEOUT_SECONDS = max(120, min(15 * 60, int(os.getenv("PPT_OUTLINE_TASK_TIMEOUT_SECONDS") or 5 * 60)))
+# Qwen3.7 medium thinking uses an 8192-token budget; Bailian requires the
+# completion cap to be greater than that budget. Keep enough room for the
+# visible outline instead of silently forcing the provider to shrink reasoning.
+PPT_OUTLINE_MAX_OUTPUT_TOKENS = max(1200, min(12000, int(os.getenv("PPT_OUTLINE_MAX_OUTPUT_TOKENS") or 10000)))
+PPT_STRUCTURE_MAX_OUTPUT_TOKENS = max(500, min(4000, int(os.getenv("PPT_STRUCTURE_MAX_OUTPUT_TOKENS") or 1600)))
+PPT_CONTENT_MAX_OUTPUT_TOKENS = max(1200, min(12000, int(os.getenv("PPT_CONTENT_MAX_OUTPUT_TOKENS") or 4200)))
+PPT_REPAIR_MAX_OUTPUT_TOKENS = max(200, min(2000, int(os.getenv("PPT_REPAIR_MAX_OUTPUT_TOKENS") or 700)))
 PPT_CONTENT_BATCH_SIZE = max(1, min(5, int(os.getenv("PPT_CONTENT_BATCH_SIZE") or 3)))
-# 内容批次并发数：推理模型单次调用慢，适度并发可显著缩短总时长
-PPT_CONTENT_MAX_WORKERS = max(1, min(4, int(os.getenv("PPT_CONTENT_MAX_WORKERS") or 3)))
+# 内容批次并发数：opencode/deepseek 服务端对同一 API key 的并发请求会直接断开
+# 连接（实测 2 并发即 APIConnectionError，单发正常），因此强制串行处理批次；
+# 串行只影响总时长（每批 40-80s），不会出现整批失败回退。
+PPT_CONTENT_MAX_WORKERS = max(1, min(4, int(os.getenv("PPT_CONTENT_MAX_WORKERS") or 1)))
 # 大纲单次调用可携带的资料字符上限（资料通过 user_input 传递，绕过 evidence 的 1200 字符截断）
 PPT_OUTLINE_SOURCE_MAX_CHARS = max(2_000, int(os.getenv("PPT_OUTLINE_SOURCE_MAX_CHARS") or 24_000))
-# 内容批次单页资料切片字符上限：大纲要点已浓缩信息，切片只需补充细节
-PPT_BATCH_SOURCE_MAX_CHARS = max(2_000, int(os.getenv("PPT_BATCH_SOURCE_MAX_CHARS") or 12_000))
-PPT_LLM_MAX_RETRIES = max(0, min(5, int(os.getenv("PPT_LLM_MAX_RETRIES") or 3)))
+# 内容批次资料切片字符上限：页面正文需要从原始资料展开，不能只靠大纲要点。
+# 默认 24k，避免长资料的定义/公式/例证被位置切片直接丢掉；仍可由环境变量收紧。
+PPT_BATCH_SOURCE_MAX_CHARS = max(2_000, int(os.getenv("PPT_BATCH_SOURCE_MAX_CHARS") or 24_000))
+# 单次调用失败后的重试次数（不含首次）：默认不重试，失败交给任务级重试入口，
+# 避免单批模型超时后再次占用唯一任务线程。
+PPT_LLM_MAX_RETRIES = max(0, min(3, int(os.getenv("PPT_LLM_MAX_RETRIES") or 0)))
 PPT_LLM_RETRY_BASE_DELAY = max(0.5, float(os.getenv("PPT_LLM_RETRY_BASE_DELAY") or 1.0))
+# 大纲是首个用户可见 AI 结果：默认保留低强度推理，避免推理模型只返回
+# reasoning 而没有可消费的正文；空响应允许一次短退避重试。
+PPT_OUTLINE_REASONING_EFFORT = os.getenv("PPT_OUTLINE_REASONING_EFFORT", "medium").strip().lower()
+if PPT_OUTLINE_REASONING_EFFORT not in {"none", "low", "medium", "high"}:
+    PPT_OUTLINE_REASONING_EFFORT = "medium"
+PPT_OUTLINE_LLM_MAX_RETRIES = max(0, min(2, int(os.getenv("PPT_OUTLINE_LLM_MAX_RETRIES") or 1)))
+# 内容批次保留 low 推理：reasoning_effort=none 时模型对长输出任务返回空内容
+# （实测），而默认推理每批 100s+；low 实测 ~75s 且输出完整
+PPT_CONTENT_REASONING_EFFORT = os.getenv("PPT_CONTENT_REASONING_EFFORT", "low").strip().lower()
+PPT_CONTENT_QUALITY_REPAIR = str(os.getenv("PPT_CONTENT_QUALITY_REPAIR") or "true").strip().lower() in {"1", "true", "yes", "on"}
+# 大纲页数区间保护：AI 根据内容自主决定页数，系统只保下限防"只有一页"、
+# 尊重用户档位作上限；重试后仍不足则把单页要点拆成逐页（数据驱动，不虚构）
+PPT_OUTLINE_MAX_RETRIES = max(0, min(2, int(os.getenv("PPT_OUTLINE_MAX_RETRIES") or 1)))
+PPT_OUTLINE_MIN_PAGES = max(3, int(os.getenv("PPT_OUTLINE_MIN_PAGES") or 5))
+# 默认允许 AI 在更完整的主题拆解中规划到 30 页；请求显式传入的 pageCount
+# 仍由接口层的 50 页绝对上限保护，避免把一次任务放大到不可控规模。
+PPT_OUTLINE_MAX_PAGES = max(PPT_OUTLINE_MIN_PAGES, int(os.getenv("PPT_OUTLINE_MAX_PAGES") or 30))
+# 没有上传资料、只有一句主题时，模型需要按主题策划内容，不能继续把主题本身当成完整资料。
+PPT_OUTLINE_TOPIC_ONLY_MAX_CHARS = max(24, int(os.getenv("PPT_OUTLINE_TOPIC_ONLY_MAX_CHARS") or 96))
+PPT_OUTLINE_GENERIC_TOPICS = frozenset({
+    "PPT生成", "AIPPT", "PPT大纲", "演示文稿", "复习资料", "手动输入资料",
+})
+PPT_ENABLE_CONTENT_REPAIR_LLM = str(os.getenv("PPT_ENABLE_CONTENT_REPAIR_LLM") or "false").strip().lower() in {"1", "true", "yes", "on"}
+
+_TERMINAL_TASK_STATUSES = {"completed", "failed", "cancelled", "timed_out"}
+
+
+class PptTaskStopped(RuntimeError):
+    """内部异常：任务已取消或超过截止时间，停止后续批次。"""
 
 
 class PptGenerationService:
@@ -61,12 +126,379 @@ class PptGenerationService:
         self._tasks: Dict[str, Dict[str, Any]] = {}
         self._lock = threading.RLock()
         self._task_store = PptTaskStore()
+        self._deadline_timers: Dict[str, threading.Timer] = {}
         self._source_files = PptSourceFileStore()
-        self._executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="ai-ppt")
+        # 任务级也串行：opencode 对同一 API key 的并发请求会断开连接（实测），
+        # 多任务并行时各自的内容批次互相挤占，全部卡死；串行执行任务会让
+        # 后续任务排队等待（状态可见），而不是并发失败。
+        self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="ai-ppt")
         self._embedded_config = EmbeddedPptConfig.from_env()
         self._template_catalog = EmbeddedTemplateCatalog()
         self._embedded_config.source_root.mkdir(parents=True, exist_ok=True)
+        self._repair_engine = RepairEngine()
+        self._layout_models: Dict[str, SlideLayoutModel] = {}
+        self._recover_interrupted_tasks()
         self._start_template_preview_warmup()
+
+    def _recover_interrupted_tasks(self) -> None:
+        """服务重启后，不能让持久化的排队任务伪装成仍在运行。"""
+        try:
+            tasks = self._task_store.list_tasks()
+        except Exception:
+            logger.exception("failed to inspect persisted PPT tasks during startup")
+            return
+        for task in tasks:
+            if str(task.get("status") or "") not in {"queued", "running"}:
+                continue
+            task_id = str(task.get("taskId") or "")
+            if not task_id:
+                continue
+            task.update({
+                "status": "timed_out",
+                "stage": "recovered",
+                "progress": min(99, int(task.get("progress") or 0)),
+                "message": "PPT 服务重启，原生成任务已结束，请重新提交",
+                "error": {
+                    "type": "PptServiceRestarted",
+                    "message": "生成服务在任务执行期间重启",
+                },
+                "updatedAt": int(time.time() * 1000),
+            })
+            self._tasks[task_id] = task
+            self._task_store.put(task)
+
+    def _register_task(self, task: Dict[str, Any]) -> None:
+        task_id = str(task.get("taskId") or "")
+        with self._lock:
+            self._tasks[task_id] = task
+            self._task_store.put(task)
+        deadline_at = int(task.get("deadlineAt") or 0)
+        if deadline_at > 0:
+            delay = max(0.1, (deadline_at - int(time.time() * 1000)) / 1000.0)
+            timer = threading.Timer(delay, self._expire_task, args=(task_id,))
+            timer.daemon = True
+            with self._lock:
+                old_timer = self._deadline_timers.get(task_id)
+                if old_timer is not None:
+                    old_timer.cancel()
+                self._deadline_timers[task_id] = timer
+            timer.start()
+
+    def _expire_task(self, task_id: str) -> None:
+        with self._lock:
+            task = self._task_store.get(task_id) or self._tasks.get(task_id)
+            if task is None or str(task.get("status") or "") in _TERMINAL_TASK_STATUSES:
+                return
+        self._update(
+            task_id,
+            status="timed_out",
+            stage="timeout",
+            progress=min(99, int(task.get("progress") or 0)),
+            message="PPT 生成超过最大等待时间，已停止等待，请重试",
+            error={
+                "type": "PptTaskTimeout",
+                "message": "任务超过系统允许的最大执行时间",
+            },
+        )
+
+    def _task_is_stopped(self, task_id: Optional[str]) -> bool:
+        if not task_id:
+            return False
+        with self._lock:
+            task = self._task_store.get(task_id) or self._tasks.get(task_id)
+            if task is None:
+                return True
+            if str(task.get("status") or "") in {"cancelled", "timed_out"}:
+                return True
+            deadline_at = int(task.get("deadlineAt") or 0)
+        if deadline_at and int(time.time() * 1000) >= deadline_at:
+            self._expire_task(task_id)
+            return True
+        return False
+
+    @staticmethod
+    def _deadline_ms(seconds: int) -> int:
+        return int((time.time() + max(1, seconds)) * 1000)
+
+    def _layout_model(self, template_id: str, layout_id: str, layout_json: Mapping[str, Any]) -> Optional[SlideLayoutModel]:
+        """按模板+版式缓存解析后的元素模型（只解析一次，校验/修复/QA 共用）。"""
+        if not layout_json:
+            return None
+        cache_key = f"{template_id}:{layout_id}"
+        cached = self._layout_models.get(cache_key)
+        if cached is not None:
+            return cached
+        try:
+            model = parse_slide_layout(layout_json)
+        except Exception as exc:  # 模板解析失败不阻断生成，仅失去校验能力
+            logger.warning("PPT layout model parse failed template=%s layout=%s: %s", template_id, layout_id, exc)
+            return None
+        self._layout_models[cache_key] = model
+        return model
+
+    def _layout_is_generation_safe(
+        self, template_id: str, layout_id: str, layout_json: Mapping[str, Any]
+    ) -> bool:
+        """过滤模板中无法承载标题的异常版式，避免生成阶段硬塞后再失败。"""
+        model = self._layout_model(template_id, layout_id, layout_json)
+        if model is None:
+            return False
+        for elements in model.elements.values():
+            for element in elements:
+                if (
+                    element.element_type == "text"
+                    and element.mutable_text
+                    and element.role in {"title", "subtitle"}
+                    and element.font_size > 0
+                    and element.height < element.font_size * 0.5
+                ):
+                    return False
+        return True
+
+    def _enforce_slide_contract(
+        self,
+        item: Dict[str, Any],
+        template_id: str,
+        layout_id: str,
+        layout_json: Mapping[str, Any],
+        llm_config: Any,
+        slide_index: int,
+    ) -> Dict[str, Any]:
+        """对合并后的页面执行 校验 → 修复 闭环，并附加 QA 元数据。
+
+        修复只改内容/限幅缩字/还原模板几何，绝不重新布局；修复失败时
+        保留已填充页面并在 _qa 中如实记录（不静默丢弃 AI 内容）。
+        """
+        ui = item.get("ui")
+        if not isinstance(ui, Mapping):
+            item["_qa"] = {
+                "layoutId": layout_id,
+                "semanticType": str(item.get("type") or ""),
+                "validationErrors": ["MISSING_UI"],
+                "repairCount": 0,
+                "finalStatus": "unknown",
+                "repairHistory": [],
+                "densityLevel": "UNKNOWN",
+                "fillRatio": 0.0,
+                "enforcementError": "页面没有可渲染的 Presenton UI 树",
+            }
+            return item
+        model = self._layout_model(template_id, layout_id, layout_json)
+        if model is None:
+            item["_qa"] = {
+                "layoutId": layout_id,
+                "semanticType": str(item.get("type") or ""),
+                "validationErrors": ["MISSING_LAYOUT_MODEL"],
+                "repairCount": 0,
+                "finalStatus": "unknown",
+                "repairHistory": [],
+                "densityLevel": "UNKNOWN",
+                "fillRatio": 0.0,
+                "enforcementError": "无法解析页面版式模型",
+            }
+            return item
+        try:
+            llm_rewrite = None
+            if llm_config is not None:
+                def llm_rewrite(text, constraint, mode):
+                    timeout_token = set_active_llm_timeout(PPT_PAGE_LLM_TIMEOUT_SECONDS)
+                    output_token = set_active_max_output_tokens(PPT_REPAIR_MAX_OUTPUT_TOKENS)
+                    config_token = set_active_llm_config(llm_config)
+                    try:
+                        return get_chat_model_provider().complete(
+                            system_prompt=REWRITE_SYSTEM_PROMPT,
+                            user_prompt=build_rewrite_user_prompt(text, constraint, mode),
+                        )
+                    finally:
+                        reset_active_llm_config(config_token)
+                        reset_active_llm_timeout(timeout_token)
+                        reset_active_max_output_tokens(output_token)
+
+            outcome = self._repair_engine.repair(ui, model, llm_rewrite)
+            item["ui"] = outcome.ui
+            validation_result = outcome.last_result
+            item["_qa"] = {
+                "layoutId": layout_id,
+                "semanticType": str(item.get("type") or ""),
+                "contentLength": sum(
+                    len(str(point)) for point in (item.get("content") or []) if point
+                ),
+                "validationErrors": [issue.error_type for issue in outcome.final_issues],
+                "repairCount": outcome.repair_count,
+                "finalStatus": outcome.status,
+                "repairHistory": outcome.history,
+                "densityLevel": validation_result.density_level if validation_result else "NORMAL",
+                "fillRatio": validation_result.fill_ratio if validation_result else 0.0,
+                "missingSlots": list(item.get("_missingSlots") or []),
+                "unknownElementIds": list(item.get("_unknownElementIds") or []),
+            }
+            logger.info(
+                "PPT slide QA index=%s layout=%s status=%s errors=%s repairs=%s density=%s",
+                slide_index,
+                layout_id,
+                outcome.status,
+                [issue.error_type for issue in outcome.final_issues],
+                outcome.repair_count,
+                item["_qa"]["densityLevel"],
+            )
+        except Exception as exc:
+            logger.exception("PPT slide contract enforcement failed index=%s", slide_index)
+            item["_qa"] = {
+                "layoutId": layout_id,
+                "semanticType": str(item.get("type") or ""),
+                "validationErrors": [],
+                "repairCount": 0,
+                "finalStatus": "unknown",
+                "repairHistory": [],
+                "densityLevel": "NORMAL",
+                "fillRatio": 0.0,
+                "enforcementError": _safe_error_message(exc),
+            }
+        return item
+
+    def render_preview(self, request: Mapping[str, Any], user_id: str = "") -> Dict[str, Any]:
+        """Render one edited slide through the same Presenton path as final export.
+
+        Preview requests deliberately skip model rewriting.  The deterministic
+        content fitter can still prevent obvious overflow, while the actual
+        HTML/CSS/SVG/image renderer remains identical to the export path.
+        """
+        del user_id
+        raw_slide = request.get("slide") if isinstance(request, Mapping) else None
+        if not isinstance(raw_slide, Mapping):
+            raise HTTPException(status_code=422, detail="预览页面数据无效")
+        slide = copy.deepcopy(dict(raw_slide))
+        if not isinstance(slide.get("ui"), Mapping):
+            raise HTTPException(status_code=422, detail="预览页面缺少可渲染的 UI 数据")
+
+        settings = dict(request.get("settings") or {}) if isinstance(request, Mapping) else {}
+        requested_template = request.get("templateId") if isinstance(request, Mapping) else None
+        settings["templateId"] = str(requested_template or settings.get("templateId") or "general")
+        template_id = template_for_settings(settings, default_template="general")
+        template_payload = self._template_catalog.load(template_id)
+        layouts_by_id = {
+            str(layout.get("id")): layout
+            for layout in template_payload.get("layouts") or []
+            if isinstance(layout, Mapping) and str(layout.get("id") or "").strip()
+        }
+        layout_id = str(slide.get("templateLayoutId") or slide.get("layout") or "")
+        layout = layouts_by_id.get(layout_id) or {}
+        slide = self._enforce_slide_contract(
+            slide,
+            template_id,
+            layout_id,
+            layout,
+            None,
+            int(slide.get("index") or 1),
+        )
+
+        try:
+            _, _, previews, _ = render_presenton_html(
+                [slide],
+                str(request.get("title") or "演示文稿"),
+                {"templateId": template_id, "previewOnly": True},
+            )
+            if not previews:
+                raise HTTPException(status_code=502, detail="PPT 预览渲染未返回图片")
+            preview = previews[0]
+            exported = generated_exporter.open_generated_export(
+                str(preview.get("storageKey") or ""),
+                str(preview.get("internalCapability") or ""),
+            )
+            try:
+                image_bytes = exported.stream.read()
+                mime_type = exported.mime_type or "image/png"
+            finally:
+                exported.stream.close()
+            return {
+                "imageBase64": base64.b64encode(image_bytes).decode("ascii"),
+                "mimeType": mime_type,
+                "slideIndex": int(slide.get("index") or 1),
+                "qa": copy.deepcopy(slide.get("_qa") or {}),
+            }
+        except HTTPException:
+            raise
+        except Exception as exc:
+            logger.exception("failed to render edited PPT preview")
+            raise HTTPException(
+                status_code=502,
+                detail=f"PPT 编辑预览生成失败：{_safe_error_message(exc)}",
+            ) from exc
+        finally:
+            # Preview images are returned inline and must not accumulate in the
+            # protected export store after every keystroke.
+            try:
+                if "preview" in locals():
+                    generated_exporter._delete_export_pair(
+                        generated_exporter._current_export_root(),
+                        str(preview.get("storageKey") or ""),
+                    )
+            except Exception:
+                logger.debug("failed to remove temporary PPT preview", exc_info=True)
+
+    def _prepare_final_slides(
+        self,
+        slides: List[Dict[str, Any]],
+        template_id: str,
+        llm_config: Any,
+        task_id: str,
+    ) -> tuple[List[Dict[str, Any]], Dict[str, Any], str, List[Dict[str, Any]]]:
+        """对用户编辑后的页面再执行一次校验、修复和质量门禁。"""
+        template_payload = self._template_catalog.load(template_id)
+        layouts_by_id = {
+            str(layout.get("id")): layout
+            for layout in template_payload.get("layouts") or []
+            if isinstance(layout, Mapping) and str(layout.get("id") or "").strip()
+        }
+        final_slides: List[Dict[str, Any]] = []
+        for index, raw_slide in enumerate(slides, start=1):
+            slide = copy.deepcopy(raw_slide) if isinstance(raw_slide, Mapping) else {}
+            layout_id = str(slide.get("templateLayoutId") or slide.get("layout") or "")
+            layout = layouts_by_id.get(layout_id) or {}
+            final_slides.append(self._enforce_slide_contract(
+                slide,
+                template_id,
+                layout_id,
+                layout,
+                llm_config,
+                index,
+            ))
+
+        models_by_layout: Dict[str, SlideLayoutModel] = {}
+        for layout_id, layout_json in layouts_by_id.items():
+            model = self._layout_model(template_id, layout_id, layout_json)
+            if model is not None:
+                models_by_layout[layout_id] = model
+        consistency_issues = validate_presentation(final_slides, models_by_layout)
+        quality_errors: List[Dict[str, Any]] = []
+        repair_warnings: List[Dict[str, Any]] = []
+        for index, slide in enumerate(final_slides, start=1):
+            qa = slide.get("_qa") if isinstance(slide.get("_qa"), Mapping) else {}
+            status = str(qa.get("finalStatus") or "unknown")
+            repair_count = int(qa.get("repairCount") or 0)
+            if repair_count > 0:
+                repair_warnings.append({
+                    "slide": index,
+                    "repairCount": repair_count,
+                    "history": list(qa.get("repairHistory") or [])[-3:],
+                })
+            if status in {"partial", "unknown"}:
+                quality_errors.append({
+                    "slide": index,
+                    "status": status,
+                    "errors": list(qa.get("validationErrors") or []),
+                    "detail": str(qa.get("enforcementError") or "页面质量校验未通过"),
+                })
+        qa_report = build_qa_report(final_slides, consistency_issues, models_by_layout, template_id)
+        report_path = write_qa_report(qa_report, template_id, task_id)
+        qa = {
+            "status": "blocked" if quality_errors else "pass",
+            "consistencyIssues": consistency_issues,
+            "qualityErrors": quality_errors,
+            "repairWarnings": repair_warnings,
+            "reportPath": report_path or "",
+        }
+        return final_slides, qa, qa_report, quality_errors
 
     def _start_template_preview_warmup(self) -> None:
         if os.getenv("PPT_TEMPLATE_PREVIEW_WARMUP", "1").strip().lower() in ("0", "false", "no"):
@@ -122,13 +554,22 @@ class PptGenerationService:
             "engine": "presenton-embedded",
             "enhancedEngineAvailable": True,
             "editorEnabled": False,
-            "scenes": [{
-                "value": "review",
-                "label": "复习资料",
-                "description": "将学习资料整理成结构清晰的复习 PPT",
-                "enabled": True,
-                "default": True,
-            }],
+            "templateCatalogAvailable": True,
+            "audiences": [
+                {"value": "通用受众", "label": "通用受众", "default": True},
+                {"value": "学生", "label": "学生", "default": False},
+                {"value": "老师", "label": "老师", "default": False},
+                {"value": "领导", "label": "领导", "default": False},
+                {"value": "客户", "label": "客户", "default": False},
+                {"value": "媒体", "label": "媒体", "default": False},
+            ],
+            "tones": [
+                {"value": "简洁清晰", "label": "简洁清晰", "default": True},
+                {"value": "专业严谨", "label": "专业严谨", "default": False},
+                {"value": "生动活泼", "label": "生动活泼", "default": False},
+                {"value": "数据说服", "label": "数据说服", "default": False},
+                {"value": "亲和自然", "label": "亲和自然", "default": False},
+            ],
             "templates": templates,
             "cacheTtlSeconds": 86400,
         }
@@ -152,7 +593,7 @@ class PptGenerationService:
     ) -> Dict[str, Any]:
         safe_name = Path(filename).name
         extension = Path(safe_name).suffix.lower()
-        allowed = {".txt", ".pdf", ".doc", ".docx", ".ppt", ".pptx", ".xls", ".xlsx"}
+        allowed = {".txt", ".doc", ".docx", ".ppt", ".pptx", ".xls", ".xlsx"}
         if extension not in allowed:
             raise HTTPException(status_code=415, detail="不支持的 PPT 资料文件格式")
         if not content:
@@ -191,44 +632,209 @@ class PptGenerationService:
         user_id: str = "",
     ) -> Dict[str, Any]:
         source = self._resolve_source_text(request, user_id)
-        topic = str(request.get("topic") or request.get("sourceName") or "复习资料").strip()
+        topic = str(request.get("topic") or request.get("sourceName") or "演示文稿").strip()
         if not source:
             raise HTTPException(status_code=422, detail="sourceContent 和 sourceFileId 不能同时为空")
-        prompt = json.dumps({
+        outline_mode = _normalize_outline_mode(request.get("outlineMode"))
+        topic_only = _is_topic_only_outline_request(request, source, topic, outline_mode)
+        topic = _resolve_outline_topic(request, source, topic, topic_only)
+        if not topic_only:
+            source_title = _source_document_title(source)
+            source_name_title = _source_name_title(request.get("sourceName"))
+            if _is_generic_outline_topic(topic) or Path(topic).suffix:
+                topic = source_name_title or source_title or topic
+        # 有资料时由 AI 根据资料内容判断页数；只有主题时则必须按主题展开成可编辑的内容计划。
+        # 两种模式都尊重用户档位的上限，但主题模式不能把一句话压缩成一页。
+        max_pages = max(0, int(request.get("pageCount") or 0))
+        if max_pages <= 0:
+            max_pages = PPT_OUTLINE_MAX_PAGES
+        min_pages = min(PPT_OUTLINE_MIN_PAGES, max_pages)
+        if topic_only:
+            constraints = (
+                "用户只提供了一个 PPT 主题，没有上传资料。请基于通用知识和该主题设计完整的内容计划，"
+                f"必须展开到 {min_pages} 至 {max_pages} 页；可以补充通用概念、知识结构、方法、应用和总结，"
+                "但不得虚构具体学校、人物、日期、统计数字、实验结果或未经用户提供的事实。"
+            )
+            source_mode = "topic_only"
+            material = f"以下内容仅是用户给出的主题，不是需要逐字摘要的资料：{source}"
+        elif outline_mode == "ai_outline":
+            constraints = (
+                "这是非大纲模式。上传资料只作为主题、事实和方向参考，不能把原文目录直接当成最终大纲；"
+                f"必须先自主拆解主题、补齐知识链路并重新搭建 {min_pages} 至 {max_pages} 页的叙事框架。"
+                "允许补充与主题直接相关的通用概念、定义、方法、应用场景和解释性例子，"
+                "但不得虚构具体人物、机构、日期、统计数字、实验结果或无法由资料支持的事实。"
+            )
+            source_mode = "non_outline"
+            material = source[:PPT_OUTLINE_SOURCE_MAX_CHARS]
+        else:
+            constraints = (
+                "这是大纲模式。严格保留上传大纲的章节顺序和结构，只对标题和要点做必要的可编辑化整理；"
+                "不得自行改造为另一套框架，也不得补造资料未提供的事实。"
+            )
+            source_mode = "outline_grounded"
+            material = source[:PPT_OUTLINE_SOURCE_MAX_CHARS]
+        prompt_payload = {
             "topic": topic,
-            "scene_type": str(request.get("scene") or "teaching"),
-            "audience": "学生复习",
-            "slide_count": int(request.get("pageCount") or 15),
-            "constraints": "严格依据上传资料，不得补造事实；输出结构化 PPT 大纲。",
+            "audience": str(request.get("audience") or "通用受众"),
+            "tone": str(request.get("tone") or "简洁清晰"),
+            "source_mode": source_mode,
+            "outline_mode": outline_mode,
+            "min_pages": min_pages,
+            "max_pages": max_pages,
+            "constraints": constraints,
             # 资料放 user_input 而非 evidence：normalize_evidence 会把
             # evidence content 截断到 1200 字符，导致大纲只能看到资料开头。
-            "material": source[:PPT_OUTLINE_SOURCE_MAX_CHARS],
-        }, ensure_ascii=False)
+            "material": material,
+            "detail_level": "deep",
+            "planning_requirements": {
+                "internal_planning": "先完成主题拆解、受众适配、叙事顺序和页间递进，再只输出最终大纲，不输出思考过程。",
+                "key_points_per_page": "3-5 条，必须是可直接转成页面正文的具体信息，不写空泛方向。",
+                "nodes_per_page": "2-4 个页面节点；每个节点包含节点标题和面向观众的具体说明。",
+                "storyline": "至少覆盖背景/问题、核心概念或事实、结构化展开、方法或应用、总结/下一步中的适用部分。",
+                "page_roles": "每页只承担一个核心结论，明确与前后页的关系；封面和目录不得吞掉正文内容。",
+            },
+        }
         evidence = []
-        timeout_token = set_active_llm_timeout(PPT_PAGE_LLM_TIMEOUT_SECONDS)
+        timeout_token = set_active_llm_timeout(PPT_OUTLINE_LLM_TIMEOUT_SECONDS)
+        output_token = set_active_max_output_tokens(PPT_OUTLINE_MAX_OUTPUT_TOKENS)
+        effort_token = set_active_reasoning_effort(PPT_OUTLINE_REASONING_EFFORT)
         token = set_active_llm_config(llm_config)
+        model_name = str(getattr(llm_config, "model", "") or "")
+        recovery_reason = ""
         try:
-            try:
-                markdown = _retry_llm_call(
-                    lambda: run_specialist_agent("ppt_outline_agent", prompt, evidence)
+            markdown = ""
+            items: List[Dict[str, Any]] = []
+            min_acceptable = min_pages
+            attempt = 0
+            while True:
+                try:
+                    markdown = _retry_llm_call(
+                        lambda: run_specialist_agent(
+                            "ppt_outline_agent",
+                            json.dumps(prompt_payload, ensure_ascii=False),
+                            evidence,
+                        ),
+                        max_retries=PPT_OUTLINE_LLM_MAX_RETRIES,
+                    )
+                except HTTPException as exc:
+                    if not _is_recoverable_outline_error(exc):
+                        raise
+                    recovery_reason = _safe_error_message(exc)
+                    logger.warning(
+                        "PPT outline model unavailable provider=%s model=%s; recovering from source material: %s",
+                        getattr(llm_config, "provider", ""),
+                        model_name,
+                        recovery_reason,
+                    )
+                    markdown = ""
+                    items = []
+                    break
+                except Exception as exc:
+                    # 连接类故障可以依据原始资料恢复；普通运行时错误应明确返回
+                    # 网关错误，不能静默生成一份看似成功但质量不可控的大纲。
+                    if not isinstance(exc, (ConnectionError, TimeoutError)):
+                        raise HTTPException(
+                            status_code=502,
+                            detail=f"PPT 大纲无法从模型或原始资料中恢复：{_safe_error_message(exc)}",
+                        ) from exc
+                    recovery_reason = _safe_error_message(exc)
+                    logger.warning(
+                        "PPT outline model call failed provider=%s model=%s; recovering from source material: %s",
+                        getattr(llm_config, "provider", ""),
+                        model_name,
+                        recovery_reason,
+                    )
+                    markdown = ""
+                    items = []
+                    break
+                items = _normalize_outline_topic_items(_outline_items(markdown), topic)
+                items, coverage_repaired = _repair_material_outline_coverage(
+                    items, source, topic, max_pages
                 )
-            except HTTPException:
-                raise
-            except Exception as exc:
-                logger.exception("ppt outline generation failed")
-                raise HTTPException(
-                    status_code=502,
-                    detail=f"PPT 大纲模型调用失败：{_safe_error_message(exc)}",
-                ) from exc
+                if coverage_repaired:
+                    markdown = _outline_markdown_from_items(items, topic)
+                depth_deficits = _outline_depth_deficits(items) if topic_only else []
+                if (
+                    len(items) >= min_acceptable and not depth_deficits
+                ) or attempt >= PPT_OUTLINE_MAX_RETRIES:
+                    break
+                attempt += 1
+                logger.warning(
+                    "PPT outline 质量不足（页数=%d/%d，薄弱页面=%s），带纠正提示重试（第 %d/%d 次）",
+                    len(items),
+                    min_acceptable,
+                    ",".join(depth_deficits[:6]) or "无",
+                    attempt,
+                    PPT_OUTLINE_MAX_RETRIES,
+                )
+                corrections = []
+                if len(items) < min_acceptable:
+                    corrections.append(
+                        f"上次输出只有 {len(items)} 页，少于下限 {min_acceptable} 页；请展开到 {min_acceptable}-{max_pages} 页。"
+                    )
+                if depth_deficits:
+                    corrections.append(
+                        "以下页面内容过薄："
+                        + "、".join(depth_deficits[:6])
+                        + "。每页至少补足 3 条具体核心内容和 2 个页面节点，节点必须包含标题及面向观众的说明。"
+                    )
+                prompt_payload["correction"] = "".join(corrections) + (
+                    "逐页使用 ### 第N页 编号，不得合并页面，不得只输出章节标题或一句概括。"
+                )
+            # 重试后仍不足两条：先把单页的要点拆成逐页；主题模式再用通用结构补齐，
+            # 避免把“只有一个主题”误判成模型不可恢复。该结构只补充内容组织方式，
+            # 不添加具体事实。
+            if len(items) < 2:
+                items = _expand_single_page_outline(items, topic)
+                if len(items) >= 2:
+                    markdown = _outline_markdown_from_items(items, topic)
+            if topic_only and len(items) < min_acceptable:
+                recovery_reason = recovery_reason or f"主题模式模型仅返回 {len(items)} 页，已按主题扩展为可编辑结构"
+                items = _topic_outline_items(
+                    topic,
+                    min_acceptable,
+                    max_pages,
+                    audience=str(request.get("audience") or "通用受众"),
+                    tone=str(request.get("tone") or "简洁清晰"),
+                    seed_items=items,
+                )
+                markdown = _outline_markdown_from_items(items, topic)
+            if len(items) < 2:
+                recovery_reason = recovery_reason or f"模型仅返回 {len(items)} 页，无法形成可编辑大纲"
+                items = _source_outline_items(source, topic, max_pages)
+                if len(items) < 2:
+                    raise HTTPException(
+                        status_code=502,
+                        detail=f"PPT 大纲无法从模型或原始资料中恢复：{recovery_reason}",
+                    )
+                markdown = _outline_markdown_from_items(items, topic)
+            if not topic_only:
+                items, coverage_repaired = _repair_material_outline_coverage(
+                    items, source, topic, max_pages
+                )
+                if coverage_repaired:
+                    markdown = _outline_markdown_from_items(items, topic)
         finally:
             reset_active_llm_config(token)
+            reset_active_reasoning_effort(effort_token)
             reset_active_llm_timeout(timeout_token)
-        return {
+            reset_active_max_output_tokens(output_token)
+        result = {
             "outlineId": f"outline_{uuid.uuid4().hex}",
             "title": topic,
-            "items": _outline_items(markdown),
+            "items": items,
             "outlineMarkdown": markdown,
         }
+        if recovery_reason:
+            if topic_only:
+                result["generationMode"] = "topic_recovery"
+                result["warnings"] = ["模型未按目标页数展开，已依据主题补齐可编辑大纲结构；未添加具体未提供事实。"]
+            else:
+                result["generationMode"] = "source_recovery"
+                result["warnings"] = ["模型服务暂时不可用，已依据上传资料生成可编辑大纲；内容未补造事实。"]
+        else:
+            result["generationMode"] = "ai"
+        return result
 
     def generate_slides(
         self,
@@ -236,6 +842,7 @@ class PptGenerationService:
         llm_config: Any,
         user_id: str = "",
         progress_callback: Optional[Callable[[Mapping[str, Any]], None]] = None,
+        task_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         outline = request.get("outline")
         if not isinstance(outline, Mapping):
@@ -247,6 +854,12 @@ class PptGenerationService:
         if not items:
             raise HTTPException(status_code=422, detail="outline.items 不能为空")
         settings = request.get("settings") if isinstance(request.get("settings"), Mapping) else {}
+        # 受众/语气参数化：注入 settings，随内容提示词传给模型
+        content_settings = dict(settings)
+        if request.get("audience"):
+            content_settings["audience"] = str(request.get("audience"))
+        if request.get("tone"):
+            content_settings["tone"] = str(request.get("tone"))
         template_id = template_for_settings(settings, self._embedded_config.default_template)
         if not self._template_catalog.contains(template_id):
             template_id = self._embedded_config.default_template
@@ -257,16 +870,82 @@ class PptGenerationService:
             for layout in template_payload.get("layouts") or []
             if isinstance(layout, Mapping) and str(layout.get("id") or "").strip()
         }
+        safe_layout_catalog = [
+            summary
+            for summary in layout_catalog
+            if self._layout_is_generation_safe(
+                template_id,
+                str(summary.get("id") or ""),
+                layouts_by_id.get(str(summary.get("id") or "")) or {},
+            )
+        ]
+        if safe_layout_catalog:
+            excluded_layouts = [
+                str(summary.get("id") or "")
+                for summary in layout_catalog
+                if summary not in safe_layout_catalog
+            ]
+            if excluded_layouts:
+                logger.warning(
+                    "PPT generation excluded layouts with unusable title geometry: %s",
+                    excluded_layouts,
+                )
+            layout_catalog = safe_layout_catalog
+        # 容量感知（第 24 节）：给版式匹配模型注入每版式容量提示，
+        # 让"几卡片内容"匹配"几卡片版式"，而不是硬塞
+        for summary in layout_catalog:
+            summary_id = str(summary.get("id") or "")
+            layout_model = self._layout_model(template_id, summary_id, layouts_by_id.get(summary_id) or {})
+            if layout_model is None:
+                continue
+            body_chars = [
+                element.constraint.hard_max_chars
+                for elements in layout_model.elements.values()
+                for element in elements
+                if element.constraint and element.role in {"body", "card"}
+            ]
+            summary["capacityHints"] = {
+                # card_groups is split by semantic role (title/body/value),
+                # so its dictionary length is not the number of visual cards.
+                # Use the largest repeated semantic group as the actual card
+                # capacity consumed by the structure selector.
+                "cards": max(
+                    (len(members) for members in layout_model.card_groups.values()),
+                    default=0,
+                ),
+                "maxBodyChars": max(body_chars) if body_chars else 0,
+                "slotCount": sum(len(values) for values in layout_model.elements.values()),
+                "semanticSlotCount": sum(
+                    1
+                    for elements in layout_model.elements.values()
+                    for element in elements
+                    if element.element_type in {"text", "text-list"} and element.mutable_text
+                ),
+                "requiresNumericData": any(
+                    element.semantic_role in {"metric_value", "card_value"}
+                    for elements in layout_model.elements.values()
+                    for element in elements
+                ),
+            }
         structure_prompt = json.dumps({
             "presentonStructureRules": PRESENTON_STRUCTURE_RULES,
             "templateId": template_id,
             "slideCount": len(items),
             "layouts": layout_catalog,
             "outline": items,
-            "settings": dict(settings),
+            "settings": content_settings,
             "userInstructions": str(request.get("sharedPrompt") or request.get("instructions") or ""),
+            "slideInstructions": [
+                {
+                    "index": index + 1,
+                    "privatePrompt": str(item.get("privatePrompt") or ""),
+                }
+                for index, item in enumerate(items)
+                if isinstance(item, Mapping) and str(item.get("privatePrompt") or "").strip()
+            ],
         }, ensure_ascii=False)
-        timeout_token = set_active_llm_timeout(PPT_PAGE_LLM_TIMEOUT_SECONDS)
+        timeout_token = set_active_llm_timeout(PPT_OUTLINE_LLM_TIMEOUT_SECONDS)
+        output_token = set_active_max_output_tokens(PPT_STRUCTURE_MAX_OUTPUT_TOKENS)
         token = set_active_llm_config(llm_config)
         try:
             try:
@@ -302,15 +981,22 @@ class PptGenerationService:
         finally:
             reset_active_llm_config(token)
             reset_active_llm_timeout(timeout_token)
+            reset_active_max_output_tokens(output_token)
         enriched_slides: List[Dict[str, Any]] = []
         generation_warnings: List[str] = []
         valid_layout_ids = {str(item["id"]) for item in layout_catalog}
         selected_layouts = [
-            value if value in valid_layout_ids else _select_layout_fallback(
-                layout_catalog, items[index - 1], index, len(items)
-            )
-            for index, value in enumerate(selected_layouts, start=1)
+            value if value in valid_layout_ids else ""
+            for value in selected_layouts
         ]
+        # LLM 版式选择是首选，但不能让一次重复/漏页输出把整份 PPT
+        # 退化成同一张模板。这里仅在缺失、非法或相邻重复时做确定性
+        # 修正，保留强语义页（表格、图表、封面、总结）的模型选择。
+        selected_layouts = _rebalance_layout_choices(
+            selected_layouts,
+            layout_catalog,
+            items,
+        )
         if progress_callback:
             progress_callback({
                 "stage": "writing",
@@ -328,20 +1014,24 @@ class PptGenerationService:
                 enriched_slides = self._generate_presenton_ui_slides(
                     outline=outline,
                     items=items,
-                    settings=settings,
+                    settings=content_settings,
                     template_id=template_id,
                     selected_layouts=selected_layouts,
                     layouts_by_id=layouts_by_id,
                     shared_prompt=str(request.get("sharedPrompt") or ""),
                     source=source,
                     llm_config=llm_config,
+                    task_id=task_id,
                     progress_callback=progress_callback,
                 )
             except Exception as exc:
                 logger.exception("ppt content UI generation failed")
                 raise HTTPException(
                     status_code=502,
-                    detail="PPT 内容模型未返回符合 Presenton UI Schema 的完整页面，请重试",
+                    detail=(
+                        "PPT 内容模型未返回符合 Presenton UI Schema 的完整页面："
+                        + _safe_error_message(exc)
+                    ),
                 ) from exc
         slides = []
         fallback_count = sum(
@@ -361,7 +1051,10 @@ class PptGenerationService:
                 and bool(settings.get("includeVisuals"))
                 and bool(str(enriched.get("visualPrompt") or "").strip())
             )
-            points = enriched.get("content") or item.get("keyPoints") or item.get("content") or []
+            # 页面正文只接受内容智能体或用户明确输入的 content。
+            # 不能再把 outline.keyPoints 静默降级成最终页面正文，否则生成失败时
+            # 页面会看起来像“把大纲直接做成了 PPT”。
+            points = enriched.get("content") or item.get("content") or []
             if isinstance(points, str):
                 points = [line.strip(" -") for line in points.splitlines() if line.strip()]
             slides.append({
@@ -373,7 +1066,10 @@ class PptGenerationService:
                 "layout": selected_layouts[index - 1],
                 "templateLayoutId": selected_layouts[index - 1],
                 "privatePrompt": str(item.get("privatePrompt") or ""),
-                "speakerNote": str(enriched.get("speakerNote") or ""),
+                "speakerNote": str(
+                    enriched.get("speakerNote")
+                    or _fallback_speaker_note(enriched, item)
+                ),
                 "visualPrompt": str(enriched.get("visualPrompt") or ""),
                 "imagePath": str(enriched.get("imagePath") or ""),
                 "imageMode": image_mode,
@@ -385,11 +1081,51 @@ class PptGenerationService:
                 # The renderer receives the complete Presenton UI tree. No
                 # application-side slot or coordinate hydration is performed.
                 "ui": copy.deepcopy(enriched.get("ui") if isinstance(enriched.get("ui"), Mapping) else {}),
+                "_qa": copy.deepcopy(enriched.get("_qa")) if isinstance(enriched.get("_qa"), Mapping) else {},
+                "_unknownElementIds": list(enriched.get("_unknownElementIds") or []),
             })
+        # 跨页一致性 + QA 报告（第 62-64、78-79 节）。
+        # 未走修复闭环的页面（大纲兜底填充）也补一次只读校验，保证报告完整。
+        models_by_layout: Dict[str, SlideLayoutModel] = {}
+        for lid, layout_json in layouts_by_id.items():
+            model = self._layout_model(template_id, lid, layout_json)
+            if model is not None:
+                models_by_layout[lid] = model
+        for index, slide in enumerate(slides, start=1):
+            if slide.get("_qa") or not isinstance(slide.get("ui"), Mapping):
+                continue
+            model = models_by_layout.get(str(slide.get("templateLayoutId") or ""))
+            if model is None:
+                continue
+            try:
+                validation = validate_slide(slide["ui"], model)
+                slide["_qa"] = {
+                    "layoutId": str(slide.get("templateLayoutId") or ""),
+                    "semanticType": str(slide.get("type") or ""),
+                    "contentLength": sum(len(str(p)) for p in (slide.get("content") or []) if p),
+                    "validationErrors": [issue.error_type for issue in validation.issues],
+                    "repairCount": 0,
+                    "finalStatus": "clean" if not validation.has_errors else "partial",
+                    "repairHistory": [],
+                    "densityLevel": validation.density_level,
+                    "fillRatio": validation.fill_ratio,
+                }
+            except Exception as exc:
+                logger.warning("PPT slide %d QA validation failed: %s", index, _safe_error_message(exc))
+        consistency_issues = validate_presentation(slides, models_by_layout)
+        if consistency_issues:
+            logger.warning("PPT presentation consistency issues: %s", consistency_issues)
+        qa_report = build_qa_report(slides, consistency_issues, models_by_layout, template_id)
+        report_path = write_qa_report(qa_report, template_id)
+        logger.debug("PPT QA report:\n%s", qa_report)
         return {
             "slides": slides,
-            "sharedPrompt": str(request.get("sharedPrompt") or "简洁、清晰、适合学生复习"),
+            "sharedPrompt": str(request.get("sharedPrompt") or "简洁、清晰"),
             "warnings": generation_warnings,
+            "qa": {
+                "consistencyIssues": consistency_issues,
+                "reportPath": report_path or "",
+            },
             # Keep the historical response field for existing clients. The
             # actual decision now comes from Presenton structure JSON above.
             "layoutMarkdown": _selected_layouts_markdown(selected_layouts, items),
@@ -404,7 +1140,7 @@ class PptGenerationService:
         """Queue per-slide AI generation and return immediately.
 
         This task ends after complete Presenton UI JSON is available. The later
-        `/tasks` endpoint still owns HTML/PDF/PPTX rendering, so the client can
+        `/tasks` endpoint still owns HTML/PPTX rendering, so the client can
         edit the generated pages between these two phases.
         """
         outline = request.get("outline")
@@ -430,16 +1166,15 @@ class PptGenerationService:
             "processingSlides": [],
             "createdAt": now,
             "updatedAt": now,
+            "deadlineAt": self._deadline_ms(PPT_TASK_TIMEOUT_SECONDS),
             "outline": copy.deepcopy(dict(outline)),
             "slides": [],
-            "sourceName": str(request.get("sourceName") or "复习资料 PPT"),
+            "sourceName": str(request.get("sourceName") or "演示文稿"),
             "sharedPrompt": str(request.get("sharedPrompt") or ""),
             "settings": copy.deepcopy(request.get("settings") or {}),
             "error": None,
         }
-        with self._lock:
-            self._tasks[task_id] = task
-            self._task_store.put(task)
+        self._register_task(task)
         self._executor.submit(
             self._execute_slides_task,
             task_id,
@@ -454,6 +1189,97 @@ class PptGenerationService:
             "completedSlides": 0,
             "remainingSlides": len(items),
         }
+
+    def create_outline_task(
+        self,
+        user_id: str,
+        request: Mapping[str, Any],
+        llm_config: Any,
+    ) -> Dict[str, Any]:
+        """Queue outline generation so the HTTP request never carries an LLM wait."""
+        if not str(request.get("sourceContent") or request.get("sourceFileId") or "").strip():
+            raise HTTPException(status_code=422, detail="sourceContent 和 sourceFileId 不能同时为空")
+        task_id = f"ppt_task_{uuid.uuid4().hex}"
+        now = int(time.time() * 1000)
+        task = {
+            "taskId": task_id,
+            "kind": "outline_generation",
+            "userId": user_id,
+            "status": "queued",
+            "progress": 0,
+            "stage": "queued",
+            "message": "大纲生成已进入队列",
+            "createdAt": now,
+            "updatedAt": now,
+            "deadlineAt": self._deadline_ms(PPT_OUTLINE_TASK_TIMEOUT_SECONDS),
+            "sourceName": str(request.get("sourceName") or "演示文稿"),
+            "outline": {},
+            "items": [],
+            "outlineMarkdown": "",
+            "error": None,
+        }
+        self._register_task(task)
+        self._executor.submit(
+            self._execute_outline_task,
+            task_id,
+            copy.deepcopy(dict(request)),
+            llm_config,
+            user_id,
+        )
+        return {"taskId": task_id, "status": "queued", "progress": 0}
+
+    def _execute_outline_task(
+        self,
+        task_id: str,
+        request: Dict[str, Any],
+        llm_config: Any,
+        user_id: str,
+    ) -> None:
+        try:
+            if self._task_is_stopped(task_id):
+                return
+            self._update(
+                task_id,
+                status="running",
+                stage="outline",
+                progress=8,
+                message="正在分析资料并生成大纲",
+            )
+            result = self.generate_outline(request, llm_config, user_id)
+            if self._task_is_stopped(task_id):
+                return
+            items = result.get("items") or []
+            self._update(
+                task_id,
+                status="completed",
+                stage="completed",
+                progress=100,
+                message=(
+                    "大纲生成完成（已依据上传资料恢复）"
+                    if result.get("generationMode") == "source_recovery"
+                    else "大纲生成完成"
+                ),
+                title=result.get("title") or "演示文稿",
+                items=items,
+                outline=result,
+                outlineMarkdown=result.get("outlineMarkdown") or "",
+                generationMode=result.get("generationMode") or "ai",
+                warnings=result.get("warnings") or [],
+            )
+        except PptTaskStopped:
+            return
+        except Exception as exc:
+            if self._task_is_stopped(task_id):
+                return
+            logger.exception("async PPT outline generation failed")
+            self._update(
+                task_id,
+                status="failed",
+                stage="failed",
+                progress=100,
+                message="大纲生成失败",
+                error={"type": exc.__class__.__name__, "message": _safe_error_message(exc)},
+            )
 
     def _execute_slides_task(
         self,
@@ -481,6 +1307,7 @@ class PptGenerationService:
                 llm_config,
                 user_id,
                 progress_callback=report,
+                task_id=task_id,
             )
             if self._is_cancelled(task_id):
                 return
@@ -502,6 +1329,8 @@ class PptGenerationService:
                 processingSlides=[],
             )
         except Exception as exc:
+            if self._task_is_stopped(task_id):
+                return
             logger.exception("async PPT slide generation failed")
             self._update(
                 task_id,
@@ -524,6 +1353,7 @@ class PptGenerationService:
         shared_prompt: str,
         source: str,
         llm_config: Any,
+        task_id: Optional[str] = None,
         progress_callback: Optional[Callable[[Mapping[str, Any]], None]] = None,
     ) -> List[Dict[str, Any]]:
         """Generate Presenton UI trees in batches of PPT_CONTENT_BATCH_SIZE pages.
@@ -540,6 +1370,8 @@ class PptGenerationService:
         ]
 
         def _generate_batch(indices: List[int]) -> List[Dict[str, Any]]:
+            if self._task_is_stopped(task_id):
+                raise PptTaskStopped()
             batch_layout_ids = [selected_layouts[i] for i in indices]
             unique_layouts: List[Dict[str, Any]] = []
             seen: set[str] = set()
@@ -549,26 +1381,61 @@ class PptGenerationService:
                 if lid not in seen:
                     seen.add(lid)
                     batch_layouts_by_id[lid] = copy.deepcopy(layouts_by_id.get(lid) or {})
+                schema = self._template_catalog.component_schema(
+                    batch_layouts_by_id[lid].get("components") or []
+                )
+                # 容量注入：把每槽位的建议/硬上限/行数告诉模型（第 57 节），
+                # 让 AI 先按容量写内容，而不是写完再塞；role 告诉模型
+                # 每个槽位的排布语义（标题/正文/卡片/标签），内容按位就座
+                layout_model = self._layout_model(template_id, lid, batch_layouts_by_id[lid])
+                if layout_model is not None:
+                    for entry in schema:
+                        element = layout_model.element(
+                            str(entry.get("name") or ""),
+                            int(entry.get("occurrence") or 0),
+                        )
+                        if element is None:
+                            continue
+                        entry["role"] = element.role
+                        entry["semanticRole"] = element.semantic_role
+                        entry["contentContract"] = semantic_content_contract(element.semantic_role)
+                        constraint = element.constraint
+                        if constraint is not None:
+                            entry["capacity"] = {
+                                "recommendedChars": constraint.recommended_chars,
+                                "hardMaxChars": constraint.hard_max_chars,
+                                "maxLines": constraint.max_lines,
+                                "charsPerLine": round(constraint.chars_per_line),
+                            }
                 unique_layouts.append({
                     "slideIndex": i + 1,
                     "layoutId": lid,
-                    "componentSchema": self._template_catalog._component_schema(
-                        batch_layouts_by_id[lid].get("components") or []
-                    ),
+                    "componentSchema": schema,
                 })
             first, last = indices[0] + 1, indices[-1] + 1
             count = len(indices)
             batch_source = _source_segment(
                 source, indices[0], total, max_chars=PPT_BATCH_SOURCE_MAX_CHARS
             )
+            current_slides = []
+            for i in indices:
+                slide = dict(items[i]) if isinstance(items[i], Mapping) else {}
+                slide["sourceMaterial"] = _source_for_outline_item(
+                    source,
+                    slide,
+                    i,
+                    total,
+                    max_chars=min(PPT_BATCH_SOURCE_MAX_CHARS, 6_000),
+                )
+                current_slides.append(slide)
             payload = {
-                "title": str(outline.get("title") or "复习资料 PPT"),
+                "title": str(outline.get("title") or "演示文稿"),
                 # 全量大纲瘦身成标题行：批次上下文只需脉络，细节在 currentSlides
                 "outline": [
                     {"index": i + 1, "title": str(items[i].get("title") or ""), "type": str(items[i].get("type") or "")}
                     for i in range(total) if isinstance(items[i], Mapping)
                 ],
-                "currentSlides": [items[i] for i in indices],
+                "currentSlides": current_slides,
                 "settings": dict(settings),
                 "templateId": template_id,
                 "selectedLayouts": unique_layouts,
@@ -578,27 +1445,64 @@ class PptGenerationService:
                     "不要返回完整的 layout JSON，只返回 componentContent：每页一个扁平映射，"
                     "键为组件 name，值为文本字符串（表格用 {columns:[...], rows:[...]}，"
                     "图表用 {categories:[...], series:[...]}）。"
+                    "同名组件按 occurrence 顺序返回字符串数组，例如 card_title:[\"结论一\",\"结论二\"]；"
+                    "数组缺少的 occurrence 由系统按大纲回填，不能把第一个卡片内容复制到所有卡片。"
+                    "componentContent 的键必须覆盖 schema 中所有可编辑语义槽位；"
+                    "metric_value 只能填单行可信数值，metric_label 只能填短名词，"
+                    "metric_description 只能填短句，card_title 只能填短标题，"
+                    "body/card_body/bullet_body 才能填正文或要点。"
+                    "不要把普通正文塞进 metric_value、metric_label、badge、author 或 date；"
+                    "漏填指标槽位时不要编造数字，系统会记录缺失并由版式选择处理。"
+                    "每个槽位按 componentSchema 里的 capacity 控制字数："
+                    "正文/卡片正文建议 recommendedChars 字、绝对不超过 hardMaxChars 字、最多 maxLines 行；"
+                    "内容放不下时先精简/合并要点，严禁超出硬上限。"
+                    "每页还需附带 speakerNote 字段：面向演讲者的 1-2 句口语化讲解提示"
+                    "（讲这一页时口头说什么、强调什么），不是页面展示文字。"
+                    "内容表达要贴合 settings 里的受众（audience）与语气（tone）："
+                    "面向领导/客户要结论前置、突出价值；面向学生要解释清晰、循序渐进。"
+                    "标题不得使用第N页、本页内容等空标题；正文优先3-5条互不重复、"
+                    "平行结构的要点，每条只表达一个信息，不要把演讲稿整段复制到页面。"
+                    "visualPrompt 只能描述与本页结论直接相关的主体或场景，禁止图片内文字、"
+                    "数字、Logo 和 UI 截图。"
+                    "若 slideInstructions 中存在当前页 privatePrompt，必须将其作为该页的内容、配图和重点约束；"
+                    "privatePrompt 只影响对应页，不能覆盖资料事实和模板几何。"
                 ),
                 "sharedPrompt": shared_prompt,
+                "slideInstructions": [
+                    {
+                        "index": i + 1,
+                        "privatePrompt": str(items[i].get("privatePrompt") or ""),
+                    }
+                    for i in indices
+                    if str(items[i].get("privatePrompt") or "").strip()
+                ],
                 "sourceMaterial": batch_source,
             }
 
-            def _call() -> str:
+            def _call(request_payload: Mapping[str, Any] = payload) -> str:
+                if self._task_is_stopped(task_id):
+                    raise PptTaskStopped()
                 timeout_token = set_active_llm_timeout(PPT_PAGE_LLM_TIMEOUT_SECONDS)
+                output_token = set_active_max_output_tokens(PPT_CONTENT_MAX_OUTPUT_TOKENS)
                 content_token = set_active_llm_config(llm_config)
+                effort_token = set_active_reasoning_effort(PPT_CONTENT_REASONING_EFFORT)
                 try:
                     # 资料已通过 payload.sourceMaterial 全量进入 user_input；
                     # 不再放 evidence（会被截断到 1200 字符，纯浪费 token）
                     return run_specialist_agent(
                         "ppt_content_agent",
-                        json.dumps(payload, ensure_ascii=False),
+                        json.dumps(request_payload, ensure_ascii=False),
                         [],
                     )
                 finally:
+                    reset_active_reasoning_effort(effort_token)
                     reset_active_llm_config(content_token)
                     reset_active_llm_timeout(timeout_token)
+                    reset_active_max_output_tokens(output_token)
 
             content_answer = _retry_llm_call(_call)
+            if self._task_is_stopped(task_id):
+                raise PptTaskStopped()
             normalized = _sanitize_content_payload(
                 json.loads(content_answer),
                 batch_layout_ids,
@@ -606,7 +1510,82 @@ class PptGenerationService:
                 len(indices),
                 [items[i] for i in indices],
             )
-            return normalized["slides"]
+            quality_flags = [
+                _content_quality_flags(
+                    normalized["slides"][offset],
+                    items[slide_index],
+                )
+                for offset, slide_index in enumerate(indices)
+            ]
+            if PPT_CONTENT_QUALITY_REPAIR and any(quality_flags):
+                # 只有检测到“目标/大纲式正文”时才追加一次质量修复，避免每页无条件
+                # 增加模型调用；修复仍沿用同一资料、版式 schema 和事实边界。
+                correction_payload = copy.deepcopy(payload)
+                correction_payload["contentQualityCorrection"] = (
+                    "以下 draftSlides 的 content 过于像大纲或页面目标。请重新生成页面正文："
+                    "每条都要从 sourceMaterial 展开实际定义、原理、关系、公式、步骤结果、"
+                    "资料中的例子或具体对比；不要写本页介绍/本页目标/梳理要点等元话语，"
+                    "不要原样复制 keyPoints。componentContent 的 body/card 槽也同步改成展开后的正文。"
+                )
+                correction_payload["draftSlides"] = [
+                    {
+                        "index": slide.get("index"),
+                        "title": slide.get("title"),
+                        "content": slide.get("content"),
+                        "componentContent": (
+                            raw.get("componentContent")
+                            if isinstance(raw, Mapping)
+                            else None
+                        ),
+                    }
+                    for slide, raw in zip(
+                        normalized["slides"],
+                        (json.loads(content_answer).get("slides") or []),
+                    )
+                ]
+                corrected_answer = _retry_llm_call(
+                    lambda: _call(correction_payload),
+                    max_retries=0,
+                )
+                corrected = _sanitize_content_payload(
+                    json.loads(corrected_answer),
+                    batch_layout_ids,
+                    batch_layouts_by_id,
+                    len(indices),
+                    [items[i] for i in indices],
+                )
+                corrected_flags = [
+                    _content_quality_flags(
+                        corrected["slides"][offset],
+                        items[slide_index],
+                    )
+                    for offset, slide_index in enumerate(indices)
+                ]
+                if sum(bool(flags) for flags in corrected_flags) <= sum(bool(flags) for flags in quality_flags):
+                    normalized = corrected
+            # 模板合同执行：校验 → 修复（内容优先，几何只还原）→ QA 元数据。
+            # 单页失败不影响其他页；抛错只影响本批次（外层已有整批回退）。
+            enforced: List[Dict[str, Any]] = []
+            for offset, (slide, lid) in enumerate(zip(normalized["slides"], batch_layout_ids)):
+                if self._task_is_stopped(task_id):
+                    raise PptTaskStopped()
+                try:
+                    enforced.append(self._enforce_slide_contract(
+                        slide,
+                        template_id,
+                        lid,
+                        batch_layouts_by_id.get(lid) or {},
+                        llm_config if PPT_ENABLE_CONTENT_REPAIR_LLM else None,
+                        indices[offset] + 1,
+                    ))
+                except Exception as exc:
+                    logger.warning(
+                        "PPT slide %d contract enforcement skipped: %s",
+                        indices[offset] + 1,
+                        _safe_error_message(exc),
+                    )
+                    enforced.append(slide)
+            return enforced
 
         completed = 0
         results: Dict[int, Dict[str, Any]] = {}
@@ -649,12 +1628,16 @@ class PptGenerationService:
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             future_to_batch: Dict[Any, int] = {}
             for batch_idx in range(min(max_workers, len(batches))):
+                if self._task_is_stopped(task_id):
+                    raise PptTaskStopped()
                 active_batches.add(batch_idx)
                 future_to_batch[executor.submit(_generate_batch, batches[batch_idx])] = batch_idx
             report()
             submitted = len(future_to_batch)
             while future_to_batch:
                 for future in as_completed(list(future_to_batch)):
+                    if self._task_is_stopped(task_id):
+                        raise PptTaskStopped()
                     batch_idx = future_to_batch.pop(future)
                     active_batches.discard(batch_idx)
                     try:
@@ -674,6 +1657,8 @@ class PptGenerationService:
                         results[idx] = slide
                         completed += 1
                     if submitted < len(batches):
+                        if self._task_is_stopped(task_id):
+                            raise PptTaskStopped()
                         active_batches.add(submitted)
                         future_to_batch[executor.submit(_generate_batch, batches[submitted])] = submitted
                         submitted += 1
@@ -696,20 +1681,20 @@ class PptGenerationService:
             "message": "任务已进入队列",
             "createdAt": now,
             "updatedAt": now,
+            "deadlineAt": self._deadline_ms(PPT_TASK_TIMEOUT_SECONDS),
             "outline": copy.deepcopy(request.get("outline") or {}),
             "slides": copy.deepcopy(slides),
-            "sourceName": str(request.get("sourceName") or "复习资料 PPT"),
+            "sourceName": str(request.get("sourceName") or "演示文稿"),
             "sharedPrompt": str(request.get("sharedPrompt") or ""),
             "settings": copy.deepcopy(request.get("settings") or {}),
             "exportFormats": list(request.get("exportFormats") or ["pptx"]),
+            "generationWarnings": list(request.get("generationWarnings") or []),
             "previews": [],
             "attachments": [],
             "formatErrors": {},
             "error": None,
         }
-        with self._lock:
-            self._tasks[task_id] = task
-            self._task_store.put(task)
+        self._register_task(task)
         self._executor.submit(self._execute_task, task_id, copy.deepcopy(dict(request)), llm_config)
         return {"taskId": task_id, "status": "queued"}
 
@@ -738,7 +1723,7 @@ class PptGenerationService:
 
     def cancel_task(self, user_id: str, task_id: str) -> Dict[str, Any]:
         task = self.get_task(user_id, task_id)
-        if task.get("status") in {"completed", "failed", "cancelled"}:
+        if task.get("status") in _TERMINAL_TASK_STATUSES:
             return task
         self._update(
             task_id,
@@ -777,30 +1762,37 @@ class PptGenerationService:
         slides[slide_index - 1]["imageMode"] = "upload"
         slides[slide_index - 1]["imageStatus"] = "uploaded"
         request = {
-            "sourceName": task.get("sourceName") or "复习资料 PPT",
+            "sourceName": task.get("sourceName") or "演示文稿",
             "outline": task.get("outline") or {},
             "slides": slides,
             "sharedPrompt": task.get("sharedPrompt") or "",
+            "generationWarnings": list(task.get("generationWarnings") or []),
             "settings": {**(task.get("settings") or {}), "imageMode": "placeholder"},
             "exportFormats": task.get("exportFormats") or ["pptx"],
         }
         with self._lock:
             task["slides"] = slides
+            task["userId"] = user_id
             task["status"] = "queued"
             task["progress"] = 0
             task["stage"] = "queued"
+            task["deadlineAt"] = self._deadline_ms(PPT_TASK_TIMEOUT_SECONDS)
             task["error"] = None
             self._task_store.put(task)
             self._tasks[task_id] = task
+            old_timer = self._deadline_timers.pop(task_id, None)
+            if old_timer is not None:
+                old_timer.cancel()
+        self._register_task(task)
         self._executor.submit(self._execute_task, task_id, request, None)
         return self.get_task(user_id, task_id)
 
     def retry_task(self, user_id: str, task_id: str, llm_config: Any) -> Dict[str, Any]:
         task = self.get_task(user_id, task_id)
-        if task.get("status") not in {"failed", "cancelled"}:
-            raise HTTPException(status_code=409, detail="只有失败或已取消的 PPT 任务可以重试")
+        if task.get("status") not in {"failed", "cancelled", "timed_out"}:
+            raise HTTPException(status_code=409, detail="只有失败、超时或已取消的 PPT 任务可以重试")
         return self.create_task(user_id, {
-            "sourceName": task.get("sourceName") or "复习资料 PPT",
+            "sourceName": task.get("sourceName") or "演示文稿",
             "outline": task.get("outline") or {},
             "slides": task.get("slides") or [],
             "sharedPrompt": task.get("sharedPrompt") or "",
@@ -813,37 +1805,43 @@ class PptGenerationService:
             task = self._task_store.get(task_id) or self._tasks.get(task_id)
             if task is None:
                 raise KeyError(task_id)
-            if task.get("status") == "cancelled" and values.get("status") != "cancelled":
+            if task.get("status") in _TERMINAL_TASK_STATUSES and values.get("status") != task.get("status"):
                 return
             task.update(values)
             task["updatedAt"] = int(time.time() * 1000)
             self._tasks[task_id] = task
             self._task_store.put(task)
+            if task.get("status") in _TERMINAL_TASK_STATUSES:
+                timer = self._deadline_timers.pop(task_id, None)
+                if timer is not None:
+                    timer.cancel()
 
     def _resolve_source_text(self, request: Mapping[str, Any], user_id: str) -> str:
         source = str(request.get("sourceContent") or "").strip()
-        if source:
-            return source
-        file_id = str(request.get("sourceFileId") or "").strip()
-        if not file_id:
-            return ""
-        metadata = self._source_files.get_owned(user_id, file_id)
-        if metadata is None:
-            raise HTTPException(status_code=404, detail="PPT 资料文件不存在或已过期")
-        local_path = Path(str(metadata.get("localPath") or "")).resolve()
-        source_root = self._embedded_config.source_root.resolve()
-        if not local_path.is_relative_to(source_root) or not local_path.is_file():
-            raise HTTPException(status_code=404, detail="PPT 资料文件不存在或已过期")
-        try:
-            return extract_source_text(local_path)
-        except PptSourceParseError as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
-        except Exception as exc:
-            logger.exception("embedded PPT source parsing failed")
-            raise HTTPException(
-                status_code=422,
-                detail=f"PPT 资料解析失败：{_safe_error_message(exc)}",
-            ) from exc
+        if not source:
+            file_id = str(request.get("sourceFileId") or "").strip()
+            if file_id:
+                metadata = self._source_files.get_owned(user_id, file_id)
+                if metadata is None:
+                    raise HTTPException(status_code=404, detail="PPT 资料文件不存在或已过期")
+                local_path = Path(str(metadata.get("localPath") or "")).resolve()
+                source_root = self._embedded_config.source_root.resolve()
+                if not local_path.is_relative_to(source_root) or not local_path.is_file():
+                    raise HTTPException(status_code=404, detail="PPT 资料文件不存在或已过期")
+                try:
+                    source = extract_source_text(local_path)
+                except PptSourceParseError as exc:
+                    raise HTTPException(status_code=422, detail=str(exc)) from exc
+                except Exception as exc:
+                    logger.exception("embedded PPT source parsing failed")
+                    raise HTTPException(
+                        status_code=422,
+                        detail=f"PPT 资料解析失败：{_safe_error_message(exc)}",
+                    ) from exc
+        supplement = str(request.get("sourceSupplement") or "").strip()
+        if supplement:
+            source = f"{source}\n\n补充资料或额外要求：\n{supplement}" if source else supplement
+        return source
 
     def _execute_presenton_task(self, task_id: str, request: Dict[str, Any], llm_config: Any = None) -> None:
         try:
@@ -852,12 +1850,14 @@ class PptGenerationService:
                 raise ValueError("slides 至少需要两页")
             outline = request.get("outline") if isinstance(request.get("outline"), Mapping) else {}
             settings = request.get("settings") if isinstance(request.get("settings"), Mapping) else {}
-            raw_title = str(outline.get("title") or request.get("sourceName") or "复习资料 PPT")
-            title = re.sub(r"\.(?:txt|pdf|docx?|pptx?|xlsx?)$", "", raw_title, flags=re.IGNORECASE).strip()
+            raw_title = str(outline.get("title") or request.get("sourceName") or "演示文稿")
+            title = re.sub(r"\.(?:txt|docx?|pptx?|xlsx?)$", "", raw_title, flags=re.IGNORECASE).strip()
             template_id = template_for_settings(settings, self._embedded_config.default_template)
             if not self._template_catalog.contains(template_id):
                 template_id = self._embedded_config.default_template
-            render_settings = {**dict(settings), "templateId": template_id}
+            # 生成产品只交付可编辑 PPTX；页面 PNG 仍作为预览附件保留，
+            # 页面预览和可编辑 PPTX 由同一条 Presenton 渲染链路产出。
+            render_settings = {**dict(settings), "templateId": template_id, "pptxOnly": True}
 
             self._update(
                 task_id,
@@ -867,6 +1867,29 @@ class PptGenerationService:
                 message="正在整理已确认的页面内容",
             )
             if self._is_cancelled(task_id):
+                return
+            slides, qa, _, quality_errors = self._prepare_final_slides(
+                slides,
+                template_id,
+                llm_config,
+                task_id,
+            )
+            request["slides"] = slides
+            if quality_errors:
+                self._update(
+                    task_id,
+                    status="failed",
+                    stage="quality_check",
+                    progress=35,
+                    message="PPT 质量校验未通过，未生成错误文件",
+                    slides=slides,
+                    qa=qa,
+                    error={
+                        "type": "PptQualityError",
+                        "message": "部分页面无法在固定模板内完成排版",
+                        "slides": quality_errors,
+                    },
+                )
                 return
             slides = self._generate_task_images(task_id, slides, llm_config)
             request["slides"] = slides
@@ -878,40 +1901,64 @@ class PptGenerationService:
                 progress=48,
                 message="正在使用内置模板渲染 PPT",
             )
-            pdf_attachment, _, previews, pptx_attachment = render_presenton_html(
+            _, _, previews, pptx_attachment = render_presenton_html(
                 slides,
-                title or "复习资料 PPT",
+                title or "演示文稿",
                 render_settings,
             )
-            attachments = [pdf_attachment]
-            if pptx_attachment:
-                attachments.insert(0, pptx_attachment)
+            attachments = [pptx_attachment] if pptx_attachment else []
             format_errors: Dict[str, str] = {}
-            requested = {str(value).lower() for value in request.get("exportFormats") or ["pptx"]}
-            if "pptx" in requested and not pptx_attachment:
+            requested = {"pptx"}
+            if not pptx_attachment:
                 format_errors["pptx"] = (
-                    "Presenton HTML 渲染已启用；PPTX 需要 Linux 容器内置 presenton-export 转换器。"
+                    "PPTX 转换器不可用，当前任务未生成可下载文件。"
                 )
-            if "pdf" in requested:
-                self._update(
-                    task_id,
-                    stage="exporting",
-                    progress=82,
-                    message="正在生成 PDF 和页面预览",
+            available_types = {
+                str(attachment.get("type") or "").lower()
+                for attachment in attachments
+            }
+            if requested and not (requested & available_types):
+                raise RuntimeError(
+                    "请求的导出格式均未生成："
+                    + ", ".join(sorted(requested))
                 )
-                # PDF and previews are already produced by the Presenton
-                # Chromium renderer above.
+            warnings = [str(value) for value in (request.get("generationWarnings") or []) if str(value).strip()]
+            warnings.extend([
+                f"第{item['slide']}页已自动压缩内容（{item['repairCount']}次修复），请检查预览"
+                for item in (qa.get("repairWarnings") or [])
+            ])
+            warnings.extend(f"{key}: {value}" for key, value in format_errors.items())
+            quality_status = "partial" if warnings or any(
+                isinstance(slide.get("_qa"), Mapping)
+                and str(slide.get("_qa", {}).get("finalStatus") or "") != "clean"
+                for slide in slides
+            ) else "complete"
+            completion_message = (
+                "PPT 已生成，但部分页面或导出结果需要复核"
+                if quality_status == "partial" else "PPT 生成完成"
+            )
+            self._update(
+                task_id,
+                stage="exporting",
+                progress=82,
+                message="正在整理 PPTX 和页面预览",
+            )
             self._update(
                 task_id,
                 status="completed",
                 stage="completed",
                 progress=100,
-                message="PPT 生成完成",
+                message=completion_message,
                 presentationId=f"embedded_{uuid.uuid4().hex}",
                 editorUrl="",
                 attachments=attachments,
                 previews=previews,
                 formatErrors=format_errors,
+                warnings=warnings,
+                qualityStatus=quality_status,
+                requiresReview=quality_status == "partial",
+                slides=slides,
+                qa=qa,
                 engine="presenton-embedded",
                 templateId=template_id,
             )
@@ -1001,35 +2048,678 @@ class PptGenerationService:
         return result
 
     def _is_cancelled(self, task_id: str) -> bool:
-        with self._lock:
-            task = self._task_store.get(task_id) or self._tasks.get(task_id)
-            return bool(task and task.get("status") == "cancelled")
+        return self._task_is_stopped(task_id)
+
+def _fallback_speaker_note(enriched: Mapping[str, Any], outline_item: Mapping[str, Any]) -> str:
+    """模型未返回演讲备注时的程序化兜底（不额外调 LLM，避免拖慢生成）。"""
+    title = str(enriched.get("title") or outline_item.get("title") or "").strip()
+    objective = str(enriched.get("objective") or outline_item.get("objective") or "").strip()
+    points = enriched.get("content") or outline_item.get("keyPoints") or []
+    if isinstance(points, str):
+        points = [line.strip(" -*•") for line in points.splitlines() if line.strip(" -*•")]
+    points = [str(point).strip() for point in points if str(point).strip()][:2]
+    parts = [f"这一页讲{title}" if title else "这一页"]
+    if objective:
+        parts.append(f"，重点说明{objective}")
+    if points:
+        parts.append("，可结合要点展开：" + "、".join(points))
+    return ("".join(parts) + "。").strip()[:500]
+
 
 def _outline_items(markdown: str) -> List[Dict[str, Any]]:
-    matches = list(_PAGE_HEADING.finditer(markdown or ""))
+    standard = list(_PAGE_HEADING.finditer(markdown or ""))
+    if standard:
+        headings = [(match.group(1), match.end()) for match in standard]
+    else:
+        # 模型偶发用内容型标题（### 学校概况）而非编号标题（### 第N页），
+        # 按 ### 二级标题分段兜底，顺序编号，避免整份大纲解析为 0/1 条
+        headings = [
+            (str(index + 1), match.end())
+            for index, match in enumerate(
+                re.finditer(r"^###\s+(?!大纲信息\s*$)(.+)$", markdown or "", flags=re.MULTILINE)
+            )
+        ]
     items: List[Dict[str, Any]] = []
-    for offset, match in enumerate(matches):
-        block = markdown[match.end(): matches[offset + 1].start() if offset + 1 < len(matches) else len(markdown)]
+    for offset, (page_no, block_start) in enumerate(headings):
+        block_end = headings[offset + 1][1] if offset + 1 < len(headings) else len(markdown or "")
+        block = markdown[block_start: block_end]
         fields: Dict[str, str] = {}
         active = ""
+        known_fields = {
+            "页标题", "页面类型", "本页目标", "核心内容", "页面节点", "展示建议", "素材建议",
+            "层级", "大纲层级", "章节", "布局结构", "信息层级", "区域安排", "视觉建议", "素材处理",
+        }
         for raw_line in block.splitlines():
             line = raw_line.strip()
             field = _FIELD.match(line)
-            if field:
+            if field and field.group(1).strip() in known_fields:
                 active = field.group(1).strip()
                 fields[active] = field.group(2).strip()
-            elif active == "核心内容" and line.startswith("-"):
+            elif active in {"核心内容", "页面节点"} and line.startswith("-"):
                 fields[active] = f"{fields.get(active, '')}\n{line.lstrip('- ').strip()}".strip()
         points = [line.strip(" -") for line in fields.get("核心内容", "").splitlines() if line.strip(" -")]
-        items.append({
-            "id": f"slide_{match.group(1)}",
-            "level": 1,
-            "title": fields.get("页标题") or f"第 {match.group(1)} 页",
+        nodes = _parse_outline_nodes(fields.get("页面节点", ""), points)
+        title = fields.get("页标题") or f"第 {page_no} 页"
+        explicit_level = fields.get("层级") or fields.get("大纲层级")
+        item = {
+            "id": f"slide_{page_no}",
+            "level": _parse_outline_level(explicit_level) if explicit_level else _infer_outline_level(title),
+            "title": title,
             "type": fields.get("页面类型") or "content",
             "objective": fields.get("本页目标") or "",
             "keyPoints": points,
-        })
+            "nodes": nodes,
+        }
+        optional_fields = {
+            "chapter": ("章节", "chapter"),
+            "displaySuggestion": ("展示建议",),
+            "assetSuggestion": ("素材建议",),
+            "layoutStructure": ("布局结构",),
+            "informationHierarchy": ("信息层级",),
+            "regionArrangement": ("区域安排",),
+            "visualSuggestion": ("视觉建议",),
+            "assetHandling": ("素材处理",),
+        }
+        for key, names in optional_fields.items():
+            value = next((fields.get(name) for name in names if fields.get(name)), "")
+            if value:
+                item[key] = value
+        items.append(item)
     return items
+
+
+def _parse_outline_level(value: Any) -> int:
+    """Normalize the hierarchy value emitted by the model or an old client."""
+    if isinstance(value, Mapping):
+        value = value.get("level") or value.get("大纲层级") or value.get("层级")
+    text = re.sub(r"\s+", "", str(value or "")).strip().lower()
+    if not text:
+        return 1
+
+    # Models do not always follow the numeric contract. Accept both the UI
+    # labels and the terms used by the outline prompt instead of collapsing
+    # them to chapter level through int("小节") -> 1.
+    aliases = {
+        "章节": 1,
+        "章": 1,
+        "chapter": 1,
+        "section": 1,
+        "一级": 1,
+        "level1": 1,
+        "l1": 1,
+        "小节": 2,
+        "节": 2,
+        "节点": 2,
+        "node": 2,
+        "subsection": 2,
+        "二级": 2,
+        "level2": 2,
+        "l2": 2,
+        "知识点": 3,
+        "要点": 3,
+        "知识节点": 3,
+        "knowledgepoint": 3,
+        "knowledge-point": 3,
+        "三级": 3,
+        "level3": 3,
+        "l3": 3,
+    }
+    if text in aliases:
+        return aliases[text]
+    match = re.search(r"(?:level|lvl|层级|大纲层级)[^123]*([123])", text)
+    if match:
+        return int(match.group(1))
+    match = re.search(r"(?<!\d)([123])(?!\d)", text)
+    if match:
+        return int(match.group(1))
+    if any(token in text for token in ("知识点", "知识节点", "knowledgepoint", "要点")):
+        return 3
+    if any(token in text for token in ("小节", "节点", "subsection", "node")):
+        return 2
+    if any(token in text for token in ("章节", "chapter", "section")):
+        return 1
+    return 1
+
+
+def _normalize_flat_outline_levels(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Give an unnumbered, flat model outline a usable three-level hierarchy."""
+    normalized = [_ensure_outline_item_structure(item) for item in items]
+    if len(normalized) < 2 or not all(item.get("level") == 1 for item in normalized):
+        return normalized
+
+    titles = [str(item.get("title") or "").strip() for item in normalized]
+    # A real numbered/document outline has already been classified by its
+    # headings. Do not rewrite a list that explicitly consists of chapters.
+    if all(
+        re.match(r"^(?:第[一二三四五六七八九十百\d]+[篇章节部分]|\d+[、.．)])", title)
+        for title in titles
+        if title
+    ):
+        return normalized
+
+    for index, item in enumerate(normalized):
+        page_type = str(item.get("type") or "").strip().lower()
+        title = titles[index]
+        if index == 0 or page_type in {"封面页", "目录页", "cover", "catalog"}:
+            item["level"] = 1
+        elif index == len(normalized) - 1 and page_type in {"总结页", "summary"}:
+            item["level"] = 1
+        elif re.search(r"知识点|知识节点|考点|要点|细节|关键概念|机制|方法|应用|案例|辨析", title):
+            item["level"] = 3
+        else:
+            item["level"] = 2
+    return normalized
+
+
+def _infer_outline_level(title: Any) -> int:
+    """Infer chapter/section/knowledge-point level from common DOCX headings."""
+    value = re.sub(r"\s+", "", str(title or "")).strip()
+    if not value:
+        return 1
+    if re.match(r"^第[一二三四五六七八九十百\d]+[篇章节部分]", value):
+        return 1
+    if re.match(r"^\d+\.\d+\.\d+(?:\.|、|．|\)|）|$|(?=[\u4e00-\u9fff]))", value):
+        return 3
+    if re.match(r"^\d+\.\d+(?:\.|、|．|\)|）|$|(?=[\u4e00-\u9fff]))", value):
+        return 2
+    if re.match(r"^\d+(?:、|\.|．|\)|）|(?=[\u4e00-\u9fff]))", value):
+        return 2
+    if re.match(r"^[一二三四五六七八九十百]+[、.．)）]", value):
+        return 2
+    return 1
+
+
+def _outline_depth_deficits(items: List[Dict[str, Any]]) -> List[str]:
+    """Return sparse topic-only pages that deserve one targeted regeneration."""
+    deficits: List[str] = []
+    for index, item in enumerate(items, start=1):
+        points = item.get("keyPoints") or []
+        nodes = item.get("nodes") or []
+        if len(points) < 3 or len(nodes) < 2:
+            title = str(item.get("title") or f"第{index}页").strip()
+            deficits.append(title[:30])
+    return deficits
+
+
+def _parse_outline_nodes(raw: str, points: List[str]) -> List[Dict[str, Any]]:
+    """Read explicit page nodes and retain a useful hierarchy for slide generation."""
+    nodes: List[Dict[str, Any]] = []
+    for index, line in enumerate(str(raw or "").splitlines(), start=1):
+        value = line.strip(" -*•\t")
+        if not value:
+            continue
+        value = re.sub(r"^节点\s*\d*\s*[:：]\s*", "", value).strip()
+        parts = re.split(r"\s*[|｜]\s*|\s*；\s*说明\s*[:：]\s*", value, maxsplit=1)
+        title = parts[0].strip()
+        content = (parts[1] if len(parts) > 1 else title).strip()
+        if title:
+            nodes.append({
+                "id": f"node_{index}",
+                "level": 2,
+                "title": title[:80],
+                "content": content[:400],
+            })
+    if nodes:
+        return nodes[:6]
+    return [
+        {
+            "id": f"node_{index}",
+            "level": 2,
+            "title": str(point).strip()[:36],
+            "content": str(point).strip()[:400],
+        }
+        for index, point in enumerate(points[:6], start=1)
+        if str(point).strip()
+    ]
+
+
+def _outline_nodes_from_points(points: Any) -> List[Dict[str, Any]]:
+    values = points if isinstance(points, list) else [points]
+    return [
+        {
+            "id": f"node_{index}",
+            "level": 2,
+            "title": str(point).strip()[:36],
+            "content": str(point).strip()[:400],
+        }
+        for index, point in enumerate(values, start=1)
+        if str(point).strip()
+    ][:6]
+
+
+def _ensure_outline_item_structure(item: Mapping[str, Any]) -> Dict[str, Any]:
+    """Keep rich outline data through repair, fallback, and frontend round trips."""
+    normalized = dict(item)
+    page_title = str(normalized.get("title") or normalized.get("页标题") or "").strip()
+    points = normalized.get("keyPoints") or normalized.get("content") or []
+    if isinstance(points, str):
+        points = [line.strip(" -*•") for line in points.splitlines() if line.strip(" -*•")]
+    normalized["keyPoints"] = [str(point).strip() for point in points if str(point).strip()][:6]
+    raw_nodes = normalized.get("nodes") or normalized.get("children") or []
+    nodes: List[Dict[str, Any]] = []
+    if isinstance(raw_nodes, list):
+        for index, raw_node in enumerate(raw_nodes, start=1):
+            if isinstance(raw_node, Mapping):
+                node_title = str(raw_node.get("title") or raw_node.get("name") or raw_node.get("节点标题") or "").strip()
+                content = str(raw_node.get("content") or raw_node.get("description") or raw_node.get("说明") or "").strip()
+            else:
+                node_title = str(raw_node or "").strip()
+                content = node_title
+            if node_title or content:
+                nodes.append({
+                    "id": str(raw_node.get("id") or f"node_{index}") if isinstance(raw_node, Mapping) else f"node_{index}",
+                    "level": 2,
+                    "title": (node_title or f"要点{index}")[:80],
+                    "content": (content or node_title)[:400],
+                })
+    normalized["nodes"] = nodes[:6] or _outline_nodes_from_points(normalized["keyPoints"])
+    hierarchy_type = normalized.get("type") if str(normalized.get("type") or "").strip() in {
+        "章节", "小节", "节点", "知识点"
+    } else None
+    explicit_level = (
+        normalized.get("level")
+        or normalized.get("大纲层级")
+        or normalized.get("层级")
+        or hierarchy_type
+    )
+    normalized["level"] = (
+        _parse_outline_level(explicit_level)
+        if explicit_level not in (None, "")
+        else _infer_outline_level(page_title)
+    )
+    return normalized
+
+
+def _source_outline_items(source: str, topic: str, max_pages: int) -> List[Dict[str, Any]]:
+    """从用户资料恢复一个可编辑大纲。
+
+    这是模型不可用时的最后一道数据恢复，不是模板兜底：标题和要点都必须
+    来自用户原文，最多只做分段、去掉列表符号和长度裁剪，不补造事实。
+    """
+    text = str(source or "").replace("\r\n", "\n").replace("\r", "\n").strip()
+    topic_text = str(topic or "演示文稿").strip() or "演示文稿"
+    page_limit = max(2, int(max_pages or 2))
+    if not text:
+        return []
+
+    heading_pattern = re.compile(
+        r"^(?:#{1,6}\s+|第\s*[一二三四五六七八九十百\d]+\s*[章节篇部分]|"
+        r"[一二三四五六七八九十百\d]+[、.．)）]\s*)([^。！？!?]{2,80})$"
+    )
+    raw_lines = [re.sub(r"^\s*[-*•]\s*", "", line).strip() for line in text.splitlines()]
+    raw_lines = [line for line in raw_lines if line]
+    sections: List[Dict[str, Any]] = []
+    current: Optional[Dict[str, Any]] = None
+    for line in raw_lines:
+        match = heading_pattern.match(line)
+        if match:
+            if current:
+                sections.append(current)
+            current = {"title": (match.group(1) or line).strip(), "points": []}
+            continue
+        if current is None:
+            current = {"title": topic_text, "points": []}
+        if len(line) >= 2:
+            current["points"].append(line)
+    if current:
+        sections.append(current)
+
+    # 有明确章节时优先保留章节边界。章节正文为空时仍保留原章节标题，
+    # 这样用户至少能在编辑页继续补充，而不会再次得到空结果。
+    if len(sections) >= 2:
+        sections = sections[:page_limit]
+    else:
+        units = [line for line in raw_lines if line]
+        if not units:
+            return []
+        # 没有章节结构的资料按真实段落/行均分；过长单段按句子或字符切开。
+        if len(units) == 1 and len(units[0]) > 80:
+            sentences = [part.strip() for part in re.split(r"(?<=[。！？!?；;])", units[0]) if part.strip()]
+            units = sentences or [units[0][index:index + 80] for index in range(0, len(units[0]), 80)]
+        target = min(page_limit, max(2, min(5, len(units))))
+        chunk_size = max(1, (len(units) + target - 1) // target)
+        sections = []
+        for index in range(0, len(units), chunk_size):
+            chunk = units[index:index + chunk_size]
+            if not chunk:
+                continue
+            title = topic_text if index == 0 else chunk[0][:30]
+            sections.append({"title": title, "points": chunk})
+        sections = sections[:page_limit]
+
+    items: List[Dict[str, Any]] = []
+    for index, section in enumerate(sections, start=1):
+        title = str(section.get("title") or f"第 {index} 页").strip()[:80]
+        points: List[str] = []
+        for point in section.get("points") or []:
+            value = re.sub(r"^\s*(?:[-*•]|\d+[、.．)）])\s*", "", str(point)).strip()
+            if value and value != title and value not in points:
+                points.append(value[:240])
+        if not points:
+            points = [title]
+        items.append(_ensure_outline_item_structure({
+            "id": f"slide_{index}",
+            "level": _infer_outline_level(title),
+            "title": title,
+            "type": "封面页" if index == 1 else ("总结页" if index == len(sections) else "内容页"),
+            "objective": f"依据资料整理“{title}”的可编辑内容。",
+            "keyPoints": points[:6],
+            "displaySuggestion": "按资料中的信息关系组织正文，避免只保留章节标题。",
+            "assetSuggestion": "优先使用资料中明确出现的结构、流程、表格或图示信息。",
+        }))
+    if len(items) == 1:
+        # 资料正文确实只有一个可识别单元时，保留原内容并增加一个可编辑的整理页，
+        # 避免模型异常时因为“少于两页”直接返回 502；不新增任何资料事实。
+        items.append(_ensure_outline_item_structure({
+            "id": "slide_2",
+            "level": 2,
+            "title": "补充与总结",
+            "type": "总结页",
+            "objective": f"继续围绕“{topic}”整理资料中的重点内容。",
+            "keyPoints": ["根据原始资料补充需要展开的细节和结论。"],
+        }))
+    return items if len(items) >= 2 else []
+
+
+def _normalize_outline_mode(value: Any) -> str:
+    """Normalize the two user-facing outline modes without relying on display text."""
+    # HTTP 的 OutlineRequest 默认值是 ai_outline；这里对旧的内部直接调用保留
+    # original_outline 兼容语义，避免未带新字段的历史任务突然改变生成方式。
+    normalized = str(value if value is not None else "original_outline").strip().lower()
+    if normalized in {"original_outline", "outline", "大纲", "上传大纲"}:
+        return "original_outline"
+    return "ai_outline"
+
+
+def _is_topic_only_outline_request(
+    request: Mapping[str, Any],
+    source: str,
+    topic: str,
+    outline_mode: Optional[str] = None,
+) -> bool:
+    """判断非大纲模式下，输入是否实际上只有一个主题。"""
+    source_text = re.sub(r"\s+", "", str(source or ""))
+    topic_text = re.sub(r"\s+", "", str(topic or ""))
+    if not source_text:
+        return True
+    if topic_text and source_text == topic_text:
+        return True
+    # 上传文件名不能再把短主题强行判成“已有资料”：非大纲模式的职责就是
+    # 让模型围绕主题主动扩展；大纲模式则始终按用户提供的结构处理。
+    if _normalize_outline_mode(outline_mode or request.get("outlineMode")) == "original_outline":
+        return False
+    if _is_generic_outline_topic(topic) and len(source_text) <= PPT_OUTLINE_TOPIC_ONLY_MAX_CHARS:
+        compact_source = source_text.strip("。！？!?；;")
+        if compact_source and not re.search(r"[。！？!?；;]", compact_source):
+            return True
+    if len(source_text) <= PPT_OUTLINE_TOPIC_ONLY_MAX_CHARS and "\n" not in str(source or ""):
+        return not re.search(r"[。！？!?；;]", source_text)
+    return False
+
+
+def _is_generic_outline_topic(value: str) -> bool:
+    normalized = re.sub(r"\s+", "", str(value or "")).strip()
+    normalized = re.sub(r"\.(?:txt|docx?|pptx?|xlsx?)$", "", normalized, flags=re.IGNORECASE)
+    return normalized in {re.sub(r"\s+", "", item) for item in PPT_OUTLINE_GENERIC_TOPICS}
+
+
+def _resolve_outline_topic(
+    request: Mapping[str, Any],
+    source: str,
+    topic: str,
+    topic_only: bool,
+) -> str:
+    """短主题入口使用默认路由名时，恢复用户在资料输入框里的真实主题。"""
+    if not topic_only or not _is_generic_outline_topic(topic):
+        return topic
+    if str(request.get("sourceFileId") or "").strip():
+        return topic
+    candidate = str(source or "").strip().strip("。！？!?；;")
+    if not candidate or len(re.sub(r"\s+", "", candidate)) > PPT_OUTLINE_TOPIC_ONLY_MAX_CHARS:
+        return topic
+    return candidate[:200]
+
+
+def _normalize_outline_topic_items(items: List[Dict[str, Any]], topic: str) -> List[Dict[str, Any]]:
+    """清理模型偶发保留的路由默认标题，确保用户主题贯穿可编辑大纲。"""
+    if not items or _is_generic_outline_topic(topic):
+        return _normalize_flat_outline_levels(items)
+    generic_prefixes = tuple(PPT_OUTLINE_GENERIC_TOPICS)
+    for index, item in enumerate(items):
+        title = str(item.get("title") or "").strip()
+        if not title:
+            continue
+        if index == 0 and _is_generic_outline_topic(title):
+            item["title"] = topic
+            continue
+        if any(title.startswith(prefix) for prefix in generic_prefixes) and any(
+            marker in title for marker in ("补充", "总结", "整理")
+        ):
+            suffix = re.sub(r"^(?:PPT生成|AIPPT|PPT大纲|演示文稿|复习资料|手动输入资料)", "", title).strip(" ：:、-")
+            item["title"] = suffix or "补充与总结"
+    return _normalize_flat_outline_levels(items)
+
+
+def _source_document_title(source: str) -> str:
+    """Recover a document title without treating a chapter as the title."""
+    for raw_line in str(source or "").splitlines():
+        value = re.sub(r"^#+\s*", "", raw_line).strip()
+        if not value or value.startswith("[表格"):
+            continue
+        if len(value) <= 120 and not re.match(
+            r"^(?:第\s*[一二三四五六七八九十百\d]+\s*[章节篇部分]|\d+[.、])",
+            value,
+        ):
+            return value
+    return ""
+
+
+def _source_name_title(source_name: Any) -> str:
+    """Use the uploaded filename as a last-resort title, without its extension."""
+    value = str(source_name or "").strip()
+    if not value:
+        return ""
+    title = Path(value).stem.strip()
+    generic_names = {
+        "source", "file", "document", "资料", "资料文件", "上传资料", "手动输入资料",
+    }
+    return "" if _is_generic_outline_topic(title) or title.lower() in generic_names else title[:120]
+
+
+def _source_chapter_titles(source: str) -> List[str]:
+    """Return top-level chapter headings preserved by the DOCX parser."""
+    titles: List[str] = []
+    for raw_line in str(source or "").splitlines():
+        match = re.match(r"^#\s+(.+?)\s*$", raw_line)
+        if not match:
+            match = re.match(
+                r"^(?:第\s*[一二三四五六七八九十百\d]+\s*[章节篇部分]|\d+[、.．)])\s*(.+)$",
+                raw_line.strip(),
+            )
+        if not match:
+            continue
+        title = str(match.group(1) or "").strip()
+        if title and title not in titles and not title.startswith("表格"):
+            titles.append(title[:80])
+    return titles
+
+
+def _repair_material_outline_coverage(
+    items: List[Dict[str, Any]],
+    source: str,
+    topic: str,
+    max_pages: int,
+) -> tuple[List[Dict[str, Any]], bool]:
+    """Prevent a valid-looking outline from silently dropping whole chapters."""
+    chapters = _source_chapter_titles(source)
+    if not chapters or not items:
+        return items, False
+    haystack = "\n".join(
+        " ".join(str(item.get(key) or "") for key in ("title", "objective", "keyPoints"))
+        for item in items
+    )
+    missing = [chapter for chapter in chapters if chapter not in haystack]
+    changed = False
+
+    if not missing:
+        if items and _is_generic_outline_topic(str(items[0].get("title") or "")) and topic:
+            items[0]["title"] = topic[:80]
+            changed = True
+        return items, changed
+
+    page_limit = max(2, int(max_pages or len(items)))
+    available = max(0, page_limit - len(items))
+    for chapter in missing[:available]:
+        items.insert(max(1, len(items) - 1), {
+            "id": f"slide_{len(items) + 1}",
+            "level": 1,
+            "title": chapter,
+            "type": "内容页",
+            "objective": f"依据原始资料展开“{chapter}”的核心知识。",
+            "keyPoints": [chapter],
+            "nodes": _outline_nodes_from_points([chapter]),
+        })
+        changed = True
+    missing = missing[available:]
+
+    if missing:
+        # A fixed small page count cannot receive one page per chapter. Keep a
+        # real cover, then dedicate the next page to a complete chapter map.
+        target_index = 1 if len(items) > 1 else 0
+        items[target_index].update({
+            "title": "全书章节概览",
+            "type": "目录页",
+            "objective": "展示原始资料的完整章节范围，避免生成结果只覆盖开头内容。",
+            "keyPoints": chapters[:12],
+            "nodes": _outline_nodes_from_points(chapters[:12]),
+        })
+        changed = True
+
+    if items and (not str(items[0].get("title") or "").strip() or _is_generic_outline_topic(str(items[0].get("title") or ""))):
+        items[0]["title"] = topic[:80] or "演示文稿"
+        items[0]["type"] = "封面页"
+        changed = True
+    for index, item in enumerate(items, start=1):
+        item["id"] = f"slide_{index}"
+    return [_ensure_outline_item_structure(item) for item in items], changed
+
+
+def _topic_outline_items(
+    topic: str,
+    min_pages: int,
+    max_pages: int,
+    audience: str = "通用受众",
+    tone: str = "简洁清晰",
+    seed_items: Optional[List[Dict[str, Any]]] = None,
+) -> List[Dict[str, Any]]:
+    """主题模式的最后安全网：补充通用内容结构，不虚构具体事实。"""
+    target = min(max(2, int(min_pages or 2)), max(2, int(max_pages or min_pages or 2)))
+    seed_items = seed_items or []
+    scaffold = [
+        ("主题与背景", "封面页", [f"明确“{topic}”的讨论范围。", "说明本次演示要回答的核心问题。", "交代后续内容的阅读路径。"]),
+        ("核心概念", "内容页", [f"界定“{topic}”相关的关键概念。", "梳理概念之间的基本关系。", "指出最容易混淆的理解边界。"]),
+        ("知识结构", "流程页", [f"围绕“{topic}”组织由整体到局部的知识脉络。", "标出需要重点理解的内容。", "说明各部分之间的递进关系。"]),
+        ("方法与应用", "案例页", [f"说明“{topic}”中的方法如何用于分析或实践。", "整理方法落地时的基本步骤。", "保留具体案例和细节的可编辑位置。"]),
+        ("总结与思考", "总结页", [f"归纳“{topic}”的核心结论。", "列出可继续学习或讨论的问题。", "形成下一步行动或复习路径。"]),
+    ]
+    if target < len(scaffold):
+        scaffold = scaffold[: max(1, target - 1)] + [scaffold[-1]]
+    elif target > len(scaffold):
+        extra_scaffold = [
+            ("重点辨析", "对比页", [f"比较“{topic}”中容易混淆的概念或路径。", "明确不同选择的适用条件。"]),
+            ("实践路径", "流程页", [f"整理学习或应用“{topic}”的基本步骤。", "标出后续可以补充的实践材料。"]),
+        ]
+        while len(scaffold) < target:
+            scaffold.insert(-1, extra_scaffold[(len(scaffold) - 5) % len(extra_scaffold)])
+
+    items: List[Dict[str, Any]] = []
+    for index, (fallback_title, fallback_type, fallback_points) in enumerate(scaffold, start=1):
+        seed = seed_items[index - 1] if index <= len(seed_items) and isinstance(seed_items[index - 1], Mapping) else {}
+        seed_points = [str(point).strip() for point in (seed.get("keyPoints") or []) if str(point).strip()]
+        title = topic if index == 1 else str(seed.get("title") or fallback_title).strip()
+        page_type = "封面页" if index == 1 else ("总结页" if index == len(scaffold) else str(seed.get("type") or fallback_type))
+        points = seed_points[:6] or fallback_points
+        items.append(_ensure_outline_item_structure({
+            "id": f"slide_{index}",
+            "level": 1 if index == 1 or index == len(scaffold) else (
+                3 if re.search(r"知识点|知识节点|考点|要点|机制|方法|应用|案例|辨析", fallback_title) else 2
+            ),
+            "title": title[:80],
+            "type": page_type,
+            "objective": str(seed.get("objective") or f"面向{audience}，以{tone}的方式明确本页需要掌握的重点。"),
+            "keyPoints": points[:6],
+            "displaySuggestion": str(seed.get("displaySuggestion") or "围绕一个核心结论组织 3-5 个信息块，突出层次递进。"),
+            "assetSuggestion": str(seed.get("assetSuggestion") or "根据节点关系选择结构图、流程图或简洁图标。"),
+        }))
+    return items
+
+
+def _expand_single_page_outline(items: List[Dict[str, Any]], topic: str) -> List[Dict[str, Any]]:
+    """模型页数不足时的数据驱动兜底：把单页的要点拆成逐页。
+
+    只使用模型自己产出的要点，不虚构内容；每页承担一个要点。
+    """
+    if len(items) != 1:
+        return items
+    single = items[0]
+    points = [str(point).strip() for point in (single.get("keyPoints") or []) if str(point).strip()]
+    if len(points) < 2:
+        return items
+    title = str(single.get("title") or topic or "演示文稿").strip()
+    expanded: List[Dict[str, Any]] = []
+    for index, point in enumerate(points, start=1):
+        expanded.append(_ensure_outline_item_structure({
+            "id": f"slide_{index}",
+            "level": 1 if index == 1 or index == len(points) else 2,
+            "title": point[:30] if index > 1 else title,
+            "type": "封面页" if index == 1 else ("总结页" if index == len(points) else "内容页"),
+            "objective": str(single.get("objective") or "") if index == 1 else f"展开说明：{point[:50]}",
+            "keyPoints": [point],
+        }))
+    return expanded
+
+
+def _outline_markdown_from_items(items: List[Dict[str, Any]], topic: str) -> str:
+    """从 items 重建大纲 markdown（展开兜底后保持 outlineMarkdown 与 items 一致）。"""
+    lines = [
+        "## PPT 大纲",
+        "",
+        "### 大纲信息",
+        f"- 主题：{topic}",
+        "- 受众：通用受众",
+        f"- 建议页数：{len(items)} 页",
+        f"- 整体目标：围绕 {topic} 建立清晰、连贯的演示结构。",
+        "- 风格建议：简洁、清晰。",
+        "",
+    ]
+    for index, item in enumerate(items, start=1):
+        item = _ensure_outline_item_structure(item)
+        points = item.get("keyPoints") or []
+        nodes = item.get("nodes") or _outline_nodes_from_points(points)
+        lines.extend([
+            f"### 第{index}页",
+            f"- 页标题：{item.get('title') or f'第 {index} 页'}",
+            f"- 大纲层级：{item.get('level') or 1}",
+            f"- 页面类型：{item.get('type') or '内容页'}",
+            f"- 本页目标：{item.get('objective') or '明确本页需要掌握的重点。'}",
+            "- 核心内容：",
+            *[f"  - {point}" for point in points],
+            "- 页面节点：",
+            *[
+                f"  - 节点{node_index}：{node.get('title') or f'要点{node_index}'}｜{node.get('content') or node.get('title') or ''}"
+                for node_index, node in enumerate(nodes, start=1)
+                if isinstance(node, Mapping)
+            ],
+            f"- 展示建议：{item.get('displaySuggestion') or '围绕核心结论组织信息块，控制文字密度并保留清晰层次。'}",
+            f"- 素材建议：{item.get('assetSuggestion') or '根据页面节点关系选择结构图、流程图、图标或简洁配图。'}",
+            *([f"- 布局结构：{item['layoutStructure']}"] if item.get("layoutStructure") else []),
+            *([f"- 信息层级：{item['informationHierarchy']}"] if item.get("informationHierarchy") else []),
+            *([f"- 区域安排：{item['regionArrangement']}"] if item.get("regionArrangement") else []),
+            *([f"- 视觉建议：{item['visualSuggestion']}"] if item.get("visualSuggestion") else []),
+            *([f"- 素材处理：{item['assetHandling']}"] if item.get("assetHandling") else []),
+            "",
+        ])
+    return "\n".join(lines).strip()
 
 
 def _selected_layouts_markdown(selected_layouts: List[str], items: List[Any]) -> str:
@@ -1059,14 +2749,60 @@ def _sanitize_content_payload(
         raw = slides[index] if isinstance(slides[index], Mapping) else {}
         item = dict(raw)
         layout = layouts_by_id.get(selected_layouts[index]) or {}
+        layout_model = parse_slide_layout(layout) if isinstance(layout, Mapping) and layout else None
         item["index"] = index + 1
+        layout_mismatch = item.get("layoutMismatch")
+        if isinstance(layout_mismatch, Mapping) and layout_mismatch.get("fitsLayout") is False:
+            logger.warning(
+                "PPT slide %d AI 报告版式不兼容: %s (recommended=%s)",
+                index + 1,
+                str(layout_mismatch.get("reason") or "")[:200],
+                str(layout_mismatch.get("recommendedSemanticType") or ""),
+            )
         component_content = item.pop("componentContent", None)
         outline_item = current_slides[index] if current_slides and index < len(current_slides) else {}
         if isinstance(component_content, dict) and component_content:
             merged = _merge_content_into_layout(layout, component_content)
             matched = int(merged.pop("_matchedComponents", 0) or 0)
+            matched_names = set(merged.pop("_matchedComponentNames", []) or [])
+            matched_aliases = set(merged.pop("_matchedComponentAliases", []) or [])
+            matched_occurrences = set(merged.pop("_matchedComponentOccurrences", []) or [])
+            # 结构化输出校验（第 26 节）：AI 写了不存在的 elementId 时不创建
+            # 新元素，只记录并上报，交由上层 QA 呈现
+            unknown = [
+                key for key in component_content
+                if _normalize_component_key(key) not in {
+                    _normalize_component_key(name) for name in matched_names
+                }
+                and key not in matched_aliases
+            ]
+            if unknown:
+                item["_unknownElementIds"] = unknown[:10]
+                logger.warning(
+                    "PPT slide %d unknown componentContent keys ignored: %s",
+                    index + 1,
+                    sorted(unknown)[:10],
+                )
             if matched > 0:
                 item["ui"] = merged
+                # 槽位完备性：AI 漏填的文本槽位按大纲数据回填（不虚构），
+                # 避免出现"卡片标题有内容、正文空着"的孤立元素（第 71 节）
+                if layout_model is not None:
+                    missing = _fill_missing_slots(
+                        merged,
+                        layout_model,
+                        matched_names,
+                        matched_occurrences,
+                        item,
+                        outline_item,
+                    )
+                    if missing:
+                        item["_missingSlots"] = missing[:20]
+                        logger.warning(
+                            "PPT slide %d AI 漏填槽位 %s，已按大纲回填",
+                            index + 1,
+                            sorted(missing)[:20],
+                        )
             else:
                 # 键名全部未命中组件：按缺失处理，避免清空占位后输出"空模板"
                 logger.warning(
@@ -1088,6 +2824,119 @@ def _sanitize_content_payload(
     return {"slides": normalized}
 
 
+def _fill_missing_slots(
+    ui: Dict[str, Any],
+    model: SlideLayoutModel,
+    matched_names: set,
+    matched_occurrences: Optional[set] = None,
+    slide_item: Optional[Mapping[str, Any]] = None,
+    outline_item: Optional[Mapping[str, Any]] = None,
+) -> List[str]:
+    """AI 漏填的文本槽位按已生成的页面内容补齐，不直接搬运大纲要点。
+
+    - title/subtitle 槽 → 页标题（标题允许沿用用户确认的大纲标题）
+    - body/card 槽 → 内容智能体已经生成的 content 依次分配
+    - label 槽 → 页标题（短标签）
+    回填走 _set_text_node_content，容量截断由它保证。
+    """
+    from app.ppt_generation.repair_engine import _find_node_by_name
+
+    slide_item = slide_item or {}
+    outline_item = outline_item or {}
+
+    title = str(
+        slide_item.get("title")
+        or outline_item.get("title")
+        or ""
+    ).strip()
+    # outline_item.keyPoints 只是导航信息，不能在这里直接变成页面正文。
+    def _points_from(value: Any) -> List[str]:
+        if isinstance(value, str):
+            value = [line.strip(" -*•") for line in value.splitlines() if line.strip(" -*•")]
+        if not isinstance(value, (list, tuple)):
+            return []
+        return [str(point).strip() for point in value if str(point).strip()]
+
+    # 正常情况下优先使用内容智能体展开后的正文；只有 AI 漏掉重复槽位、
+    # 或没有返回 content 时，才把用户确认过的大纲要点作为“缺口回填”来源。
+    # 这样不会把整页降级成大纲，但也不会留下空卡片/空节点。
+    points = _points_from(slide_item.get("content"))
+    fallback_points = _points_from(
+        slide_item.get("keyPoints")
+        or outline_item.get("content")
+        or outline_item.get("keyPoints")
+    )
+    for point in fallback_points:
+        if point not in points:
+            points.append(point)
+    point_iter = iter(points)
+
+    def _card_copy(point: str) -> tuple[str, str]:
+        value = str(point or "").strip()
+        match = re.match(r"^(.{2,20})\s*[:：]\s*(.+)$", value)
+        if match:
+            return match.group(1).strip(), match.group(2).strip()
+        compact = re.sub(r"[。！？.!?].*$", "", value).strip()
+        label = compact[:16].rstrip("，,、：:") or value[:16]
+        return label, value
+
+    numeric_values: List[str] = []
+    numeric_pattern = re.compile(
+        r"(?<![A-Za-z])(?:O\s*\([^\n]{1,12}\)|\d+(?:[.,]\d+)?\s*(?:%|万|亿|人|项|个|门|所|年|次)?)"
+    )
+    for point in points:
+        for value in numeric_pattern.findall(point):
+            value = re.sub(r"\s+", "", value)
+            if value and value not in numeric_values:
+                numeric_values.append(value)
+
+    missing: List[str] = []
+    for name, elements in model.elements.items():
+        if name in matched_names and not matched_occurrences:
+            continue
+        for index, element in enumerate(elements):
+            if element.element_type not in {"text", "text-list"} or not element.mutable_text:
+                continue
+            slot_key = f"{name}[{index}]"
+            if matched_occurrences and slot_key in matched_occurrences:
+                continue
+            node = _find_node_by_name(ui, name, index)
+            if node is None:
+                continue
+            if element.semantic_role in {"page_title", "section_title", "page_subtitle"}:
+                content = title
+            elif element.semantic_role == "card_title":
+                point = points[index] if index < len(points) else title
+                content = _compact_text(_card_copy(point)[0] or title, _node_text_capacity(node))
+            elif element.semantic_role == "card_value_label":
+                point = points[index] if index < len(points) else title
+                content = _compact_text(_card_copy(point)[0] or title, _node_text_capacity(node))
+            elif element.semantic_role in {"body", "card_body", "bullet_body"}:
+                content = next(point_iter, "")
+            elif element.semantic_role in {"metric_value", "card_value"}:
+                # 指标槽位只接受资料中真实出现过的数字/复杂度，不补造统计值。
+                content = numeric_values[index] if index < len(numeric_values) else ""
+            elif element.semantic_role == "metric_label":
+                point = points[index] if index < len(points) else title
+                content = _compact_text(_card_copy(point)[0] or title, _node_text_capacity(node))
+            elif element.semantic_role == "metric_description":
+                point = points[index] if index < len(points) else next(point_iter, "")
+                content = _compact_text(point, _node_text_capacity(node))
+            else:
+                # author/date/badge/footer 等结构性文字保留模板原文，不能用普通
+                # 要点覆盖；没有可靠来源时也不要编造。
+                continue
+            if not content:
+                continue
+            _set_text_node_content(
+                node,
+                content,
+                respect_capacity=element.semantic_role not in {"page_title", "section_title", "page_subtitle"},
+            )
+            missing.append(f"{name}[{index}]")
+    return missing
+
+
 def _merge_content_into_layout(layout: Mapping[str, Any], component_content: Mapping[str, Any]) -> Dict[str, Any]:
     """Merge LLM-generated component content into a Presenton layout template.
 
@@ -1100,6 +2949,100 @@ def _merge_content_into_layout(layout: Mapping[str, Any], component_content: Map
     组件上残留的英文模板占位文本，避免输出里出现"模板原件"痕迹。
     """
     result = copy.deepcopy(dict(layout))
+    try:
+        layout_model = parse_slide_layout(layout)
+    except Exception:
+        layout_model = None
+
+    def _layout_component_names(root: Any) -> set[str]:
+        names: set[str] = set()
+
+        def _walk(node: Any) -> None:
+            if isinstance(node, list):
+                for child in node:
+                    _walk(child)
+                return
+            if not isinstance(node, Mapping):
+                return
+            name = str(node.get("name") or "").strip()
+            if name:
+                names.add(name)
+            for key in ("components", "elements", "children"):
+                if key in node:
+                    _walk(node[key])
+            if "child" in node:
+                _walk(node["child"])
+
+        _walk(root)
+        return names
+
+    def _canonicalize_indexed_keys(
+        content: Mapping[str, Any],
+    ) -> tuple[Dict[str, Any], set[str]]:
+        """把模型偶尔输出的 card_title_1/card_title[0] 归并为数组。
+
+        prompt 要求同名槽位使用数组，但部分模型会把 occurrence 写进键名。
+        这种写法会让严格按 name 匹配的合并器把整页判定为未命中，随后走
+        兜底并留下模板示例文案。只对当前版式真实存在的基础组件名转换。
+        """
+        layout_names = _layout_component_names(layout)
+        normalized_to_name = {
+            _normalize_component_key(name): name
+            for name in layout_names
+            if _normalize_component_key(name)
+        }
+        canonical: Dict[str, Any] = {}
+        indexed: Dict[str, List[tuple[int, Any, bool]]] = {}
+        aliases: set[str] = set()
+        indexed_pattern = re.compile(r"^(.*?)(?:\[(\d+)\]|[_\-\s]+(\d+))$")
+
+        for raw_key, value in content.items():
+            raw_name = str(raw_key)
+            normalized = _normalize_component_key(raw_name)
+            direct_name = normalized_to_name.get(normalized)
+            if direct_name:
+                canonical.setdefault(direct_name, value)
+                if raw_name != direct_name:
+                    aliases.add(raw_name)
+                continue
+
+            match = indexed_pattern.match(raw_name.strip())
+            if not match:
+                canonical[raw_name] = value
+                continue
+            base, bracket_index, separated_index = match.groups()
+            base_name = normalized_to_name.get(_normalize_component_key(base))
+            if not base_name:
+                canonical[raw_name] = value
+                continue
+            indexed.setdefault(base_name, []).append((
+                int(bracket_index or separated_index or 0),
+                value,
+                bool(bracket_index),
+            ))
+            aliases.add(raw_name)
+
+        for name, entries in indexed.items():
+            # _1/_2 通常是一基索引；出现 0 时按零基处理。
+            zero_based = any(index == 0 for index, _, _ in entries)
+            existing = canonical.get(name)
+            if isinstance(existing, list):
+                values = list(existing)
+            elif existing is None:
+                values = []
+            else:
+                values = [existing]
+            for raw_index, value, _ in entries:
+                index = raw_index if zero_based else raw_index - 1
+                if index < 0:
+                    continue
+                while len(values) <= index:
+                    values.append("")
+                values[index] = value
+            canonical[name] = values
+        return canonical, aliases
+
+    component_content, component_content_aliases = _canonicalize_indexed_keys(component_content)
     # 容错键表：归一化键 -> 原始键（精确匹配优先，不覆盖）
     fuzzy_keys: Dict[str, str] = {}
     for key in component_content:
@@ -1107,6 +3050,8 @@ def _merge_content_into_layout(layout: Mapping[str, Any], component_content: Map
         if normalized_key and normalized_key not in fuzzy_keys:
             fuzzy_keys[normalized_key] = key
     matched_names: set = set()
+    matched_occurrences: set = set()
+    occurrence_cursors: Dict[str, int] = {}
 
     def _lookup(name: str):
         if name in component_content:
@@ -1116,6 +3061,114 @@ def _merge_content_into_layout(layout: Mapping[str, Any], component_content: Map
             return component_content[fuzzy_keys[normalized_name]]
         return None
 
+    def _provided_list_length(name: str) -> Optional[int]:
+        """Return the number of repeated values explicitly supplied for a name."""
+        value = _lookup(name)
+        if isinstance(value, list):
+            return len(value)
+        if isinstance(value, Mapping):
+            for key in ("values", "items", "contents"):
+                if isinstance(value.get(key), list):
+                    return len(value[key])
+        return None
+
+    def _descendant_names(node: Any) -> set[str]:
+        names: set[str] = set()
+
+        def _walk(value: Any) -> None:
+            if isinstance(value, list):
+                for child in value:
+                    _walk(child)
+                return
+            if not isinstance(value, Mapping):
+                return
+            name = str(value.get("name") or "")
+            if name:
+                names.add(name)
+            for key in ("components", "elements", "children"):
+                if key in value:
+                    _walk(value[key])
+            if "child" in value:
+                _walk(value["child"])
+
+        _walk(node)
+        return names
+
+    def _prune_repeated_groups(node: Any) -> None:
+        """Drop unused repeated card/item groups instead of leaving template art behind."""
+        if isinstance(node, list):
+            for child in list(node):
+                _prune_repeated_groups(child)
+            cursor = 0
+            while cursor < len(node):
+                candidate = node[cursor]
+                if not isinstance(candidate, Mapping) or str(candidate.get("type") or "") != "group":
+                    cursor += 1
+                    continue
+                group_name = str(candidate.get("name") or "")
+                if not group_name:
+                    cursor += 1
+                    continue
+                end = cursor + 1
+                while end < len(node):
+                    sibling = node[end]
+                    if not isinstance(sibling, Mapping) or str(sibling.get("type") or "") != "group":
+                        break
+                    if str(sibling.get("name") or "") != group_name:
+                        break
+                    end += 1
+                run_length = end - cursor
+                if run_length > 1:
+                    names = set().union(*(_descendant_names(group) for group in node[cursor:end]))
+                    supplied_counts = [
+                        count for name in names
+                        for count in [_provided_list_length(name)]
+                        if count is not None
+                    ]
+                    desired = max(supplied_counts) if supplied_counts else None
+                    if desired is not None and desired < run_length:
+                        del node[cursor + desired:end]
+                        end = cursor + desired
+                cursor = end
+            return
+        if not isinstance(node, Mapping):
+            return
+        for key in ("components", "elements", "children"):
+            if key in node:
+                _prune_repeated_groups(node[key])
+        if "child" in node:
+            _prune_repeated_groups(node["child"])
+
+    def _value_for_occurrence(content: Any, occurrence: int) -> tuple[bool, Any]:
+        """Resolve repeated component values without copying the first card."""
+        values = None
+        if isinstance(content, list):
+            values = content
+        elif isinstance(content, Mapping):
+            for key in ("values", "items", "contents"):
+                if isinstance(content.get(key), list):
+                    values = content[key]
+                    break
+        if values is None:
+            return True, content
+        if occurrence >= len(values):
+            return False, None
+        return True, values[occurrence]
+
+    def _is_protected_component(node: Mapping[str, Any]) -> bool:
+        if str(node.get("type") or "") not in {"text", "text-list"}:
+            return False
+        if node.get("locked") is True or node.get("decorative") is True:
+            return True
+        name_lower = str(node.get("name") or "").lower()
+        if re.search(r"page|pagenum|slide[_ -]?number|footer|logo|brand|watermark|background|decor|accent|copyright", name_lower):
+            return True
+        text = _node_display_text(node).strip()
+        semantic_name = re.search(r"title|headline|heading|body|description|content|card|item|point|summary|intro", name_lower)
+        if not semantic_name and (re.fullmatch(r"\d+(?:\.\d+)?[a-zA-Z]*", text) or (text.isupper() and len(text) <= 18)):
+            return True
+        return False
+
     def _merge(node: Any) -> None:
         if isinstance(node, list):
             for item in node:
@@ -1124,17 +3177,50 @@ def _merge_content_into_layout(layout: Mapping[str, Any], component_content: Map
         if not isinstance(node, dict):
             return
         name = str(node.get("name") or "")
+        occurrence = occurrence_cursors.get(name, 0) if name else 0
+        if name:
+            occurrence_cursors[name] = occurrence + 1
         content = _lookup(name) if name else None
-        if name and content is not None:
+        has_content, resolved_content = _value_for_occurrence(content, occurrence) if content is not None else (False, None)
+        if name and has_content and not _is_protected_component(node):
+            if isinstance(resolved_content, str) and not resolved_content.strip():
+                has_content = False
+            if isinstance(resolved_content, Mapping) and not any(
+                str(value or "").strip()
+                for value in (
+                    resolved_content.get("text"),
+                    resolved_content.get("value"),
+                    resolved_content.get("content"),
+                    resolved_content.get("items"),
+                )
+            ) and str(node.get("type") or "") in {"text", "text-list"}:
+                has_content = False
+        if name and has_content:
             matched_names.add(name)
+            matched_occurrences.add(f"{name}[{occurrence}]")
+            content = resolved_content
+            model_element = (
+                layout_model.element(name, occurrence)
+                if layout_model is not None and name
+                else None
+            )
+            preserve_formal_title = bool(
+                model_element is not None
+                and model_element.semantic_role in {"page_title", "section_title", "page_subtitle"}
+            )
             if isinstance(content, str):
-                _set_text_node_content(node, content)
+                _set_text_node_content(
+                    node,
+                    content,
+                    respect_capacity=not preserve_formal_title,
+                )
             elif isinstance(content, dict):
                 node_type = str(node.get("type") or "")
-                if node_type == "text":
+                if node_type in {"text", "text-list"}:
                     _set_text_node_content(
                         node,
-                        content.get("text") or content.get("value") or content.get("content") or "",
+                        content.get("items") or content.get("text") or content.get("value") or content.get("content") or "",
+                        respect_capacity=not preserve_formal_title,
                     )
                 elif node_type == "table":
                     if "columns" in content:
@@ -1157,8 +3243,60 @@ def _merge_content_into_layout(layout: Mapping[str, Any], component_content: Map
         if "child" in node:
             _merge(node["child"])
 
+    def _clear_unmatched_content_text(root: Dict[str, Any]) -> None:
+        """Clear every remaining mutable content occurrence, not just English placeholders."""
+        occurrence_cursors.clear()
+
+        def _walk(node: Any) -> None:
+            if isinstance(node, list):
+                for item in node:
+                    _walk(item)
+                return
+            if not isinstance(node, dict):
+                return
+            name = str(node.get("name") or "")
+            occurrence = occurrence_cursors.get(name, 0) if name else 0
+            if name:
+                occurrence_cursors[name] = occurrence + 1
+            if str(node.get("type") or "") in {"text", "text-list"} and name:
+                model_element = (
+                    layout_model.element(name, occurrence)
+                    if layout_model is not None
+                    else None
+                )
+                if model_element is not None and model_element.semantic_role in {
+                    "badge", "author", "date", "footer", "page_number", "logo"
+                }:
+                    # 这些是模板的结构性标记。AI 没有返回对应槽位时保留
+                    # 原文，避免卡片圆点、标签和页脚只剩空图形。
+                    for key in ("components", "elements", "children"):
+                        if key in node:
+                            _walk(node[key])
+                    if "child" in node:
+                        _walk(node["child"])
+                    return
+                name_lower = name.lower()
+                is_content_slot = bool(re.search(
+                    r"title|headline|heading|subtitle|body|paragraph|description|content|"
+                    r"card|item|feature|profile|metric|point|summary|intro|label|role|value|text",
+                    name_lower,
+                ))
+                occurrence_key = f"{name}[{occurrence}]"
+                if is_content_slot and occurrence_key not in matched_occurrences and not _is_protected_component(node):
+                    _set_text_node_content(node, "")
+            for key in ("components", "elements", "children"):
+                if key in node:
+                    _walk(node[key])
+            if "child" in node:
+                _walk(node["child"])
+
+        for key in ("components", "elements"):
+            if key in root:
+                _walk(root[key])
+
     for key in ("components", "elements"):
         if key in result:
+            _prune_repeated_groups(result[key])
             _merge(result[key])
 
     if not matched_names:
@@ -1167,10 +3305,13 @@ def _merge_content_into_layout(layout: Mapping[str, Any], component_content: Map
             sorted(str(k) for k in component_content)[:10],
             sorted(matched_names),
         )
-    else:
-        _clear_template_placeholder_text(result, matched_names)
-    # 匹配计数标记：调用方据此判断键名是否全部未命中（需回退大纲填充）
+    _clear_unmatched_content_text(result)
+    # 匹配计数/名称标记：调用方据此判断键名是否全部未命中（需回退大纲填充），
+    # 以及哪些键对应不存在的组件（结构化输出校验：不创建新元素，仅报告）
     result["_matchedComponents"] = len(matched_names)
+    result["_matchedComponentNames"] = sorted(matched_names)
+    result["_matchedComponentAliases"] = sorted(component_content_aliases)
+    result["_matchedComponentOccurrences"] = sorted(matched_occurrences)
     return result
 
 
@@ -1185,6 +3326,23 @@ def _node_display_text(node: Mapping[str, Any]) -> str:
         runs = node.get("runs")
         if isinstance(runs, list) and runs and isinstance(runs[0], Mapping):
             text = str(runs[0].get("text") or "")
+    if isinstance(text, str) and text:
+        return text
+    items = node.get("items")
+    if isinstance(items, list):
+        values: List[str] = []
+        for item in items:
+            if isinstance(item, list):
+                values.extend(
+                    str(run.get("text") or "")
+                    for run in item
+                    if isinstance(run, Mapping) and str(run.get("text") or "")
+                )
+            elif isinstance(item, Mapping):
+                values.append(str(item.get("text") or ""))
+            elif item:
+                values.append(str(item))
+        return "\n".join(values)
     return str(text or "")
 
 
@@ -1222,7 +3380,7 @@ def _clear_template_placeholder_text(root: Dict[str, Any], matched_names: set) -
             return
         if not isinstance(node, dict):
             return
-        if str(node.get("type") or "") == "text":
+        if str(node.get("type") or "") in {"text", "text-list"}:
             name = str(node.get("name") or "")
             if (not name or name not in matched_names) and _is_template_placeholder_text(node):
                 _set_text_node_content(node, "")
@@ -1250,6 +3408,14 @@ def _node_text_capacity(node: Mapping[str, Any]) -> int:
         explicit = 0
     if explicit > 0:
         return explicit
+    if str(node.get("type") or "") == "text-list":
+        try:
+            max_items = int(node.get("max_items") or 0)
+            max_item_length = int(node.get("max_item_length") or 0)
+        except (TypeError, ValueError):
+            max_items = max_item_length = 0
+        if max_items > 0 and max_item_length > 0:
+            return max_items * max_item_length
     font_size = _text_font_size(node)
     size = node.get("size")
     if font_size <= 0 or not isinstance(size, Mapping):
@@ -1266,8 +3432,62 @@ def _node_text_capacity(node: Mapping[str, Any]) -> int:
     return chars_per_line * max_lines
 
 
-def _set_text_node_content(node: Dict[str, Any], content: Any) -> None:
-    text = _compact_text(str(content or ""), _node_text_capacity(node))
+def _set_text_node_content(
+    node: Dict[str, Any], content: Any, *, respect_capacity: bool = True
+) -> None:
+    def _normalize_cjk_letter_spacing(text: str) -> None:
+        """避免拉丁标题的负字距挤压中文/中英混排字形。"""
+        if not re.search(r"[\u2e80-\u9fff\uff00-\uffef]", text):
+            return
+
+        def normalize(font: Any) -> None:
+            if not isinstance(font, dict) or "letter_spacing" not in font:
+                return
+            try:
+                spacing = float(font.get("letter_spacing"))
+            except (TypeError, ValueError):
+                return
+            # Lato/Anton 模板中的 -5~-8 是英文字体的压缩字距，
+            # 对 CJK fallback 字体会造成字符粘连；保留轻微紧凑感即可。
+            if spacing < -1.0:
+                font["letter_spacing"] = -1.0
+
+        normalize(node.get("font"))
+        runs = node.get("runs")
+        if isinstance(runs, list):
+            for run in runs:
+                if isinstance(run, Mapping):
+                    normalize(run.get("font"))
+
+    if str(node.get("type") or "") == "text-list":
+        if isinstance(content, Mapping):
+            content = content.get("items") or content.get("content") or content.get("text") or ""
+        if isinstance(content, (list, tuple)):
+            values = [str(value).strip(" -*•") for value in content if str(value).strip(" -*•")]
+        else:
+            values = [line.strip(" -*•") for line in str(content or "").splitlines() if line.strip(" -*•")]
+        try:
+            max_items = int(node.get("max_items") or 0)
+        except (TypeError, ValueError):
+            max_items = 0
+        try:
+            max_item_length = int(node.get("max_item_length") or 0)
+        except (TypeError, ValueError):
+            max_item_length = 0
+        if max_items > 0:
+            values = values[:max_items]
+        normalized = [
+            _compact_text(value, max_item_length if max_item_length > 0 else None)
+            for value in values
+        ]
+        font = dict(node.get("font") or {})
+        node["items"] = [[{"text": value, "font": dict(font)}] for value in normalized]
+        node["text"] = "\n".join(normalized)
+        _normalize_cjk_letter_spacing(node["text"])
+        return
+    capacity = _node_text_capacity(node) if respect_capacity else None
+    name_key = str(node.get("name") or "").lower()
+    text = _compact_text(str(content or ""), capacity)
     # 只容得下一行的位置（几何高度不足两行）压平换行，避免撑高版式
     font_size = _text_font_size(node)
     size = node.get("size")
@@ -1279,6 +3499,7 @@ def _set_text_node_content(node: Dict[str, Any], content: Any) -> None:
         if 0 < height < font_size * 2.5:
             text = re.sub(r"\s*\n+\s*", " ", text)
     node["text"] = text
+    _normalize_cjk_letter_spacing(text)
     runs = node.get("runs")
     if isinstance(runs, list) and runs:
         normalized_runs: List[Dict[str, Any]] = []
@@ -1344,7 +3565,7 @@ def _text_font_size(node: Mapping[str, Any]) -> float:
 
 
 def _collect_text_nodes(root: Mapping[str, Any]) -> List[Dict[str, Any]]:
-    """收集版式树中所有 text 类型节点。"""
+    """收集普通文本和模板原生 bullet 列表节点。"""
     found: List[Dict[str, Any]] = []
 
     def _walk(node: Any) -> None:
@@ -1354,7 +3575,7 @@ def _collect_text_nodes(root: Mapping[str, Any]) -> List[Dict[str, Any]]:
             return
         if not isinstance(node, dict):
             return
-        if str(node.get("type") or "") == "text":
+        if str(node.get("type") or "") in {"text", "text-list"}:
             found.append(node)
         for key in ("components", "elements", "children"):
             if key in node:
@@ -1386,18 +3607,65 @@ def _fill_layout_with_slide_text(
         or f"第 {slide_item.get('index') or outline_item.get('index') or ''} 页"
     ).strip()
 
-    points = slide_item.get("content")
-    if not isinstance(points, list) or not points:
-        points = outline_item.get("keyPoints") or outline_item.get("content") or []
-    if isinstance(points, str):
-        points = [line.strip(" -*•") for line in points.splitlines() if line.strip(" -*•")]
+    # 这是内容智能体失败时的版式兜底，只使用已经生成/用户确认的 content；
+    # outline.keyPoints 不能悄悄成为成品正文。
+    raw_points = slide_item.get("content")
+    if isinstance(raw_points, str):
+        points = [line.strip(" -*•") for line in raw_points.splitlines() if line.strip(" -*•")]
+    elif isinstance(raw_points, list):
+        points = raw_points
+    else:
+        points = []
     points = [str(point).strip() for point in points if str(point).strip()][:6]
-    body_text = "\n".join(f"• {point}" for point in points) or str(slide_item.get("objective") or outline_item.get("objective") or "").strip()
+    body_text = "\n".join(f"• {point}" for point in points)
 
     text_nodes = _collect_text_nodes(result)
 
+    # 版式 JSON 本身没有把“标题/正文/装饰”角色直接写在节点上，角色由
+    # template_model 根据槽位名称推导。兜底填充也必须使用同一套角色判断，
+    # 否则会把 INTRODUCTION、SALES REPORT 这类全大写的可编辑模板示例
+    # 误当成装饰，反而把用户标题写进副标题或卡片位。
+    try:
+        layout_model = parse_slide_layout(layout)
+    except Exception:
+        layout_model = None
+    name_occurrences: Dict[str, int] = {}
+    node_roles: Dict[int, str] = {}
+    node_semantic_roles: Dict[int, str] = {}
+
+    def _write_content(node: Dict[str, Any], content: Any) -> None:
+        # 先保留原始内容交给 RepairEngine 按真实几何适配；如果在这里先按
+        # 模板的静态 max_length 截断，后续就无法通过缩字号挽回被截掉的标题。
+        _set_text_node_content(node, content, respect_capacity=False)
+
     def _is_decorative(node: Mapping[str, Any]) -> bool:
         """装饰位：纯数字角标/全大写短标签/容量过小，不参与标题正文分配。"""
+        name = str(node.get("name") or "")
+        name_key = name.lower()
+        occurrence = name_occurrences.get(name, 0)
+        name_occurrences[name] = occurrence + 1
+        model_element = (
+            layout_model.element(name, occurrence)
+            if layout_model is not None and name
+            else None
+        )
+        if model_element is not None:
+            node_roles[id(node)] = model_element.role
+            node_semantic_roles[id(node)] = model_element.semantic_role
+            if model_element.locked or not model_element.mutable_text:
+                return True
+            if model_element.semantic_role in {"badge", "author", "date", "footer"}:
+                # 这些是模板的结构性视觉标记。兜底填充时保留模板原文，
+                # 避免圆点/标签只剩背景图形。
+                return True
+            # 可编辑标题/正文/卡片/标签即使原文是全大写，也必须参与填充。
+            # 仅保留明确的结构性标记（logo、日期标签、角标等）。
+            if model_element.role in {"title", "subtitle", "body", "card", "label"}:
+                if re.search(r"(?:^|_)(?:logo|brand|icon|mark|index|number)(?:_|$)", name_key):
+                    return True
+                if re.search(r"(?:^|_)(?:date|presenter)_label$", name_key):
+                    return True
+                return False
         text = _node_display_text(node).strip()
         if text and (text.isdigit() or (text.isupper() and len(text) <= 12)):
             return True
@@ -1415,43 +3683,159 @@ def _fill_layout_with_slide_text(
             return 0.0
 
     fillable = [n for n in text_nodes if not _is_decorative(n)]
-    # 标题位：名称含 title/heading/headline 优先，否则取字号最大的非装饰位
+    filled_nodes: set[int] = set()
+    # 标题位优先使用语义模型；只有旧模板无法解析语义时才回退到名称/字号。
     title_node = next(
-        (n for n in fillable if re.search(r"(?i)title|heading|headline", str(n.get("name") or ""))),
+        (n for n in fillable if node_semantic_roles.get(id(n)) in {"page_title", "section_title"}),
         None,
     )
+    if title_node is None:
+        title_node = next(
+            (n for n in fillable if re.search(r"(?i)title|heading|headline", str(n.get("name") or ""))),
+            None,
+        )
     if title_node is None:
         candidates = sorted(fillable, key=_text_font_size, reverse=True)
         title_node = candidates[0] if candidates else None
     if title_node is not None:
-        _set_text_node_content(title_node, title)
+        _write_content(title_node, title)
+        filled_nodes.add(id(title_node))
+
+    def _is_card_heading(node: Mapping[str, Any]) -> bool:
+        return node_semantic_roles.get(id(node)) in {"card_title", "card_value_label"}
+
+    def _is_card_body(node: Mapping[str, Any]) -> bool:
+        return node_semantic_roles.get(id(node)) == "card_body"
+
+    def _card_copy(point: str) -> tuple[str, str]:
+        value = str(point or "").strip()
+        match = re.match(r"^(.{2,20})\s*[:：]\s*(.+)$", value)
+        if match:
+            return match.group(1).strip(), match.group(2).strip()
+        compact = re.sub(r"[。！？.!?].*$", "", value).strip()
+        label = compact[:16].rstrip("，,、：:") or value[:16]
+        return label, value
+
+    numeric_values: List[str] = []
+    for point in points:
+        numeric_values.extend(
+            re.findall(r"O\s*\([^)]{1,24}\)|[-+]?\d+(?:[.,]\d+)?\s*%?", point, re.I)
+        )
+    metric_value_nodes = [
+        n for n in fillable
+        if n is not title_node
+        and node_semantic_roles.get(id(n)) in {"metric_value", "card_value"}
+    ]
+    metric_label_nodes = [
+        n for n in fillable
+        if n is not title_node
+        and node_semantic_roles.get(id(n)) in {"metric_label", "card_value_label"}
+    ]
+    metric_description_nodes = [
+        n for n in fillable
+        if n is not title_node
+        and node_semantic_roles.get(id(n)) == "metric_description"
+    ]
+    for node, value in zip(metric_value_nodes, numeric_values):
+        _write_content(node, value)
+        filled_nodes.add(id(node))
+    for node, point in zip(metric_label_nodes, points):
+        label, _ = _card_copy(point)
+        _write_content(node, label)
+        filled_nodes.add(id(node))
+    for node, point in zip(metric_description_nodes, points):
+        _write_content(node, point)
+        filled_nodes.add(id(node))
 
     def _capacity(node: Mapping[str, Any]) -> int:
         return _node_text_capacity(node)
 
+    def _can_receive_body_content(node: Mapping[str, Any]) -> bool:
+        semantic_role = node_semantic_roles.get(id(node), "")
+        if semantic_role and semantic_role not in {"body", "card_body", "bullet_body"}:
+            return False
+        role = node_roles.get(id(node), "")
+        if not semantic_role and role and role not in {"body", "card"}:
+            return False
+        # 作者/日期/页脚等元数据即使被模型归为 body，也不能吞正文要点。
+        name = str(node.get("name") or "").lower()
+        if re.search(r"(?:date|presenter|author|metadata|caption|badge|label|footer)", name):
+            return False
+        return True
+
+    # 卡片版式先按“标题 + 解释”成对填充，避免旧兜底把第 1 条要点
+    # 填进卡片标题、第 2 条要点填进卡片正文，导致信息关系错位。
+    card_heading_nodes = [n for n in fillable if n is not title_node and _is_card_heading(n)]
+    card_body_nodes = [n for n in fillable if n is not title_node and _is_card_body(n)]
+    # Some process/agenda layouts intentionally expose only short node
+    # headings and no body slot. Do not clear those headings merely because
+    # the usual title+body pair is absent; a node label is still useful,
+    # audience-facing content. The inverse (body-only cards) is handled too.
+    paired_points = min(len(points), len(card_heading_nodes), len(card_body_nodes))
+    if card_heading_nodes and not card_body_nodes:
+        for point, heading_node in zip(points, card_heading_nodes):
+            label, _ = _card_copy(point)
+            _write_content(heading_node, label)
+            filled_nodes.add(id(heading_node))
+        paired_points = min(len(points), len(card_heading_nodes))
+    elif card_body_nodes and not card_heading_nodes:
+        for point, body_node in zip(points, card_body_nodes):
+            _write_content(body_node, point)
+            filled_nodes.add(id(body_node))
+        paired_points = min(len(points), len(card_body_nodes))
+    for point, heading_node, body_node in zip(
+        points[:paired_points], card_heading_nodes[:paired_points], card_body_nodes[:paired_points]
+    ):
+        label, body = _card_copy(point)
+        _write_content(heading_node, label)
+        _write_content(body_node, body)
+        filled_nodes.update({id(heading_node), id(body_node)})
+
     # 正文位：面积降序分配要点（正文框才是最大的可写区域，字号大不代表是正文）
     body_nodes = sorted(
-        [n for n in fillable if n is not title_node and (_capacity(n) == 0 or _capacity(n) >= 8)],
+        [
+            n for n in fillable
+            if n is not title_node
+            and id(n) not in filled_nodes
+            and _can_receive_body_content(n)
+            and (_capacity(n) == 0 or _capacity(n) >= 8)
+        ],
         key=_area,
         reverse=True,
     )
+    remaining_points = points[paired_points:] if paired_points else points
+    remaining_body = "\n".join(f"• {point}" for point in remaining_points)
     if len(body_nodes) == 1:
-        if body_text:
-            _set_text_node_content(body_nodes[0], body_text)
+        content = remaining_body
+        if content:
+            _write_content(body_nodes[0], content)
+            filled_nodes.add(id(body_nodes[0]))
     elif body_nodes:
         # 多个正文位：要点逐个分摊，多余要点并入首个正文位
-        for node, point in zip(body_nodes, points):
-            _set_text_node_content(node, f"• {point}")
-        if len(points) > len(body_nodes):
-            extras = points[len(body_nodes) - 1:]
+        for node, point in zip(body_nodes, remaining_points):
+            _write_content(node, f"• {point}")
+            filled_nodes.add(id(node))
+        if len(remaining_points) > len(body_nodes):
+            extras = remaining_points[len(body_nodes) - 1:]
             merged = _node_display_text(body_nodes[0]) + "\n" + "\n".join(f"• {p}" for p in extras)
-            _set_text_node_content(body_nodes[0], merged)
-        elif not points and body_text:
-            _set_text_node_content(body_nodes[0], body_text)
+            _write_content(body_nodes[0], merged)
+            filled_nodes.add(id(body_nodes[0]))
+        elif not remaining_points and body_text:
+            _write_content(body_nodes[0], body_text)
+            filled_nodes.add(id(body_nodes[0]))
         # 未分摊到要点的正文位清掉模板占位（装饰位保留原文字）
-        for node in body_nodes[len(points):] if points else body_nodes[1:]:
+        for node in body_nodes[len(remaining_points):] if remaining_points else body_nodes[1:]:
             if _is_template_placeholder_text(node):
-                _set_text_node_content(node, "")
+                _write_content(node, "")
+    # 降级页不能把模板自带的英文示例或假数据继续带到成品中。
+    # fillable 已经排除了数字角标、全大写标签、超大装饰字和容量过小的
+    # 节点，因此这里必须清理所有未被本页内容使用的可写槽位，而不是只
+    # 清理能被词典识别的 placeholder。真实模板文案（如 Customer
+    # Retention、Retail Sales）看起来完全像正常业务文案，无法靠词典可靠
+    # 区分；保留它们会让兜底页出现“半套旧模板 + 半套新内容”。
+    for node in fillable:
+        if id(node) not in filled_nodes:
+            _write_content(node, "")
     return result
 
 
@@ -1501,11 +3885,84 @@ def _fallback_slides(
     return fallback
 
 
+def _item_has_explicit_numeric_data(item: Mapping[str, Any]) -> bool:
+    values: List[str] = [
+        str(item.get("title") or ""),
+        str(item.get("objective") or ""),
+        str(item.get("sourceExcerpt") or ""),
+    ]
+    for key in ("keyPoints", "content", "data", "statistics", "metrics"):
+        value = item.get(key)
+        if isinstance(value, list):
+            values.extend(str(entry) for entry in value)
+        elif value:
+            values.append(str(value))
+    return bool(re.search(r"(?<![A-Za-z])\d+(?:[.,]\d+)?\s*(?:%|万|亿|人|项|个|门|所|年|次|万元|亿元|m|k|b)?\b", " ".join(values), re.I))
+
+
+def _numeric_token_count(item: Mapping[str, Any]) -> int:
+    """Count usable numeric facts instead of treating one stray number as a dataset."""
+    values: List[str] = [
+        str(item.get("title") or ""),
+        str(item.get("objective") or ""),
+        str(item.get("sourceExcerpt") or ""),
+    ]
+    for key in ("keyPoints", "content", "data", "statistics", "metrics"):
+        value = item.get(key)
+        if isinstance(value, list):
+            values.extend(str(entry) for entry in value)
+        elif value:
+            values.append(str(value))
+    return len(re.findall(r"O\s*\([^)]{1,24}\)|[-+]?\d+(?:[.,]\d+)?\s*%?", " ".join(values), re.I))
+
+
+def _layout_requires_numeric_data(layout: Mapping[str, Any]) -> bool:
+    semantic_slots = layout.get("semanticSlots")
+    if isinstance(semantic_slots, list) and any(
+        isinstance(slot, Mapping)
+        and str(slot.get("semanticRole") or "") in {"metric_value", "card_value"}
+        for slot in semantic_slots
+    ):
+        return True
+    if layout.get("requiresNumericData") is True:
+        return True
+    haystack = " ".join([
+        str(layout.get("id") or ""),
+        str(layout.get("description") or ""),
+        " ".join(str(value) for value in layout.get("elementTypes") or []),
+        " ".join(str(value) for value in layout.get("slots") or []),
+    ]).lower()
+    return bool(re.search(r"chart|metric|gauge|donut|bar[_ -]?chart|line[_ -]?chart|stat", haystack))
+
+
+def _item_allows_numeric_layout(item: Mapping[str, Any]) -> bool:
+    kind = str(item.get("type") or item.get("pageType") or "").lower()
+    return _item_has_explicit_numeric_data(item) or (
+        any(token in kind for token in ("chart", "data", "stat", "metric", "数据", "统计"))
+        and _numeric_token_count(item) > 0
+    )
+
+
+def _numeric_layout_has_sufficient_data(
+    layout: Mapping[str, Any],
+    item: Mapping[str, Any],
+) -> bool:
+    """Require more than one fact before a repeated metric layout is used."""
+    if not _layout_requires_numeric_data(layout):
+        return True
+    # A single token such as O(1) is a fact, but not enough evidence for a
+    # repeated metric composition. Prefer a text/card layout until at least
+    # two independent values are available.
+    minimum = 2
+    return _item_allows_numeric_layout(item) and _numeric_token_count(item) >= minimum
+
+
 def _select_layout_fallback(
     layout_catalog: List[Mapping[str, Any]],
     item: Mapping[str, Any],
     index: int,
     total: int,
+    used_layout_ids: Optional[set[str]] = None,
 ) -> str:
     """Choose a Presenton layout when the structure model is unavailable.
 
@@ -1515,41 +3972,134 @@ def _select_layout_fallback(
     """
     if not layout_catalog:
         return ""
-    title = str(item.get("title") or "").lower()
-    kind = str(item.get("type") or item.get("pageType") or "").lower()
-    text = " ".join(
-        [title, kind, str(item.get("objective") or "")] +
-        [str(value) for value in (item.get("keyPoints") or item.get("content") or [])]
-    ).lower()
-
-    def find(*needles: str) -> str:
-        for layout in layout_catalog:
-            haystack = " ".join([
-                str(layout.get("id") or ""),
-                str(layout.get("description") or ""),
-                " ".join(str(value) for value in layout.get("elementTypes") or []),
-                " ".join(str(value) for value in layout.get("slots") or []),
-            ]).lower()
-            if all(needle in haystack for needle in needles):
-                return str(layout.get("id") or "")
-        return ""
-
-    if index == 1 or kind in {"cover", "title", "封面"}:
-        choice = find("title_intro") or find("intro") or find("title", "description")
-    elif any(token in text for token in ("table", "表格", "对比", "比较")):
-        choice = find("table")
-    elif any(token in text for token in ("chart", "趋势", "比例", "数据", "统计")):
-        choice = find("chart")
-    elif any(token in text for token in ("image", "图片", "示意图", "流程图")):
-        choice = find("image", "bullet") or find("image")
-    elif index == total or kind in {"summary", "总结", "复习"}:
-        choice = find("metrics") or find("description", "bullet")
+    candidates = layout_catalog
+    compatible = [
+        layout
+        for layout in layout_catalog
+        if _numeric_layout_has_sufficient_data(layout, item)
+    ]
+    if compatible:
+        candidates = compatible
     else:
-        choice = find("description", "bullet") or find("description")
+        candidates = [layout for layout in layout_catalog if not _layout_requires_numeric_data(layout)] or layout_catalog
+    ranked = sorted(
+        candidates,
+        key=lambda layout: _layout_match_score(layout, item, index, total),
+        reverse=True,
+    )
+    if used_layout_ids:
+        # Prefer a new layout when the score is close. This is the same
+        # editorial trade-off used by mainstream generators: fit wins, but
+        # adjacent pages should not look mechanically duplicated.
+        best_score = _layout_match_score(ranked[0], item, index, total)
+        for candidate in ranked:
+            candidate_id = str(candidate.get("id") or "")
+            if candidate_id not in used_layout_ids:
+                score = _layout_match_score(candidate, item, index, total)
+                if score >= best_score - 10:
+                    return candidate_id
+    return str(ranked[0].get("id") or "") if ranked else ""
 
-    if choice:
-        return choice
-    return str(layout_catalog[(index - 1) % len(layout_catalog)].get("id") or "")
+
+def _layout_match_score(
+    layout: Mapping[str, Any],
+    item: Mapping[str, Any],
+    index: int,
+    total: int,
+) -> float:
+    """Score a layout for deterministic fallback/rebalancing.
+
+    The score is intentionally explainable and conservative. It is not a
+    second designer: it only protects the semantic contracts that an LLM can
+    miss when it times out (cover/data/summary purpose and text capacity).
+    """
+    layout_id = str(layout.get("id") or "").lower()
+    haystack = " ".join([
+        layout_id,
+        str(layout.get("description") or "").lower(),
+        " ".join(str(value).lower() for value in layout.get("elementTypes") or []),
+        " ".join(str(value).lower() for value in layout.get("slots") or []),
+    ])
+    kind = str(item.get("type") or item.get("pageType") or "").lower()
+    text = " ".join([
+        str(item.get("title") or ""),
+        kind,
+        str(item.get("objective") or ""),
+        *[str(value) for value in (item.get("keyPoints") or item.get("content") or [])],
+    ]).lower()
+    point_count = len(item.get("keyPoints") or item.get("content") or [])
+    score = 0.0
+
+    if index == 1 or any(token in kind for token in ("cover", "title", "封面")):
+        score += 80 if any(token in haystack for token in ("title_intro", "intro", "hero")) else 0
+    if index == total or any(token in kind for token in ("summary", "conclusion", "总结", "结论")):
+        score += 45 if any(token in haystack for token in ("metrics", "summary", "conclusion")) else 0
+    if any(token in text for token in ("table", "表格", "对比", "比较")):
+        score += 75 if "table" in haystack or "comparison" in haystack else -35
+    elif any(token in text for token in ("chart", "趋势", "比例", "数据", "统计", "增长")):
+        score += 75 if "chart" in haystack or "metric" in haystack else -20
+    elif "table" in haystack or "chart" in haystack:
+        score -= 25
+
+    if any(token in text for token in ("流程", "步骤", "路径", "process", "step")):
+        score += 18 if any(token in haystack for token in ("process", "flow", "step", "bullet")) else 0
+    if any(token in text for token in ("团队", "成员", "角色", "team")):
+        score += 22 if any(token in haystack for token in ("team", "profile", "member")) else 0
+
+    hints = layout.get("capacityHints") if isinstance(layout.get("capacityHints"), Mapping) else {}
+    try:
+        cards = int(hints.get("cards") or 0)
+        slots = int(hints.get("slotCount") or 0)
+    except (TypeError, ValueError):
+        cards = slots = 0
+    if cards:
+        expected_cards = max(1, min(4, point_count or 1))
+        score += max(0, 18 - abs(cards - expected_cards) * 5)
+    if slots:
+        score += min(12, slots * 0.5)
+    if point_count >= 5 and cards >= 3:
+        score += 8
+    if point_count <= 2 and cards >= 5:
+        score -= 8
+    return score
+
+
+def _rebalance_layout_choices(
+    selected_layouts: List[str],
+    layout_catalog: List[Mapping[str, Any]],
+    items: List[Mapping[str, Any]],
+) -> List[str]:
+    """Fill missing choices and avoid accidental adjacent layout duplication."""
+    valid = {str(layout.get("id") or "") for layout in layout_catalog}
+    result: List[str] = []
+    for index, item in enumerate(items, start=1):
+        current = selected_layouts[index - 1] if index <= len(selected_layouts) else ""
+        current_layout = next((layout for layout in layout_catalog if str(layout.get("id") or "") == current), {})
+        if current not in valid or (
+            _layout_requires_numeric_data(current_layout)
+            and not _numeric_layout_has_sufficient_data(current_layout, item)
+        ):
+            current = _select_layout_fallback(
+                layout_catalog, item, index, len(items), set(result[-2:])
+            )
+        elif result and current == result[-1] and index not in {1, len(items)}:
+            current_score = _layout_match_score(
+                next((layout for layout in layout_catalog if str(layout.get("id") or "") == current), {}),
+                item,
+                index,
+                len(items),
+            )
+            alternatives = sorted(
+                (layout for layout in layout_catalog if str(layout.get("id") or "") != current),
+                key=lambda layout: _layout_match_score(layout, item, index, len(items)),
+                reverse=True,
+            )
+            if alternatives:
+                alternative = alternatives[0]
+                if _layout_match_score(alternative, item, index, len(items)) >= current_score - 10:
+                    current = str(alternative.get("id") or current)
+        result.append(current)
+    return result
 
 
 def _cleanup_source_files(root: Path) -> None:
@@ -1568,6 +4118,47 @@ def _cleanup_source_files(root: Path) -> None:
 ppt_generation_service = PptGenerationService()
 
 
+_OUTLINE_LIKE_CONTENT = re.compile(
+    r"本页(?:介绍|将|主要|重点|围绕|聚焦)|"
+    r"(?:明确|梳理|概述|说明|了解|掌握).{0,18}(?:范围|目标|核心问题|基本关系|要点|内容|概念)",
+)
+
+
+def _content_quality_flags(
+    slide: Mapping[str, Any],
+    outline_item: Mapping[str, Any],
+) -> List[str]:
+    """Detect the low-value outline prose that should receive one repair pass."""
+    kind = str(slide.get("type") or outline_item.get("type") or "").lower()
+    if any(token in kind for token in ("cover", "封面", "目录", "toc", "catalog")):
+        return []
+    content = slide.get("content")
+    if isinstance(content, str):
+        content = [line.strip(" -*•") for line in content.splitlines() if line.strip(" -*•")]
+    if not isinstance(content, list) or not any(str(value).strip() for value in content):
+        return ["missing_content"]
+    values = [str(value).strip() for value in content if str(value).strip()]
+    points = outline_item.get("keyPoints") or []
+    if isinstance(points, str):
+        points = [line.strip(" -*•") for line in points.splitlines() if line.strip(" -*•")]
+    outline_values = [str(value).strip() for value in points if str(value).strip()]
+
+    def _compact(value: str) -> str:
+        return re.sub(r"[\s，。、“”‘’：:；;,.!?！？（）()\[\]{}]", "", value).lower()
+
+    compact_values = [_compact(value) for value in values]
+    compact_points = [_compact(value) for value in outline_values]
+    flags: List[str] = []
+    if compact_points and all(
+        value in compact_points or any(point and (value == point or value.startswith(point)) for point in compact_points)
+        for value in compact_values
+    ):
+        flags.append("copies_outline_points")
+    if any(_OUTLINE_LIKE_CONTENT.search(value) for value in values):
+        flags.append("outline_summary_language")
+    return flags
+
+
 def _source_segment(source: str, slide_index: int, total_slides: int, max_chars: int = 60_000) -> str:
     """Return a position-aware segment of the source text.
 
@@ -1584,32 +4175,92 @@ def _source_segment(source: str, slide_index: int, total_slides: int, max_chars:
     return source[start:start + max_chars]
 
 
+def _source_for_outline_item(
+    source: str,
+    item: Mapping[str, Any],
+    slide_index: int,
+    total_slides: int,
+    max_chars: int = 6_000,
+) -> str:
+    """Find source evidence for a page before falling back to position slicing.
+
+    Position-only slicing made a page about a late chapter receive unrelated
+    text, which encouraged the content model to repeat the outline instead of
+    expanding the actual source. Heading/keyword matching keeps the page tied
+    to its chapter while retaining a deterministic fallback for unstructured
+    documents.
+    """
+    text = str(source or "")
+    if not text:
+        return ""
+    title = str(item.get("title") or "").strip()
+    key_points = item.get("keyPoints") or item.get("content") or []
+    if isinstance(key_points, str):
+        key_points = [key_points]
+    candidates = [title, *(str(value).strip() for value in key_points if str(value).strip())]
+    needles = []
+    for value in candidates:
+        normalized = re.sub(r"[\s\W_]+", "", value, flags=re.UNICODE)
+        if len(normalized) >= 3:
+            needles.append(normalized[:40])
+    lines = text.splitlines(keepends=True)
+    offsets = []
+    cursor = 0
+    for line in lines:
+        offsets.append((cursor, cursor + len(line), line))
+        cursor += len(line)
+    for needle in needles:
+        for start, end, line in offsets:
+            normalized_line = re.sub(r"[\s\W_]+", "", line, flags=re.UNICODE)
+            if needle in normalized_line:
+                half_window = max_chars // 2
+                left = max(0, start - half_window)
+                right = min(len(text), max(end, start + half_window) + half_window)
+                return text[left:right][:max_chars]
+    return _source_segment(text, slide_index, total_slides, max_chars=max_chars)
+
+
 def _retry_llm_call(fn, max_retries: int = PPT_LLM_MAX_RETRIES, base_delay: float = PPT_LLM_RETRY_BASE_DELAY):
-    """Call fn() with exponential backoff on transient LLM errors."""
+    """Call fn() with exponential backoff; max_retries excludes the first call."""
     last_exc: Optional[Exception] = None
-    for attempt in range(max_retries):
+    attempts = max(1, int(max_retries) + 1)
+    for attempt in range(attempts):
         try:
             return fn()
         except HTTPException as exc:
-            if exc.status_code in {429, 502, 503, 504} and attempt < max_retries - 1:
+            if exc.status_code in {429, 502, 503, 504} and attempt < attempts - 1:
                 delay = base_delay * (2 ** attempt)
-                logger.warning("LLM call failed (attempt %d/%d), retrying in %.1fs: %s", attempt + 1, max_retries, delay, _safe_error_message(exc))
+                logger.warning("LLM call failed (attempt %d/%d), retrying in %.1fs: %s", attempt + 1, attempts, delay, _safe_error_message(exc))
                 time.sleep(delay)
                 last_exc = exc
             else:
                 raise
         except Exception as exc:
-            if attempt < max_retries - 1:
+            if attempt < attempts - 1:
                 delay = base_delay * (2 ** attempt)
-                logger.warning("LLM call failed (attempt %d/%d), retrying in %.1fs: %s", attempt + 1, max_retries, delay, _safe_error_message(exc))
+                logger.warning("LLM call failed (attempt %d/%d), retrying in %.1fs: %s", attempt + 1, attempts, delay, _safe_error_message(exc))
                 time.sleep(delay)
                 last_exc = exc
             else:
                 raise
-    raise last_exc  # type: ignore[misc]
+    if last_exc is not None:
+        raise last_exc
+    raise RuntimeError("LLM call did not execute")
+
+
+def _is_recoverable_outline_error(error: HTTPException) -> bool:
+    """判断大纲模型错误是否可以交给原始资料恢复。"""
+    status_code = int(getattr(error, "status_code", 0) or 0)
+    if status_code in {429, 502, 503, 504}:
+        return True
+    message = str(getattr(error, "detail", error) or "").lower()
+    return "timed out" in message or "request timeout" in message or "timeout" in message
 
 
 def _safe_error_message(error: Exception) -> str:
-    message = re.sub(r"(?i)(api[-_ ]?key|authorization|token)\s*[:=]\s*\S+", r"\1=[已隐藏]", str(error or ""))
+    raw_message = str(error or "")
+    if re.search(r"access\s+to\s+mode(?:l)?\s+denied", raw_message, flags=re.IGNORECASE):
+        return "阿里云百炼拒绝了当前模型访问：请确认该 API Key 已开通所选模型，且业务空间/账号具备访问资格"
+    message = re.sub(r"(?i)(api[-_ ]?key|authorization|token)\s*[:=]\s*\S+", r"\1=[已隐藏]", raw_message)
     message = re.sub(r"https?://[^\s]+", "[模型服务地址]", message)
     return (message.strip() or error.__class__.__name__)[:300]
