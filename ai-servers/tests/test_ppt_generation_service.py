@@ -32,6 +32,7 @@ from app.ppt_generation.service import (
     _sanitize_content_payload,
 )
 from app.ppt_generation.template_catalog import EmbeddedTemplateCatalog
+from app.ppt_generation.presenton_html_renderer import _normalize_renderer_slides
 
 
 def _sample_ui(layout_id="title_intro"):
@@ -57,6 +58,15 @@ def _named_text_nodes(root, target_name):
 
     walk(root)
     return found
+
+
+def test_presenton_renderer_normalizes_external_slide_indexes_without_mutating_input():
+    slides = [{"index": 0, "title": "第一页"}, {"title": "第二页"}, {"index": 18, "title": "第三页"}]
+
+    normalized = _normalize_renderer_slides(slides)
+
+    assert [slide["index"] for slide in normalized] == [1, 2, 3]
+    assert [slide.get("index") for slide in slides] == [0, None, 18]
 
 
 def test_fallback_preserves_template_badges_and_fills_card_copy():

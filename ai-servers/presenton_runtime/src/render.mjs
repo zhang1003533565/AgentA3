@@ -374,10 +374,25 @@ await page.waitForTimeout(700);
 // files, so this runtime only creates the artifacts required by this flow.
 const pngOnly = input.pngOnly === true;
 slideCount = pages.length;
+const domSlideIndexes = await page.locator("[data-slide-index]").evaluateAll((nodes) =>
+  nodes.map((node) => node.getAttribute("data-slide-index"))
+);
+if (domSlideIndexes.length !== slideCount) {
+  throw new Error(
+    `rendered slide DOM count mismatch: expected ${slideCount}, found ${domSlideIndexes.length}; ` +
+    `data-slide-index values=${JSON.stringify(domSlideIndexes)}`
+  );
+}
 for (let index = 1; index <= slideCount; index += 1) {
   const target = path.join(outputRoot, `${input.taskId}-${index}.png`);
   try {
-    await page.locator(`[data-slide-index="${index}"]`).screenshot({ path: target, timeout: 60_000 });
+    const slideLocator = page.locator(`[data-slide-index="${index}"]`);
+    if (await slideLocator.count() === 0) {
+      throw new Error(
+        `slide ${index} DOM node missing; available data-slide-index values=${JSON.stringify(domSlideIndexes)}`
+      );
+    }
+    await slideLocator.screenshot({ path: target, timeout: 60_000 });
   } catch (exc) {
     throw new Error(`slide ${index} screenshot failed: ${exc.message}`);
   }

@@ -306,6 +306,13 @@ def render_presenton_html(
         (runtime_root / "temp").mkdir(parents=True, exist_ok=True)
         (runtime_root / "app-data" / "exports").mkdir(parents=True, exist_ok=True)
     input_path = runtime_root / f"{task_id}.json"
+    # The renderer's screenshot loop addresses pages by their position
+    # (1..N).  Editor drafts and older task snapshots can carry zero-based,
+    # missing, or otherwise non-contiguous ``index`` values.  Do not let
+    # those external metadata values become DOM selectors: the renderer
+    # boundary owns one canonical, contiguous index space.
+    render_slides = _normalize_renderer_slides(slides)
+
     payload = {
         "taskId": task_id,
         "title": title,
@@ -315,7 +322,7 @@ def render_presenton_html(
             else str((_TEMPLATES / template_id).resolve())
         ),
         "template": json.loads(template_path.read_text(encoding="utf-8")),
-        "slides": slides,
+        "slides": render_slides,
         "outputRoot": _DOCKER_RUNTIME_ROOT if use_docker else str(runtime_root.resolve()),
         "pngOnly": preview_only,
         "pptxOnly": pptx_only,
@@ -423,6 +430,16 @@ def render_presenton_html(
                     scratch_path.unlink(missing_ok=True)
                 except OSError:
                     pass
+
+
+def _normalize_renderer_slides(slides: list[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    """Give the renderer a private, contiguous 1-based slide index space."""
+    normalized = []
+    for position, slide in enumerate(slides, 1):
+        item = copy.deepcopy(dict(slide))
+        item["index"] = position
+        normalized.append(item)
+    return normalized
 
 
 __all__ = ["render_presenton_html"]
