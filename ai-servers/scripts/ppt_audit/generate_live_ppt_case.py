@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import sys
 import time
 from pathlib import Path
 from typing import Any, Mapping
@@ -66,6 +67,9 @@ def main() -> int:
     output = Path(args.out).resolve()
     output.mkdir(parents=True, exist_ok=True)
     _load_dotenv(repo_root / ".env")
+    server_root = repo_root / "ai-servers"
+    if str(server_root) not in sys.path:
+        sys.path.insert(0, str(server_root))
 
     # These are bounded test-run defaults. They do not change production
     # configuration and make the run reproducible across local invocations.

@@ -1582,7 +1582,7 @@ class PptGenerationService:
                 batch_layout_ids,
                 batch_layouts_by_id,
                 len(indices),
-                [items[i] for i in indices],
+                current_slides,
             )
             quality_flags = [
                 _content_quality_flags(
@@ -1626,7 +1626,7 @@ class PptGenerationService:
                     batch_layout_ids,
                     batch_layouts_by_id,
                     len(indices),
-                    [items[i] for i in indices],
+                    current_slides,
                 )
                 corrected_flags = [
                     _content_quality_flags(
@@ -4158,15 +4158,24 @@ def _select_layout_fallback(
     if not layout_catalog:
         return ""
     candidates = layout_catalog
-    compatible = [
+    # 目录版式是一个动态重复组，适合真正的目录页；把它分配给封面或
+    # 普通内容页会把正文挤进导航行，并制造不必要的动态裁剪警报。
+    contents_compatible = [
         layout
         for layout in layout_catalog
+        if _layout_is_contents(layout) == _item_is_contents(item)
+    ]
+    if contents_compatible:
+        candidates = contents_compatible
+    compatible = [
+        layout
+        for layout in candidates
         if _numeric_layout_has_sufficient_data(layout, item)
     ]
     if compatible:
         candidates = compatible
     else:
-        candidates = [layout for layout in layout_catalog if not _layout_requires_numeric_data(layout)] or layout_catalog
+        candidates = [layout for layout in candidates if not _layout_requires_numeric_data(layout)] or candidates
     ranked = sorted(
         candidates,
         key=lambda layout: _layout_match_score(layout, item, index, total),
@@ -4215,6 +4224,11 @@ def _layout_match_score(
     point_count = len(item.get("keyPoints") or item.get("content") or [])
     score = 0.0
 
+    if _layout_is_contents(layout) != _item_is_contents(item):
+        score -= 1000
+    elif _layout_is_contents(layout):
+        score += 90
+
     if index == 1 or any(token in kind for token in ("cover", "title", "封面")):
         score += 80 if any(token in haystack for token in ("title_intro", "intro", "hero")) else 0
     if index == total or any(token in kind for token in ("summary", "conclusion", "总结", "结论")):
@@ -4249,6 +4263,25 @@ def _layout_match_score(
     return score
 
 
+def _layout_is_contents(layout: Mapping[str, Any]) -> bool:
+    """Return whether a layout is a navigation/contents layout."""
+    haystack = " ".join(
+        str(value or "").lower()
+        for value in (
+            layout.get("id"),
+            layout.get("description"),
+            *(layout.get("slots") or []),
+        )
+    )
+    return any(token in haystack for token in ("table_of_contents", "contents", "目录", "toc"))
+
+
+def _item_is_contents(item: Mapping[str, Any]) -> bool:
+    kind = str(item.get("type") or item.get("pageType") or "").lower()
+    title = str(item.get("title") or "").lower()
+    return any(token in kind or token in title for token in ("目录", "catalog", "contents", "toc"))
+
+
 def _rebalance_layout_choices(
     selected_layouts: List[str],
     layout_catalog: List[Mapping[str, Any]],
@@ -4260,7 +4293,7 @@ def _rebalance_layout_choices(
     for index, item in enumerate(items, start=1):
         current = selected_layouts[index - 1] if index <= len(selected_layouts) else ""
         current_layout = next((layout for layout in layout_catalog if str(layout.get("id") or "") == current), {})
-        if current not in valid or (
+        if current not in valid or _layout_is_contents(current_layout) != _item_is_contents(item) or (
             _layout_requires_numeric_data(current_layout)
             and not _numeric_layout_has_sufficient_data(current_layout, item)
         ):

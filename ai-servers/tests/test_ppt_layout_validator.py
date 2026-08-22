@@ -99,6 +99,27 @@ def test_template_background_bleed_is_allowed(catalog):
     assert not any(error_type == "OUT_OF_BOUNDS" for error_type, _ in errors)
 
 
+def test_dynamic_repeated_groups_may_be_pruned_without_geometry_error(catalog):
+    layout = catalog.get_layout("general", "table_of_contents")
+    model = parse_slide_layout(layout)
+    tree = {"components": copy.deepcopy(layout["components"])}
+
+    def prune_to_four(node):
+        if isinstance(node, list):
+            for item in node:
+                prune_to_four(item)
+        elif isinstance(node, dict):
+            if node.get("type") == "grid" and node.get("name") == "items_grid":
+                node["children"] = list(node.get("children") or [])[:4]
+            for key in ("components", "elements", "children", "child"):
+                if key in node:
+                    prune_to_four(node[key])
+
+    prune_to_four(tree)
+    errors = _errors(validate_slide(tree, model).issues)
+    assert not any(error_type == "GEOMETRY_CHANGED" for error_type, _ in errors)
+
+
 def test_text_overflow_detected(catalog):
     layout, model, tree = _tree(catalog, "title_intro")
     node = None

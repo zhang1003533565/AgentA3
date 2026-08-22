@@ -179,14 +179,20 @@ def validate_slide(ui_tree: Mapping[str, Any], model: SlideLayoutModel) -> Valid
 
     for name, model_elements in model.elements.items():
         tree_entries = nodes.get(name) or []
-        if not tree_entries:
+        if not tree_entries and name not in model.dynamic_names:
             result.issues.append(ValidationIssue(
                 error_type="GEOMETRY_CHANGED",
                 element_id=name,
                 detail="模板元素在合并后的树中缺失",
             ))
             continue
-        if len(tree_entries) != len(model_elements):
+        # grid/flex 重复组可按实际内容删除尾部实例；这是模板允许的
+        # cardinality 变化，不等于坐标/尺寸被 AI 改写。超过模板容量仍
+        # 属于结构错误，不能静默放行。
+        if len(tree_entries) > len(model_elements) or (
+            len(tree_entries) != len(model_elements)
+            and name not in model.dynamic_names
+        ):
             result.issues.append(ValidationIssue(
                 error_type="GEOMETRY_CHANGED",
                 element_id=name,

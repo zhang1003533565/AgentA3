@@ -189,6 +189,9 @@ class SlideLayoutModel:
     # flex/group 渲染后的有效盒子；保留原始 x/y 不变，避免把动态布局误报成
     # 模板几何突变。键为 (name, occurrence)。
     effective_boxes: Dict[Tuple[str, int], Tuple[float, float, float, float]] = field(default_factory=dict)
+    # 名称位于 grid/flex 重复组内时，填充器可以按实际内容裁剪组数量；
+    # 这不是坐标漂移。几何校验仍会逐个检查保留下来的实例。
+    dynamic_names: set[str] = field(default_factory=set)
 
     def element(self, name: str, index: int = 0) -> Optional[TemplateElementModel]:
         values = self.elements.get(name)
@@ -406,6 +409,7 @@ def parse_slide_layout(layout_json: Mapping[str, Any]) -> SlideLayoutModel:
     _refine_repeated_local_semantics(model)
     _normalize_card_groups(model)
     model.effective_boxes = _resolve_effective_boxes(layout_json)
+    model.dynamic_names = _collect_dynamic_names(layout_json)
     model.connector_targets = _infer_connector_targets(layout_json, model)
     return model
 
@@ -637,6 +641,42 @@ def _connector_points(node: Mapping[str, Any], x: float, y: float) -> List[Tuple
         center_x = x + width / 2.0
         return [(center_x, y), (center_x, y + height)]
     return []
+
+
+def _collect_dynamic_names(layout_json: Mapping[str, Any]) -> set[str]:
+    """Collect named descendants of renderer-managed repeat containers.
+
+    Presenton keeps the full set of template children in a grid/flex group,
+    while content binding may remove trailing groups to match the actual
+    number of items. Those missing occurrences are an allowed cardinality
+    change; any occurrence that remains is still checked against its original
+    geometry by ``LayoutValidator``.
+    """
+    names: set[str] = set()
+
+    def walk(value: Any, dynamic: bool = False) -> None:
+        if isinstance(value, list):
+            for item in value:
+                walk(item, dynamic)
+            return
+        if not isinstance(value, Mapping):
+            return
+        node_type = str(value.get("type") or "").lower()
+        children = value.get("children")
+        dynamic_here = dynamic or (
+            node_type in {"grid", "flex"} and isinstance(children, list) and bool(children)
+        )
+        name = str(value.get("name") or "").strip()
+        if name and dynamic_here:
+            names.add(name)
+        for key in ("components", "elements", "children"):
+            if key in value:
+                walk(value[key], dynamic_here)
+        if "child" in value:
+            walk(value["child"], dynamic_here)
+
+    walk(layout_json.get("components") or [])
+    return names
 
 
 def _resolve_effective_boxes(layout_json: Mapping[str, Any]) -> Dict[Tuple[str, int], Tuple[float, float, float, float]]:

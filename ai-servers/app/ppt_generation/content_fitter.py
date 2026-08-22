@@ -230,6 +230,16 @@ def fit_text(
         if text_fits(removed, element, font_size=current_font_size):
             return FitResult(text=removed, strategy="remove-secondary", fits=True, actions=actions)
 
+    # Footer/supporting-note slots are summaries, not body containers. Keep
+    # complete sentence/clause boundaries when the model gives them a little
+    # too much text; arbitrary character clipping would hide facts mid-word
+    # and make the generated content differ from the trace data.
+    if element.semantic_role == "footer":
+        for candidate in _footer_prefix_variants(original):
+            if candidate != original and text_fits(candidate, element, font_size=current_font_size):
+                actions.append("semantic-shorten-footer")
+                return FitResult(text=candidate, strategy="summarize", fits=True, actions=actions)
+
     if element.semantic_role in {"page_title", "section_title", "page_subtitle"}:
         title_variants = _semantic_title_variants(original, constraint.hard_max_chars)
         for candidate in title_variants:
@@ -308,6 +318,18 @@ def fit_text(
     # 6) 显式失败：保留完整输入，让 QA/质量门禁报告真实溢出位置。
     # 这里绝不能用省略号、前缀或 hard_max_chars 静默改写用户内容。
     return FitResult(text=original, strategy="failed", fits=False, actions=actions + ["content-unfit"])
+
+
+def _footer_prefix_variants(text: str) -> List[str]:
+    """Return progressively shorter complete clauses for a summary footer."""
+    value = re.sub(r"\s+", " ", str(text or "")).strip()
+    if not value:
+        return []
+    # Prefer sentence boundaries, then Chinese/English clause boundaries.
+    boundaries = [m.end() for m in re.finditer(r"[^。！？.!?；;]+[。！？.!?；;]", value)]
+    boundaries += [m.end() for m in re.finditer(r"[^，,、:：]+[，,、:：]", value)]
+    candidates = {value[:end].strip() for end in boundaries if end < len(value)}
+    return sorted(candidates, key=len, reverse=True)
 
 
 def _looks_like_paragraph(text: str) -> bool:

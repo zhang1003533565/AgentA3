@@ -109,6 +109,17 @@ def test_single_line_slot_never_ellipsis(catalog):
     assert not result.fits
 
 
+def test_footer_overflow_keeps_complete_clause_without_ellipsis(catalog):
+    layout = catalog.get_layout("general", "title_table_description")
+    element = parse_slide_layout(layout).element("supporting_note")
+    text = "First choose by business order. Then check traversal and complexity. Finally check memory and concurrency. " * 4
+    result = fit_text(text, element, llm_rewrite=None, llm_call_budget=0)
+    assert result.fits
+    assert result.strategy == "summarize"
+    assert result.text.endswith(("。", ".", "；", ";", "，", ","))
+    assert "…" not in result.text
+
+
 def test_empty_text_passthrough(title_model):
     result = _fit(title_model, "body_copy", "   ")
     assert result.text == ""

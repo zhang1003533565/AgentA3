@@ -255,6 +255,21 @@ def test_visual_disabled_mode_excludes_required_image_layouts():
     assert _layout_has_required_visual(catalog.get_layout("general", "title_table_description")) is False
 
 
+def test_layout_rebalance_rejects_contents_template_for_normal_content():
+    catalog = EmbeddedTemplateCatalog()
+    summaries = catalog.layout_summaries("general")
+    selected = _rebalance_layout_choices(
+        ["table_of_contents"],
+        summaries,
+        [{
+            "title": "栈的 LIFO 机制",
+            "type": "内容页",
+            "content": ["插入和删除都在栈顶进行"],
+        }],
+    )
+    assert selected[0] != "table_of_contents"
+
+
 def test_layout_rebalance_rejects_numeric_template_without_numeric_source():
     catalog = EmbeddedTemplateCatalog()
     summaries = catalog.layout_summaries("standard")
