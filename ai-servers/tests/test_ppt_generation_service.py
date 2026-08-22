@@ -76,6 +76,30 @@ def test_fallback_preserves_template_badges_and_fills_card_copy():
     assert any(str(value or "").strip() for value in rendered_titles)
 
 
+def test_fallback_card_title_uses_slot_capacity_and_marks_truncation():
+    catalog = EmbeddedTemplateCatalog()
+    layout = catalog.get_layout("momentum", "title_over_cards_layout_8558")
+    result = _fill_layout_with_slide_text(
+        layout,
+        {
+            "title": "第三章 栈与队列",
+            "content": [
+                "聚焦计算机科学的底层基石；覆盖数据组织方式与算法执行逻辑；保留卡片语义信息。",
+            ],
+        },
+        {},
+    )
+
+    rendered_titles = [
+        str(node.get("text") or "")
+        for node in _named_text_nodes(result, "card_title")
+    ]
+    visible_titles = [value for value in rendered_titles if value]
+    assert visible_titles
+    assert any(len(value) > 16 for value in visible_titles)
+    assert any(value.endswith("…") for value in visible_titles)
+
+
 def test_numeric_layout_is_rebalanced_for_non_numeric_outline():
     catalog = EmbeddedTemplateCatalog()
     summaries = catalog.layout_summaries("momentum")

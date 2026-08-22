@@ -2877,7 +2877,9 @@ def _fill_missing_slots(
         if match:
             return match.group(1).strip(), match.group(2).strip()
         compact = re.sub(r"[。！？.!?].*$", "", value).strip()
-        label = compact[:16].rstrip("，,、：:") or value[:16]
+        # 与主填充路径保持一致：不要在进入真实文本槽位容量计算前
+        # 用固定 16 字符截断标题，否则回填路径也会静默丢失信息。
+        label = compact.rstrip("，,、：:") or value
         return label, value
 
     numeric_values: List[str] = []
@@ -3633,10 +3635,12 @@ def _fill_layout_with_slide_text(
     node_roles: Dict[int, str] = {}
     node_semantic_roles: Dict[int, str] = {}
 
-    def _write_content(node: Dict[str, Any], content: Any) -> None:
+    def _write_content(
+        node: Dict[str, Any], content: Any, *, respect_capacity: bool = False
+    ) -> None:
         # 先保留原始内容交给 RepairEngine 按真实几何适配；如果在这里先按
         # 模板的静态 max_length 截断，后续就无法通过缩字号挽回被截掉的标题。
-        _set_text_node_content(node, content, respect_capacity=False)
+        _set_text_node_content(node, content, respect_capacity=respect_capacity)
 
     def _is_decorative(node: Mapping[str, Any]) -> bool:
         """装饰位：纯数字角标/全大写短标签/容量过小，不参与标题正文分配。"""
@@ -3713,7 +3717,10 @@ def _fill_layout_with_slide_text(
         if match:
             return match.group(1).strip(), match.group(2).strip()
         compact = re.sub(r"[。！？.!?].*$", "", value).strip()
-        label = compact[:16].rstrip("，,、：:") or value[:16]
+        # 卡片标题的容量由真实文本槽位决定。固定截取 16 个字符会在
+        # 进入 Layout/RepairEngine 之前丢失信息，而且不会留下可诊断的
+        # 省略标记；卡片正文槽位仍由调用方按自己的容量单独处理。
+        label = compact.rstrip("，,、：:") or value
         return label, value
 
     numeric_values: List[str] = []
@@ -3741,7 +3748,7 @@ def _fill_layout_with_slide_text(
         filled_nodes.add(id(node))
     for node, point in zip(metric_label_nodes, points):
         label, _ = _card_copy(point)
-        _write_content(node, label)
+        _write_content(node, label, respect_capacity=True)
         filled_nodes.add(id(node))
     for node, point in zip(metric_description_nodes, points):
         _write_content(node, point)
@@ -3775,7 +3782,7 @@ def _fill_layout_with_slide_text(
     if card_heading_nodes and not card_body_nodes:
         for point, heading_node in zip(points, card_heading_nodes):
             label, _ = _card_copy(point)
-            _write_content(heading_node, label)
+            _write_content(heading_node, label, respect_capacity=True)
             filled_nodes.add(id(heading_node))
         paired_points = min(len(points), len(card_heading_nodes))
     elif card_body_nodes and not card_heading_nodes:
@@ -3787,7 +3794,7 @@ def _fill_layout_with_slide_text(
         points[:paired_points], card_heading_nodes[:paired_points], card_body_nodes[:paired_points]
     ):
         label, body = _card_copy(point)
-        _write_content(heading_node, label)
+        _write_content(heading_node, label, respect_capacity=True)
         _write_content(body_node, body)
         filled_nodes.update({id(heading_node), id(body_node)})
 

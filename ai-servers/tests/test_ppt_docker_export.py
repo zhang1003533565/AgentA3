@@ -73,3 +73,17 @@ def test_renderer_path_maps_container_runtime_to_host(tmp_path):
 
     assert renderer._host_path_from_renderer("/app/runtime/task.pptx", tmp_path) == Path(tmp_path) / "task.pptx"
     assert renderer._host_path_from_renderer("file:///app/runtime/task.pptx", tmp_path) == Path(tmp_path) / "task.pptx"
+
+
+def test_exporter_image_declares_deterministic_cjk_font_alias():
+    root = Path(__file__).resolve().parents[1]
+    dockerfile = (root / "Dockerfile.pptx-exporter").read_text(encoding="utf-8")
+    font_config = (root / "presenton_runtime" / "fontconfig-pptx.conf").read_text(
+        encoding="utf-8"
+    )
+
+    assert "COPY presenton_runtime/fontconfig-pptx.conf /etc/fonts/local.conf" in dockerfile
+    assert "Noto Serif" in font_config
+    assert "Noto Serif CJK SC" in font_config
+    assert "Microsoft YaHei" in font_config
+    assert "Noto Sans CJK SC" in font_config

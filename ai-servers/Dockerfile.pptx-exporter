@@ -12,6 +12,12 @@ RUN apt-get update \
     && apt-get install --no-install-recommends --yes chromium fonts-noto-cjk ca-certificates unzip \
     && rm -rf /var/lib/apt/lists/*
 
+# Keep the requested application family stable in the Linux renderer. The
+# project uses Noto Serif as its logical CJK family, while Debian's CJK font
+# package exposes the concrete family as Noto Serif CJK SC.
+COPY presenton_runtime/fontconfig-pptx.conf /etc/fonts/local.conf
+RUN fc-cache -f
+
 COPY presenton_runtime ./presenton_runtime
 COPY app/ppt_generation/assets/templates ./templates
 
