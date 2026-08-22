@@ -98,6 +98,34 @@ def _remove_secondary(text: str, constraint: TextConstraint) -> str:
     return "\n".join(f"• {p}" for p in kept)
 
 
+def _semantic_body_variants(text: str) -> List[str]:
+    """Return complete-clause body candidates for moderate overflow."""
+    original = re.sub(r"\s+", " ", str(text or "")).strip()
+    if not original:
+        return []
+    clauses = [
+        part.strip()
+        for part in re.split(r"(?<=[。；!?！？])\s*", original)
+        if part.strip()
+    ]
+    if len(clauses) <= 1:
+        return []
+    variants: List[str] = []
+
+    def add(value: str) -> None:
+        candidate = re.sub(r"\s+", " ", value).strip()
+        if candidate and candidate != original and candidate not in variants:
+            variants.append(candidate)
+
+    # Keep complete clauses only. The caller performs the actual geometry
+    # check, so the longest fitting candidate wins without arbitrary slicing.
+    for count in range(len(clauses) - 1, 0, -1):
+        add("".join(clauses[:count]))
+    if len(clauses) >= 3:
+        add("".join([clauses[0], clauses[-1]]))
+    return variants
+
+
 def _semantic_title_variants(text: str, max_chars: int = 0) -> List[str]:
     """Generate loss-aware title candidates without adding an ellipsis."""
     original = re.sub(r"\s+", " ", str(text or "")).strip()
@@ -230,6 +258,21 @@ def fit_text(
         actions.append("remove-secondary")
         if text_fits(removed, element, font_size=current_font_size):
             return FitResult(text=removed, strategy="remove-secondary", fits=True, actions=actions)
+
+        # Condense a moderately long paragraph before giving up. Extreme
+        # content remains visible to the quality gate instead of being hidden.
+        content_length = count_content_chars(original)
+        moderate_limit = max(constraint.hard_max_chars * 2, constraint.hard_max_chars + 24)
+        if content_length <= moderate_limit:
+            for candidate in _semantic_body_variants(original):
+                if text_fits(candidate, element, font_size=current_font_size):
+                    actions.append("semantic-shorten-body")
+                    return FitResult(
+                        text=candidate,
+                        strategy="summarize",
+                        fits=True,
+                        actions=actions,
+                    )
 
     # Footer/supporting-note slots are summaries, not body containers. Keep
     # complete sentence/clause boundaries when the model gives them a little

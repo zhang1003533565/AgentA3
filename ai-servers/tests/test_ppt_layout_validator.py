@@ -148,6 +148,33 @@ def test_text_overflow_detected(catalog):
     assert ("TEXT_OVERFLOW", "headline_text") in errors
 
 
+def test_character_budget_only_is_warning_when_geometry_fits():
+    layout = {"id": "char_budget_warning", "components": [{
+        "id": "panel",
+        "position": {"x": 0, "y": 0},
+        "elements": [{
+            "type": "text",
+            "name": "bounded_label",
+            "position": {"x": 0, "y": 0},
+            "size": {"width": 300, "height": 100},
+            "max_length": 2,
+            "font": {"size": 20, "line_height": 1.0},
+            "runs": [{"text": "这是四个字", "font": {"size": 20}}],
+        }],
+    }]}
+    model = parse_slide_layout(layout)
+    result = validate_slide({"components": copy.deepcopy(layout["components"])}, model)
+
+    assert any(
+        issue.error_type == "TEXT_OVERFLOW" and issue.severity == "warning"
+        for issue in result.issues
+    )
+    assert not any(
+        issue.error_type == "TEXT_OVERFLOW" and issue.severity == "error"
+        for issue in result.issues
+    )
+
+
 def test_shrunk_chinese_title_uses_geometry_after_font_fit():
     layout = EmbeddedTemplateCatalog().get_layout("momentum", "title_with_accent_footer_6891")
     model = parse_slide_layout(layout)

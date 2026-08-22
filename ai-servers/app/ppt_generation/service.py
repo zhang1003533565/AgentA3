@@ -325,6 +325,11 @@ class PptGenerationService:
             validation_result = outcome.last_result
             validation_errors = list(dict.fromkeys(
                 issue.error_type for issue in outcome.final_issues
+                if issue.severity == "error"
+            ))
+            validation_warnings = list(dict.fromkeys(
+                issue.error_type for issue in outcome.final_issues
+                if issue.severity == "warning"
             ))
             item["_qa"] = {
                 "layoutId": layout_id,
@@ -333,6 +338,7 @@ class PptGenerationService:
                     len(str(point)) for point in (item.get("content") or []) if point
                 ),
                 "validationErrors": validation_errors,
+                "validationWarnings": validation_warnings,
                 "repairCount": outcome.repair_count,
                 "finalStatus": outcome.status,
                 "repairHistory": outcome.history,
@@ -498,12 +504,22 @@ class PptGenerationService:
                     "errors": list(qa.get("validationErrors") or []),
                     "detail": str(qa.get("enforcementError") or "页面质量校验未通过"),
                 })
+        quality_warnings = [
+            {
+                "slide": index,
+                "warnings": list((slide.get("_qa") or {}).get("validationWarnings") or []),
+            }
+            for index, slide in enumerate(final_slides, start=1)
+            if isinstance(slide.get("_qa"), Mapping)
+            and (slide.get("_qa") or {}).get("validationWarnings")
+        ]
         qa_report = build_qa_report(final_slides, consistency_issues, models_by_layout, template_id)
         report_path = write_qa_report(qa_report, template_id, task_id)
         qa = {
             "status": "blocked" if quality_errors else "pass",
             "consistencyIssues": consistency_issues,
             "qualityErrors": quality_errors,
+            "qualityWarnings": quality_warnings,
             "repairWarnings": repair_warnings,
             "reportPath": report_path or "",
         }
@@ -1161,7 +1177,14 @@ class PptGenerationService:
                     "layoutId": str(slide.get("templateLayoutId") or ""),
                     "semanticType": str(slide.get("type") or ""),
                     "contentLength": sum(len(str(p)) for p in (slide.get("content") or []) if p),
-                    "validationErrors": [issue.error_type for issue in validation.issues],
+                    "validationErrors": [
+                        issue.error_type for issue in validation.issues
+                        if issue.severity == "error"
+                    ],
+                    "validationWarnings": [
+                        issue.error_type for issue in validation.issues
+                        if issue.severity == "warning"
+                    ],
                     "repairCount": 0,
                     "finalStatus": "clean" if not validation.has_errors else "partial",
                     "repairHistory": [],
@@ -2036,6 +2059,10 @@ class PptGenerationService:
             warnings.extend([
                 f"第{item['slide']}页已自动压缩内容（{item['repairCount']}次修复），请检查预览"
                 for item in (qa.get("repairWarnings") or [])
+            ])
+            warnings.extend([
+                f"第{item['slide']}页存在容量提示（{', '.join(item['warnings'])}），请检查预览"
+                for item in (qa.get("qualityWarnings") or [])
             ])
             warnings.extend(f"{key}: {value}" for key, value in format_errors.items())
             quality_status = "partial" if warnings or str(content_quality.get("status") or "") != "complete" or any(

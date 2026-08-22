@@ -71,9 +71,10 @@ def test_body_content_compresses_to_capacity(title_model):
     long_body = "自动完成重复任务降低人工处理成本，这是企业数字化转型的核心价值所在。" * 5
     result = _fit(title_model, "body_copy", long_body, llm=None)
     element = title_model.element("body_copy")
-    assert result.text == long_body
-    assert not result.fits
-    assert not text_fits(result.text, element)
+    assert result.strategy == "summarize"
+    assert result.text != long_body
+    assert result.fits
+    assert text_fits(result.text, element)
     assert "…" not in result.text
 
 

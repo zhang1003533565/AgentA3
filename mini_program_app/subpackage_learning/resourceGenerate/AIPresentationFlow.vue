@@ -1122,6 +1122,17 @@ export default {
       return 'complete'
     },
     renderFailureMessage() {
+      const failures = Array.isArray(this.taskResult?.error?.slides)
+        ? this.taskResult.error.slides
+        : []
+      if (failures.length) {
+        const summary = failures.slice(0, 3).map(item => {
+          const slide = Number(item?.slide || 0)
+          const errors = Array.isArray(item?.errors) ? item.errors.filter(Boolean) : []
+          return `第${slide}页${errors.length ? `：${errors.join('、')}` : '质量校验未通过'}`
+        }).join('；')
+        return failures.length > 3 ? `${summary}；另有${failures.length - 3}页` : summary
+      }
       return this.lastPptError || this.taskResult?.message || '可以保留当前页面内容，重新提交模板渲染。'
     },
 

@@ -298,6 +298,9 @@ def _validate_element(
                     error_type="TEXT_OVERFLOW",
                     element_id=name,
                     detail=f"内容字符数 {content_chars} 超过硬上限 {element.constraint.hard_max_chars}",
+                    # This is only a conservative character-budget signal.
+                    # Measured width/height overflow below remains an error.
+                    severity="warning",
                 ))
             # 内容修复可能已将字号压到角色下限；排版校验必须使用节点当前字号，
             # 否则校验仍按模板原字号测量，合法的缩字结果会被误判为溢出。
