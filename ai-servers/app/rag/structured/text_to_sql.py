@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from contextlib import closing
 from typing import Any, Dict, List, Optional
 import re
 import sqlite3
@@ -59,7 +60,7 @@ class TextToSqlService:
         if not path.exists():
             return []
         uri = f"file:{path.resolve()}?mode=ro"
-        with sqlite3.connect(uri, uri=True) as conn:
+        with closing(sqlite3.connect(uri, uri=True)) as conn:
             conn.row_factory = sqlite3.Row
             return [dict(row) for row in conn.execute(sql).fetchall()]
 
@@ -72,7 +73,7 @@ class TextToSqlService:
             return self.default_schema()
         schema: Dict[str, Any] = {}
         uri = f"file:{path.resolve()}?mode=ro"
-        with sqlite3.connect(uri, uri=True) as conn:
+        with closing(sqlite3.connect(uri, uri=True)) as conn:
             table_rows = conn.execute(
                 "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
             ).fetchall()
