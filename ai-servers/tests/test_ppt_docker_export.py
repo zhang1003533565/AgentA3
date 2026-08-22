@@ -1,4 +1,5 @@
 from pathlib import Path
+import zipfile
 
 
 def test_windows_pptx_tasks_use_docker_by_default(monkeypatch):
@@ -87,3 +88,20 @@ def test_exporter_image_declares_deterministic_cjk_font_alias():
     assert "Noto Serif CJK SC" in font_config
     assert "Microsoft YaHei" in font_config
     assert "Noto Sans CJK SC" in font_config
+
+
+def test_normalize_pptx_slide_size_metadata_repairs_legacy_preset(tmp_path):
+    from app.ppt_generation import presenton_html_renderer as renderer
+
+    path = tmp_path / "legacy.pptx"
+    with zipfile.ZipFile(path, "w") as archive:
+        archive.writestr(
+            "ppt/presentation.xml",
+            '<p:presentation xmlns:p="urn:test"><p:sldSz cx="12192000" cy="6858000" type="screen4x3"/></p:presentation>',
+        )
+
+    renderer._normalize_pptx_slide_size_metadata(path)
+
+    with zipfile.ZipFile(path) as archive:
+        xml = archive.read("ppt/presentation.xml")
+    assert b'type="screen16x9"' in xml

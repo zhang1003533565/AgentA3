@@ -6,7 +6,9 @@ import logging
 import os
 import shutil
 import subprocess
+import tempfile
 import uuid
+import zipfile
 from pathlib import Path
 from typing import Any, Mapping, Tuple
 from urllib.parse import unquote, urlparse
@@ -22,6 +24,44 @@ _SCRIPT = _RUNTIME / "src" / "render.mjs"
 _TEMPLATES = Path(__file__).resolve().parent / "assets" / "templates"
 _DOCKER_RUNTIME_ROOT = "/app/runtime"
 _DOCKER_HOST_ROOT = "/app/host"
+
+
+def _normalize_pptx_slide_size_metadata(path: Path) -> None:
+    """Align the exporter's legacy aspect-ratio label with its EMU size.
+
+    The official exporter writes the correct 13.333 x 7.5 inch dimensions but
+    can retain ``screen4x3`` in ``presentation.xml``. PowerPoint currently
+    renders the numeric size correctly, yet the contradictory metadata causes
+    downstream importers and audit tools to infer the wrong page preset.
+    """
+    temporary_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            prefix=f"{path.stem}-normalized-",
+            suffix=".pptx",
+            dir=path.parent,
+            delete=False,
+        ) as handle:
+            temporary_path = Path(handle.name)
+        changed = False
+        with zipfile.ZipFile(path, "r") as source, zipfile.ZipFile(
+            temporary_path, "w"
+        ) as target:
+            for entry in source.infolist():
+                data = source.read(entry.filename)
+                if entry.filename == "ppt/presentation.xml":
+                    normalized = data.replace(
+                        b'type="screen4x3"', b'type="screen16x9"'
+                    )
+                    changed = normalized != data
+                    data = normalized
+                target.writestr(entry, data)
+        if changed:
+            os.replace(temporary_path, path)
+            temporary_path = None
+    finally:
+        if temporary_path is not None:
+            temporary_path.unlink(missing_ok=True)
 
 
 def _use_docker_pptx_export(pptx_only: bool) -> bool:
