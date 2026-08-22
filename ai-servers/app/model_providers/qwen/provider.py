@@ -1,4 +1,5 @@
 import time
+import os
 from typing import Any, Dict, Iterator, List, Optional
 
 from fastapi import HTTPException
@@ -31,11 +32,25 @@ QWEN_PROVIDER_ALIASES = {
     "qwen-openai",
 }
 
-QWEN_THINKING_BUDGETS = {
-    "low": 4096,
-    "medium": 8192,
-    "high": 16384,
-}
+QWEN_MODEL_FALLBACKS = (
+    "qwen3.7-max-2026-06-08",
+    "qwen3.7-max-2026-05-17",
+    "qwen3.7-max-preview",
+    "kimi-k3",
+    "deepseek-v4-flash-0731",
+    "glm-5.2",
+    "kimi-k2.7-code",
+    "deepseek-v4-pro-0813",
+    "qwen3.5-ocr",
+    "qwen3.7-plus-2026-05-26",
+)
+
+_FALLBACK_STATUS_CODES = {400, 401, 403, 404, 408, 409, 429, 500, 502, 503, 504}
+_FALLBACK_ERROR_MARKERS = (
+    "quota", "rate limit", "too many requests", "insufficient", "exhausted",
+    "free quota", "model not found", "model does not exist", "model unavailable",
+    "invalid model", "thinking_budget", "额度", "余额", "限流", "用完", "不可用",
+)
 
 
 class QwenProvider(ChatModelProvider):
@@ -67,26 +82,37 @@ class QwenProvider(ChatModelProvider):
         if not model:
             raise RuntimeError("Qwen 模型未配置：缺少 X-AI-Model")
 
+        self._chat_openai = ChatOpenAI
+        self._api_key = api_key
+        self._base_url = normalize_base_url(base_url)
+        self._max_output_tokens = get_active_max_output_tokens()
         self.model = model
-        self.llm = ChatOpenAI(
-            api_key=api_key,
-            base_url=normalize_base_url(base_url),
+        self.llm = self._build_llm(model)
+
+    def _build_llm(self, model: str):
+        return self._chat_openai(
+            api_key=self._api_key,
+            base_url=self._base_url,
             model=model,
             temperature=0.2,
             timeout=get_active_llm_timeout_seconds(),
             max_retries=0,
-            **({"max_tokens": get_active_max_output_tokens()} if get_active_max_output_tokens() else {}),
+            **({"max_tokens": self._max_output_tokens} if self._max_output_tokens else {}),
             callbacks=langchain_callbacks(),
         )
 
-    def _thinking_extra_body(self, reasoning_effort: Optional[str] = None) -> Dict[str, Any]:
+    def _thinking_extra_body(
+        self,
+        reasoning_effort: Optional[str] = None,
+        model_override: Optional[str] = None,
+    ) -> Dict[str, Any]:
         """Build DashScope thinking controls for Qwen3 mixed-thinking models.
 
         `reasoning_effort` is not an OpenAI-standard Chat Completions parameter.
         Bailian expects the Qwen-specific controls in `extra_body`, otherwise the
         application-level reasoning setting is silently ignored.
         """
-        model = str(self.model or "").strip().lower()
+        model = str(model_override or self.model or "").strip().lower()
         effort = str(reasoning_effort or get_active_reasoning_effort() or "medium").strip().lower()
         if model.startswith("qwen3.8"):
             # qwen3.8 deployments may expose a zero thinking-budget ceiling,
@@ -104,35 +130,92 @@ class QwenProvider(ChatModelProvider):
             return {}
         if effort == "none":
             return {"extra_body": {"enable_thinking": False}}
-        budget = QWEN_THINKING_BUDGETS.get(effort, QWEN_THINKING_BUDGETS["medium"])
-        max_output_tokens = get_active_max_output_tokens()
-        if max_output_tokens:
-            # Bailian requires max_completion_tokens to be greater than
-            # thinking_budget. Keep every task valid, including short repair
-            # and layout-selection calls that intentionally use small output caps.
-            compatible_budget = max(1, int(max_output_tokens) - 1)
-            if budget > compatible_budget:
-                logger.warning(
-                    "qwen thinking budget clamped from %s to %s for max_output_tokens=%s",
-                    budget,
-                    compatible_budget,
-                    max_output_tokens,
+        # Do not send an explicit thinking_budget. Different Bailian
+        # deployments expose different thinking ceilings (including zero),
+        # while the server-side default is valid for all supported models.
+        return {"extra_body": {"enable_thinking": True}}
+
+    def _fallback_models(self) -> List[str]:
+        configured = [
+            item.strip()
+            for item in str(os.getenv("LLM_MODEL_FALLBACKS") or "").split(",")
+            if item.strip()
+        ]
+        candidates: List[str] = []
+        seen = set()
+        for item in [self.model, *configured, *QWEN_MODEL_FALLBACKS]:
+            normalized = item.strip()
+            key = normalized.lower()
+            if normalized and key not in seen:
+                seen.add(key)
+                candidates.append(normalized)
+        return candidates
+
+    @staticmethod
+    def _status_code(error: BaseException) -> Optional[int]:
+        for value in (
+            getattr(error, "status_code", None),
+            getattr(getattr(error, "response", None), "status_code", None),
+        ):
+            try:
+                if value is not None:
+                    return int(value)
+            except (TypeError, ValueError):
+                continue
+        return None
+
+    @classmethod
+    def _should_fallback(cls, error: BaseException) -> bool:
+        status = cls._status_code(error)
+        if status in _FALLBACK_STATUS_CODES:
+            if status != 400:
+                return True
+            message = str(error).lower()
+            return any(marker in message for marker in _FALLBACK_ERROR_MARKERS)
+        message = str(error).lower()
+        return any(marker in message for marker in _FALLBACK_ERROR_MARKERS)
+
+    def _invoke_with_fallback(
+        self,
+        messages: List[Any],
+        reasoning_effort: Optional[str] = None,
+        use_thinking: bool = True,
+    ):
+        candidates = self._fallback_models()
+        for position, model in enumerate(candidates):
+            candidate_llm = self.llm if model == self.model else self._build_llm(model)
+            try:
+                response = candidate_llm.invoke(
+                    messages,
+                    **(
+                        self._thinking_extra_body(reasoning_effort, model_override=model)
+                        if use_thinking else {}
+                    ),
                 )
-                budget = compatible_budget
-        return {
-            "extra_body": {
-                "enable_thinking": True,
-                "thinking_budget": budget,
-            }
-        }
+                if model != self.model:
+                    logger.warning("LLM model fallback succeeded from %s to %s", self.model, model)
+                    self.model = model
+                    self.llm = candidate_llm
+                return response
+            except Exception as exc:
+                has_next = position + 1 < len(candidates)
+                if not has_next or not self._should_fallback(exc):
+                    raise
+                logger.warning(
+                    "LLM model failed, trying fallback model current=%s next=%s error=%s",
+                    model,
+                    candidates[position + 1],
+                    str(exc)[:300],
+                )
+        raise RuntimeError("没有可用的 LLM 模型")
 
     def complete(self, system_prompt: str, user_prompt: str, reasoning_effort: Optional[str] = None) -> str:
         from langchain_core.messages import HumanMessage, SystemMessage
 
-        response = self.llm.invoke([
+        response = self._invoke_with_fallback([
             SystemMessage(content=system_prompt),
             HumanMessage(content=build_multimodal_human_content(user_prompt)),
-        ], **self._thinking_extra_body(reasoning_effort))
+        ], reasoning_effort)
         return extract_response_text(response)
 
     def stream_complete(self, system_prompt: str, user_prompt: str, reasoning_effort: Optional[str] = None) -> Iterator[str]:
@@ -142,10 +225,33 @@ class QwenProvider(ChatModelProvider):
             SystemMessage(content=system_prompt),
             HumanMessage(content=build_multimodal_human_content(user_prompt)),
         ]
-        for chunk in self.llm.stream(messages, **self._thinking_extra_body(reasoning_effort)):
-            content = getattr(chunk, "content", "")
-            if content:
-                yield str(content)
+        candidates = self._fallback_models()
+        for position, model in enumerate(candidates):
+            candidate_llm = self.llm if model == self.model else self._build_llm(model)
+            emitted = False
+            try:
+                for chunk in candidate_llm.stream(
+                    messages,
+                    **self._thinking_extra_body(reasoning_effort, model_override=model),
+                ):
+                    content = getattr(chunk, "content", "")
+                    if content:
+                        emitted = True
+                        yield str(content)
+                if model != self.model:
+                    logger.warning("LLM stream fallback succeeded from %s to %s", self.model, model)
+                    self.model = model
+                    self.llm = candidate_llm
+                return
+            except Exception as exc:
+                if emitted or position + 1 >= len(candidates) or not self._should_fallback(exc):
+                    raise
+                logger.warning(
+                    "LLM stream model failed before output, trying fallback model current=%s next=%s error=%s",
+                    model,
+                    candidates[position + 1],
+                    str(exc)[:300],
+                )
 
     def extract_search_keyword(self, input_text: str) -> str:
         from langchain_core.messages import HumanMessage, SystemMessage
@@ -155,10 +261,10 @@ class QwenProvider(ChatModelProvider):
 
         started = time.perf_counter()
         logger.info("extract keyword start input_len=%s images=%s", len(input_text or ""), len(image_urls))
-        response = self.llm.invoke([
+        response = self._invoke_with_fallback([
             SystemMessage(content=KEYWORD_EXTRACTION_PROMPT),
             HumanMessage(content=keyword_input),
-        ])
+        ], use_thinking=False)
         text = sanitize_keyword(str(response.content))
         if not text:
             raise HTTPException(status_code=502, detail="Qwen 未返回可用检索关键词，已禁止本地关键词兜底")
@@ -192,7 +298,7 @@ class QwenProvider(ChatModelProvider):
             search_keyword,
             len(search_results or []),
         )
-        response = self.llm.invoke(messages)
+        response = self._invoke_with_fallback(messages, use_thinking=False)
         answer_text = str(response.content or "").strip()
         if not answer_text:
             raise HTTPException(status_code=500, detail="Qwen 返回内容为空")
