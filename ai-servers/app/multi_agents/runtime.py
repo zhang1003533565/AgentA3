@@ -22,18 +22,16 @@ logger = logging.getLogger("multi_agents.runtime")
 
 # 同一套阿里云百炼凭据下的免费文本模型故障切换顺序。
 FREE_TEXT_MODEL_FALLBACK_CHAIN = (
-    "qwen3.8-27b",
-    "qwen3.7-flash-2026-07-15",
-    "qwen3.7-plus",
-    "qwen3.5-ocr",
-    "qwen3.7-max-2026-05-17",
     "qwen3.7-max-2026-06-08",
+    "qwen3.7-max-2026-05-17",
     "qwen3.7-max-preview",
+    "kimi-k3",
     "deepseek-v4-flash-0731",
     "glm-5.2",
     "kimi-k2.7-code",
-    "qwen3.8-2.4t-a95b",
-    "qwen3.8-max",
+    "deepseek-v4-pro-0813",
+    "qwen3.5-ocr",
+    "qwen3.7-plus-2026-05-26",
 )
 
 # 500 不能单独说明是模型额度问题：本地依赖缺失、配置错误也会返回 500。

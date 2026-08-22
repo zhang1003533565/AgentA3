@@ -113,7 +113,10 @@ class QwenProvider(ChatModelProvider):
         application-level reasoning setting is silently ignored.
         """
         model = str(model_override or self.model or "").strip().lower()
-        effort = str(reasoning_effort or get_active_reasoning_effort() or "medium").strip().lower()
+        # Short structural calls often have a small visible-output cap. If no
+        # caller explicitly asks for reasoning, keep thinking disabled so the
+        # model does not consume the whole cap before producing content.
+        effort = str(reasoning_effort or get_active_reasoning_effort() or "none").strip().lower()
         if model.startswith("qwen3.8"):
             # qwen3.8 deployments may expose a zero thinking-budget ceiling,
             # and the current DashScope API also documents that qwen3.8-max

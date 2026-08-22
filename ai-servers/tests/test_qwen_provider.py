@@ -31,6 +31,16 @@ def test_qwen37_uses_server_side_thinking_budget():
     assert body == {"extra_body": {"enable_thinking": True}}
 
 
+def test_qwen_defaults_to_no_thinking_for_short_calls():
+    token = set_active_max_output_tokens(1_600)
+    try:
+        body = _provider("qwen3.7-max-2026-06-08")._thinking_extra_body()
+    finally:
+        reset_active_max_output_tokens(token)
+
+    assert body == {"extra_body": {"enable_thinking": False}}
+
+
 def test_provider_switches_model_after_quota_like_failure(monkeypatch):
     class QuotaError(RuntimeError):
         status_code = 429
