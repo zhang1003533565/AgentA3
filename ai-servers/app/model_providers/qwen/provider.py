@@ -3,11 +3,13 @@ from typing import Any, Dict, Iterator, List, Optional
 
 from fastapi import HTTPException
 
-from app.model_providers.base import ChatModelProvider
+from app.model_providers.base import ChatModelProvider, extract_response_text
 from app.model_providers.multimodal import build_multimodal_human_content, extract_image_references
 from app.model_providers.runtime_config import (
     LlmRuntimeConfig,
     get_active_llm_timeout_seconds,
+    get_active_max_output_tokens,
+    get_active_reasoning_effort,
     resolve_llm_config,
 )
 from app.observability.langfuse import langchain_callbacks
@@ -28,6 +30,14 @@ QWEN_PROVIDER_ALIASES = {
     "qwen_openai",
     "qwen-openai",
 }
+
+QWEN_THINKING_BUDGETS = {
+    "low": 4096,
+    "medium": 8192,
+    "high": 16384,
+}
+
+
 class QwenProvider(ChatModelProvider):
     """Qwen/DashScope provider using the OpenAI-compatible Chat Completions API.
 
@@ -64,27 +74,69 @@ class QwenProvider(ChatModelProvider):
             model=model,
             temperature=0.2,
             timeout=get_active_llm_timeout_seconds(),
-            max_retries=1,
+            max_retries=0,
+            **({"max_tokens": get_active_max_output_tokens()} if get_active_max_output_tokens() else {}),
             callbacks=langchain_callbacks(),
         )
 
-    def complete(self, system_prompt: str, user_prompt: str) -> str:
+    def _thinking_extra_body(self, reasoning_effort: Optional[str] = None) -> Dict[str, Any]:
+        """Build DashScope thinking controls for Qwen3 mixed-thinking models.
+
+        `reasoning_effort` is not an OpenAI-standard Chat Completions parameter.
+        Bailian expects the Qwen-specific controls in `extra_body`, otherwise the
+        application-level reasoning setting is silently ignored.
+        """
+        model = str(self.model or "").strip().lower()
+        supported = (
+            model.startswith("qwen3.7")
+            or model.startswith("qwen3.6")
+            or model.startswith("qwen3.5")
+            or model.startswith("qwen3-")
+        )
+        if not supported:
+            return {}
+        effort = str(reasoning_effort or get_active_reasoning_effort() or "medium").strip().lower()
+        if effort == "none":
+            return {"extra_body": {"enable_thinking": False}}
+        budget = QWEN_THINKING_BUDGETS.get(effort, QWEN_THINKING_BUDGETS["medium"])
+        max_output_tokens = get_active_max_output_tokens()
+        if max_output_tokens:
+            # Bailian requires max_completion_tokens to be greater than
+            # thinking_budget. Keep every task valid, including short repair
+            # and layout-selection calls that intentionally use small output caps.
+            compatible_budget = max(1, int(max_output_tokens) - 1)
+            if budget > compatible_budget:
+                logger.warning(
+                    "qwen thinking budget clamped from %s to %s for max_output_tokens=%s",
+                    budget,
+                    compatible_budget,
+                    max_output_tokens,
+                )
+                budget = compatible_budget
+        return {
+            "extra_body": {
+                "enable_thinking": True,
+                "thinking_budget": budget,
+            }
+        }
+
+    def complete(self, system_prompt: str, user_prompt: str, reasoning_effort: Optional[str] = None) -> str:
         from langchain_core.messages import HumanMessage, SystemMessage
 
         response = self.llm.invoke([
             SystemMessage(content=system_prompt),
             HumanMessage(content=build_multimodal_human_content(user_prompt)),
-        ])
-        return str(response.content or "").strip()
+        ], **self._thinking_extra_body(reasoning_effort))
+        return extract_response_text(response)
 
-    def stream_complete(self, system_prompt: str, user_prompt: str) -> Iterator[str]:
+    def stream_complete(self, system_prompt: str, user_prompt: str, reasoning_effort: Optional[str] = None) -> Iterator[str]:
         from langchain_core.messages import HumanMessage, SystemMessage
 
         messages = [
             SystemMessage(content=system_prompt),
             HumanMessage(content=build_multimodal_human_content(user_prompt)),
         ]
-        for chunk in self.llm.stream(messages):
+        for chunk in self.llm.stream(messages, **self._thinking_extra_body(reasoning_effort)):
             content = getattr(chunk, "content", "")
             if content:
                 yield str(content)

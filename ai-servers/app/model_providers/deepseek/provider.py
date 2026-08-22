@@ -1,12 +1,14 @@
+import os
 import time
 from typing import Any, Dict, Iterator, List, Optional
 
 from fastapi import HTTPException
 
-from app.model_providers.base import ChatModelProvider
+from app.model_providers.base import ChatModelProvider, extract_response_text
 from app.model_providers.runtime_config import (
     LlmRuntimeConfig,
     get_active_llm_timeout_seconds,
+    get_active_max_output_tokens,
     resolve_llm_config,
 )
 from app.observability.langfuse import langchain_callbacks
@@ -41,42 +43,47 @@ class DeepSeekProvider(ChatModelProvider):
             raise RuntimeError("LLM 模型未配置：缺少 X-AI-Model(ai.service.text.model)")
 
         self.model = deepseek_model
+        # 推理开销占单次调用 70%+ 的 token 与时间（实测 15 页大纲 115s→35s）。
+        # deepseek-v4-flash 支持 reasoning_optional：默认关推理换速度，
+        # 需要深度思考的功能可设 LLM_REASONING_EFFORT=medium/high 恢复。
+        reasoning_effort = os.getenv("LLM_REASONING_EFFORT", "none").strip().lower()
+        if reasoning_effort not in {"none", "low", "medium", "high"}:
+            reasoning_effort = "none"
         self.llm = ChatOpenAI(
             api_key=deepseek_api_key,
             base_url=normalize_base_url(deepseek_base_url),
             model=deepseek_model,
             temperature=0.2,
             timeout=get_active_llm_timeout_seconds(),
-            max_retries=1,
+            # PPT 任务自己负责一次性失败收敛；客户端内层重试会把单批等待时间翻倍。
+            max_retries=0,
+            **({"max_tokens": get_active_max_output_tokens()} if get_active_max_output_tokens() else {}),
+            reasoning_effort=reasoning_effort,
             callbacks=langchain_callbacks(),
         )
 
-    def complete(self, system_prompt: str, user_prompt: str) -> str:
+    def complete(self, system_prompt: str, user_prompt: str, reasoning_effort: Optional[str] = None) -> str:
         from langchain_core.messages import HumanMessage, SystemMessage
 
-        response = self.llm.invoke([
-            SystemMessage(content=system_prompt),
-            HumanMessage(content=user_prompt),
-        ])
-        content = str(response.content or "").strip()
-        if not content:
-            reasoning = (
-                response.additional_kwargs.get("reasoning_content")
-                if isinstance(response.additional_kwargs, dict)
-                else None
-            )
-            if reasoning:
-                content = str(reasoning).strip()
-        return content
+        extra = {} if reasoning_effort is None else {"reasoning_effort": reasoning_effort}
+        response = self.llm.invoke(
+            [
+                SystemMessage(content=system_prompt),
+                HumanMessage(content=user_prompt),
+            ],
+            **extra,
+        )
+        return extract_response_text(response)
 
-    def stream_complete(self, system_prompt: str, user_prompt: str) -> Iterator[str]:
+    def stream_complete(self, system_prompt: str, user_prompt: str, reasoning_effort: Optional[str] = None) -> Iterator[str]:
         from langchain_core.messages import HumanMessage, SystemMessage
 
+        extra = {} if reasoning_effort is None else {"reasoning_effort": reasoning_effort}
         messages = [
             SystemMessage(content=system_prompt),
             HumanMessage(content=user_prompt),
         ]
-        for chunk in self.llm.stream(messages):
+        for chunk in self.llm.stream(messages, **extra):
             content = getattr(chunk, "content", "")
             if content:
                 yield str(content)
