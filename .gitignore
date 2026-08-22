@@ -43,3 +43,7 @@ AppBackend/logs/
 .reasonix/
 .downloads/
 .codex-*.log
+
+# AI 渲染测试产物与扫描历史
+test-render-output/
+.mimosa/
