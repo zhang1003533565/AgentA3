@@ -97,9 +97,14 @@ class RepairEngine:
         final_errors = [issue for issue in final.issues if issue.severity == "error"]
         status = "partial" if final_errors else ("repaired" if history else "clean")
         if final_errors:
+            repair_rounds = len({entry.get("round") for entry in history})
+            affected_instances = len({
+                (issue.error_type, issue.element_id) for issue in final_errors
+            })
             logger.warning(
-                "PPT slide 修复未完全成功 rounds=%d errors=%s history=%s",
-                len(history),
+                "PPT slide 修复未完全成功 repair_rounds=%d unresolved_instances=%d errors=%s history=%s",
+                repair_rounds,
+                affected_instances,
                 [(issue.error_type, issue.element_id) for issue in final_errors],
                 history,
             )

@@ -323,13 +323,16 @@ class PptGenerationService:
             outcome = self._repair_engine.repair(ui, model, llm_rewrite)
             item["ui"] = outcome.ui
             validation_result = outcome.last_result
+            validation_errors = list(dict.fromkeys(
+                issue.error_type for issue in outcome.final_issues
+            ))
             item["_qa"] = {
                 "layoutId": layout_id,
                 "semanticType": str(item.get("type") or ""),
                 "contentLength": sum(
                     len(str(point)) for point in (item.get("content") or []) if point
                 ),
-                "validationErrors": [issue.error_type for issue in outcome.final_issues],
+                "validationErrors": validation_errors,
                 "repairCount": outcome.repair_count,
                 "finalStatus": outcome.status,
                 "repairHistory": outcome.history,
@@ -343,7 +346,7 @@ class PptGenerationService:
                 slide_index,
                 layout_id,
                 outcome.status,
-                [issue.error_type for issue in outcome.final_issues],
+                validation_errors,
                 outcome.repair_count,
                 item["_qa"]["densityLevel"],
             )

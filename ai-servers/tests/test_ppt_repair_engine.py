@@ -156,6 +156,31 @@ def test_bounded_font_shrink_is_applied_and_revalidated():
     assert not any(issue.severity == "error" for issue in outcome.final_issues)
 
 
+def test_card_title_over_preferred_budget_can_fit_after_bounded_shrink():
+    """卡片/步骤标题缩小后按当前几何复核，不被首选字号字符预算二次误判。"""
+    layout = {"id": "adaptive_card_title", "components": [{
+        "id": "panel",
+        "position": {"x": 0, "y": 0},
+        "elements": [{
+            "type": "text",
+            "name": "step_heading_text",
+            "position": {"x": 0, "y": 0},
+            "size": {"width": 140, "height": 20},
+            "font": {"size": 20, "line_height": 1.0, "weight": "bold"},
+            "runs": [{"text": "", "font": {"size": 20}}],
+        }],
+    }]}
+    model = parse_slide_layout(layout)
+    tree = {"components": copy.deepcopy(layout["components"])}
+    _set_text(tree, "step_heading_text", "甲乙丙丁戊己庚辛")
+
+    outcome = RepairEngine().repair(tree, model, llm_rewrite=None)
+
+    assert outcome.status == "repaired"
+    assert not any(issue.severity == "error" for issue in outcome.final_issues)
+    assert outcome.ui["components"][0]["elements"][0]["font"]["size"] == 15
+
+
 def test_geometry_drift_is_restored(catalog):
     layout, model = _model(catalog)
     tree = {"components": copy.deepcopy(layout["components"])}

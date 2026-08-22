@@ -71,17 +71,36 @@ _ROLE_MIN_FONT_RATIO = {
     "page_subtitle": 0.75,
     "body": 0.85,
     "card": 0.85,
-    "card_title": 0.85,
+    # Card/step headings are short-title roles.  Their boxes are often only
+    # one or two lines high, so the generic body floor (0.85) is too strict
+    # for a bounded, geometry-verified shrink on CJK text.
+    "card_title": 0.75,
     "card_body": 0.85,
     "bullet_body": 0.85,
     "metric_value": 0.85,
-    "metric_label": 0.85,
+    "metric_label": 0.75,
     "metric_description": 0.85,
     "card_value": 0.85,
-    "card_value_label": 0.85,
-    "label": 0.85,
+    "card_value_label": 0.75,
+    "label": 0.75,
+    "badge": 0.75,
     "default": 0.85,
 }
+
+# These roles may exceed the preferred-font character budget after a bounded
+# shrink.  The final authority is still the measured geometry at the node's
+# current font size; this set only prevents a preferred-size budget from
+# re-failing an otherwise fitting title/label.
+ADAPTIVE_TEXT_ROLES = frozenset({
+    "page_title",
+    "section_title",
+    "page_subtitle",
+    "card_title",
+    "metric_label",
+    "card_value_label",
+    "label",
+    "badge",
+})
 
 # 中文/全角字符宽 ≈ 字号；拉丁/数字 ≈ 0.55 字号；空格 0.3；其他标点折中
 _CJK_RE = re.compile(r"[\u2e80-\u9fff\uff00-\uffef\u3000-\u303f\u2018-\u201f\u2026\u00b7]")
@@ -1024,7 +1043,7 @@ def text_fits(
     if (
         font_size is not None
         and font_size < element.constraint.preferred_font_size
-        and element.semantic_role in {"page_title", "section_title", "page_subtitle"}
+        and element.semantic_role in ADAPTIVE_TEXT_ROLES
     ):
         return True
     content_chars = content_chars_for_element(text, element)
@@ -1044,4 +1063,5 @@ __all__ = [
     "text_fits",
     "count_content_chars",
     "content_chars_for_element",
+    "ADAPTIVE_TEXT_ROLES",
 ]

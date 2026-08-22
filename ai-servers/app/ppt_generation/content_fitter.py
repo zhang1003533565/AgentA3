@@ -22,6 +22,7 @@ from typing import Any, Callable, Dict, List, Optional
 from app.ppt_generation.template_model import (
     TextConstraint,
     TemplateElementModel,
+    ADAPTIVE_TEXT_ROLES,
     count_content_chars,
     text_fits,
 )
@@ -240,7 +241,7 @@ def fit_text(
                 actions.append("semantic-shorten-footer")
                 return FitResult(text=candidate, strategy="summarize", fits=True, actions=actions)
 
-    if element.semantic_role in {"page_title", "section_title", "page_subtitle"}:
+    if element.semantic_role in ADAPTIVE_TEXT_ROLES:
         title_variants = _semantic_title_variants(original, constraint.hard_max_chars)
         for candidate in title_variants:
             if text_fits(candidate, element, font_size=current_font_size):
@@ -301,7 +302,7 @@ def fit_text(
             # 用“刚好够用”的字号会让中文标题仍然显得过大；优先落到
             # 标题下限，保持与模板原有视觉比例一致。
             if (
-                element.semantic_role in {"page_title", "section_title", "page_subtitle"}
+                element.semantic_role in ADAPTIVE_TEXT_ROLES
                 and count_content_chars(original) > constraint.hard_max_chars
             ):
                 clamped = constraint.max_shrink_ratio

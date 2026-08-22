@@ -25,6 +25,7 @@ from app.ppt_generation.template_model import (
     SLIDE_WIDTH,
     SlideLayoutModel,
     TemplateElementModel,
+    ADAPTIVE_TEXT_ROLES,
     content_chars_for_element,
     estimate_lines,
 )
@@ -290,7 +291,7 @@ def _validate_element(
                 exceeds_char_cap
                 and not (
                     font_size < element.constraint.preferred_font_size
-                    and element.semantic_role in {"page_title", "section_title", "page_subtitle"}
+                    and element.semantic_role in ADAPTIVE_TEXT_ROLES
                 )
             ):
                 result.issues.append(ValidationIssue(
