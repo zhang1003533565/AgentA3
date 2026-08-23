@@ -429,7 +429,7 @@
           <image
             v-else
             class="slide-editor__preview-image slide-editor__preview-image--empty"
-            src="/static/images/default-goods.svg"
+            src="/static/images/ppt-preview-empty.svg"
             mode="aspectFit"
           />
           <view v-if="editorPreviewError" class="slide-editor__preview-status">
