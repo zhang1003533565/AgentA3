@@ -475,6 +475,24 @@ class PptGenerationService:
                 }
                 for issue in outcome.final_issues
             ]
+            cardinality_issues = list(item.get("_contentCardinalityIssues") or [])
+            if cardinality_issues:
+                validation_errors.append("CONTENT_CARDINALITY")
+                validation_details.extend(
+                    {
+                        "errorType": "CONTENT_CARDINALITY",
+                        "elementId": issue.get("elementId"),
+                        "detail": (
+                            f"内容槽位期望 {issue.get('expected')} 项，"
+                            f"实际只渲染 {issue.get('rendered')} 项"
+                        ),
+                        "severity": "error",
+                    }
+                    for issue in cardinality_issues
+                )
+            final_status = outcome.status
+            if cardinality_issues and final_status in {"clean", "repaired"}:
+                final_status = "partial"
             item["_qa"] = {
                 "layoutId": layout_id,
                 "semanticType": str(item.get("type") or ""),
@@ -485,12 +503,13 @@ class PptGenerationService:
                 "validationWarnings": validation_warnings,
                 "validationDetails": validation_details,
                 "repairCount": outcome.repair_count,
-                "finalStatus": outcome.status,
+                "finalStatus": final_status,
                 "repairHistory": outcome.history,
                 "densityLevel": validation_result.density_level if validation_result else "NORMAL",
                 "fillRatio": validation_result.fill_ratio if validation_result else 0.0,
                 "missingSlots": list(item.get("_missingSlots") or []),
                 "unknownElementIds": list(item.get("_unknownElementIds") or []),
+                "contentCardinalityIssues": cardinality_issues,
             }
             logger.info(
                 "PPT slide QA index=%s layout=%s status=%s errors=%s repairs=%s density=%s",
@@ -3356,6 +3375,14 @@ def _sanitize_content_payload(
             matched_names = set(merged.pop("_matchedComponentNames", []) or [])
             matched_aliases = set(merged.pop("_matchedComponentAliases", []) or [])
             matched_occurrences = set(merged.pop("_matchedComponentOccurrences", []) or [])
+            cardinality_issues = list(merged.pop("_contentCardinalityIssues", []) or [])
+            if cardinality_issues:
+                item["_contentCardinalityIssues"] = cardinality_issues
+                logger.warning(
+                    "PPT slide %d content cardinality incomplete: %s",
+                    index + 1,
+                    cardinality_issues,
+                )
             # 结构化输出校验（第 26 节）：AI 写了不存在的 elementId 时不创建
             # 新元素，只记录并上报，交由上层 QA 呈现
             unknown = [
@@ -3563,7 +3590,7 @@ def _fill_missing_slots(
 def _expand_repeated_layout_groups(
     root: Any,
     content_lengths: Mapping[str, int],
-) -> None:
+) -> set[str]:
     """Expand renderer-managed grid/flex groups to fit repeated text values.
 
     Some templates intentionally keep one child as a prototype and expose a
@@ -3589,6 +3616,8 @@ def _expand_repeated_layout_groups(
             names.update(descendant_names(value["child"]))
         return names
 
+    dynamic_names: set[str] = set()
+
     def expand(value: Any) -> None:
         if isinstance(value, list):
             for item in value:
@@ -3601,6 +3630,8 @@ def _expand_repeated_layout_groups(
         children = value.get("children")
         if node_type in {"grid", "flex"} and isinstance(children, list) and children:
             child_names = set().union(*(descendant_names(child) for child in children))
+            if int(value.get("max_children") or len(children)) > 1:
+                dynamic_names.update(child_names)
             requested = max(
                 (int(content_lengths[name]) for name in child_names if int(content_lengths.get(name) or 0) > 0),
                 default=0,
@@ -3611,13 +3642,14 @@ def _expand_repeated_layout_groups(
                 for child in children
                 if isinstance(child, Mapping)
             }) <= 1
-            if requested > len(children) and requested <= max_children and same_named_children:
+            target = min(requested, max_children)
+            if target > len(children) and same_named_children:
                 prototypes = [copy.deepcopy(child) for child in children]
-                while len(children) < requested:
+                while len(children) < target:
                     children.append(copy.deepcopy(prototypes[(len(children) - 1) % len(prototypes)]))
                 if node_type == "grid":
                     columns = max(1, int(value.get("columns") or 1))
-                    value["rows"] = max(int(value.get("rows") or 1), (requested + columns - 1) // columns)
+                    value["rows"] = max(int(value.get("rows") or 1), (target + columns - 1) // columns)
 
         for key in ("components", "elements", "children"):
             if key in value:
@@ -3626,6 +3658,7 @@ def _expand_repeated_layout_groups(
             expand(value["child"])
 
     expand(root)
+    return dynamic_names
 
 
 def _merge_content_into_layout(layout: Mapping[str, Any], component_content: Mapping[str, Any]) -> Dict[str, Any]:
@@ -3739,7 +3772,7 @@ def _merge_content_into_layout(layout: Mapping[str, Any], component_content: Map
         for name, value in component_content.items()
         if isinstance(value, list)
     }
-    _expand_repeated_layout_groups(result, content_lengths)
+    dynamic_names = _expand_repeated_layout_groups(result, content_lengths)
     # 容错键表：归一化键 -> 原始键（精确匹配优先，不覆盖）
     fuzzy_keys: Dict[str, str] = {}
     for key in component_content:
@@ -4002,10 +4035,47 @@ def _merge_content_into_layout(layout: Mapping[str, Any], component_content: Map
             if key in root:
                 _walk(root[key])
 
+    def _count_text_nodes_by_name(root: Any) -> Dict[str, int]:
+        counts: Dict[str, int] = {}
+
+        def _walk(value: Any) -> None:
+            if isinstance(value, list):
+                for item in value:
+                    _walk(item)
+                return
+            if not isinstance(value, Mapping):
+                return
+            if str(value.get("type") or "") in {"text", "text-list"}:
+                name = str(value.get("name") or "").strip()
+                if name:
+                    counts[name] = counts.get(name, 0) + 1
+            for key in ("components", "elements", "children"):
+                if key in value:
+                    _walk(value[key])
+            if "child" in value:
+                _walk(value["child"])
+
+        _walk(root)
+        return counts
+
     for key in ("components", "elements"):
         if key in result:
             _prune_repeated_groups(result[key])
             _merge(result[key])
+
+    rendered_text_counts = _count_text_nodes_by_name(result)
+    cardinality_issues = [
+        {
+            "elementId": str(name),
+            "expected": len(value),
+            "rendered": rendered_text_counts.get(str(name), 0),
+        }
+        for name, value in component_content.items()
+        if isinstance(value, list)
+        and len(value) > 1
+        and str(name) in dynamic_names
+        and rendered_text_counts.get(str(name), 0) < len(value)
+    ]
 
     if not matched_names:
         logger.warning(
@@ -4021,6 +4091,7 @@ def _merge_content_into_layout(layout: Mapping[str, Any], component_content: Map
     result["_matchedComponentNames"] = sorted(matched_names)
     result["_matchedComponentAliases"] = sorted(component_content_aliases)
     result["_matchedComponentOccurrences"] = sorted(matched_occurrences)
+    result["_contentCardinalityIssues"] = cardinality_issues
     return result
 
 

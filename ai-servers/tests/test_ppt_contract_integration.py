@@ -168,6 +168,48 @@ def test_fallback_expands_prototype_agenda_grid_from_slide_content(catalog):
         assert any(fragment in str(text or "") for text in actual_descriptions)
 
 
+def test_merge_reports_content_cardinality_when_template_capacity_is_exceeded(catalog):
+    """超过模板容量时必须显式报告，不能把多余目录静默丢掉。"""
+    layout = catalog.get_layout("momentum", "center_title_agenda_grid_wave_7815")
+    values = [f"第{i}章 内容" for i in range(1, 10)]
+    merged = _merge_content_into_layout(layout, {
+        "agenda_item_label": [f"0{i}" for i in range(1, 10)],
+        "agenda_item_description": values,
+    })
+    assert merged["_contentCardinalityIssues"] == [
+        {"elementId": "agenda_item_label", "expected": 9, "rendered": 8},
+        {"elementId": "agenda_item_description", "expected": 9, "rendered": 8},
+    ]
+
+
+def test_cardinality_issue_promotes_slide_qa_to_partial(catalog):
+    """容量不足必须进入成品质量门禁，而不是只留内部日志。"""
+    service = PptGenerationService()
+    layout_id = "center_title_agenda_grid_wave_7815"
+    layout = catalog.get_layout("momentum", layout_id)
+    values = [f"第{i}章 内容" for i in range(1, 10)]
+    normalized = _sanitize_content_payload(
+        {"slides": [{
+            "title": "全书章节概览",
+            "content": values,
+            "componentContent": {
+                "agenda_item_label": [f"0{i}" for i in range(1, 10)],
+                "agenda_item_description": values,
+            },
+        }]},
+        [layout_id],
+        {layout_id: layout},
+        1,
+    )
+    slide = normalized["slides"][0]
+    enforced = service._enforce_slide_contract(
+        slide, "momentum", layout_id, layout, None, 1
+    )
+    assert enforced["_qa"]["finalStatus"] == "partial"
+    assert "CONTENT_CARDINALITY" in enforced["_qa"]["validationErrors"]
+    assert enforced["_qa"]["contentCardinalityIssues"]
+
+
 def test_merge_prunes_unused_repeated_card_groups_and_clears_template_copy(catalog):
     """模板有 4 张卡、模型只返回 2 张时，后两组连同旧图标一起移除。"""
     layout = catalog.get_layout("general", "title_image_bullet_points_1")
