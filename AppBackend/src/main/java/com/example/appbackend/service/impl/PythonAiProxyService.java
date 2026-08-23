@@ -46,6 +46,8 @@ public class PythonAiProxyService {
     private static final Logger log = LoggerFactory.getLogger(PythonAiProxyService.class);
     private static final String DEFAULT_AGENT_NAME = "leader_agent";
     private static final String ARCHITECTURE_AGENT_NAME = "diagram_architecture_agent";
+    private static final String CODING_TUTOR_AGENT_NAME = "python_coding_tutor_agent";
+    private static final String GENERATOR_AGENT_NAME = "python_problem_generator_agent";
     private static final String AGENT_MODEL_BINDING_PREFIX = "ai.agent-bindings.";
     private static final String AGENT_ENABLED_PREFIX = "ai.agent-enabled.";
     private static final String TOOL_ENABLED_PREFIX = "ai.tool-enabled.";
@@ -290,6 +292,21 @@ public class PythonAiProxyService {
         }
         Map<String, Object> sanitized = sanitizeRagRequest(withAgentToggles(request));
         return postRagObject("/internal/rag/query", sanitized, authorization, requestedModel);
+    }
+
+    /**
+     * AI 生成 Python 题目：模型解析按 生成智能体绑定 -> Leader 绑定 兜底，
+     * 未配置任何绑定时交由 queryRag 抛明确的模型配置错误。
+     */
+    public Object generatePythonProblems(Map<String, Object> request, String authorization) {
+        String model = resolveAgentBoundModel(GENERATOR_AGENT_NAME);
+        if (!StringUtils.hasText(model)) {
+            model = resolveAgentBoundModel(DEFAULT_AGENT_NAME);
+        }
+        if (StringUtils.hasText(model)) {
+            request.put("llmModel", model);
+        }
+        return queryRag(request, authorization);
     }
 
     public Object generatePptOutline(Map<String, Object> request, String authorization) {
@@ -871,6 +888,35 @@ public class PythonAiProxyService {
         return streamPythonObject("/internal/chat/stream", request, authorization, userId, requestedModel, null);
     }
 
+    /**
+     * AI 辅助编程（LeetCode 式：提示/思路/代码解释/报错分析）流式代理。
+     * 模型优先级：请求体 llmModel -> ai.agent-bindings.python_coding_tutor_agent.model -> leader 绑定。
+     */
+    public SseEmitter streamCodingAssist(Map<String, Object> request, String authorization) {
+        validateAuthorization(authorization);
+        String token = normalizeBearerToken(authorization);
+        Long userId = extractUserId(token);
+        String requestedModel = resolveCodingAssistModel(request);
+        return streamPythonObject("/internal/coding/assist/stream", request, authorization, userId, requestedModel, null);
+    }
+
+    private String resolveCodingAssistModel(Map<String, Object> request) {
+        if (request != null) {
+            Object llmModel = request.get("llmModel");
+            if (llmModel != null && StringUtils.hasText(String.valueOf(llmModel))) {
+                return String.valueOf(llmModel).trim();
+            }
+        }
+        String model = resolveAgentBoundModel(CODING_TUTOR_AGENT_NAME);
+        if (!StringUtils.hasText(model)) {
+            model = resolveAgentBoundModel(DEFAULT_AGENT_NAME);
+        }
+        if (!StringUtils.hasText(model)) {
+            throw new BusinessException(Result.ERROR_CODE, "请先配置 AI 模型后再使用 AI 助手");
+        }
+        return model;
+    }
+
     private SseEmitter streamPythonObject(String path, Object request, String authorization, String requestedModel) {
         validateAuthorization(authorization);
         String token = normalizeBearerToken(authorization);
@@ -988,7 +1034,10 @@ public class PythonAiProxyService {
         String token = normalizeBearerToken(authorization);
         Long userId = extractUserId(token);
         try {
-            return webClientBuilder.build()
+            // 使用大缓冲 client：/internal/rag/agents 等目录接口会返回全部智能体的 prompt/skill/contract
+            // 全文（含编程辅导等新 agent 后实测 269KB），超过 WebClient 默认 256KB 上限会抛
+            // DataBufferLimitException，故此处统一放宽到 file-response-max-in-memory-bytes。
+            return buildFileResponseWebClient()
                     .get()
                     .uri(buildUri(path))
                     .headers(headers -> applyPythonAuthHeaders(headers, authorization, userId))

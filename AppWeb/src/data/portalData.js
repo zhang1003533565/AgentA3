@@ -64,6 +64,7 @@ export const portalGroups = [
     label: '课程学习',
     items: [
       { path: '/learning/courses', label: '校园课程管理', icon: 'book' },
+      { path: '/learning/python-problems', label: 'Python 题库管理', icon: 'appstore' },
     ],
   },
   {

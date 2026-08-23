@@ -1,21 +1,85 @@
 <template>
   <view class="safe-markdown">
-    <rich-text :nodes="nodes" selectable />
+    <template v-for="(segment, index) in segments" :key="index">
+      <rich-text v-if="segment.type === 'text'" :nodes="segment.nodes" selectable />
+      <view v-else class="md-code-block">
+        <view
+          class="md-code-copy"
+          :class="{ 'md-code-copy--done': copiedIndex === index }"
+          @tap="copyCode(segment.node, index)"
+        >
+          <text>{{ copiedIndex === index ? '已复制' : '复制' }}</text>
+        </view>
+        <rich-text :nodes="[segment.node]" selectable />
+      </view>
+    </template>
   </view>
 </template>
 
 <script>
 import { markdownToNodes } from '@/utils/markdownNodes.js'
 
+function collectText(node) {
+  if (!node) return ''
+  if (node.type === 'text') return node.text
+  if (Array.isArray(node.children)) return node.children.map(collectText).join('')
+  return ''
+}
+
 export default {
   name: 'SafeMarkdown',
   props: {
-    content: { type: [String, Number], default: '' }
+    content: { type: [String, Number], default: '' },
+    showCodeCopy: { type: Boolean, default: false }
+  },
+  data() {
+    return { copiedIndex: -1 }
   },
   computed: {
     nodes() {
       return markdownToNodes(String(this.content || ''))
+    },
+    // 开启 showCodeCopy 时，把代码块节点按原顺序拆出来单独渲染（外层包复制按钮）
+    segments() {
+      const nodes = this.nodes
+      if (!this.showCodeCopy) return [{ type: 'text', nodes }]
+      const segments = []
+      let buffer = []
+      const flush = () => {
+        if (buffer.length) {
+          segments.push({ type: 'text', nodes: buffer })
+          buffer = []
+        }
+      }
+      for (const node of nodes) {
+        if (node.name === 'pre') {
+          flush()
+          segments.push({ type: 'code', node })
+        } else {
+          buffer.push(node)
+        }
+      }
+      flush()
+      return segments
     }
+  },
+  methods: {
+    copyCode(node, index) {
+      const text = collectText(node)
+      uni.setClipboardData({
+        data: text,
+        success: () => {
+          this.copiedIndex = index
+          clearTimeout(this._copyTimer)
+          this._copyTimer = setTimeout(() => {
+            this.copiedIndex = -1
+          }, 1600)
+        }
+      })
+    }
+  },
+  beforeUnmount() {
+    clearTimeout(this._copyTimer)
   }
 }
 </script>
@@ -135,5 +199,26 @@ export default {
   word-break: break-word;
   -webkit-user-select: text;
   user-select: text;
+}
+
+/* 代码块 + 复制按钮 */
+.md-code-block {
+  position: relative;
+}
+.md-code-copy {
+  position: absolute;
+  top: 26rpx;
+  right: 18rpx;
+  z-index: 2;
+  padding: 6rpx 18rpx;
+  border-radius: 12rpx;
+  background: rgba(255, 255, 255, 0.14);
+  color: #cbd5e1;
+  font-size: 22rpx;
+  line-height: 1.4;
+}
+.md-code-copy--done {
+  color: #86efac;
+  background: rgba(134, 239, 172, 0.18);
 }
 </style>

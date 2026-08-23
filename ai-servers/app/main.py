@@ -5,6 +5,7 @@ from fastapi.responses import JSONResponse
 
 from app.api.routes.architecture import router as architecture_router
 from app.api.routes.chat import router as chat_router
+from app.api.routes.coding import router as coding_router
 from app.api.routes.images import router as images_router
 from app.api.routes.models import router as models_router
 from app.api.routes.rag import export_router as rag_export_router
@@ -23,6 +24,7 @@ EXPORT_ROOT.mkdir(parents=True, exist_ok=True)
 app = FastAPI(title="ai-servers", version="0.1.0")
 app.include_router(architecture_router)
 app.include_router(chat_router)
+app.include_router(coding_router)
 app.include_router(images_router)
 app.include_router(models_router)
 app.include_router(rag_router)

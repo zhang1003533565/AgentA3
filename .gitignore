@@ -53,3 +53,6 @@ test-render-output/
 ai-servers/.tmp-ppt-*/
 data/ppt-quality-qa/
 ai-servers/data/ppt-quality-qa/
+
+# Workspace outputs (agent scratch)
+output/

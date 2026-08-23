@@ -37,6 +37,7 @@ import CampusCourseManage from './pages/learning/CampusCourseManage'
 import DiscountActivityManage from './pages/discount/ActivityManage'
 import DiscountMerchantManage from './pages/discount/MerchantManage'
 import DiscountCategoryManage from './pages/discount/CategoryManage'
+import PythonProblemManage from './pages/learning/PythonProblemManage'
 import './App.css'
 
 // 论坛独立页面路径集合（不走 WorkspacePage）
@@ -111,6 +112,7 @@ function App() {
           <Route path="/discount/merchant" element={<DiscountMerchantManage />} />
           <Route path="/discount/activity" element={<DiscountActivityManage />} />
           <Route path="/discount/category" element={<DiscountCategoryManage />} />
+          <Route path="/learning/python-problems" element={<PythonProblemManage />} />
           {workspaceRoutes}
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
