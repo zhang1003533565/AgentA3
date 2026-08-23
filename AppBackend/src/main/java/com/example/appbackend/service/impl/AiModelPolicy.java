@@ -21,6 +21,8 @@ final class AiModelPolicy {
             "glm-5.2",
             "kimi-k2.7-code",
             "deepseek-v4-pro-0813",
+            // OpenCode Go and the official DeepSeek endpoint both expose this Flash model.
+            "deepseek-v4-flash",
             "qwen3.5-ocr",
             "qwen3.7-plus-2026-05-26"
     );

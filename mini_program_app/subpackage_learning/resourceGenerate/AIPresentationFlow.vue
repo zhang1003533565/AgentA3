@@ -424,12 +424,14 @@
             class="slide-editor__preview-image"
             :src="editorPreviewImage"
             mode="aspectFit"
+            @tap="openEditorPreview"
           />
           <image
             v-else-if="editorPreviewLayoutImage"
             class="slide-editor__preview-image slide-editor__preview-image--layout"
             :src="editorPreviewLayoutImage"
             mode="aspectFit"
+            @tap="openEditorPreview"
           />
           <view v-else class="slide-editor__preview-fallback">
             <text class="slide-editor__preview-index">{{ String(activeSlideIndex + 1).padStart(2, '0') }}</text>
@@ -2754,6 +2756,16 @@ export default {
       } finally {
         uni.hideLoading()
       }
+    },
+    openEditorPreview() {
+      const path = this.editorPreviewImage && this.editorPreviewSlideIndex === this.activeSlideIndex
+        ? this.editorPreviewImage
+        : this.editorPreviewLayoutImage
+      if (!path) {
+        uni.showToast({ title: '当前页面还没有可放大的预览图', icon: 'none' })
+        return
+      }
+      uni.previewImage({ urls: [path], current: path })
     },
     async loadPreviewImages() {
       if (!this.taskId || !Array.isArray(this.taskResult?.previews)) return
