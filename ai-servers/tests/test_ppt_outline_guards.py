@@ -26,6 +26,7 @@ from app.ppt_generation.service import (
     _content_quality_flags,
     _topic_outline_items,
     _outline_topic_guidance,
+    _is_outline_transport_error,
     _sanitize_content_payload,
 )
 from app.ppt_generation.template_catalog import EmbeddedTemplateCatalog
@@ -358,6 +359,18 @@ def test_outline_prompt_separates_topic_logic_from_ppt_format(monkeypatch):
     assert "岗位" in prompt["topic_interpretation"]["recommended_narrative"]
     assert "format_boundary" in prompt["planning_requirements"]
     assert "不要把所有主题套入同一套课程知识结构" in prompt["planning_requirements"]["topic_first"]
+
+
+def test_outline_timeout_errors_from_http_clients_are_recoverable_transport_failures():
+    class FakeApiTimeoutError(Exception):
+        pass
+
+    class FakeReadTimeout(Exception):
+        pass
+
+    assert _is_outline_transport_error(FakeApiTimeoutError("Request timed out"))
+    assert _is_outline_transport_error(FakeReadTimeout("read operation timed out"))
+    assert not _is_outline_transport_error(ValueError("invalid outline"))
 
 
 def test_generic_route_topic_is_replaced_by_short_manual_input(monkeypatch):

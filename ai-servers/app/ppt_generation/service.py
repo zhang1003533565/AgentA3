@@ -74,9 +74,9 @@ logger = logging.getLogger(__name__)
 # 内容批次单次调用的超时上限：完整槽位输出（componentContent+speakerNote）
 # 输出已设置硬 token 上限；默认 150s 覆盖正常长输出，同时避免异常代理无限等待。
 PPT_PAGE_LLM_TIMEOUT_SECONDS = max(30, min(180, int(os.getenv("PPT_PAGE_LLM_TIMEOUT_SECONDS") or 150)))
-PPT_OUTLINE_LLM_TIMEOUT_SECONDS = max(30, min(180, int(os.getenv("PPT_OUTLINE_LLM_TIMEOUT_SECONDS") or 90)))
+PPT_OUTLINE_LLM_TIMEOUT_SECONDS = max(30, min(180, int(os.getenv("PPT_OUTLINE_LLM_TIMEOUT_SECONDS") or 180)))
 PPT_TASK_TIMEOUT_SECONDS = max(180, min(30 * 60, int(os.getenv("PPT_TASK_TIMEOUT_SECONDS") or 15 * 60)))
-PPT_OUTLINE_TASK_TIMEOUT_SECONDS = max(120, min(15 * 60, int(os.getenv("PPT_OUTLINE_TASK_TIMEOUT_SECONDS") or 5 * 60)))
+PPT_OUTLINE_TASK_TIMEOUT_SECONDS = max(120, min(15 * 60, int(os.getenv("PPT_OUTLINE_TASK_TIMEOUT_SECONDS") or 8 * 60)))
 # Qwen3.7 medium thinking uses an 8192-token budget; Bailian requires the
 # completion cap to be greater than that budget. Keep enough room for the
 # visible outline instead of silently forcing the provider to shrink reasoning.
@@ -980,7 +980,7 @@ class PptGenerationService:
                 except Exception as exc:
                     # 连接类故障可以依据原始资料恢复；普通运行时错误应明确返回
                     # 网关错误，不能静默生成一份看似成功但质量不可控的大纲。
-                    if not isinstance(exc, (ConnectionError, TimeoutError)):
+                    if not _is_outline_transport_error(exc):
                         raise HTTPException(
                             status_code=502,
                             detail=f"PPT 大纲无法从模型或原始资料中恢复：{_safe_error_message(exc)}",
@@ -5430,6 +5430,19 @@ def _is_recoverable_outline_error(error: HTTPException) -> bool:
         return True
     message = str(getattr(error, "detail", error) or "").lower()
     return "timed out" in message or "request timeout" in message or "timeout" in message
+
+
+def _is_outline_transport_error(error: BaseException) -> bool:
+    """Recognize timeout classes from httpx/OpenAI as transport failures."""
+    if isinstance(error, (ConnectionError, TimeoutError)):
+        return True
+    class_name = error.__class__.__name__.lower()
+    message = str(error or "").lower()
+    return (
+        any(marker in class_name for marker in ("timeout", "readtimeout", "connecttimeout"))
+        or "timed out" in message
+        or "request timeout" in message
+    )
 
 
 def _safe_error_message(error: Exception) -> str:

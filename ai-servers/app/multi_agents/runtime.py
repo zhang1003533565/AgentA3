@@ -245,7 +245,10 @@ def _complete_with_model_fallback(
         return _complete_with_provider(
             get_chat_model_provider(), system_prompt, user_prompt, reasoning_effort
         )
-    transient_retries = LLM_SAME_MODEL_RETRIES if strict_ppt_recovery else 0
+    # Outline generation already has a configured cross-provider fallback.
+    # Retrying the same slow endpoint first can consume the whole task deadline
+    # before the fallback model gets a chance to answer.
+    transient_retries = 0 if agent_name == "ppt_outline_agent" else (LLM_SAME_MODEL_RETRIES if strict_ppt_recovery else 0)
     empty_response_retries = LLM_EMPTY_RESPONSE_RETRIES if strict_ppt_recovery else 0
     for index, candidate in enumerate(candidates):
         model = candidate.model

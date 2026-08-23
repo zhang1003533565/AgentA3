@@ -135,6 +135,5 @@ def test_configured_cross_provider_fallback_uses_deepseek_after_opencode_failure
     assert result == "valid from deepseek"
     assert calls == [
         ("opencode", "ox-alpha-free"),
-        ("opencode", "ox-alpha-free"),
         ("deepseek", "deepseek-v4-flash"),
     ]
