@@ -110,6 +110,64 @@ def test_merge_accepts_indexed_repeated_component_keys(catalog):
     assert "High-Quality Lead Generation" not in texts
 
 
+def test_merge_expands_prototype_agenda_grid_for_all_supplied_items(catalog):
+    """目录模板只有一个原型子组时，也必须 materialize 全部目录项。"""
+    layout = catalog.get_layout("momentum", "center_title_agenda_grid_wave_7815")
+    descriptions = [
+        "第一章 绪论：数据结构基本概念",
+        "第二章 线性表",
+        "第三章 栈与队列",
+        "第四章 串与模式匹配",
+        "第五章 树与二叉树",
+        "第六章 图",
+    ]
+    merged = _merge_content_into_layout(layout, {
+        "slide_title": "全书章节概览",
+        "agenda_item_label": ["01", "02", "03", "04", "05", "06"],
+        "agenda_item_description": descriptions,
+    })
+
+    labels = [
+        node.get("text")
+        for node in _collect_text_nodes(merged)
+        if node.get("name") == "agenda_item_label"
+    ]
+    actual_descriptions = [
+        node.get("text")
+        for node in _collect_text_nodes(merged)
+        if node.get("name") == "agenda_item_description"
+    ]
+    assert labels == ["01", "02", "03", "04", "05", "06"]
+    assert actual_descriptions == descriptions
+
+
+def test_fallback_expands_prototype_agenda_grid_from_slide_content(catalog):
+    """没有 componentContent 时，目录兜底也不能只保留第一条。"""
+    layout = catalog.get_layout("momentum", "center_title_agenda_grid_wave_7815")
+    descriptions = [
+        "第一章 绪论：数据结构基本概念",
+        "第二章 线性表",
+        "第三章 栈与队列",
+        "第四章 串与模式匹配",
+        "第五章 树与二叉树",
+        "第六章 图",
+    ]
+    fallback = _fill_layout_with_slide_text(
+        layout,
+        {"title": "全书章节概览", "content": descriptions},
+        {},
+    )
+    actual_descriptions = [
+        node.get("text")
+        for node in _collect_text_nodes(fallback)
+        if node.get("name") == "agenda_item_description"
+    ]
+    assert len(actual_descriptions) == len(descriptions)
+    assert all(str(text or "").strip() for text in actual_descriptions)
+    for fragment in ["数据结构基本概念", "线性表", "栈与队列", "串与模式匹配", "树与二叉树", "图"]:
+        assert any(fragment in str(text or "") for text in actual_descriptions)
+
+
 def test_merge_prunes_unused_repeated_card_groups_and_clears_template_copy(catalog):
     """模板有 4 张卡、模型只返回 2 张时，后两组连同旧图标一起移除。"""
     layout = catalog.get_layout("general", "title_image_bullet_points_1")

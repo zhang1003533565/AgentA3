@@ -3560,6 +3560,74 @@ def _fill_missing_slots(
     return missing
 
 
+def _expand_repeated_layout_groups(
+    root: Any,
+    content_lengths: Mapping[str, int],
+) -> None:
+    """Expand renderer-managed grid/flex groups to fit repeated text values.
+
+    Some templates intentionally keep one child as a prototype and expose a
+    larger ``max_children`` capacity.  Content binding must materialize the
+    requested occurrences before walking the tree; otherwise only occurrence
+    zero can ever receive AI content and the remaining outline items vanish.
+    """
+    def descendant_names(value: Any) -> set[str]:
+        names: set[str] = set()
+        if isinstance(value, list):
+            for item in value:
+                names.update(descendant_names(item))
+            return names
+        if not isinstance(value, Mapping):
+            return names
+        name = str(value.get("name") or "").strip()
+        if name:
+            names.add(name)
+        for key in ("components", "elements", "children"):
+            if key in value:
+                names.update(descendant_names(value[key]))
+        if "child" in value:
+            names.update(descendant_names(value["child"]))
+        return names
+
+    def expand(value: Any) -> None:
+        if isinstance(value, list):
+            for item in value:
+                expand(item)
+            return
+        if not isinstance(value, dict):
+            return
+
+        node_type = str(value.get("type") or "").lower()
+        children = value.get("children")
+        if node_type in {"grid", "flex"} and isinstance(children, list) and children:
+            child_names = set().union(*(descendant_names(child) for child in children))
+            requested = max(
+                (int(content_lengths[name]) for name in child_names if int(content_lengths.get(name) or 0) > 0),
+                default=0,
+            )
+            max_children = int(value.get("max_children") or len(children))
+            same_named_children = len({
+                str(child.get("name") or "")
+                for child in children
+                if isinstance(child, Mapping)
+            }) <= 1
+            if requested > len(children) and requested <= max_children and same_named_children:
+                prototypes = [copy.deepcopy(child) for child in children]
+                while len(children) < requested:
+                    children.append(copy.deepcopy(prototypes[(len(children) - 1) % len(prototypes)]))
+                if node_type == "grid":
+                    columns = max(1, int(value.get("columns") or 1))
+                    value["rows"] = max(int(value.get("rows") or 1), (requested + columns - 1) // columns)
+
+        for key in ("components", "elements", "children"):
+            if key in value:
+                expand(value[key])
+        if "child" in value:
+            expand(value["child"])
+
+    expand(root)
+
+
 def _merge_content_into_layout(layout: Mapping[str, Any], component_content: Mapping[str, Any]) -> Dict[str, Any]:
     """Merge LLM-generated component content into a Presenton layout template.
 
@@ -3666,6 +3734,12 @@ def _merge_content_into_layout(layout: Mapping[str, Any], component_content: Map
         return canonical, aliases
 
     component_content, component_content_aliases = _canonicalize_indexed_keys(component_content)
+    content_lengths = {
+        str(name): len(value)
+        for name, value in component_content.items()
+        if isinstance(value, list)
+    }
+    _expand_repeated_layout_groups(result, content_lengths)
     # 容错键表：归一化键 -> 原始键（精确匹配优先，不覆盖）
     fuzzy_keys: Dict[str, str] = {}
     for key in component_content:
@@ -4360,8 +4434,6 @@ def _fill_layout_with_slide_text(
     points = [str(point).strip() for point in points if str(point).strip()][:6]
     body_text = "\n".join(f"• {point}" for point in points)
 
-    text_nodes = _collect_text_nodes(result)
-
     # 版式 JSON 本身没有把“标题/正文/装饰”角色直接写在节点上，角色由
     # template_model 根据槽位名称推导。兜底填充也必须使用同一套角色判断，
     # 否则会把 INTRODUCTION、SALES REPORT 这类全大写的可编辑模板示例
@@ -4370,6 +4442,23 @@ def _fill_layout_with_slide_text(
         layout_model = parse_slide_layout(layout)
     except Exception:
         layout_model = None
+    fallback_content_lengths = {}
+    if layout_model is not None and points:
+        repeatable_roles = {
+            "body",
+            "card_title",
+            "card_body",
+            "bullet_body",
+            "metric_label",
+            "metric_description",
+        }
+        fallback_content_lengths = {
+            name: len(points)
+            for name, elements in layout_model.elements.items()
+            if any(element.semantic_role in repeatable_roles for element in elements)
+        }
+    _expand_repeated_layout_groups(result, fallback_content_lengths)
+    text_nodes = _collect_text_nodes(result)
     name_occurrences: Dict[str, int] = {}
     node_roles: Dict[int, str] = {}
     node_semantic_roles: Dict[int, str] = {}
