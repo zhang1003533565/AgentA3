@@ -47,6 +47,92 @@ def test_windows_native_export_writes_editable_pptx(tmp_path):
         assert "ppt/slides/slide1.xml" in archive.namelist()
 
 
+def test_windows_native_export_resolves_flex_child_positions(tmp_path):
+    from app.ppt_generation.pptx_export_qa import validate_exported_pptx
+    from app.ppt_generation.windows_pptx_export import export_presenton_slides
+
+    path = tmp_path / "flex.pptx"
+    export_presenton_slides(
+        [{
+            "ui": {
+                "components": [{
+                    "type": "flex",
+                    "position": {"x": 80, "y": 80},
+                    "size": {"width": 640, "height": 300},
+                    "direction": "column",
+                    "gap": 20,
+                    "align_items": "center",
+                    "children": [
+                        {
+                            "type": "group",
+                            "size": {"width": 600, "height": 120},
+                            "children": [{
+                                "type": "text",
+                                "size": {"width": 560, "height": 40},
+                                "font": {"size": 18},
+                                "text": "第一张卡片",
+                            }],
+                        },
+                        {
+                            "type": "group",
+                            "size": {"width": 600, "height": 120},
+                            "children": [{
+                                "type": "text",
+                                "size": {"width": 560, "height": 40},
+                                "font": {"size": 18},
+                                "text": "第二张卡片",
+                            }],
+                        },
+                    ],
+                }],
+            },
+        }],
+        path,
+    )
+
+    result = validate_exported_pptx(path)
+    assert result["passed"] is True
+
+
+def test_windows_native_export_resolves_grid_child_positions(tmp_path):
+    from app.ppt_generation.pptx_export_qa import validate_exported_pptx
+    from app.ppt_generation.windows_pptx_export import export_presenton_slides
+
+    path = tmp_path / "grid.pptx"
+    children = []
+    for label in ("第一项", "第二项", "第三项"):
+        children.append({
+            "type": "group",
+            "size": {"width": 200, "height": 120},
+            "children": [{
+                "type": "text",
+                "size": {"width": 180, "height": 40},
+                "font": {"size": 18},
+                "text": label,
+            }],
+        })
+    export_presenton_slides(
+        [{
+            "ui": {
+                "components": [{
+                    "type": "grid",
+                    "position": {"x": 80, "y": 80},
+                    "size": {"width": 640, "height": 120},
+                    "columns": 3,
+                    "rows": 1,
+                    "column_gap": 20,
+                    "row_gap": 0,
+                    "children": children,
+                }],
+            },
+        }],
+        path,
+    )
+
+    result = validate_exported_pptx(path)
+    assert result["passed"] is True
+
+
 def test_docker_payload_maps_host_assets_and_runtime(tmp_path):
     from app.ppt_generation import presenton_html_renderer as renderer
 
