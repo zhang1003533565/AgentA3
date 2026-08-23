@@ -1002,6 +1002,21 @@ class PptGenerationService:
                     "模型已返回，正在解析大纲结构",
                     "正在整理页面标题、要点和层级信息",
                 )
+                if _is_generic_topic_scaffold(items, topic, source_mode):
+                    recovery_reason = "模型返回了与主题无关的通用大纲骨架，已按主题语义重排"
+                    logger.warning(
+                        "PPT outline returned generic scaffold for topic=%s; replacing with semantic scaffold",
+                        topic,
+                    )
+                    items = _topic_outline_items(
+                        topic,
+                        min_pages,
+                        max_pages,
+                        audience=str(request.get("audience") or "通用受众"),
+                        tone=str(request.get("tone") or "简洁清晰"),
+                        seed_items=items,
+                    )
+                    markdown = _outline_markdown_from_items(items, topic)
                 items, coverage_repaired = _repair_material_outline_coverage(
                     items, source, topic, max_pages
                 )
@@ -1812,6 +1827,19 @@ class PptGenerationService:
                     "slideIndex": i + 1,
                     "layoutId": lid,
                     "componentSchema": schema,
+                    # 把模板的重复区域转换成内容契约的一部分。模型只需
+                    # 返回 fields 中的同名数组，不再自行猜测 group 是否
+                    # 应该作为 componentContent 的键。
+                    "repeatRegions": [
+                        {
+                            "groupName": descriptor["groupName"],
+                            "fields": descriptor["textNames"],
+                            "minItems": 1,
+                            "maxItems": descriptor["maxChildren"],
+                            "valueShape": "array_by_occurrence",
+                        }
+                        for descriptor in _repeat_group_descriptors(batch_layouts_by_id[lid])
+                    ],
                 })
             first, last = indices[0] + 1, indices[-1] + 1
             count = len(indices)
@@ -1847,6 +1875,8 @@ class PptGenerationService:
                     "键为组件 name，值为文本字符串（表格用 {columns:[...], rows:[...]}，"
                     "图表用 {categories:[...], series:[...]}）。"
                     "同名组件按 occurrence 顺序返回字符串数组，例如 card_title:[\"结论一\",\"结论二\"]；"
+                    "repeatRegions 中的 groupName 仅用于说明区域，不要把 groupName 作为 componentContent 键；"
+                    "必须按 fields 中的文本组件名称返回同名数组，数组下标对应同一个视觉实例。"
                     "数组缺少的 occurrence 由系统按大纲回填，不能把第一个卡片内容复制到所有卡片。"
                     "componentContent 的键必须覆盖 schema 中所有可编辑语义槽位；"
                     "固定重复容器若 schema 声明 fixed_children=N，所有重复文本槽位必须返回 N 项；"
@@ -3373,13 +3403,52 @@ def _topic_outline_items(
     """主题模式的最后安全网：补充通用内容结构，不虚构具体事实。"""
     target = min(max(2, int(min_pages or 2)), max(2, int(max_pages or min_pages or 2)))
     seed_items = seed_items or []
-    scaffold = [
-        ("主题与背景", "封面页", [f"明确“{topic}”的讨论范围。", "说明本次演示要回答的核心问题。", "交代后续内容的阅读路径。"]),
-        ("核心概念", "内容页", [f"界定“{topic}”相关的关键概念。", "梳理概念之间的基本关系。", "指出最容易混淆的理解边界。"]),
-        ("知识结构", "流程页", [f"围绕“{topic}”组织由整体到局部的知识脉络。", "标出需要重点理解的内容。", "说明各部分之间的递进关系。"]),
-        ("方法与应用", "案例页", [f"说明“{topic}”中的方法如何用于分析或实践。", "整理方法落地时的基本步骤。", "保留具体案例和细节的可编辑位置。"]),
-        ("总结与思考", "总结页", [f"归纳“{topic}”的核心结论。", "列出可继续学习或讨论的问题。", "形成下一步行动或复习路径。"]),
-    ]
+    topic_route = _topic_route(topic)
+    scaffold_by_route = {
+        "career": [
+            ("主题定位与目标", "封面页", [f"明确“{topic}”面向的选择或准备问题。", "说明本次演示希望受众形成的判断。", "交代从方向认识到行动计划的阅读路径。"]),
+            ("就业方向与岗位地图", "内容页", ["梳理与主题相关的主要方向和岗位对象。", "说明每个方向主要解决什么工作问题。", "标出受众需要进一步核实的信息。"]),
+            ("岗位差异与能力要求", "对比页", ["比较不同方向的工作内容和常见产出。", "对应说明需要发展的知识、技能和协作能力。", "帮助受众建立方向选择的判断标准。"]),
+            ("学习与项目准备路径", "流程页", ["把当前基础、学习重点和实践项目串成准备路径。", "说明每一步应形成的可展示成果。", "标出从学习到求职之间需要补齐的能力证据。"]),
+            ("求职行动与决策清单", "总结页", ["归纳选择方向时需要回答的关键问题。", "整理简历、项目展示和求职准备的行动顺序。", "形成受众可以立即执行的下一步清单。"]),
+        ],
+        "solution": [
+            ("问题背景与建设目标", "封面页", [f"明确“{topic}”要解决的现状问题。", "界定目标范围和预期改变。", "交代从问题到落地方案的叙事路径。"]),
+            ("方案框架与关键机制", "内容页", ["说明方案由哪些部分组成。", "解释关键机制之间如何协同。", "明确每个部分对目标的作用。"]),
+            ("实施路径与资源条件", "流程页", ["拆解从准备到落地的主要阶段。", "列出每个阶段需要具备的输入和产出。", "标出需要进一步确认的资源条件。"]),
+            ("风险控制与验证方式", "对比页", ["识别实施过程中可能出现的风险。", "说明对应的控制或验证方式。", "区分已知事实、待验证假设和决策事项。"]),
+            ("落地计划与下一步", "总结页", ["归纳方案的核心价值和适用边界。", "整理近期、中期的推进动作。", "明确下一步需要做出的决策。"]),
+        ],
+        "product": [
+            ("用户问题与对象定位", "封面页", [f"明确“{topic}”服务的对象和使用问题。", "说明本次演示要帮助受众理解的价值。", "交代从用户问题到使用行动的阅读路径。"]),
+            ("核心能力与使用流程", "内容页", ["梳理对象的核心能力或服务环节。", "说明用户如何完成一次典型使用。", "指出流程中的关键决策点。"]),
+            ("典型场景与价值", "案例页", ["描述与主题直接相关的典型使用场景。", "说明场景中的痛点如何被解决。", "区分可验证价值和仍需补充的证据。"]),
+            ("差异化与选择依据", "对比页", ["整理受众选择时应比较的维度。", "说明不同选择的适用条件。", "避免在缺少资料时虚构市场数据。"]),
+            ("使用建议与行动入口", "总结页", ["归纳受众需要记住的核心价值。", "整理开始使用或继续评估的步骤。", "明确下一步需要补充的信息。"]),
+        ],
+        "research": [
+            ("研究问题与范围", "封面页", [f"明确“{topic}”要回答的研究问题。", "界定研究对象、范围和结论边界。", "交代从问题到证据再到结论的阅读路径。"]),
+            ("方法与证据来源", "内容页", ["说明采用的方法和分析步骤。", "交代证据或资料的来源边界。", "区分观察结果、解释和待验证假设。"]),
+            ("主要发现与关系", "数据页", ["整理与研究问题直接相关的主要发现。", "说明发现之间的关系或变化。", "不补造未提供的数值和实验结果。"]),
+            ("解释、局限与应用", "对比页", ["说明发现可以支持的解释。", "列出方法和证据的局限。", "讨论结果可用于哪些后续判断或实践。"]),
+            ("结论与后续工作", "总结页", ["归纳能够被证据支持的结论。", "明确不能由当前资料推出的内容。", "整理下一步研究或验证计划。"]),
+        ],
+        "tutorial": [
+            ("学习目标与问题导入", "封面页", [f"明确“{topic}”需要解决的学习问题。", "说明受众完成学习后应能做出的判断或操作。", "交代从概念理解到应用练习的阅读路径。"]),
+            ("核心概念与关系", "内容页", [f"解释“{topic}”中的关键概念。", "梳理概念之间的关系和边界。", "指出最容易混淆的理解点。"]),
+            ("知识结构与关键机制", "流程页", [f"围绕“{topic}”组织由整体到局部的知识脉络。", "说明关键机制或步骤如何衔接。", "标出需要重点掌握的关系。"]),
+            ("方法示例与应用", "案例页", [f"说明“{topic}”中的方法如何用于分析或实践。", "整理方法落地时的基本步骤。", "保留具体例子和细节的可编辑位置。"]),
+            ("总结与练习方向", "总结页", ["归纳本次内容需要记住的结论。", "列出可用于检验理解的练习方向。", "形成后续学习或复习路径。"]),
+        ],
+        "general": [
+            ("主题目标与范围", "封面页", [f"明确“{topic}”要讨论的对象和范围。", "说明受众需要带走的核心结论。", "交代后续内容的阅读路径。"]),
+            ("关键对象与关系", "内容页", [f"识别“{topic}”中的关键对象。", "说明对象之间的关系或影响。", "指出理解主题时必须保留的边界。"]),
+            ("过程、关系与判断", "流程页", [f"解释“{topic}”中的主要过程或关系。", "整理受众进行判断时需要关注的条件。", "说明前后环节如何递进。"]),
+            ("应用场景与行动建议", "案例页", [f"说明“{topic}”如何进入实际场景。", "整理从理解到应用的基本步骤。", "保留需要用户补充的具体事实和案例。"]),
+            ("核心结论与下一步", "总结页", [f"归纳“{topic}”的核心结论。", "列出仍需确认或继续讨论的问题。", "形成下一步行动或复习路径。"]),
+        ],
+    }
+    scaffold = scaffold_by_route[topic_route]
     if target < len(scaffold):
         scaffold = scaffold[: max(1, target - 1)] + [scaffold[-1]]
     elif target > len(scaffold):
@@ -3410,6 +3479,31 @@ def _topic_outline_items(
             "assetSuggestion": str(seed.get("assetSuggestion") or "根据节点关系选择结构图、流程图或简洁图标。"),
         }))
     return items
+
+
+def _topic_route(topic: str) -> str:
+    """选择主题兜底的叙事路线，避免所有主题落入同一套课程骨架。"""
+    normalized = re.sub(r"\s+", "", str(topic or "")).lower()
+    routes = (
+        ("career", ("就业", "职业", "岗位", "求职", "招聘", "职业规划", "发展方向", "升学")),
+        ("solution", ("方案", "规划", "提案", "汇报", "项目", "实施", "建设", "架构")),
+        ("product", ("产品", "功能", "运营", "市场", "商业", "品牌", "客户")),
+        ("tutorial", ("教程", "课程", "知识", "算法", "原理", "学习", "培训", "基础")),
+        ("research", ("研究", "分析", "调研", "实验", "论文", "数据")),
+    )
+    for route, keywords in routes:
+        if any(keyword in normalized for keyword in keywords):
+            return route
+    return "general"
+
+
+def _is_generic_topic_scaffold(items: List[Dict[str, Any]], topic: str, source_mode: str) -> bool:
+    """识别模型返回的旧通用骨架，只在主题语义明确时替换它。"""
+    if source_mode not in {"topic_only", "non_outline"} or _topic_route(topic) == "tutorial":
+        return False
+    generic_titles = {"核心概念", "知识结构", "方法与应用", "总结与思考"}
+    hits = sum(1 for item in items if str(item.get("title") or "").strip() in generic_titles)
+    return hits >= 2
 
 
 def _expand_single_page_outline(items: List[Dict[str, Any]], topic: str) -> List[Dict[str, Any]]:
@@ -3535,6 +3629,11 @@ def _sanitize_content_payload(
             )
         component_content = item.pop("componentContent", None)
         if isinstance(component_content, dict) and component_content:
+            component_content = _promote_slide_content_to_repeat_slots(
+                layout,
+                _normalize_repeat_group_content(layout, component_content),
+                item,
+            )
             merged = _merge_content_into_layout(layout, component_content)
             matched = int(merged.pop("_matchedComponents", 0) or 0)
             matched_names = set(merged.pop("_matchedComponentNames", []) or [])
@@ -3675,6 +3774,28 @@ def _fill_missing_slots(
         for relation in model.connector_targets
     }
 
+    def _actual_occurrence_count(root: Any, target_name: str) -> int:
+        count = 0
+
+        def walk(value: Any) -> None:
+            nonlocal count
+            if isinstance(value, list):
+                for item in value:
+                    walk(item)
+                return
+            if not isinstance(value, Mapping):
+                return
+            if str(value.get("name") or "") == target_name:
+                count += 1
+            for key in ("components", "elements", "children"):
+                if key in value:
+                    walk(value[key])
+            if "child" in value:
+                walk(value["child"])
+
+        walk(root)
+        return count
+
     def _card_copy(point: str) -> tuple[str, str]:
         value = str(point or "").strip()
         match = re.match(r"^(.{2,20})\s*[:：]\s*(.+)$", value)
@@ -3700,7 +3821,14 @@ def _fill_missing_slots(
     for name, elements in model.elements.items():
         if name in matched_names and not matched_occurrences:
             continue
-        for index, element in enumerate(elements):
+        # parse_slide_layout models the template prototype once.  After a
+        # dynamic group is materialized, the UI tree may contain more same-
+        # named nodes than the static model.  Reuse the prototype's semantic
+        # role and capacity for every actual occurrence so fallback filling
+        # cannot stop at index zero.
+        occurrence_count = max(len(elements), _actual_occurrence_count(ui, name))
+        for index in range(occurrence_count):
+            element = elements[min(index, len(elements) - 1)]
             if element.element_type not in {"text", "text-list"} or not element.mutable_text:
                 continue
             slot_key = f"{name}[{index}]"
@@ -3829,6 +3957,223 @@ def _expand_repeated_layout_groups(
     return dynamic_names
 
 
+def _repeat_group_descriptors(layout: Mapping[str, Any]) -> List[Dict[str, Any]]:
+    """Return the semantic text slots owned by each repeatable layout group.
+
+    Presenton stores many dynamic regions as one unnamed prototype child under
+    a grid/flex node.  The old merge path only knew how to expand that child
+    when the model happened to return a flat list for every descendant text
+    name.  Keeping this small descriptor here lets the compatibility layer
+    normalize group-shaped model output before the normal name-based merger
+    runs, without changing template geometry or renderer behavior.
+    """
+    descriptors: List[Dict[str, Any]] = []
+
+    def text_names(value: Any) -> List[str]:
+        names: List[str] = []
+
+        def walk(node: Any) -> None:
+            if isinstance(node, list):
+                for item in node:
+                    walk(item)
+                return
+            if not isinstance(node, Mapping):
+                return
+            if str(node.get("type") or "") in {"text", "text-list"}:
+                name = str(node.get("name") or "").strip()
+                if name and name not in names:
+                    names.append(name)
+            for key in ("components", "elements", "children"):
+                if key in node:
+                    walk(node[key])
+            if "child" in node:
+                walk(node["child"])
+
+        walk(value)
+        return names
+
+    def walk(value: Any) -> None:
+        if isinstance(value, list):
+            for item in value:
+                walk(item)
+            return
+        if not isinstance(value, Mapping):
+            return
+        node_type = str(value.get("type") or "").lower()
+        children = value.get("children")
+        if node_type in {"grid", "flex"} and isinstance(children, list) and children:
+            max_children = int(value.get("max_children") or len(children))
+            if max_children > 1:
+                for child in children:
+                    if not isinstance(child, Mapping):
+                        continue
+                    group_name = str(child.get("name") or "").strip()
+                    names = text_names(child)
+                    if group_name and names:
+                        descriptors.append({
+                            "groupName": group_name,
+                            "textNames": names,
+                            "maxChildren": max_children,
+                        })
+        for key in ("components", "elements", "children"):
+            if key in value:
+                walk(value[key])
+        if "child" in value:
+            walk(value["child"])
+
+    walk(layout)
+    return descriptors
+
+
+def _mapping_value_for_component(mapping: Mapping[str, Any], name: str) -> Any:
+    """Find a child component value in a model-returned repeat item."""
+    target = _normalize_component_key(name)
+    for key, value in mapping.items():
+        if _normalize_component_key(key) == target:
+            return value
+
+    name_key = str(name or "").lower()
+    role_tokens = (
+        ("title", ("title", "heading", "headline", "name")),
+        ("body", ("body", "description", "detail", "content", "text", "copy")),
+        ("label", ("label", "tag", "badge", "index", "number")),
+    )
+    desired_role = next(
+        (role for role, tokens in role_tokens if any(token in name_key for token in tokens)),
+        "",
+    )
+    if desired_role:
+        for key, value in mapping.items():
+            key_lower = str(key or "").lower()
+            if any(token in key_lower for token in dict(role_tokens)[desired_role]):
+                return value
+    return None
+
+
+def _normalize_repeat_group_content(
+    layout: Mapping[str, Any],
+    component_content: Mapping[str, Any],
+) -> Dict[str, Any]:
+    """Normalize repeat-group objects into the flat slot-array contract.
+
+    New prompts ask for flat arrays, but older or weaker model responses can
+    still look like ``{"agenda_items": [{"description": ...}]}``.  Treating
+    that as a valid compatibility input prevents the group itself from being
+    marked as matched while all of its child text slots remain empty.
+    """
+    normalized = dict(component_content)
+    for descriptor in _repeat_group_descriptors(layout):
+        group_name = str(descriptor["groupName"])
+        group_key = next(
+            (
+                key for key in normalized
+                if _normalize_component_key(key) == _normalize_component_key(group_name)
+            ),
+            None,
+        )
+        if group_key is None:
+            continue
+        raw_items = normalized.get(group_key)
+        if not isinstance(raw_items, list) or not raw_items:
+            continue
+
+        transformed = False
+        for text_name in descriptor["textNames"]:
+            values: List[Any] = []
+            found = False
+            for item in raw_items:
+                if isinstance(item, Mapping):
+                    value = _mapping_value_for_component(item, text_name)
+                    if value is not None:
+                        found = True
+                    values.append(value if value is not None else "")
+                else:
+                    # A scalar group item belongs to the first descriptive
+                    # child; named title/body children are handled only when
+                    # the model supplied an object with those fields.
+                    name_key = text_name.lower()
+                    if any(token in name_key for token in ("body", "description", "content", "detail")):
+                        values.append(item)
+                        found = True
+                    else:
+                        values.append("")
+            if found and text_name not in normalized:
+                normalized[text_name] = values
+                transformed = True
+            elif found and isinstance(normalized.get(text_name), list):
+                # Prefer explicit flat fields if the model supplied both
+                # forms; do not let a group wrapper overwrite them.
+                transformed = True
+        if transformed:
+            normalized.pop(group_key, None)
+    return normalized
+
+
+def _promote_slide_content_to_repeat_slots(
+    layout: Mapping[str, Any],
+    component_content: Mapping[str, Any],
+    slide_item: Mapping[str, Any],
+) -> Dict[str, Any]:
+    """Use confirmed page content to complete scalar repeat-slot responses.
+
+    This is deliberately deterministic and conservative.  It only activates
+    for a repeatable group whose child fields are scalar/missing and whose
+    slide already has multiple confirmed content points.  It prevents the
+    exact ``one visible item, three missing items`` failure without adding a
+    model retry or inventing facts.
+    """
+    result = dict(component_content)
+    raw_points = slide_item.get("content")
+    if isinstance(raw_points, str):
+        points = [line.strip(" -*•") for line in raw_points.splitlines() if line.strip(" -*•")]
+    elif isinstance(raw_points, list):
+        points = [str(point).strip() for point in raw_points if str(point).strip()]
+    else:
+        points = []
+    if len(points) < 2:
+        return result
+
+    for descriptor in _repeat_group_descriptors(layout):
+        text_names = list(descriptor["textNames"])
+        repeatable_names = [
+            name for name in text_names
+            if any(token in name.lower() for token in (
+                "title", "heading", "label", "body", "description", "content", "detail", "text"
+            ))
+        ]
+        if not repeatable_names:
+            continue
+        existing_lengths = [
+            len(value) for name, value in result.items()
+            if name in repeatable_names and isinstance(value, list)
+        ]
+        target = min(
+            int(descriptor["maxChildren"]),
+            max(len(points), max(existing_lengths, default=0)),
+        )
+        if target <= 1:
+            continue
+
+        for name in repeatable_names:
+            current = result.get(name)
+            if isinstance(current, list) and len(current) >= target:
+                continue
+            if current is not None and isinstance(current, Mapping):
+                continue
+            values = list(current) if isinstance(current, list) else ([current] if current not in (None, "") else [])
+            for index in range(len(values), target):
+                point = points[index] if index < len(points) else points[-1]
+                name_key = name.lower()
+                if any(token in name_key for token in ("body", "description", "content", "detail", "text")):
+                    values.append(point)
+                elif any(token in name_key for token in ("title", "heading")):
+                    label = re.split(r"[:：|｜。！？!?]", point, maxsplit=1)[0].strip(" ，,、")
+                    values.append(label or point)
+            if values:
+                result[name] = values[:target]
+    return result
+
+
 def _merge_content_into_layout(layout: Mapping[str, Any], component_content: Mapping[str, Any]) -> Dict[str, Any]:
     """Merge LLM-generated component content into a Presenton layout template.
 
@@ -3934,6 +4279,7 @@ def _merge_content_into_layout(layout: Mapping[str, Any], component_content: Map
             canonical[name] = values
         return canonical, aliases
 
+    component_content = _normalize_repeat_group_content(layout, component_content)
     component_content, component_content_aliases = _canonicalize_indexed_keys(component_content)
     content_lengths = {
         str(name): len(value)

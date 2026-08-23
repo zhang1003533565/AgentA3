@@ -540,6 +540,35 @@ def test_topic_outline_scaffold_respects_page_range():
     assert items[-1]["type"] == "总结页"
 
 
+def test_career_topic_scaffold_uses_decision_and_action_arc():
+    items = _topic_outline_items("计算机专业就业指导", 5, 5)
+    titles = [item["title"] for item in items]
+
+    assert titles[0] == "计算机专业就业指导"
+    assert titles[1:] == [
+        "就业方向与岗位地图",
+        "岗位差异与能力要求",
+        "学习与项目准备路径",
+        "求职行动与决策清单",
+    ]
+    assert all(title not in {"核心概念", "知识结构", "方法与应用", "总结与思考"} for title in titles)
+
+
+def test_generic_scaffold_is_only_flagged_for_non_tutorial_topics():
+    generic_items = [
+        {"title": "主题与背景"},
+        {"title": "核心概念"},
+        {"title": "知识结构"},
+        {"title": "方法与应用"},
+        {"title": "总结与思考"},
+    ]
+
+    from app.ppt_generation.service import _is_generic_topic_scaffold
+
+    assert _is_generic_topic_scaffold(generic_items, "计算机专业就业指导", "topic_only")
+    assert not _is_generic_topic_scaffold(generic_items, "数据结构课程", "topic_only")
+
+
 def test_generate_outline_retries_with_correction_on_single_page(monkeypatch):
     from app.ppt_generation import service as svc
 

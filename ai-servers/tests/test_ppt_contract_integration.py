@@ -141,6 +141,72 @@ def test_merge_expands_prototype_agenda_grid_for_all_supplied_items(catalog):
     assert actual_descriptions == descriptions
 
 
+@pytest.mark.parametrize(
+    ("layout_id", "group_name", "child_name", "values"),
+    [
+        (
+            "center_title_agenda_grid_wave_7815",
+            "agenda_items",
+            "agenda_item_description",
+            ["第一部分", "第二部分", "第三部分", "第四部分"],
+        ),
+        (
+            "title_process_cards_9539",
+            "process_step_card",
+            "step_heading",
+            ["方向认知", "能力对标", "路径规划", "求职行动"],
+        ),
+    ],
+)
+def test_merge_normalizes_repeat_group_object_arrays(
+    catalog, layout_id, group_name, child_name, values
+):
+    """组对象格式也必须落到每个同名文本槽位，而不是只展开空壳。"""
+    layout = catalog.get_layout("momentum", layout_id)
+    merged = _merge_content_into_layout(
+        layout,
+        {
+            group_name: [
+                {child_name: value}
+                for value in values
+            ]
+        },
+    )
+    actual = [
+        node.get("text")
+        for node in _collect_text_nodes(merged)
+        if node.get("name") == child_name
+    ]
+    assert actual == values
+    assert not merged["_contentCardinalityIssues"]
+
+
+def test_sanitize_promotes_scalar_repeat_slots_from_confirmed_content(catalog):
+    """模型只返回单值时，服务端仍按已确认页面内容实例化全部目录项。"""
+    layout_id = "center_title_agenda_grid_wave_7815"
+    layout = catalog.get_layout("momentum", layout_id)
+    values = ["第一部分", "第二部分", "第三部分", "第四部分"]
+    normalized = _sanitize_content_payload(
+        {"slides": [{
+            "type": "目录页",
+            "title": "目录",
+            "content": values,
+            "componentContent": {
+                "agenda_item_description": values[0],
+            },
+        }]},
+        [layout_id],
+        {layout_id: layout},
+        1,
+    )
+    descriptions = [
+        node.get("text")
+        for node in _collect_text_nodes(normalized["slides"][0]["ui"])
+        if node.get("name") == "agenda_item_description"
+    ]
+    assert descriptions == values
+
+
 def test_fallback_expands_prototype_agenda_grid_from_slide_content(catalog):
     """没有 componentContent 时，目录兜底也不能只保留第一条。"""
     layout = catalog.get_layout("momentum", "center_title_agenda_grid_wave_7815")
