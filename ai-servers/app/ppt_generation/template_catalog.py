@@ -195,6 +195,12 @@ class EmbeddedTemplateCatalog:
     @classmethod
     def component_schema(cls, values: Any) -> List[Dict[str, Any]]:
         result: List[Dict[str, Any]] = []
+        try:
+            from app.ppt_generation.template_model import parse_slide_layout, semantic_content_contract
+
+            schema_model = parse_slide_layout({"id": "component-schema", "components": deepcopy(values)})
+        except Exception:
+            schema_model = None
 
         def visit(value: Any) -> None:
             if isinstance(value, list):
@@ -211,6 +217,29 @@ class EmbeddedTemplateCatalog:
                 for key in ("max_length", "min_length", "max_children", "min_children"):
                     if value.get(key) is not None:
                         item[key] = value[key]
+                if schema_model is not None:
+                    element = schema_model.element(name, occurrence)
+                    if element is not None and element.constraint is not None:
+                        constraint = element.constraint
+                        # The raw template max_length often describes an
+                        # English/ideal-font box and is larger than the real
+                        # CJK geometry. Expose the effective contract so the
+                        # model cannot plan copy the browser will wrap.
+                        item["max_length"] = int(constraint.hard_max_chars)
+                        if "min_length" in item:
+                            item["min_length"] = min(int(item["min_length"] or 0), int(constraint.hard_max_chars))
+                        item["role"] = element.role
+                        item["semanticRole"] = element.semantic_role
+                        item["contentContract"] = semantic_content_contract(
+                            element.semantic_role,
+                            constraint,
+                        )
+                        item["capacity"] = {
+                            "recommendedChars": int(constraint.recommended_chars),
+                            "hardMaxChars": int(constraint.hard_max_chars),
+                            "maxLines": int(constraint.max_lines),
+                            "charsPerLine": int(constraint.chars_per_line),
+                        }
                 if element_type == "image":
                     item["replaceable"] = "replaceable_template_image" in str(value.get("data") or "")
                 result.append(item)

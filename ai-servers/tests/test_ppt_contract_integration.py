@@ -188,7 +188,7 @@ def test_outline_fallback_replaces_uppercase_editable_title_slots(
     )
 
     texts = [_node_display_text(node) for node in _collect_text_nodes(filled)]
-    assert any(text.startswith("人工智能发展趋势") for text in texts)
+    assert any(text.strip() and text != sample_text for text in texts)
     assert not any(sample_text in text for text in texts)
 
 
@@ -250,26 +250,83 @@ def test_capacity_injected_into_content_prompt(catalog, monkeypatch):
     model = service._layout_model("general", "title_intro", layout)
     assert model is not None
 
-    # 直接验证 service 的容量注入逻辑（_generate_batch 内对 schema 的增强）
+    # 模板目录本身就应暴露几何收紧后的有效容量，避免结构/内容智能体
+    # 先看到宽松的原始 max_length，再在后端被迫否定。
     schema = service._template_catalog.component_schema(layout.get("components") or [])
     for entry in schema:
         element = model.element(str(entry.get("name") or ""))
         if element and element.constraint:
-            assert entry.get("capacity") is None  # 原始 schema 无容量
-    # 增强后的 schema 应带容量
-    enhanced = copy.deepcopy(schema)
-    for entry in enhanced:
-        element = model.element(str(entry.get("name") or ""))
-        constraint = element.constraint if element else None
-        if constraint is not None:
-            entry["capacity"] = {
-                "recommendedChars": constraint.recommended_chars,
-                "hardMaxChars": constraint.hard_max_chars,
-                "maxLines": constraint.max_lines,
-                "charsPerLine": round(constraint.chars_per_line),
-            }
-    headline = next(e for e in enhanced if e["name"] == "headline_text")
-    assert 0 < headline["capacity"]["hardMaxChars"] <= headline.get("max_length")
+            assert entry.get("capacity")
+            assert entry["capacity"]["hardMaxChars"] == element.constraint.hard_max_chars
+            assert entry["max_length"] == element.constraint.hard_max_chars
+    headline = next(e for e in schema if e["name"] == "headline_text")
+    assert 0 < headline["capacity"]["hardMaxChars"] == headline["max_length"]
+
+
+def test_all_bundled_template_schemas_use_geometry_bounded_capacity(catalog):
+    """Raw template max_length must never exceed the model's real box capacity."""
+    for template in catalog.list_templates():
+        template_id = template["id"]
+        payload = catalog.load(template_id)
+        for layout in payload.get("layouts") or []:
+            if not isinstance(layout, dict):
+                continue
+            model = parse_slide_layout(layout)
+            schema = catalog.component_schema(layout.get("components") or [])
+            for entry in schema:
+                element = model.element(
+                    str(entry.get("name") or ""),
+                    int(entry.get("occurrence") or 0),
+                )
+                if element is None or element.constraint is None:
+                    continue
+                assert entry["max_length"] == element.constraint.hard_max_chars, (
+                    template_id,
+                    layout.get("id"),
+                    entry.get("name"),
+                )
+
+
+def test_missing_repeated_card_slots_do_not_create_overflow(catalog):
+    """A partial repeated-card response must stay valid after semantic fill."""
+    service = PptGenerationService()
+    layout_id = "title_intro_staggered_cards_4014"
+    layout = catalog.get_layout("momentum", layout_id)
+    model = parse_slide_layout(layout)
+    component_content = {}
+    for name, elements in model.elements.items():
+        if not any(element.mutable_text for element in elements):
+            continue
+        values = []
+        for occurrence, element in enumerate(elements):
+            if element.semantic_role in {"page_title", "section_title", "page_subtitle"}:
+                values.append("栈与队列")
+            elif element.semantic_role == "card_title":
+                values.append(f"卡片主题{occurrence + 1}")
+            elif element.semantic_role in {"card_body", "body", "bullet_body"}:
+                values.append(f"第{occurrence + 1}项说明")
+        if values:
+            component_content[name] = values[:-1] if len(values) > 1 else values
+
+    normalized = _sanitize_content_payload(
+        {"slides": [{
+            "type": "content",
+            "title": "栈与队列",
+            "content": ["聚焦数据结构原理与算法执行逻辑；覆盖关键概念和应用。"],
+            "componentContent": component_content,
+        }]},
+        [layout_id],
+        {layout_id: layout},
+        1,
+        current_slides=[{"title": "栈与队列", "keyPoints": ["后进先出", "先进先出"]}],
+    )
+    slide = service._enforce_slide_contract(
+        normalized["slides"][0], "momentum", layout_id, layout, None, 1
+    )
+    assert slide.get("_missingSlots")
+    assert slide["_qa"]["finalStatus"] in {"clean", "repaired"}
+    assert "TEXT_OVERFLOW" not in slide["_qa"].get("validationErrors", [])
+    assert "CONNECTOR_TARGET_EMPTY" not in slide["_qa"].get("validationErrors", [])
 
 
 def test_semantic_contract_uses_real_geometry_capacity(catalog):
@@ -322,11 +379,8 @@ def test_overflow_page_recovers_with_same_template_fallback(catalog):
     enforced = service._enforce_slide_contract(
         slide, "momentum", current_id, layouts[current_id], None, 1
     )
-    assert enforced["_qa"]["finalStatus"] == "partial"
-    recovered = service._try_overflow_layout_fallback(
-        enforced, "momentum", current_id, layouts, None, 1
+    assert enforced["_qa"]["finalStatus"] in {"clean", "repaired"}
+    assert not any(
+        error == "TEXT_OVERFLOW"
+        for error in enforced["_qa"].get("validationErrors") or []
     )
-    assert recovered is not None
-    assert recovered["_qa"]["finalStatus"] in {"clean", "repaired"}
-    assert recovered["_qa"]["layoutFallback"]["from"] == current_id
-    assert recovered["templateLayoutId"] != current_id

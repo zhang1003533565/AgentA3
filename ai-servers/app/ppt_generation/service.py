@@ -56,6 +56,7 @@ from app.ppt_generation.source_parser import PptSourceParseError, extract_source
 from app.ppt_generation.template_catalog import EmbeddedTemplateCatalog
 from app.ppt_generation.template_model import (
     SlideLayoutModel,
+    measure_text,
     parse_slide_layout,
     semantic_content_contract,
 )
@@ -3471,6 +3472,10 @@ def _fill_missing_slots(
         if point not in points:
             points.append(point)
     point_iter = iter(points)
+    connector_slots = {
+        (relation.target_name, relation.target_index)
+        for relation in model.connector_targets
+    }
 
     def _card_copy(point: str) -> tuple[str, str]:
         value = str(point or "").strip()
@@ -3515,7 +3520,13 @@ def _fill_missing_slots(
                 point = points[index] if index < len(points) else title
                 content = _compact_text(_card_copy(point)[0] or title, _node_text_capacity(node))
             elif element.semantic_role in {"body", "card_body", "bullet_body"}:
+                # Connector-bearing card bodies cannot be left empty when a
+                # repeated occurrence is omitted. Reuse the confirmed page
+                # title as a bounded, non-fictional fallback rather than
+                # leaving a floating connector in the rendered slide.
                 content = next(point_iter, "")
+                if not content and (name, index) in connector_slots:
+                    content = title
             elif element.semantic_role in {"metric_value", "card_value"}:
                 # 指标槽位只接受资料中真实出现过的数字/复杂度，不补造统计值。
                 content = numeric_values[index] if index < len(numeric_values) else ""
@@ -3531,10 +3542,13 @@ def _fill_missing_slots(
                 continue
             if not content:
                 continue
+            content = _safe_visible_text(node, content, element.semantic_role)
+            if not content:
+                continue
             _set_text_node_content(
                 node,
                 content,
-                respect_capacity=element.semantic_role not in {"page_title", "section_title", "page_subtitle"},
+                respect_capacity=False,
             )
             missing.append(f"{name}[{index}]")
     return missing
@@ -4028,18 +4042,18 @@ def _clear_template_placeholder_text(root: Dict[str, Any], matched_names: set) -
 
 
 def _node_text_capacity(node: Mapping[str, Any]) -> int:
-    """估算文本节点容量：优先模板显式 max_length，缺失时按几何尺寸推算。
+    """估算文本节点容量，并以真实几何容量约束模板声明。
 
     中文字符宽约等于字号，英文约 0.55 倍；行高按 1.35 倍字号。
-    容量溢出会把文本撑出组件边界，是模板版式被撑破的主要来源。
+    模板中的 max_length 经常是英文/理想字体下的宽松值，不能覆盖几何
+    容量；否则模型会收到“能放下”，浏览器却实际换行溢出的矛盾契约。
     """
     explicit = 0
     try:
         explicit = int(node.get("max_length") or 0)
     except (TypeError, ValueError):
         explicit = 0
-    if explicit > 0:
-        return explicit
+    geometry_capacity = 0
     if str(node.get("type") or "") == "text-list":
         try:
             max_items = int(node.get("max_items") or 0)
@@ -4047,21 +4061,119 @@ def _node_text_capacity(node: Mapping[str, Any]) -> int:
         except (TypeError, ValueError):
             max_items = max_item_length = 0
         if max_items > 0 and max_item_length > 0:
-            return max_items * max_item_length
+            geometry_capacity = max_items * max_item_length
     font_size = _text_font_size(node)
     size = node.get("size")
     if font_size <= 0 or not isinstance(size, Mapping):
-        return 0
+        return explicit
     try:
         width = float(size.get("width") or 0)
         height = float(size.get("height") or 0)
     except (TypeError, ValueError):
         return 0
     if width <= 0 or height <= 0:
-        return 0
+        return explicit
     chars_per_line = max(1, int(width / (font_size * 0.95)))
     max_lines = max(1, int(height / (font_size * 1.35) + 0.35))
-    return chars_per_line * max_lines
+    geometry_capacity = chars_per_line * max_lines
+    if explicit > 0:
+        return min(explicit, geometry_capacity)
+    return geometry_capacity
+
+
+def _node_text_fits(node: Mapping[str, Any], text: str) -> bool:
+    """Check a fallback string against the node's actual geometry."""
+    size = node.get("size") if isinstance(node.get("size"), Mapping) else {}
+    try:
+        width = float(size.get("width") or 0)
+        height = float(size.get("height") or 0)
+    except (TypeError, ValueError):
+        return True
+    font_size = _text_font_size(node)
+    if width <= 0 or height <= 0 or font_size <= 0:
+        return True
+    line_height = 1.35
+    font = node.get("font") if isinstance(node.get("font"), Mapping) else {}
+    try:
+        line_height = float(font.get("line_height") or line_height)
+    except (TypeError, ValueError):
+        pass
+    lines, max_width = measure_text(str(text or ""), font_size, width, line_height)
+    return (
+        lines * font_size * (line_height if line_height >= 0.4 else 1.2) <= height + 2.0
+        and max_width <= width + 1.0
+        and (
+            _node_text_capacity(node) <= 0
+            or len(re.sub(r"(?m)^[•·\-*\d.、]+\s*|\n", "", str(text or "")))
+            <= _node_text_capacity(node)
+        )
+    )
+
+
+def _safe_visible_text(node: Mapping[str, Any], value: Any, semantic_role: str = "") -> str:
+    """Produce bounded visible copy for fallback/missing slots.
+
+    The full source remains in slide content and source trace. The visible
+    fallback must not put a paragraph into a one-line title slot.
+    """
+    if isinstance(value, (list, tuple)):
+        text = "\n".join(str(item).strip(" -*•") for item in value if str(item).strip(" -*•"))
+    elif isinstance(value, Mapping):
+        text = str(value.get("text") or value.get("content") or value.get("value") or "")
+    else:
+        text = str(value or "")
+    text = re.sub(r"[ \t]+", " ", text.replace("\r", "\n")).strip()
+    if not text or _node_text_fits(node, text):
+        return text
+
+    # Complexity/value slots are not prose. Keep verified expressions such
+    # as O(1) intact; the numeric-slot contract already rejects invented
+    # values and punctuation is part of the visible notation.
+    if semantic_role in {"metric_value", "card_value"}:
+        return text
+
+    short_role = semantic_role in {
+        "card_title", "card_value_label", "metric_label", "label", "badge",
+        "page_title", "section_title", "page_subtitle",
+    }
+    candidates: List[str] = []
+    if short_role:
+        match = re.match(r"^(.{2,20})\s*[:：|｜]\s*(.+)$", text)
+        if match:
+            candidates.append(match.group(1).strip())
+        candidates.extend(
+            part.strip(" ，,、：:；;。.!！？?")
+            for part in re.split(r"(?<=[。！？!?；;])\s*", text)
+            if part.strip(" ，,、：:；;。.!！？?")
+        )
+        for token in ("围绕", "聚焦", "理解", "掌握", "介绍", "说明", "分析", "本页"):
+            if text.startswith(token):
+                candidates.append(text[len(token):].lstrip(" ：:，,"))
+    else:
+        candidates.extend(
+            part.strip()
+            for part in re.split(r"(?<=[。！？!?；;])\s*|\n", text)
+            if part.strip()
+        )
+    candidates = list(dict.fromkeys(candidate for candidate in candidates if candidate))
+    if short_role:
+        semantic_prefixes: List[str] = []
+        for base in candidates:
+            for end in range(len(base), 2, -1):
+                semantic_prefixes.append(base[:end].rstrip(" ，,、：:；;。.!！？?"))
+        candidates = list(dict.fromkeys([*candidates, *semantic_prefixes]))
+    for candidate in candidates:
+        if _node_text_fits(node, candidate):
+            return candidate
+
+    # Last resort: keep a geometry-safe prefix rather than exporting an
+    # overflowing text box. This is only used for fallback/missing content;
+    # the original full copy remains in the slide payload for traceability.
+    for end in range(len(text), 2, -1):
+        candidate = text[:end].rstrip(" ，,、：:；;。.!！？?")
+        if candidate and _node_text_fits(node, candidate):
+            return candidate
+    return ""
 
 
 def _set_text_node_content(
@@ -4259,9 +4371,12 @@ def _fill_layout_with_slide_text(
     def _write_content(
         node: Dict[str, Any], content: Any, *, respect_capacity: bool = False
     ) -> None:
-        # 先保留原始内容交给 RepairEngine 按真实几何适配；如果在这里先按
-        # 模板的静态 max_length 截断，后续就无法通过缩字号挽回被截掉的标题。
-        _set_text_node_content(node, content, respect_capacity=respect_capacity)
+        # 兜底页没有后续可靠的内容智能体重写机会；先按节点真实几何做
+        # 语义压缩，避免把完整正文写进一行 card_title。完整内容仍保留在
+        # slide.content/sourceTrace 中，页面只承载适合该槽位的可见副本。
+        semantic_role = node_semantic_roles.get(id(node), "")
+        safe_content = _safe_visible_text(node, content, semantic_role)
+        _set_text_node_content(node, safe_content, respect_capacity=respect_capacity)
 
     def _is_decorative(node: Mapping[str, Any]) -> bool:
         """装饰位：纯数字角标/全大写短标签/容量过小，不参与标题正文分配。"""

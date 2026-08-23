@@ -32,7 +32,9 @@ from app.ppt_generation.service import (
     _sanitize_content_payload,
 )
 from app.ppt_generation.template_catalog import EmbeddedTemplateCatalog
+from app.ppt_generation.template_model import parse_slide_layout
 from app.ppt_generation.presenton_html_renderer import _normalize_renderer_slides
+from app.ppt_generation.layout_validator import validate_slide
 
 
 def _sample_ui(layout_id="title_intro"):
@@ -89,7 +91,7 @@ def test_fallback_preserves_template_badges_and_fills_card_copy():
     assert any(str(value or "").strip() for value in rendered_titles)
 
 
-def test_fallback_card_title_preserves_content_for_quality_gate():
+def test_fallback_card_title_is_compacted_to_template_geometry():
     catalog = EmbeddedTemplateCatalog()
     layout = catalog.get_layout("momentum", "title_over_cards_layout_8558")
     result = _fill_layout_with_slide_text(
@@ -109,9 +111,11 @@ def test_fallback_card_title_preserves_content_for_quality_gate():
     ]
     visible_titles = [value for value in rendered_titles if value]
     assert visible_titles
-    assert any(len(value) > 16 for value in visible_titles)
-    assert visible_titles[0].startswith("聚焦计算机科学的底层基石")
+    assert all(len(value) <= 16 for value in visible_titles)
     assert all("…" not in value for value in visible_titles)
+    model = parse_slide_layout(layout)
+    validation = validate_slide(result, model)
+    assert not any(issue.error_type == "TEXT_OVERFLOW" for issue in validation.issues)
 
 
 def test_numeric_layout_is_rebalanced_for_non_numeric_outline():

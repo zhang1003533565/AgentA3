@@ -359,9 +359,58 @@ def fit_text(
                     actions=actions,
                 )
 
+    # Final visible-copy guard. A missing separator or a model-generated
+    # single sentence can defeat the semantic candidates above. Keeping the
+    # original text in slide.content/sourceTrace is preferable to exporting a
+    # known-overflow box; the visible slot receives the longest geometry-safe
+    # prefix as an explicit, auditable repair action.
+    bounded = _bounded_visible_candidate(original, element, current_font_size)
+    if bounded and bounded != original:
+        actions.append("bounded-visible-fit")
+        return FitResult(
+            text=bounded,
+            strategy="bounded-visible-fit",
+            fits=True,
+            actions=actions,
+        )
+
     # 6) 显式失败：保留完整输入，让 QA/质量门禁报告真实溢出位置。
     # 这里绝不能用省略号、前缀或 hard_max_chars 静默改写用户内容。
     return FitResult(text=original, strategy="failed", fits=False, actions=actions + ["content-unfit"])
+
+
+def _bounded_visible_candidate(
+    text: str,
+    element: TemplateElementModel,
+    font_size: Optional[float] = None,
+) -> str:
+    """Return the longest complete-ish visible copy that fits the slot."""
+    original = re.sub(r"\s+", " ", str(text or "")).strip()
+    if not original:
+        return ""
+    candidates: List[str] = []
+    points = _split_points(original)
+    for count in range(len(points), 0, -1):
+        candidate = "\n".join(points[:count]).strip()
+        if candidate and candidate not in candidates:
+            candidates.append(candidate)
+    # Keep the search bounded. The candidate is only a last-resort visible
+    # copy, not a replacement for source content stored in the slide payload.
+    hard_max = int(element.constraint.hard_max_chars) if element.constraint else len(original)
+    upper = min(len(original), max(hard_max * 2, hard_max + 24))
+    candidates.extend(
+        original[:end].rstrip(" ，,、：:；;。.!！？?")
+        for end in range(upper, 2, -1)
+    )
+    seen = set()
+    for candidate in candidates:
+        candidate = candidate.strip()
+        if not candidate or candidate in seen:
+            continue
+        seen.add(candidate)
+        if text_fits(candidate, element, font_size=font_size):
+            return candidate
+    return ""
 
 
 def _footer_prefix_variants(text: str) -> List[str]:

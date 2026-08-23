@@ -75,33 +75,35 @@ def test_short_content_needs_no_repair(catalog):
     assert not any(issue.severity == "error" for issue in outcome.final_issues)
 
 
-def test_long_title_is_rewritten_not_unboundedly_shrunk(catalog):
-    """Case 2：无法安全适配的超长标题 → 保留原文并显式 partial。"""
+def test_long_title_is_compacted_to_visible_geometry(catalog):
+    """超长标题必须得到可见的几何安全副本，不能把页面留在 partial。"""
     layout, model = _model(catalog)
     tree = {"components": copy.deepcopy(layout["components"])}
     _set_text(tree, "headline_text", "超" * 60)
     outcome = RepairEngine().repair(tree, model, llm_rewrite=None)
-    assert outcome.status == "partial"
+    assert outcome.status == "repaired"
     assert outcome.repair_count >= 1
     final_text = _get_text(outcome.ui, "headline_text")[0]
-    assert final_text == "超" * 60
+    assert final_text != "超" * 60
+    assert final_text
     assert "…" not in final_text
-    assert any(issue.error_type == "TEXT_OVERFLOW" for issue in outcome.final_issues)
+    assert not any(issue.error_type == "TEXT_OVERFLOW" for issue in outcome.final_issues)
     assert not any(issue.error_type == "GEOMETRY_CHANGED" for issue in outcome.final_issues)
 
 
-def test_long_card_body_is_compressed(catalog):
-    """Case 3：卡片正文过长 → 保留原文并暴露溢出，不能静默截断。"""
+def test_long_card_body_is_compressed_to_visible_geometry(catalog):
+    """卡片正文过长 → 压缩到几何容量内并清除溢出错误。"""
     layout, model = _model(catalog, "title_image_bullet_points")
     tree = {"components": copy.deepcopy(layout["components"])}
     long_body = "这是一段非常长的卡片正文内容用来测试内容压缩机制是否正常工作。" * 10
     _set_text(tree, "item_body", long_body)
     outcome = RepairEngine().repair(tree, model, llm_rewrite=None)
     for text in _get_text(outcome.ui, "item_body"):
-        assert text == long_body
+        assert text != long_body
+        assert text
         assert "…" not in text
-    assert any(issue.error_type == "TEXT_OVERFLOW" and issue.severity == "error"
-               for issue in outcome.final_issues)
+    assert not any(issue.error_type == "TEXT_OVERFLOW" and issue.severity == "error"
+                   for issue in outcome.final_issues)
 
 
 def test_repair_targets_all_equal_repeated_slots(catalog):

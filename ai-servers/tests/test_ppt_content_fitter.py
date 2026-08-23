@@ -57,13 +57,13 @@ def test_overflowing_title_uses_rewrite_first_when_llm_available(title_model):
     assert result.fits
 
 
-def test_overflowing_title_never_shrinks_font_first(title_model):
-    """超出容量时不能用截断伪装成成功，必须保留完整标题并失败。"""
+def test_overflowing_title_gets_bounded_visible_copy(title_model):
+    """超出容量时生成可审计的可见副本，不能把页面留在溢出状态。"""
     long_title = "超" * 60
     result = _fit(title_model, "headline_text", long_title, llm=None)
-    assert result.strategy == "failed"
-    assert result.text == long_title
-    assert not result.fits
+    assert result.strategy == "bounded-visible-fit"
+    assert result.text != long_title
+    assert result.fits
     assert "…" not in result.text
 
 
@@ -98,16 +98,16 @@ def test_rewrite_prompt_carries_explicit_capacity(title_model):
 
 
 def test_single_line_slot_never_ellipsis(catalog):
-    # table_of_contents 的 item_label 是单行槽，但不能静默丢内容
+    # table_of_contents 的 item_label 是单行槽，必须输出几何安全副本
     layout = catalog.get_layout("general", "table_of_contents")
     model = parse_slide_layout(layout)
     element = model.element("item_label")
     if element is None or element.constraint is None:
         pytest.skip("item_label not found")
     result = fit_text("很" * 100, element, llm_rewrite=None, llm_call_budget=0)
-    assert result.text == "很" * 100
+    assert result.text != "很" * 100
     assert "…" not in result.text
-    assert not result.fits
+    assert result.fits
 
 
 def test_footer_overflow_keeps_complete_clause_without_ellipsis(catalog):
