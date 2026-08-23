@@ -8,18 +8,20 @@
       <feDropShadow dx="0" dy="10" stdDeviation="12" flood-color="#B7C5D8" flood-opacity="0.28"/>
     </filter>
   </defs>
-  <rect width="800" height="450" fill="url(#surface)"/>
-  <rect x="148" y="74" width="504" height="302" rx="16" fill="#FFFFFF" stroke="#D6E1EF" stroke-width="4" filter="url(#shadow)"/>
-  <rect x="184" y="112" width="206" height="16" rx="8" fill="#8EA5C1"/>
-  <rect x="184" y="144" width="120" height="9" rx="4.5" fill="#D3DEEB"/>
-  <rect x="184" y="198" width="132" height="98" rx="10" fill="#EFF4FA" stroke="#D9E4F0" stroke-width="3"/>
-  <rect x="334" y="198" width="132" height="98" rx="10" fill="#F4F7FB" stroke="#D9E4F0" stroke-width="3"/>
-  <rect x="484" y="198" width="132" height="98" rx="10" fill="#EFF4FA" stroke="#D9E4F0" stroke-width="3"/>
-  <path d="M211 265l29-28 20 18 22-25 30 35H211z" fill="#B5C8DD"/>
-  <circle cx="250" cy="226" r="10" fill="#6E88AA"/>
-  <rect x="363" y="226" width="74" height="10" rx="5" fill="#B8C9DC"/>
-  <rect x="363" y="249" width="52" height="8" rx="4" fill="#D3DEEB"/>
-  <rect x="513" y="224" width="74" height="12" rx="6" fill="#B8C9DC"/>
-  <rect x="513" y="250" width="56" height="8" rx="4" fill="#D3DEEB"/>
-  <circle cx="400" cy="352" r="12" fill="#FFFFFF" stroke="#7E98B7" stroke-width="4" stroke-dasharray="18 8"/>
+  <rect width="800" height="450" fill="#FFFFFF"/>
+  <rect x="10" y="10" width="780" height="430" rx="10" fill="url(#surface)" stroke="#D6E1EF" stroke-width="3" filter="url(#shadow)"/>
+  <rect x="42" y="42" width="260" height="18" rx="9" fill="#8EA5C1"/>
+  <rect x="42" y="78" width="152" height="10" rx="5" fill="#D3DEEB"/>
+  <rect x="42" y="142" width="214" height="170" rx="12" fill="#EFF4FA" stroke="#D9E4F0" stroke-width="3"/>
+  <rect x="293" y="142" width="214" height="170" rx="12" fill="#F4F7FB" stroke="#D9E4F0" stroke-width="3"/>
+  <rect x="544" y="142" width="214" height="170" rx="12" fill="#EFF4FA" stroke="#D9E4F0" stroke-width="3"/>
+  <path d="M78 270l48-46 33 30 37-42 50 58H78z" fill="#B5C8DD"/>
+  <circle cx="143" cy="206" r="16" fill="#6E88AA"/>
+  <rect x="335" y="194" width="130" height="15" rx="7.5" fill="#B8C9DC"/>
+  <rect x="335" y="229" width="92" height="11" rx="5.5" fill="#D3DEEB"/>
+  <rect x="335" y="254" width="116" height="11" rx="5.5" fill="#D3DEEB"/>
+  <rect x="586" y="192" width="132" height="17" rx="8.5" fill="#B8C9DC"/>
+  <rect x="586" y="228" width="100" height="11" rx="5.5" fill="#D3DEEB"/>
+  <rect x="586" y="253" width="78" height="11" rx="5.5" fill="#D3DEEB"/>
+  <circle cx="400" cy="384" r="13" fill="#FFFFFF" stroke="#7E98B7" stroke-width="4" stroke-dasharray="19 8"/>
 </svg>
