@@ -834,11 +834,35 @@ class PptGenerationService:
         request: Mapping[str, Any],
         llm_config: Any,
         user_id: str = "",
+        progress_callback: Optional[Callable[[Mapping[str, Any]], None]] = None,
     ) -> Dict[str, Any]:
         source = self._resolve_source_text(request, user_id)
         topic = str(request.get("topic") or request.get("sourceName") or "演示文稿").strip()
         if not source:
             raise HTTPException(status_code=422, detail="sourceContent 和 sourceFileId 不能同时为空")
+
+        reported_progress = 0
+
+        def report_progress(stage: str, progress: int, message: str, detail: str = "") -> None:
+            nonlocal reported_progress
+            if progress_callback is None:
+                return
+            reported_progress = max(reported_progress, min(99, int(progress)))
+            progress_callback(
+                {
+                    "stage": stage,
+                    "progress": reported_progress,
+                    "message": message,
+                    "detail": detail,
+                }
+            )
+
+        report_progress(
+            "preparing",
+            12,
+            "资料读取完成，正在整理生成参数",
+            "已准备主题、资料和页面数量约束",
+        )
         outline_mode = _normalize_outline_mode(request.get("outlineMode"))
         topic_only = _is_topic_only_outline_request(request, source, topic, outline_mode)
         topic = _resolve_outline_topic(request, source, topic, topic_only)
@@ -898,6 +922,12 @@ class PptGenerationService:
                 "page_roles": "每页只承担一个核心结论，明确与前后页的关系；封面和目录不得吞掉正文内容。",
             },
         }
+        report_progress(
+            "planning",
+            22,
+            "正在拆解主题并组织大纲结构",
+            "正在准备模型生成所需的叙事顺序和页面职责",
+        )
         evidence = []
         timeout_token = set_active_llm_timeout(PPT_OUTLINE_LLM_TIMEOUT_SECONDS)
         output_token = set_active_max_output_tokens(
@@ -913,6 +943,12 @@ class PptGenerationService:
             min_acceptable = min_pages
             attempt = 0
             while True:
+                report_progress(
+                    "model_generation",
+                    30 + min(attempt * 30, 60),
+                    "正在请求模型生成大纲" if attempt == 0 else f"正在进行第 {attempt + 1} 次大纲补充生成",
+                    "模型单次调用完成后才会更新到下一阶段",
+                )
                 try:
                     markdown = _retry_llm_call(
                         lambda: run_specialist_agent(
@@ -954,6 +990,12 @@ class PptGenerationService:
                     items = []
                     break
                 items = _normalize_outline_topic_items(_outline_items(markdown), topic)
+                report_progress(
+                    "parsing",
+                    48 + min(attempt * 24, 48),
+                    "模型已返回，正在解析大纲结构",
+                    "正在整理页面标题、要点和层级信息",
+                )
                 items, coverage_repaired = _repair_material_outline_coverage(
                     items, source, topic, max_pages
                 )
@@ -964,11 +1006,23 @@ class PptGenerationService:
                     if source_mode != "outline_grounded"
                     else []
                 )
+                report_progress(
+                    "quality_check",
+                    56 + min(attempt * 20, 40),
+                    "正在检查大纲质量",
+                    f"正在检查页数、内容覆盖和结构完整性（当前 {len(items)} 页）",
+                )
                 # 页数不足才重生成整份大纲；内容稀疏改为后面的定向页面修复，
                 # 避免一页缺两个要点时再次等待整份大纲。
                 if len(items) >= min_acceptable or attempt >= PPT_OUTLINE_MAX_RETRIES:
                     break
                 attempt += 1
+                report_progress(
+                    "model_retry",
+                    60 + min((attempt - 1) * 30, 30),
+                    f"大纲页数不足，正在进行第 {attempt + 1} 次补充生成",
+                    f"当前已整理 {len(items)} 页，目标至少 {min_acceptable} 页",
+                )
                 logger.warning(
                     "PPT outline 质量不足（页数=%d/%d，薄弱页面=%s），带纠正提示重试（第 %d/%d 次）",
                     len(items),
@@ -1028,6 +1082,12 @@ class PptGenerationService:
                 if repaired:
                     items = repaired_items
                     markdown = _outline_markdown_from_items(items, topic)
+            report_progress(
+                "finalizing",
+                96,
+                "正在完成大纲质量校验",
+                "正在整理为可编辑的大纲数据",
+            )
         finally:
             reset_active_llm_config(token)
             reset_active_reasoning_effort(effort_token)
@@ -1543,6 +1603,21 @@ class PptGenerationService:
         llm_config: Any,
         user_id: str,
     ) -> None:
+        last_progress = 8
+
+        def report(event: Mapping[str, Any]) -> None:
+            nonlocal last_progress
+            if self._task_is_stopped(task_id):
+                return
+            payload = dict(event)
+            try:
+                progress = int(payload.get("progress", last_progress))
+            except (TypeError, ValueError):
+                progress = last_progress
+            last_progress = max(last_progress, min(99, progress))
+            payload["progress"] = last_progress
+            self._update(task_id, **payload)
+
         try:
             if self._task_is_stopped(task_id):
                 return
@@ -1553,7 +1628,12 @@ class PptGenerationService:
                 progress=8,
                 message="正在分析资料并生成大纲",
             )
-            result = self.generate_outline(request, llm_config, user_id)
+            result = self.generate_outline(
+                request,
+                llm_config,
+                user_id,
+                progress_callback=report,
+            )
             if self._task_is_stopped(task_id):
                 return
             items = result.get("items") or []
@@ -1586,7 +1666,7 @@ class PptGenerationService:
                 task_id,
                 status="failed",
                 stage="failed",
-                progress=100,
+                progress=last_progress,
                 message="大纲生成失败",
                 error={"type": exc.__class__.__name__, "message": _safe_error_message(exc)},
             )

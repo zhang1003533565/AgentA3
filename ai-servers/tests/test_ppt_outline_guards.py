@@ -510,6 +510,32 @@ def test_generate_outline_retries_with_correction_on_single_page(monkeypatch):
     assert result["outlineMarkdown"].startswith("## PPT 大纲")
 
 
+def test_generate_outline_reports_real_generation_stages(monkeypatch):
+    from app.ppt_generation import service as svc
+
+    monkeypatch.setattr(svc, "run_specialist_agent", lambda *args, **kwargs: _full_markdown(5))
+    events = []
+    service = PptGenerationService()
+
+    result = service.generate_outline(
+        {"topic": "数据结构", "pageCount": 5, "sourceContent": "资料内容"},
+        None,
+        progress_callback=events.append,
+    )
+
+    assert len(result["items"]) == 5
+    assert [event["stage"] for event in events] == [
+        "preparing",
+        "planning",
+        "model_generation",
+        "parsing",
+        "quality_check",
+        "finalizing",
+    ]
+    assert [event["progress"] for event in events] == sorted(event["progress"] for event in events)
+    assert events[-1]["progress"] == 96
+
+
 def test_generate_outline_expands_single_page_after_all_retries(monkeypatch):
     from app.ppt_generation import service as svc
 

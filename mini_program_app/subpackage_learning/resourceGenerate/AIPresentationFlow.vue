@@ -2025,14 +2025,25 @@ export default {
         const created = this.responseData(response)
         this.outlineGenerationTaskId = String(created.taskId || '')
         if (!this.outlineGenerationTaskId) throw new Error('服务端未返回大纲生成任务编号')
-        this.persistActiveTask('outline', this.outlineGenerationTaskId)
+        this.applyOutlineGenerationSnapshot({
+          ...created,
+          taskId: this.outlineGenerationTaskId,
+          status: created.status || 'queued',
+          progress: Number.isFinite(Number(created.progress)) ? Number(created.progress) : 0,
+          stage: created.stage || 'queued',
+          message: created.message || '大纲生成已进入队列'
+        }, runId)
         await this.followOutlineGenerationTask(runId)
         if (runId !== this.outlineGenerationRunId) return
         const task = this.responseData(await getPptTask(this.outlineGenerationTaskId))
         const extracted = this.extractOutlineItems(task)
         const items = extracted.items
         const outline = extracted.outline
-        this.updateOperationFeedback(92, '正在校验并转换大纲格式', '即将进入可编辑大纲')
+        this.updateOperationFeedback(
+          Math.max(99, Number(task?.progress) || 0),
+          '正在整理可编辑大纲',
+          '大纲生成已完成，正在转换为可编辑内容'
+        )
         if (!items.length) {
           console.error('[PPT outline] completed task has no editable items', {
             taskId: this.outlineGenerationTaskId,
@@ -2086,6 +2097,25 @@ export default {
       if (!task || runId !== this.outlineGenerationRunId) return
       this.outlineGenerationSnapshot = task
       this.persistActiveTask('outline', this.outlineGenerationTaskId)
+      const rawProgress = Number(task.progress)
+      const progress = Number.isFinite(rawProgress) ? Math.max(0, Math.min(100, rawProgress)) : 0
+      const stageDetails = {
+        queued: '任务已进入队列，正在等待处理',
+        outline: '正在整理资料并生成大纲',
+        preparing: '正在读取资料并整理生成参数',
+        planning: '正在拆解主题并组织页面结构',
+        model_generation: '模型正在生成大纲，完成当前调用后会更新进度',
+        model_retry: '正在根据质量检查结果补充大纲',
+        parsing: '正在解析模型返回的页面标题、要点和层级',
+        quality_check: '正在检查页数、内容覆盖和结构完整性',
+        finalizing: '正在整理为可编辑的大纲数据',
+        completed: '大纲生成完成，正在进入编辑页面'
+      }
+      this.updateOperationFeedback(
+        progress,
+        String(task.message || '正在生成大纲'),
+        String(task.detail || stageDetails[String(task.stage || '')] || '正在处理大纲生成任务')
+      )
       if (task.status === 'failed' || task.status === 'timed_out') {
         this.clearActiveTaskStorage()
         throw new Error(task.error?.message || task.message || '大纲生成失败')
@@ -3734,27 +3764,23 @@ export default {
     },
     startOperationFeedback() {
       this.stopOperationFeedback()
-      const phases = [
-        { progress: 10, message: '正在读取学习资料', detail: '准备文本与生成参数' },
-        { progress: 30, message: 'AI 正在解析文本结构', detail: '识别主题、章节和核心知识点' },
-        { progress: 56, message: '正在整理复习大纲', detail: '重新组织适合 PPT 的知识结构' },
-        { progress: 78, message: '正在等待大纲生成结果', detail: '资料较长时可能需要一些时间' }
-      ]
-      let phaseIndex = 0
-      this.operationFeedback = { active: true, ...phases[phaseIndex] }
-      this.operationFeedbackTimer = setInterval(() => {
-        if (phaseIndex < phases.length - 1) {
-          phaseIndex += 1
-          this.operationFeedback = { active: true, ...phases[phaseIndex] }
-        } else if (this.operationFeedback.progress < 88) {
-          this.operationFeedback = { ...this.operationFeedback, progress: this.operationFeedback.progress + 1 }
-        }
-      }, 900)
+      this.operationFeedback = {
+        active: true,
+        progress: 0,
+        message: '正在排队生成大纲',
+        detail: '等待 AI 任务开始'
+      }
     },
     updateOperationFeedback(progress, message, detail) {
       if (this.operationFeedbackTimer) clearInterval(this.operationFeedbackTimer)
       this.operationFeedbackTimer = null
-      this.operationFeedback = { active: true, progress, message, detail }
+      const numericProgress = Number(progress)
+      this.operationFeedback = {
+        active: true,
+        progress: Number.isFinite(numericProgress) ? Math.max(0, Math.min(100, numericProgress)) : 0,
+        message: String(message || '正在处理'),
+        detail: String(detail || '')
+      }
     },
     stopOperationFeedback() {
       if (this.operationFeedbackTimer) clearInterval(this.operationFeedbackTimer)
