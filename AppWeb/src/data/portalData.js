@@ -64,6 +64,7 @@ export const portalGroups = [
     label: '课程学习',
     items: [
       { path: '/learning/courses', label: '校园课程管理', icon: 'book' },
+      { path: '/learning/python-problems', label: 'Python 题库管理', icon: 'appstore' },
     ],
   },
   {
@@ -78,6 +79,7 @@ export const portalGroups = [
   {
     label: 'AI 模块',
     items: [
+      { path: '/ai', label: 'AI 智能助手', icon: 'robot', exact: true },
       { path: '/ai/model', label: '模型配置', icon: 'robot', pageKey: 'system-config' },
       { path: '/ai/agent-settings', label: '智能体设置', icon: 'setting' },
       { path: '/ai/rag/agents', label: '智能体测试', icon: 'robot' },

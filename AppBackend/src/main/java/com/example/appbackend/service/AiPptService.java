@@ -12,7 +12,13 @@ public interface AiPptService {
 
     Object generateOutline(Long userId, AiPptDTO.OutlineRequest request, String authorization);
 
+    default Object createOutlineTask(Long userId, AiPptDTO.OutlineRequest request, String authorization) {
+        return generateOutline(userId, request, authorization);
+    }
+
     Object generateSlides(Long userId, AiPptDTO.SlidesRequest request, String authorization);
+
+    Object renderPreview(Long userId, AiPptDTO.PreviewRequest request, String authorization);
 
     default Object createSlidesTask(Long userId, AiPptDTO.SlidesRequest request, String authorization) {
         return generateSlides(userId, request, authorization);

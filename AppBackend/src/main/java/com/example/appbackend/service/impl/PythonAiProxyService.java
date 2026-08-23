@@ -33,6 +33,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Base64;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -45,10 +46,13 @@ public class PythonAiProxyService {
     private static final Logger log = LoggerFactory.getLogger(PythonAiProxyService.class);
     private static final String DEFAULT_AGENT_NAME = "leader_agent";
     private static final String ARCHITECTURE_AGENT_NAME = "diagram_architecture_agent";
+    private static final String CODING_TUTOR_AGENT_NAME = "python_coding_tutor_agent";
+    private static final String GENERATOR_AGENT_NAME = "python_problem_generator_agent";
     private static final String AGENT_MODEL_BINDING_PREFIX = "ai.agent-bindings.";
     private static final String AGENT_ENABLED_PREFIX = "ai.agent-enabled.";
     private static final String TOOL_ENABLED_PREFIX = "ai.tool-enabled.";
     private static final String TOOL_BOUND_PREFIX = "ai.tool-bound.";
+    private static final String TOOL_RETRIEVAL_PREFIX = "ai.tool-retrieval.";
     private static final String LEGACY_TEXT_CONFIG_PREFIX = "ai.service.text";
     private static final Pattern SAFE_SSE_EVENT_NAME = Pattern.compile("[A-Za-z][A-Za-z0-9_-]{0,39}");
 
@@ -290,8 +294,28 @@ public class PythonAiProxyService {
         return postRagObject("/internal/rag/query", sanitized, authorization, requestedModel);
     }
 
+    /**
+     * AI 生成 Python 题目：模型解析按 生成智能体绑定 -> Leader 绑定 兜底，
+     * 未配置任何绑定时交由 queryRag 抛明确的模型配置错误。
+     */
+    public Object generatePythonProblems(Map<String, Object> request, String authorization) {
+        String model = resolveAgentBoundModel(GENERATOR_AGENT_NAME);
+        if (!StringUtils.hasText(model)) {
+            model = resolveAgentBoundModel(DEFAULT_AGENT_NAME);
+        }
+        if (StringUtils.hasText(model)) {
+            request.put("llmModel", model);
+        }
+        return queryRag(request, authorization);
+    }
+
     public Object generatePptOutline(Map<String, Object> request, String authorization) {
         return postPptObject("/internal/rag/ppt-generation/outlines", request, authorization,
+                requirePptGenerationModel());
+    }
+
+    public Object createPptOutlineTask(Map<String, Object> request, String authorization) {
+        return postPptObject("/internal/rag/ppt-generation/outlines/tasks", request, authorization,
                 requirePptGenerationModel());
     }
 
@@ -324,6 +348,10 @@ public class PythonAiProxyService {
     public Object generatePptSlides(Map<String, Object> request, String authorization) {
         return postPptObject("/internal/rag/ppt-generation/slides", request, authorization,
                 requirePptGenerationModel());
+    }
+
+    public Object renderPptPreview(Map<String, Object> request, String authorization) {
+        return postPptObject("/internal/rag/ppt-generation/previews", request, authorization, null);
     }
 
     public Object createPptSlidesTask(Map<String, Object> request, String authorization) {
@@ -478,7 +506,8 @@ public class PythonAiProxyService {
                 resolveAgentBoundModel(DEFAULT_AGENT_NAME),
                 firstTestedTextConfigPrefix(),
                 firstCompleteTextConfigPrefix(),
-                hasCompleteTextConfig(LEGACY_TEXT_CONFIG_PREFIX) ? LEGACY_TEXT_CONFIG_PREFIX : ""
+                hasCompleteTextConfig(LEGACY_TEXT_CONFIG_PREFIX) && isFreeTextConfig(LEGACY_TEXT_CONFIG_PREFIX)
+                        ? LEGACY_TEXT_CONFIG_PREFIX : ""
         );
         if (!StringUtils.hasText(model)) {
             throw new BusinessException(Result.ERROR_CODE, "PPT 生成模型尚未配置");
@@ -859,6 +888,35 @@ public class PythonAiProxyService {
         return streamPythonObject("/internal/chat/stream", request, authorization, userId, requestedModel, null);
     }
 
+    /**
+     * AI 辅助编程（LeetCode 式：提示/思路/代码解释/报错分析）流式代理。
+     * 模型优先级：请求体 llmModel -> ai.agent-bindings.python_coding_tutor_agent.model -> leader 绑定。
+     */
+    public SseEmitter streamCodingAssist(Map<String, Object> request, String authorization) {
+        validateAuthorization(authorization);
+        String token = normalizeBearerToken(authorization);
+        Long userId = extractUserId(token);
+        String requestedModel = resolveCodingAssistModel(request);
+        return streamPythonObject("/internal/coding/assist/stream", request, authorization, userId, requestedModel, null);
+    }
+
+    private String resolveCodingAssistModel(Map<String, Object> request) {
+        if (request != null) {
+            Object llmModel = request.get("llmModel");
+            if (llmModel != null && StringUtils.hasText(String.valueOf(llmModel))) {
+                return String.valueOf(llmModel).trim();
+            }
+        }
+        String model = resolveAgentBoundModel(CODING_TUTOR_AGENT_NAME);
+        if (!StringUtils.hasText(model)) {
+            model = resolveAgentBoundModel(DEFAULT_AGENT_NAME);
+        }
+        if (!StringUtils.hasText(model)) {
+            throw new BusinessException(Result.ERROR_CODE, "请先配置 AI 模型后再使用 AI 助手");
+        }
+        return model;
+    }
+
     private SseEmitter streamPythonObject(String path, Object request, String authorization, String requestedModel) {
         validateAuthorization(authorization);
         String token = normalizeBearerToken(authorization);
@@ -976,12 +1034,16 @@ public class PythonAiProxyService {
         String token = normalizeBearerToken(authorization);
         Long userId = extractUserId(token);
         try {
-            return webClientBuilder.build()
+            // 使用大缓冲 client：/internal/rag/agents 等目录接口会返回全部智能体的 prompt/skill/contract
+            // 全文（含编程辅导等新 agent 后实测 269KB），超过 WebClient 默认 256KB 上限会抛
+            // DataBufferLimitException，故此处统一放宽到 file-response-max-in-memory-bytes。
+            return buildFileResponseWebClient()
                     .get()
                     .uri(buildUri(path))
                     .headers(headers -> applyPythonAuthHeaders(headers, authorization, userId))
                     .retrieve()
                     .bodyToMono(Object.class)
+                    .timeout(Duration.ofSeconds(timeoutSeconds))
                     .block();
         } catch (WebClientResponseException e) {
             throw new BusinessException(Result.ERROR_CODE, errorPrefix + ": " + extractRemoteMessage(e));
@@ -1221,7 +1283,16 @@ public class PythonAiProxyService {
         headers.set("X-AI-Provider", requireAiConfig(configPrefix, "provider", "模型服务商"));
         headers.set("X-AI-Base-Url", requireAiConfig(configPrefix, "base-url", "模型服务地址"));
         headers.set("X-AI-Api-Key", requireAiConfig(configPrefix, "api-key", "模型服务密钥"));
-        headers.set("X-AI-Model", requireAiConfig(configPrefix, "model", "模型 ID"));
+        String provider = requireAiConfig(configPrefix, "provider", "模型服务商");
+        String configuredModel = requireAiConfig(configPrefix, "model", "模型 ID");
+        String model = AiModelPolicy.effectiveFreeTextModel(provider, configuredModel);
+        if (!StringUtils.hasText(model)) {
+            throw new BusinessException(
+                    Result.ERROR_CODE,
+                    "当前文本模型不在免费额度清单内，请在模型绑定中改用 " + AiModelPolicy.defaultTextModel()
+            );
+        }
+        headers.set("X-AI-Model", model);
     }
 
     private void applyPythonAuthHeaders(HttpHeaders headers, String authorization, Long userId) {
@@ -1264,7 +1335,10 @@ public class PythonAiProxyService {
         String normalizedAgent = StringUtils.hasText(agentName) ? agentName.trim() : DEFAULT_AGENT_NAME;
         String key = AGENT_MODEL_BINDING_PREFIX + normalizedAgent + ".model";
         String value = systemConfigService.getValue(key, "");
-        return StringUtils.hasText(value) ? value.trim() : null;
+        if (!StringUtils.hasText(value) || !isFreeTextConfig(value.trim())) {
+            return null;
+        }
+        return value.trim();
     }
 
     private String resolveArchitectureModelConfigPrefix() {
@@ -1273,7 +1347,8 @@ public class PythonAiProxyService {
                 resolveAgentBoundModel(DEFAULT_AGENT_NAME),
                 firstTestedTextConfigPrefix(),
                 firstCompleteTextConfigPrefix(),
-                hasCompleteTextConfig(LEGACY_TEXT_CONFIG_PREFIX) ? LEGACY_TEXT_CONFIG_PREFIX : ""
+                hasCompleteTextConfig(LEGACY_TEXT_CONFIG_PREFIX) && isFreeTextConfig(LEGACY_TEXT_CONFIG_PREFIX)
+                        ? LEGACY_TEXT_CONFIG_PREFIX : ""
         );
     }
 
@@ -1291,7 +1366,8 @@ public class PythonAiProxyService {
                 .filter(config -> StringUtils.hasText(config.getConfigValue()))
                 .map(config -> removeSuffix(config.getConfigKey(), ".tested-fingerprint"))
                 .filter(this::hasCompleteTextConfig)
-                .sorted()
+                .filter(this::isFreeTextConfig)
+                .sorted(Comparator.comparingInt(this::textConfigPriority).thenComparing(String::toString))
                 .findFirst()
                 .orElse("");
     }
@@ -1302,9 +1378,24 @@ public class PythonAiProxyService {
                 .filter(config -> config.getConfigKey() != null && config.getConfigKey().endsWith(".model"))
                 .map(config -> removeSuffix(config.getConfigKey(), ".model"))
                 .filter(this::hasCompleteTextConfig)
-                .sorted()
+                .filter(this::isFreeTextConfig)
+                .sorted(Comparator.comparingInt(this::textConfigPriority).thenComparing(String::toString))
                 .findFirst()
                 .orElse("");
+    }
+
+    private boolean isFreeTextConfig(String configPrefix) {
+        return StringUtils.hasText(AiModelPolicy.effectiveFreeTextModel(
+                systemConfigService.getValue(configPrefix + ".provider", ""),
+                systemConfigService.getValue(configPrefix + ".model", "")
+        ));
+    }
+
+    private int textConfigPriority(String configPrefix) {
+        return AiModelPolicy.priority(AiModelPolicy.effectiveFreeTextModel(
+                systemConfigService.getValue(configPrefix + ".provider", ""),
+                systemConfigService.getValue(configPrefix + ".model", "")
+        ));
     }
 
     private String firstText(String... values) {
@@ -1334,8 +1425,34 @@ public class PythonAiProxyService {
         metadata.put("agentModelConfigs", loadAgentModelConfigs());
         metadata.put("toolToggles", loadToolToggles());
         metadata.put("toolBoundAgents", loadToolBoundAgents());
+        metadata.put("toolRetrievalProfiles", loadToolRetrievalProfiles());
         copy.put("metadata", metadata);
         return copy;
+    }
+
+    private Map<String, Object> loadToolRetrievalProfiles() {
+        Map<String, Object> profiles = new HashMap<>();
+        systemConfigRepository.findByConfigKeyStartingWithAndStatus(TOOL_RETRIEVAL_PREFIX, 1)
+                .forEach(config -> {
+                    String key = config.getConfigKey();
+                    if (!StringUtils.hasText(key) || key.length() <= TOOL_RETRIEVAL_PREFIX.length()) {
+                        return;
+                    }
+                    String toolName = key.substring(TOOL_RETRIEVAL_PREFIX.length()).trim();
+                    String raw = String.valueOf(config.getConfigValue() == null ? "" : config.getConfigValue()).trim();
+                    if (!StringUtils.hasText(toolName) || !StringUtils.hasText(raw)) {
+                        return;
+                    }
+                    try {
+                        Map<?, ?> parsed = objectMapper.readValue(raw, Map.class);
+                        Map<String, Object> profile = new HashMap<>();
+                        parsed.forEach((field, value) -> profile.put(String.valueOf(field), value));
+                        profiles.put(toolName, profile);
+                    } catch (JsonProcessingException e) {
+                        log.warn("忽略无效工具检索配置 tool={}", toolName);
+                    }
+                });
+        return profiles;
     }
 
     private Map<String, Object> loadAgentModelConfigs() {
@@ -1467,14 +1584,6 @@ public class PythonAiProxyService {
                 mergedTools.add(mergeToolEnabledState(tool, toolToggles));
             }
             copy.put("tools", mergedTools);
-        }
-        Object contentToolsValue = sourceMap.get("contentTools");
-        if (contentToolsValue instanceof List<?> contentToolsList) {
-            List<Object> mergedContentTools = new ArrayList<>();
-            for (Object tool : contentToolsList) {
-                mergedContentTools.add(mergeToolEnabledState(tool, toolToggles));
-            }
-            copy.put("contentTools", mergedContentTools);
         }
         return copy;
     }

@@ -13,6 +13,7 @@ public interface MapPlaceService {
     List<MapPlaceResponse> tree(String sceneType);
     List<MapPlaceResponse> canteenStructure(Long canteenId);
     MapPlaceResponse detail(Long id);
+    MapPlaceResponse detail(Long id, boolean includeChildren);
     MapPlaceResponse create(MapPlaceRequest request);
     MapPlaceResponse update(Long id, MapPlaceRequest request);
     void delete(Long id);
@@ -30,7 +31,7 @@ public interface MapPlaceService {
     MapFloorPlan saveFloorPlan(Long floorPlaceId, MapFloorPlanRequest request);
     void deleteFloorPlan(Long floorPlaceId);
 
-    List<MapPlaceIndoorPosition> listPositions(Long floorPlanId);
+    List<MapIndoorPositionResponse> listPositions(Long floorPlanId);
     MapPlaceIndoorPosition savePosition(Long placeId, MapIndoorPositionRequest request);
     void deletePosition(Long positionId);
 }

@@ -11,7 +11,6 @@ from PIL import Image, UnidentifiedImageError
 from app.learning_workflow.models import LearningWorkflowResult, WorkflowResource
 from app.rag.document_conversion import (
     export_generated_answer,
-    export_presentation,
     export_python_code_lab,
 )
 from app.rag.document_conversion import generated_exporter
@@ -70,8 +69,6 @@ def export_learning_resources(
                 exported = export_python_code_lab(payload, metadata).attachments
             elif resource.resourceType == "mind_map":
                 exported = _export_mind_map(resource, payload, metadata)
-            elif resource.resourceType == "presentation":
-                exported = [export_presentation(payload.get("outline"), metadata)]
             else:
                 content, answer_type = _generic_export_input(resource, payload)
                 exported = export_generated_answer(content, answer_type, metadata).attachments
@@ -458,7 +455,6 @@ def _answer_type(resource_type: str) -> str:
         "mind_map": "mermaid_mindmap",
         "practice_set": "question_bank",
         "code_lab": "code",
-        "presentation": "ppt_outline",
     }.get(resource_type, "markdown")
 
 
@@ -468,7 +464,6 @@ def _resource_title(resource_type: str, package_title: str) -> str:
         "mind_map": "思维导图",
         "practice_set": "练习题",
         "code_lab": "代码实验",
-        "presentation": "教学课件",
         "extended_reading": "拓展阅读",
     }.get(resource_type, "学习资源")
     return "{} · {}".format(package_title, label)

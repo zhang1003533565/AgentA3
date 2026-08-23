@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from copy import deepcopy
 
@@ -21,7 +22,7 @@ def test_embedded_engine_is_default(monkeypatch, tmp_path):
     assert options["engine"] == "presenton-embedded"
     assert options["enhancedEngineAvailable"] is True
     assert options["editorEnabled"] is False
-    assert len(options["templates"]) == 7
+    assert len(options["templates"]) == 8
     assert options["templates"][0]["layouts"]
     assert options["templates"][0]["layouts"][0]["previewTexts"]
 
@@ -30,7 +31,7 @@ def test_template_catalog_reads_bundled_resources():
     catalog = EmbeddedTemplateCatalog()
     ids = {item["id"] for item in catalog.list_templates()}
 
-    assert ids == {"dynamic", "executive", "general", "modern", "momentum", "standard", "swift"}
+    assert ids == {"dynamic", "editorial", "executive", "general", "modern", "momentum", "standard", "swift"}
     content, content_type = catalog.thumbnail("general")
     assert content.startswith(b"\x89PNG")
     assert content_type == "image/png"
@@ -68,11 +69,35 @@ def test_source_parser_supports_txt_and_pptx(tmp_path):
     assert "后进先出" in extract_source_text(pptx)
 
 
+def test_source_parser_preserves_docx_headings_and_tables(tmp_path):
+    from docx import Document
+
+    docx = tmp_path / "material.docx"
+    document = Document()
+    document.add_heading("数据结构", level=1)
+    document.add_paragraph("数据结构是数据元素之间关系的集合。")
+    table = document.add_table(rows=2, cols=2)
+    table.cell(0, 0).text = "算法"
+    table.cell(0, 1).text = "平均时间"
+    table.cell(1, 0).text = "归并排序"
+    table.cell(1, 1).text = "O(n log n)"
+    document.save(docx)
+
+    text = extract_source_text(docx)
+
+    assert "# 数据结构" in text
+    assert "[表格 1]" in text
+    assert "归并排序 | O(n log n)" in text
+
+
 @pytest.mark.parametrize("template_id", [
-    "dynamic", "executive", "general", "modern", "momentum", "standard", "swift",
+    "dynamic", "editorial", "executive", "general", "modern", "momentum", "standard", "swift",
 ])
-def test_presenton_html_renderer_creates_pdf_and_previews(monkeypatch, tmp_path, template_id):
+def test_presenton_html_renderer_creates_pptx_and_previews_without_pdf(monkeypatch, tmp_path, template_id):
+    if os.name == "nt":
+        pytest.skip("Windows 仅提供预览；官方 PPTX 导出需要 Linux/WSL/Docker 运行时")
     monkeypatch.setenv("AI_EXPORT_ROOT", str(tmp_path / "exports"))
+    monkeypatch.setenv("PRESENTON_ENABLE_PPTX", "true")
     catalog = EmbeddedTemplateCatalog()
     layouts = catalog.load(template_id)["layouts"]
     slides = [
@@ -91,14 +116,14 @@ def test_presenton_html_renderer_creates_pdf_and_previews(monkeypatch, tmp_path,
     attachment, path, previews, pptx_attachment = render_presenton_html(
         slides,
         "数据结构复习",
-        {"templateId": template_id},
+        {"templateId": template_id, "pptxOnly": True},
     )
 
-    assert attachment["type"] == "pdf"
-    assert attachment["templateId"] == template_id
-    assert path.read_bytes().startswith(b"%PDF")
+    assert attachment is None
+    assert path is None
     assert len(previews) == 3
-    assert pptx_attachment is None
+    assert pptx_attachment["type"] == "pptx"
+    assert pptx_attachment["templateId"] == template_id
 
 
 def test_task_cancel_is_persisted_and_owner_scoped(monkeypatch, tmp_path):

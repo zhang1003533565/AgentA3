@@ -51,6 +51,34 @@ class MapPlaceServiceImplTest {
         assertEquals("一层", service.tree("TEACHING").getFirst().getChildren().getFirst().getName());
         assertEquals(new BigDecimal("25.5000"), position.getXRatio());
         assertEquals(plan.getId(), service.detail(classroom.getId()).getIndoorPosition().getFloorPlanId());
+
+        MapPlaceResponse buildingDetail = service.detail(building.getId());
+        assertEquals(1, buildingDetail.getChildren().size());
+        assertEquals("一层", buildingDetail.getChildren().getFirst().getName());
+        assertEquals("FLOOR", buildingDetail.getChildren().getFirst().getPlaceType());
+        assertNotNull(buildingDetail.getChildren().getFirst().getFloorPlan());
+        assertEquals("https://example.test/floor-1.png", buildingDetail.getChildren().getFirst().getFloorPlan().getImageUrl());
+        assertEquals(1, buildingDetail.getChildren().getFirst().getChildren().size());
+        assertEquals("101教室", buildingDetail.getChildren().getFirst().getChildren().getFirst().getName());
+
+        MapPlaceResponse liteDetail = service.detail(building.getId(), false);
+        assertEquals("第一教学楼", liteDetail.getName());
+        assertNull(liteDetail.getChildren());
+
+        var indoorViews = service.listPositions(plan.getId());
+        assertEquals(1, indoorViews.size());
+        assertEquals("101教室", indoorViews.getFirst().getName());
+        assertEquals("CLASSROOM", indoorViews.getFirst().getPlaceType());
+        assertEquals("一层", indoorViews.getFirst().getFloorName());
+        assertEquals(new BigDecimal("25.5000"), indoorViews.getFirst().getXRatio());
+
+        MapPlaceFenceRequest fenceRequest = new MapPlaceFenceRequest();
+        fenceRequest.setGeometryType("POLYGON");
+        fenceRequest.setGeometryData("{\"type\":\"Polygon\",\"coordinates\":[[[114.1,40.1],[114.2,40.1],[114.2,40.2],[114.1,40.2],[114.1,40.1]]]}");
+        service.saveFence(building.getId(), fenceRequest);
+        MapPlaceResponse listed = service.list("TEACHING", null, "TEACHING_BUILDING", null, null).getFirst();
+        assertNotNull(listed.getFence());
+        assertEquals("POLYGON", listed.getFence().getGeometryType());
     }
 
     @Test
@@ -72,7 +100,13 @@ class MapPlaceServiceImplTest {
         MapPlaceResponse canteen = service.create(canteenRequest);
         MapPlaceResponse firstFloor = service.create(place("CANTEEN", "FLOOR", "一层", canteen.getId()));
         MapPlaceResponse secondFloor = service.create(place("CANTEEN", "FLOOR", "二层", canteen.getId()));
-        service.create(place("CANTEEN", "CANTEEN_STALL", "面食档口", firstFloor.getId()));
+        MapPlaceRequest stallRequest = place("CANTEEN", "CANTEEN_STALL", "面食档口", firstFloor.getId());
+        stallRequest.setLocationDesc("C1E01");
+        stallRequest.setBusinessHours("6:00-24:00");
+        stallRequest.setAvgPrice(new BigDecimal("25.00"));
+        stallRequest.setStallStatus(1);
+        stallRequest.setDescription("香辣鸡腿堡套餐");
+        MapPlaceResponse noodleStall = service.create(stallRequest);
         service.create(place("CANTEEN", "CANTEEN_STALL", "快餐档口", firstFloor.getId()));
         service.create(place("CANTEEN", "CANTEEN_STALL", "饮品档口", secondFloor.getId()));
 
@@ -87,6 +121,24 @@ class MapPlaceServiceImplTest {
         assertFalse(JsonMapper.builder().findAndAddModules().build()
                 .writeValueAsString(listItem).contains("\"description\""));
         assertEquals("食堂详情介绍", service.detail(canteen.getId()).getDescription());
+
+        MapFloorPlanRequest planRequest = new MapFloorPlanRequest();
+        planRequest.setImageUrl("https://example.test/canteen-1f.png");
+        MapFloorPlan plan = service.saveFloorPlan(firstFloor.getId(), planRequest);
+        MapIndoorPositionRequest positionRequest = new MapIndoorPositionRequest();
+        positionRequest.setFloorPlanId(plan.getId());
+        positionRequest.setXRatio(new BigDecimal("30.0000"));
+        positionRequest.setYRatio(new BigDecimal("40.0000"));
+        service.savePosition(noodleStall.getId(), positionRequest);
+        MapIndoorPositionResponse indoor = service.listPositions(plan.getId()).stream()
+                .filter(item -> noodleStall.getId().equals(item.getPlaceId()))
+                .findFirst()
+                .orElseThrow();
+        assertEquals("C1E01", indoor.getLocationDesc());
+        assertEquals("6:00-24:00", indoor.getBusinessHours());
+        assertEquals(0, new BigDecimal("25.00").compareTo(indoor.getAvgPrice()));
+        assertEquals(1, indoor.getStallStatus());
+        assertEquals("香辣鸡腿堡套餐", indoor.getDescription());
     }
 
     private MapPlaceRequest place(String scene, String type, String name, Long parentId) {

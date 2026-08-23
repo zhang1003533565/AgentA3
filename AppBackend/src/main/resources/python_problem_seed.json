@@ -1,0 +1,2953 @@
+[
+  {
+    "id": 1,
+    "number": 1,
+    "title": "两数之和",
+    "difficulty": "easy",
+    "passRate": 45.2,
+    "submissions": "12.1M",
+    "tags": [
+      "数组",
+      "哈希表"
+    ],
+    "description": "给定一个整数数组 nums 和一个整数目标值 target，请你在该数组中找出和为目标值 target 的那两个整数，并返回它们的数组下标。\n\n你可以假设每种输入只会对应一个答案。但是，数组中同一个元素在答案里不能重复出现。\n\n你可以按任意顺序返回答案。",
+    "examples": [
+      {
+        "input": [
+          "nums = [2,7,11,15]",
+          "target = 9"
+        ],
+        "output": [
+          "[0,1]"
+        ],
+        "explain": "因为 nums[0] + nums[1] == 9，所以返回 [0,1]。"
+      },
+      {
+        "input": [
+          "nums = [3,2,4]",
+          "target = 6"
+        ],
+        "output": [
+          "[1,2]"
+        ]
+      },
+      {
+        "input": [
+          "nums = [3,3]",
+          "target = 6"
+        ],
+        "output": [
+          "[0,1]"
+        ]
+      }
+    ],
+    "defaultCode": "# 两数之和\ndef twoSum(nums, target):\n    # 你的代码\n    pass\n",
+    "funcName": "twoSum",
+    "testcases": [
+      {
+        "input": "nums = [2,7,11,15], target = 9",
+        "expected": "[0,1]",
+        "mode": "deepset"
+      },
+      {
+        "input": "nums = [3,2,4], target = 6",
+        "expected": "[1,2]",
+        "mode": "deepset"
+      },
+      {
+        "input": "nums = [3,3], target = 6",
+        "expected": "[0,1]",
+        "mode": "deepset"
+      },
+      {
+        "input": "nums = [0,4,3,0], target = 0",
+        "expected": "[0,3]",
+        "mode": "deepset"
+      }
+    ],
+    "similarIds": [
+      15,
+      3,
+      53
+    ],
+    "enabled": true
+  },
+  {
+    "id": 15,
+    "number": 15,
+    "title": "三数之和",
+    "difficulty": "medium",
+    "passRate": 30.8,
+    "submissions": "8.4M",
+    "tags": [
+      "数组",
+      "双指针",
+      "排序"
+    ],
+    "description": "给你一个包含 n 个整数的数组 nums，判断 nums 中是否存在三个元素 a，b，c ，使得 a + b + c = 0 ？请你找出所有和为 0 且不重复的三元组。\n\n注意：答案中不可以包含重复的三元组。",
+    "examples": [
+      {
+        "input": [
+          "nums = [-1,0,1,2,-1,-4]"
+        ],
+        "output": [
+          "[[-1,-1,2],[-1,0,1]]"
+        ],
+        "explain": "满足要求的三元组集合为 [[-1,-1,2],[-1,0,1]]。"
+      },
+      {
+        "input": [
+          "nums = [0,1,1]"
+        ],
+        "output": [
+          "[]"
+        ],
+        "explain": "不存在满足条件的三元组。"
+      },
+      {
+        "input": [
+          "nums = [0,0,0]"
+        ],
+        "output": [
+          "[[0,0,0]]"
+        ]
+      }
+    ],
+    "defaultCode": "# 三数之和\ndef threeSum(nums):\n    # 你的代码\n    pass\n",
+    "funcName": "threeSum",
+    "testcases": [
+      {
+        "input": "nums = [-1,0,1,2,-1,-4]",
+        "expected": "[[-1,-1,2],[-1,0,1]]",
+        "mode": "deepset"
+      },
+      {
+        "input": "nums = [0,1,1]",
+        "expected": "[]",
+        "mode": "deepset"
+      },
+      {
+        "input": "nums = [0,0,0]",
+        "expected": "[[0,0,0]]",
+        "mode": "deepset"
+      },
+      {
+        "input": "nums = [-2,0,1,1,2]",
+        "expected": "[[-2,0,2],[-2,1,1]]",
+        "mode": "deepset"
+      }
+    ],
+    "similarIds": [
+      1,
+      46
+    ],
+    "enabled": true
+  },
+  {
+    "id": 20,
+    "number": 20,
+    "title": "有效括号",
+    "difficulty": "easy",
+    "passRate": 42.1,
+    "submissions": "9.8M",
+    "tags": [
+      "栈",
+      "字符串"
+    ],
+    "description": "给定一个只包括 '('，')'，'{'，'}'，'['，']' 的字符串 s ，判断字符串是否有效。\n\n有效字符串需满足：\n1. 左括号必须用相同类型的右括号闭合。\n2. 左括号必须以正确的顺序闭合。",
+    "examples": [
+      {
+        "input": [
+          "s = \"()\""
+        ],
+        "output": [
+          "true"
+        ]
+      },
+      {
+        "input": [
+          "s = \"()[]{}\""
+        ],
+        "output": [
+          "true"
+        ]
+      },
+      {
+        "input": [
+          "s = \"(]\""
+        ],
+        "output": [
+          "false"
+        ]
+      }
+    ],
+    "defaultCode": "# 有效括号\ndef isValid(s):\n    # 你的代码\n    pass\n",
+    "funcName": "isValid",
+    "testcases": [
+      {
+        "input": "s = \"()\"",
+        "expected": "true"
+      },
+      {
+        "input": "s = \"()[]{}\"",
+        "expected": "true"
+      },
+      {
+        "input": "s = \"(]\"",
+        "expected": "false"
+      },
+      {
+        "input": "s = \"([)]\"",
+        "expected": "false"
+      },
+      {
+        "input": "s = \"{[]}\"",
+        "expected": "true"
+      }
+    ],
+    "similarIds": [
+      155,
+      84
+    ],
+    "enabled": true
+  },
+  {
+    "id": 3,
+    "number": 3,
+    "title": "无重复字符的最长子串",
+    "difficulty": "medium",
+    "passRate": 28.5,
+    "submissions": "10.2M",
+    "tags": [
+      "字符串",
+      "滑动窗口",
+      "哈希表"
+    ],
+    "description": "给定一个字符串 s ，请你找出其中不含有重复字符的最长子串的长度。",
+    "examples": [
+      {
+        "input": [
+          "s = \"abcabcbb\""
+        ],
+        "output": [
+          "3"
+        ],
+        "explain": "因为无重复字符的最长子串是 \"abc\"，所以其长度为 3。"
+      },
+      {
+        "input": [
+          "s = \"bbbbb\""
+        ],
+        "output": [
+          "1"
+        ],
+        "explain": "因为无重复字符的最长子串是 \"b\"，所以其长度为 1。"
+      },
+      {
+        "input": [
+          "s = \"pwwkew\""
+        ],
+        "output": [
+          "3"
+        ],
+        "explain": "因为无重复字符的最长子串是 \"wke\"，所以其长度为 3。"
+      }
+    ],
+    "defaultCode": "# 无重复字符的最长子串\ndef lengthOfLongestSubstring(s):\n    # 你的代码\n    pass\n",
+    "funcName": "lengthOfLongestSubstring",
+    "testcases": [
+      {
+        "input": "s = \"abcabcbb\"",
+        "expected": "3"
+      },
+      {
+        "input": "s = \"bbbbb\"",
+        "expected": "1"
+      },
+      {
+        "input": "s = \"pwwkew\"",
+        "expected": "3"
+      },
+      {
+        "input": "s = \"\"",
+        "expected": "0"
+      }
+    ],
+    "similarIds": [
+      5,
+      20
+    ],
+    "enabled": true
+  },
+  {
+    "id": 5,
+    "number": 5,
+    "title": "最长回文子串",
+    "difficulty": "medium",
+    "passRate": 32.4,
+    "submissions": "5.8M",
+    "tags": [
+      "字符串",
+      "动态规划"
+    ],
+    "description": "给你一个字符串 s，找到 s 中最长的回文子串。\n\n如果字符串的反序与原始字符串相同，则该字符串称为回文字符串。",
+    "examples": [
+      {
+        "input": [
+          "s = \"babad\""
+        ],
+        "output": [
+          "\"bab\""
+        ],
+        "explain": "\"aba\" 也同样符合题意。"
+      },
+      {
+        "input": [
+          "s = \"cbbd\""
+        ],
+        "output": [
+          "\"bb\""
+        ]
+      }
+    ],
+    "defaultCode": "# 最长回文子串\ndef longestPalindrome(s):\n    # 你的代码\n    pass\n",
+    "funcName": "longestPalindrome",
+    "testcases": [
+      {
+        "input": "s = \"babad\"",
+        "expected": "\"bab\"",
+        "accepts": [
+          "\"aba\""
+        ]
+      },
+      {
+        "input": "s = \"cbbd\"",
+        "expected": "\"bb\""
+      },
+      {
+        "input": "s = \"a\"",
+        "expected": "\"a\""
+      },
+      {
+        "input": "s = \"ac\"",
+        "expected": "\"a\"",
+        "accepts": [
+          "\"c\""
+        ]
+      }
+    ],
+    "similarIds": [
+      3,
+      10
+    ],
+    "enabled": true
+  },
+  {
+    "id": 10,
+    "number": 10,
+    "title": "正则表达式匹配",
+    "difficulty": "hard",
+    "passRate": 18.2,
+    "submissions": "3.2M",
+    "tags": [
+      "字符串",
+      "动态规划",
+      "递归"
+    ],
+    "description": "给你一个字符串 s 和一个字符规律 p，请你来实现一个支持 '.' 和 '*' 的正则表达式匹配。\n\n'.' 匹配任意单个字符；'*' 匹配零个或多个前面的那一个元素。\n\n所谓匹配，是要涵盖整个字符串 s 的，而不是部分字符串。",
+    "examples": [
+      {
+        "input": [
+          "s = \"aa\"",
+          "p = \"a\""
+        ],
+        "output": [
+          "false"
+        ],
+        "explain": "p 无法匹配 \"aa\" 整个字符串。"
+      },
+      {
+        "input": [
+          "s = \"aa\"",
+          "p = \"a*\""
+        ],
+        "output": [
+          "true"
+        ],
+        "explain": "'*' 代表可匹配零个或多个前面的元素，即匹配 'a'，重复一次可匹配 \"aa\"。"
+      },
+      {
+        "input": [
+          "s = \"ab\"",
+          "p = \".*\""
+        ],
+        "output": [
+          "true"
+        ],
+        "explain": "'.*' 表示可匹配零个或多个（'*') 任意字符（'.'）。"
+      }
+    ],
+    "defaultCode": "# 正则表达式匹配\ndef isMatch(s, p):\n    # 你的代码\n    pass\n",
+    "funcName": "isMatch",
+    "testcases": [
+      {
+        "input": "s = \"aa\", p = \"a\"",
+        "expected": "false"
+      },
+      {
+        "input": "s = \"aa\", p = \"a*\"",
+        "expected": "true"
+      },
+      {
+        "input": "s = \"ab\", p = \".*\"",
+        "expected": "true"
+      },
+      {
+        "input": "s = \"aab\", p = \"c*a*b\"",
+        "expected": "true"
+      }
+    ],
+    "similarIds": [
+      5,
+      3
+    ],
+    "enabled": true
+  },
+  {
+    "id": 50,
+    "number": 50,
+    "title": "Pow(x, n)",
+    "difficulty": "medium",
+    "passRate": 35.6,
+    "submissions": "1.9M",
+    "tags": [
+      "数学",
+      "递归"
+    ],
+    "description": "实现 pow(x, n) ，即计算 x 的整数 n 次幂函数。",
+    "examples": [
+      {
+        "input": [
+          "x = 2.0",
+          "n = 10"
+        ],
+        "output": [
+          "1024.0"
+        ]
+      },
+      {
+        "input": [
+          "x = 2.0",
+          "n = -2"
+        ],
+        "output": [
+          "0.25"
+        ],
+        "explain": "2 的 -2 次方 = 1 / 4 = 0.25。"
+      }
+    ],
+    "defaultCode": "# Pow(x, n)\ndef myPow(x, n):\n    # 你的代码\n    pass\n",
+    "funcName": "myPow",
+    "testcases": [
+      {
+        "input": "x = 2.0, n = 10",
+        "expected": "1024.0"
+      },
+      {
+        "input": "x = 2.0, n = -2",
+        "expected": "0.25"
+      },
+      {
+        "input": "x = 2.0, n = 3",
+        "expected": "8.0"
+      },
+      {
+        "input": "x = 1.0, n = 2147483647",
+        "expected": "1.0"
+      }
+    ],
+    "similarIds": [
+      69
+    ],
+    "enabled": true
+  },
+  {
+    "id": 69,
+    "number": 69,
+    "title": "x 的平方根",
+    "difficulty": "easy",
+    "passRate": 40.3,
+    "submissions": "2.6M",
+    "tags": [
+      "数学",
+      "二分查找"
+    ],
+    "description": "给你一个非负整数 x ，计算并返回 x 的算术平方根。\n\n由于返回类型是整数，结果只保留整数部分，小数部分将被舍去。\n\n注意：不允许使用任何内置指数函数和算符，例如 pow(x, 0.5) 或者 x ** 0.5。",
+    "examples": [
+      {
+        "input": [
+          "x = 4"
+        ],
+        "output": [
+          "2"
+        ]
+      },
+      {
+        "input": [
+          "x = 8"
+        ],
+        "output": [
+          "2"
+        ],
+        "explain": "8 的算术平方根是 2.82842...，由于返回类型是整数，小数部分将被舍去。"
+      }
+    ],
+    "defaultCode": "# x 的平方根\ndef mySqrt(x):\n    # 你的代码\n    pass\n",
+    "funcName": "mySqrt",
+    "testcases": [
+      {
+        "input": "x = 4",
+        "expected": "2"
+      },
+      {
+        "input": "x = 8",
+        "expected": "2"
+      },
+      {
+        "input": "x = 0",
+        "expected": "0"
+      },
+      {
+        "input": "x = 2147395600",
+        "expected": "46340"
+      }
+    ],
+    "similarIds": [
+      50
+    ],
+    "enabled": true
+  },
+  {
+    "id": 70,
+    "number": 70,
+    "title": "爬楼梯",
+    "difficulty": "easy",
+    "passRate": 48.7,
+    "submissions": "6.5M",
+    "tags": [
+      "动态规划",
+      "数学"
+    ],
+    "description": "假设你正在爬楼梯。需要 n 阶你才能到达楼顶。\n\n每次你可以爬 1 或 2 个台阶。你有多少种不同的方法可以爬到楼顶呢？",
+    "examples": [
+      {
+        "input": [
+          "n = 2"
+        ],
+        "output": [
+          "2"
+        ],
+        "explain": "有两种方法可以爬到楼顶：\n1. 1 阶 + 1 阶\n2. 2 阶"
+      },
+      {
+        "input": [
+          "n = 3"
+        ],
+        "output": [
+          "3"
+        ],
+        "explain": "有三种方法可以爬到楼顶：\n1. 1 阶 + 1 阶 + 1 阶\n2. 1 阶 + 2 阶\n3. 2 阶 + 1 阶"
+      }
+    ],
+    "defaultCode": "# 爬楼梯\ndef climbStairs(n):\n    # 你的代码\n    pass\n",
+    "funcName": "climbStairs",
+    "testcases": [
+      {
+        "input": "n = 2",
+        "expected": "2"
+      },
+      {
+        "input": "n = 3",
+        "expected": "3"
+      },
+      {
+        "input": "n = 4",
+        "expected": "5"
+      },
+      {
+        "input": "n = 45",
+        "expected": "1836311903"
+      }
+    ],
+    "similarIds": [
+      121,
+      53
+    ],
+    "enabled": true
+  },
+  {
+    "id": 121,
+    "number": 121,
+    "title": "买卖股票的最佳时机",
+    "difficulty": "easy",
+    "passRate": 52.3,
+    "submissions": "6.2M",
+    "tags": [
+      "数组",
+      "贪心",
+      "动态规划"
+    ],
+    "description": "给定一个数组 prices ，它的第 i 个元素 prices[i] 表示一支给定股票第 i 天的价格。\n\n你只能选择某一天买入这只股票，并选择在未来的某一个不同的日子卖出该股票。设计一个算法来计算你所能获取的最大利润。\n\n返回你可以从这笔交易中获取的最大利润。如果你不能获取任何利润，返回 0。",
+    "examples": [
+      {
+        "input": [
+          "prices = [7,1,5,3,6,4]"
+        ],
+        "output": [
+          "5"
+        ],
+        "explain": "在第 2 天（股票价格 = 1）的时候买入，在第 5 天（股票价格 = 6）的时候卖出，最大利润 = 6-1 = 5。"
+      },
+      {
+        "input": [
+          "prices = [7,6,4,3,1]"
+        ],
+        "output": [
+          "0"
+        ],
+        "explain": "在这种情况下, 没有交易完成, 所以最大利润为 0。"
+      }
+    ],
+    "defaultCode": "# 买卖股票的最佳时机\ndef maxProfit(prices):\n    # 你的代码\n    pass\n",
+    "funcName": "maxProfit",
+    "testcases": [
+      {
+        "input": "prices = [7,1,5,3,6,4]",
+        "expected": "5"
+      },
+      {
+        "input": "prices = [7,6,4,3,1]",
+        "expected": "0"
+      },
+      {
+        "input": "prices = [1,2]",
+        "expected": "1"
+      }
+    ],
+    "similarIds": [
+      53,
+      42
+    ],
+    "enabled": true
+  },
+  {
+    "id": 42,
+    "number": 42,
+    "title": "接雨水",
+    "difficulty": "hard",
+    "passRate": 22.1,
+    "submissions": "3.1M",
+    "tags": [
+      "数组",
+      "动态规划",
+      "双指针",
+      "单调栈"
+    ],
+    "description": "给定 n 个非负整数表示每个宽度为 1 的柱子的高度图，计算按此排列的柱子，下雨之后能接多少雨水。",
+    "examples": [
+      {
+        "input": [
+          "height = [0,1,0,2,1,0,1,3,2,1,2,1]"
+        ],
+        "output": [
+          "6"
+        ],
+        "explain": "由数组表示的高度图，在这种情况下，可以接 6 个单位的雨水。"
+      },
+      {
+        "input": [
+          "height = [4,2,0,3,2,5]"
+        ],
+        "output": [
+          "9"
+        ]
+      }
+    ],
+    "defaultCode": "# 接雨水\ndef trap(height):\n    # 你的代码\n    pass\n",
+    "funcName": "trap",
+    "testcases": [
+      {
+        "input": "height = [0,1,0,2,1,0,1,3,2,1,2,1]",
+        "expected": "6"
+      },
+      {
+        "input": "height = [4,2,0,3,2,5]",
+        "expected": "9"
+      },
+      {
+        "input": "height = [0]",
+        "expected": "0"
+      }
+    ],
+    "similarIds": [
+      84,
+      121
+    ],
+    "enabled": true
+  },
+  {
+    "id": 84,
+    "number": 84,
+    "title": "柱状图中最大的矩形",
+    "difficulty": "hard",
+    "passRate": 19.8,
+    "submissions": "1.7M",
+    "tags": [
+      "数组",
+      "单调栈",
+      "栈"
+    ],
+    "description": "给定 n 个非负整数，用来表示柱状图中各个柱子的高度。每个柱子彼此相邻，且宽度为 1 。\n\n求在该柱状图中，能够勾勒出来的矩形的最大面积。",
+    "examples": [
+      {
+        "input": [
+          "heights = [2,1,5,6,2,3]"
+        ],
+        "output": [
+          "10"
+        ],
+        "explain": "最大的矩形为图中红色区域，面积为 10。"
+      },
+      {
+        "input": [
+          "heights = [2,4]"
+        ],
+        "output": [
+          "4"
+        ]
+      }
+    ],
+    "defaultCode": "# 柱状图中最大的矩形\ndef largestRectangleArea(heights):\n    # 你的代码\n    pass\n",
+    "funcName": "largestRectangleArea",
+    "testcases": [
+      {
+        "input": "heights = [2,1,5,6,2,3]",
+        "expected": "10"
+      },
+      {
+        "input": "heights = [2,4]",
+        "expected": "4"
+      },
+      {
+        "input": "heights = [1]",
+        "expected": "1"
+      }
+    ],
+    "similarIds": [
+      42,
+      155
+    ],
+    "enabled": true
+  },
+  {
+    "id": 155,
+    "number": 155,
+    "title": "最小栈",
+    "difficulty": "easy",
+    "passRate": 40.9,
+    "submissions": "3.5M",
+    "tags": [
+      "栈",
+      "设计"
+    ],
+    "description": "设计一个支持 push ，pop ，top 操作，并能在常数时间内检索到最小元素的栈。\n\n实现 MinStack 类：\n- MinStack() 初始化堆栈对象\n- void push(int val) 将元素 val 推入堆栈\n- void pop() 删除堆栈顶部的元素\n- int top() 获取堆栈顶部的元素\n- int getMin() 获取堆栈中的最小元素",
+    "examples": [
+      {
+        "input": [
+          "MinStack()",
+          "push(-2)",
+          "push(0)",
+          "push(-3)",
+          "getMin()",
+          "pop()",
+          "top()",
+          "getMin()"
+        ],
+        "output": [
+          "null",
+          "null",
+          "null",
+          "null",
+          "-3",
+          "null",
+          "0",
+          "-2"
+        ]
+      }
+    ],
+    "defaultCode": "# 最小栈\nclass MinStack:\n    def __init__(self):\n        # 你的代码\n        pass\n\n    def push(self, val):\n        # 你的代码\n        pass\n\n    def pop(self):\n        # 你的代码\n        pass\n\n    def top(self):\n        # 你的代码\n        pass\n\n    def getMin(self):\n        # 你的代码\n        pass\n",
+    "funcName": "",
+    "testcases": [],
+    "similarIds": [
+      20,
+      84
+    ],
+    "enabled": true
+  },
+  {
+    "id": 206,
+    "number": 206,
+    "title": "反转链表",
+    "difficulty": "easy",
+    "passRate": 60.5,
+    "submissions": "7.1M",
+    "tags": [
+      "链表",
+      "递归",
+      "迭代"
+    ],
+    "description": "给你单链表的头节点 head ，请你反转链表，并返回反转后的链表。",
+    "examples": [
+      {
+        "input": [
+          "head = [1,2,3,4,5]"
+        ],
+        "output": [
+          "[5,4,3,2,1]"
+        ]
+      },
+      {
+        "input": [
+          "head = [1,2]"
+        ],
+        "output": [
+          "[2,1]"
+        ]
+      }
+    ],
+    "defaultCode": "# 反转链表（节点定义）\nclass ListNode:\n    def __init__(self, val=0, next=None):\n        self.val = val\n        self.next = next\n\ndef reverseList(head):\n    # 你的代码\n    pass\n",
+    "funcName": "",
+    "testcases": [],
+    "similarIds": [
+      141,
+      146
+    ],
+    "enabled": true
+  },
+  {
+    "id": 146,
+    "number": 146,
+    "title": "LRU 缓存",
+    "difficulty": "medium",
+    "passRate": 38.2,
+    "submissions": "2.4M",
+    "tags": [
+      "设计",
+      "哈希表",
+      "链表"
+    ],
+    "description": "请你设计并实现一个满足 LRU (最近最少使用) 缓存约束的数据结构。\n\n实现 LRUCache 类：\n- LRUCache(int capacity) 以正整数作为容量 capacity 初始化 LRU 缓存\n- int get(int key) 如果关键字 key 存在于缓存中，则返回关键字的值，否则返回 -1\n- void put(int key, int value) 如果关键字 key 已经存在，则变更其数据值；如果不存在，则向缓存中插入该组 key-value。当缓存容量达到上限时，它应该在写入新数据之前删除最久未使用的数据值。",
+    "examples": [
+      {
+        "input": [
+          "LRUCache(2)",
+          "put(1, 1)",
+          "put(2, 2)",
+          "get(1)",
+          "put(3, 3)",
+          "get(2)",
+          "put(4, 4)",
+          "get(1)",
+          "get(3)",
+          "get(4)"
+        ],
+        "output": [
+          "null",
+          "null",
+          "null",
+          "1",
+          "null",
+          "-1",
+          "null",
+          "-1",
+          "3",
+          "4"
+        ]
+      }
+    ],
+    "defaultCode": "# LRU 缓存\nclass LRUCache:\n    def __init__(self, capacity):\n        # 你的代码\n        pass\n\n    def get(self, key):\n        # 你的代码\n        pass\n\n    def put(self, key, value):\n        # 你的代码\n        pass\n",
+    "funcName": "",
+    "testcases": [],
+    "similarIds": [
+      206,
+      141
+    ],
+    "enabled": true
+  },
+  {
+    "id": 53,
+    "number": 53,
+    "title": "最大子数组和",
+    "difficulty": "medium",
+    "passRate": 50.4,
+    "submissions": "5.1M",
+    "tags": [
+      "数组",
+      "动态规划",
+      "分治"
+    ],
+    "description": "给你一个整数数组 nums ，请你找出一个具有最大和的连续子数组（子数组最少包含一个元素），返回其最大和。\n\n子数组是数组中的一个连续部分。",
+    "examples": [
+      {
+        "input": [
+          "nums = [-2,1,-3,4,-1,2,1,-5,4]"
+        ],
+        "output": [
+          "6"
+        ],
+        "explain": "连续子数组 [4,-1,2,1] 的和最大，为 6。"
+      },
+      {
+        "input": [
+          "nums = [1]"
+        ],
+        "output": [
+          "1"
+        ]
+      }
+    ],
+    "defaultCode": "# 最大子数组和\ndef maxSubArray(nums):\n    # 你的代码\n    pass\n",
+    "funcName": "maxSubArray",
+    "testcases": [
+      {
+        "input": "nums = [-2,1,-3,4,-1,2,1,-5,4]",
+        "expected": "6"
+      },
+      {
+        "input": "nums = [1]",
+        "expected": "1"
+      },
+      {
+        "input": "nums = [5,4,-1,7,8]",
+        "expected": "23"
+      }
+    ],
+    "similarIds": [
+      121,
+      42
+    ],
+    "enabled": true
+  },
+  {
+    "id": 215,
+    "number": 215,
+    "title": "数组中的第K个最大元素",
+    "difficulty": "medium",
+    "passRate": 45.8,
+    "submissions": "2.2M",
+    "tags": [
+      "数组",
+      "堆",
+      "排序",
+      "分治"
+    ],
+    "description": "给定整数数组 nums 和整数 k，请返回数组中第 k 个最大的元素。\n\n请注意，你需要找的是数组排序后的第 k 个最大的元素，而不是第 k 个不同的元素。",
+    "examples": [
+      {
+        "input": [
+          "nums = [3,2,1,5,6,4]",
+          "k = 2"
+        ],
+        "output": [
+          "5"
+        ]
+      },
+      {
+        "input": [
+          "nums = [3,2,3,1,2,4,5,5,6]",
+          "k = 4"
+        ],
+        "output": [
+          "4"
+        ]
+      }
+    ],
+    "defaultCode": "# 数组中的第K个最大元素\ndef findKthLargest(nums, k):\n    # 你的代码\n    pass\n",
+    "funcName": "findKthLargest",
+    "testcases": [
+      {
+        "input": "nums = [3,2,1,5,6,4], k = 2",
+        "expected": "5"
+      },
+      {
+        "input": "nums = [3,2,3,1,2,4,5,5,6], k = 4",
+        "expected": "4"
+      }
+    ],
+    "similarIds": [
+      53,
+      84
+    ],
+    "enabled": true
+  },
+  {
+    "id": 200,
+    "number": 200,
+    "title": "岛屿数量",
+    "difficulty": "medium",
+    "passRate": 38.9,
+    "submissions": "2.8M",
+    "tags": [
+      "深度优先搜索",
+      "广度优先搜索",
+      "并查集"
+    ],
+    "description": "给你一个由 '1'（陆地）和 '0'（水）组成的的二维网格，请你计算网格中岛屿的数量。\n\n岛屿总是被水包围，并且每座岛屿只能由水平方向和/或竖直方向上相邻的陆地连接形成。\n\n此外，你可以假设该网格的四条边均被水包围。",
+    "examples": [
+      {
+        "input": [
+          "grid = [[\"1\",\"1\",\"1\",\"1\",\"0\"],[\"1\",\"1\",\"0\",\"1\",\"0\"],[\"1\",\"1\",\"0\",\"0\",\"0\"],[\"0\",\"0\",\"0\",\"0\",\"0\"]]"
+        ],
+        "output": [
+          "1"
+        ]
+      },
+      {
+        "input": [
+          "grid = [[\"1\",\"1\",\"0\",\"0\",\"0\"],[\"1\",\"1\",\"0\",\"0\",\"0\"],[\"0\",\"0\",\"1\",\"0\",\"0\"],[\"0\",\"0\",\"0\",\"1\",\"1\"]]"
+        ],
+        "output": [
+          "3"
+        ]
+      }
+    ],
+    "defaultCode": "# 岛屿数量\ndef numIslands(grid):\n    # 你的代码\n    pass\n",
+    "funcName": "numIslands",
+    "testcases": [
+      {
+        "input": "grid = [[\"1\",\"1\",\"1\",\"1\",\"0\"],[\"1\",\"1\",\"0\",\"1\",\"0\"],[\"1\",\"1\",\"0\",\"0\",\"0\"],[\"0\",\"0\",\"0\",\"0\",\"0\"]]",
+        "expected": "1"
+      },
+      {
+        "input": "grid = [[\"1\",\"1\",\"0\",\"0\",\"0\"],[\"1\",\"1\",\"0\",\"0\",\"0\"],[\"0\",\"0\",\"1\",\"0\",\"0\"],[\"0\",\"0\",\"0\",\"1\",\"1\"]]",
+        "expected": "3"
+      }
+    ],
+    "similarIds": [
+      46,
+      42
+    ],
+    "enabled": true
+  },
+  {
+    "id": 46,
+    "number": 46,
+    "title": "全排列",
+    "difficulty": "medium",
+    "passRate": 52.1,
+    "submissions": "3.8M",
+    "tags": [
+      "数组",
+      "回溯"
+    ],
+    "description": "给定一个不含重复数字的数组 nums ，返回其所有可能的全排列 。你可以按任意顺序返回答案。",
+    "examples": [
+      {
+        "input": [
+          "nums = [1,2,3]"
+        ],
+        "output": [
+          "[[1,2,3],[1,3,2],[2,1,3],[2,3,1],[3,1,2],[3,2,1]]"
+        ]
+      },
+      {
+        "input": [
+          "nums = [0,1]"
+        ],
+        "output": [
+          "[[0,1],[1,0]]"
+        ]
+      },
+      {
+        "input": [
+          "nums = [1]"
+        ],
+        "output": [
+          "[[1]]"
+        ]
+      }
+    ],
+    "defaultCode": "# 全排列\ndef permute(nums):\n    # 你的代码\n    pass\n",
+    "funcName": "permute",
+    "testcases": [
+      {
+        "input": "nums = [1,2,3]",
+        "expected": "[[1,2,3],[1,3,2],[2,1,3],[2,3,1],[3,1,2],[3,2,1]]",
+        "mode": "set"
+      },
+      {
+        "input": "nums = [0,1]",
+        "expected": "[[0,1],[1,0]]",
+        "mode": "set"
+      },
+      {
+        "input": "nums = [1]",
+        "expected": "[[1]]",
+        "mode": "set"
+      }
+    ],
+    "similarIds": [
+      15,
+      200
+    ],
+    "enabled": true
+  },
+  {
+    "id": 141,
+    "number": 141,
+    "title": "环形链表",
+    "difficulty": "easy",
+    "passRate": 48.3,
+    "submissions": "4.2M",
+    "tags": [
+      "链表",
+      "双指针",
+      "哈希表"
+    ],
+    "description": "给你一个链表的头节点 head ，判断链表中是否有环。\n\n如果链表中有某个节点，可以通过连续跟踪 next 指针再次到达，则链表中存在环。\n\n如果链表中存在环，则返回 true ，否则返回 false 。",
+    "examples": [
+      {
+        "input": [
+          "head = [3,2,0,-4]",
+          "pos = 1"
+        ],
+        "output": [
+          "true"
+        ],
+        "explain": "链表中有一个环，其尾部连接到第二个节点。"
+      },
+      {
+        "input": [
+          "head = [1,2]",
+          "pos = 0"
+        ],
+        "output": [
+          "true"
+        ]
+      },
+      {
+        "input": [
+          "head = [1]",
+          "pos = -1"
+        ],
+        "output": [
+          "false"
+        ]
+      }
+    ],
+    "defaultCode": "# 环形链表（节点定义）\nclass ListNode:\n    def __init__(self, x):\n        self.val = x\n        self.next = None\n\ndef hasCycle(head):\n    # 你的代码\n    pass\n",
+    "funcName": "",
+    "testcases": [],
+    "similarIds": [
+      206,
+      146
+    ],
+    "enabled": true
+  },
+  {
+    "id": 26,
+    "number": 26,
+    "title": "删除有序数组中的重复项",
+    "difficulty": "easy",
+    "passRate": 55.6,
+    "submissions": "6.8M",
+    "tags": [
+      "数组",
+      "双指针"
+    ],
+    "description": "给你一个升序排列的数组 nums ，请你原地删除重复出现的元素，使每个元素只出现一次，返回删除后数组的新长度。\n\n不要使用额外的数组空间，你必须在原地修改输入数组。",
+    "examples": [
+      {
+        "input": [
+          "nums = [1,1,2]"
+        ],
+        "output": [
+          "2"
+        ],
+        "explain": "函数返回长度 2，前两个元素为 1, 2。"
+      },
+      {
+        "input": [
+          "nums = [0,0,1,1,1,2,2,3,3,4]"
+        ],
+        "output": [
+          "5"
+        ]
+      }
+    ],
+    "defaultCode": "# 删除有序数组中的重复项\ndef removeDuplicates(nums):\n    # 你的代码\n    pass\n",
+    "funcName": "removeDuplicates",
+    "testcases": [
+      {
+        "input": "nums = [1,1,2]",
+        "expected": "2"
+      },
+      {
+        "input": "nums = [0,0,1,1,1,2,2,3,3,4]",
+        "expected": "5"
+      },
+      {
+        "input": "nums = []",
+        "expected": "0"
+      },
+      {
+        "input": "nums = [1]",
+        "expected": "1"
+      }
+    ],
+    "similarIds": [
+      27,
+      35
+    ],
+    "enabled": true
+  },
+  {
+    "id": 27,
+    "number": 27,
+    "title": "移除元素",
+    "difficulty": "easy",
+    "passRate": 60.2,
+    "submissions": "4.9M",
+    "tags": [
+      "数组",
+      "双指针"
+    ],
+    "description": "给你一个数组 nums 和一个值 val ，你需要原地移除所有数值等于 val 的元素，并返回移除后数组的新长度。\n\n元素的顺序可以改变，你不需要考虑数组中超出新长度后面的元素。",
+    "examples": [
+      {
+        "input": [
+          "nums = [3,2,2,3]",
+          "val = 3"
+        ],
+        "output": [
+          "2"
+        ],
+        "explain": "函数返回 2，前两个元素均为 2。"
+      },
+      {
+        "input": [
+          "nums = [0,1,2,2,3,0,4,2]",
+          "val = 2"
+        ],
+        "output": [
+          "5"
+        ]
+      }
+    ],
+    "defaultCode": "# 移除元素\ndef removeElement(nums, val):\n    # 你的代码\n    pass\n",
+    "funcName": "removeElement",
+    "testcases": [
+      {
+        "input": "nums = [3,2,2,3], val = 3",
+        "expected": "2"
+      },
+      {
+        "input": "nums = [0,1,2,2,3,0,4,2], val = 2",
+        "expected": "5"
+      },
+      {
+        "input": "nums = [1], val = 1",
+        "expected": "0"
+      }
+    ],
+    "similarIds": [
+      26,
+      35
+    ],
+    "enabled": true
+  },
+  {
+    "id": 35,
+    "number": 35,
+    "title": "搜索插入位置",
+    "difficulty": "easy",
+    "passRate": 46.8,
+    "submissions": "5.6M",
+    "tags": [
+      "数组",
+      "二分查找"
+    ],
+    "description": "给定一个排序数组和一个目标值，在数组中找到目标值，并返回其索引。\n\n如果目标值不存在于数组中，返回它将会被按顺序插入的位置。",
+    "examples": [
+      {
+        "input": [
+          "nums = [1,3,5,6]",
+          "target = 5"
+        ],
+        "output": [
+          "2"
+        ]
+      },
+      {
+        "input": [
+          "nums = [1,3,5,6]",
+          "target = 2"
+        ],
+        "output": [
+          "1"
+        ]
+      }
+    ],
+    "defaultCode": "# 搜索插入位置\ndef searchInsert(nums, target):\n    # 你的代码\n    pass\n",
+    "funcName": "searchInsert",
+    "testcases": [
+      {
+        "input": "nums = [1,3,5,6], target = 5",
+        "expected": "2"
+      },
+      {
+        "input": "nums = [1,3,5,6], target = 2",
+        "expected": "1"
+      },
+      {
+        "input": "nums = [1,3,5,6], target = 7",
+        "expected": "4"
+      },
+      {
+        "input": "nums = [1,3,5,6], target = 0",
+        "expected": "0"
+      }
+    ],
+    "similarIds": [
+      69,
+      33
+    ],
+    "enabled": true
+  },
+  {
+    "id": 58,
+    "number": 58,
+    "title": "最后一个单词的长度",
+    "difficulty": "easy",
+    "passRate": 52.4,
+    "submissions": "3.4M",
+    "tags": [
+      "字符串"
+    ],
+    "description": "给你一个字符串 s ，由若干单词组成，单词前后用一些空格字符隔开。\n\n返回字符串中最后一个单词的长度。",
+    "examples": [
+      {
+        "input": [
+          "s = \"Hello World\""
+        ],
+        "output": [
+          "5"
+        ]
+      },
+      {
+        "input": [
+          "s = \"   fly me   to   the moon  \""
+        ],
+        "output": [
+          "4"
+        ]
+      }
+    ],
+    "defaultCode": "# 最后一个单词的长度\ndef lengthOfLastWord(s):\n    # 你的代码\n    pass\n",
+    "funcName": "lengthOfLastWord",
+    "testcases": [
+      {
+        "input": "s = \"Hello World\"",
+        "expected": "5"
+      },
+      {
+        "input": "s = \"   fly me   to   the moon  \"",
+        "expected": "4"
+      },
+      {
+        "input": "s = \"luffy is still joyboy\"",
+        "expected": "6"
+      }
+    ],
+    "similarIds": [
+      14,
+      3
+    ],
+    "enabled": true
+  },
+  {
+    "id": 66,
+    "number": 66,
+    "title": "加一",
+    "difficulty": "easy",
+    "passRate": 47.1,
+    "submissions": "4.5M",
+    "tags": [
+      "数组",
+      "数学"
+    ],
+    "description": "给定一个由整数组成的非空数组所表示的非负整数，在该数的基础上加一。\n\n最高位数字存放在数组的首位，数组中每个元素只存储单个数字。",
+    "examples": [
+      {
+        "input": [
+          "digits = [1,2,3]"
+        ],
+        "output": [
+          "[1,2,4]"
+        ],
+        "explain": "输入数组表示数字 123。"
+      },
+      {
+        "input": [
+          "digits = [9]"
+        ],
+        "output": [
+          "[1,0]"
+        ]
+      }
+    ],
+    "defaultCode": "# 加一\ndef plusOne(digits):\n    # 你的代码\n    pass\n",
+    "funcName": "plusOne",
+    "testcases": [
+      {
+        "input": "digits = [1,2,3]",
+        "expected": "[1,2,4]"
+      },
+      {
+        "input": "digits = [4,3,2,1]",
+        "expected": "[4,3,2,2]"
+      },
+      {
+        "input": "digits = [9]",
+        "expected": "[1,0]"
+      },
+      {
+        "input": "digits = [9,9]",
+        "expected": "[1,0,0]"
+      }
+    ],
+    "similarIds": [
+      7,
+      50
+    ],
+    "enabled": true
+  },
+  {
+    "id": 9,
+    "number": 9,
+    "title": "回文数",
+    "difficulty": "easy",
+    "passRate": 58.3,
+    "submissions": "7.9M",
+    "tags": [
+      "数学"
+    ],
+    "description": "给你一个整数 x ，如果 x 是一个回文整数，返回 true；否则，返回 false。\n\n回文数是指正序和倒读都一样的整数。",
+    "examples": [
+      {
+        "input": [
+          "x = 121"
+        ],
+        "output": [
+          "true"
+        ]
+      },
+      {
+        "input": [
+          "x = -121"
+        ],
+        "output": [
+          "false"
+        ],
+        "explain": "从左向右读为 -121，从右向左读为 121-，因此不是回文数。"
+      }
+    ],
+    "defaultCode": "# 回文数\ndef isPalindrome(x):\n    # 你的代码\n    pass\n",
+    "funcName": "isPalindrome",
+    "testcases": [
+      {
+        "input": "x = 121",
+        "expected": "true"
+      },
+      {
+        "input": "x = -121",
+        "expected": "false"
+      },
+      {
+        "input": "x = 10",
+        "expected": "false"
+      },
+      {
+        "input": "x = 0",
+        "expected": "true"
+      }
+    ],
+    "similarIds": [
+      5,
+      7
+    ],
+    "enabled": true
+  },
+  {
+    "id": 13,
+    "number": 13,
+    "title": "罗马数字转整数",
+    "difficulty": "easy",
+    "passRate": 62.5,
+    "submissions": "6.1M",
+    "tags": [
+      "哈希表",
+      "数学",
+      "字符串"
+    ],
+    "description": "罗马数字包含以下七种字符：I(1)、V(5)、X(10)、L(50)、C(100)、D(500)、M(1000)。\n\n通常情况下，罗马数字中小的数字在大的数字的右边；但也存在特例，例如 4 写作 IV（5 - 1）。\n\n给定一个罗马数字字符串，将其转换成整数。",
+    "examples": [
+      {
+        "input": [
+          "s = \"LVIII\""
+        ],
+        "output": [
+          "58"
+        ],
+        "explain": "L = 50, V = 5, III = 3。"
+      },
+      {
+        "input": [
+          "s = \"MCMXCIV\""
+        ],
+        "output": [
+          "1994"
+        ],
+        "explain": "M = 1000, CM = 900, XC = 90, IV = 4。"
+      }
+    ],
+    "defaultCode": "# 罗马数字转整数\ndef romanToInt(s):\n    # 你的代码\n    pass\n",
+    "funcName": "romanToInt",
+    "testcases": [
+      {
+        "input": "s = \"III\"",
+        "expected": "3"
+      },
+      {
+        "input": "s = \"LVIII\"",
+        "expected": "58"
+      },
+      {
+        "input": "s = \"MCMXCIV\"",
+        "expected": "1994"
+      }
+    ],
+    "similarIds": [
+      14,
+      7
+    ],
+    "enabled": true
+  },
+  {
+    "id": 14,
+    "number": 14,
+    "title": "最长公共前缀",
+    "difficulty": "easy",
+    "passRate": 43.2,
+    "submissions": "7.2M",
+    "tags": [
+      "字符串"
+    ],
+    "description": "编写一个函数来查找字符串数组中的最长公共前缀。\n\n如果不存在公共前缀，返回空字符串 \"\"。",
+    "examples": [
+      {
+        "input": [
+          "strs = [\"flower\",\"flow\",\"flight\"]"
+        ],
+        "output": [
+          "\"fl\""
+        ]
+      },
+      {
+        "input": [
+          "strs = [\"dog\",\"racecar\",\"car\"]"
+        ],
+        "output": [
+          "\"\""
+        ],
+        "explain": "输入不存在公共前缀。"
+      }
+    ],
+    "defaultCode": "# 最长公共前缀\ndef longestCommonPrefix(strs):\n    # 你的代码\n    pass\n",
+    "funcName": "longestCommonPrefix",
+    "testcases": [
+      {
+        "input": "strs = [\"flower\",\"flow\",\"flight\"]",
+        "expected": "\"fl\""
+      },
+      {
+        "input": "strs = [\"dog\",\"racecar\",\"car\"]",
+        "expected": "\"\""
+      },
+      {
+        "input": "strs = [\"ab\",\"a\"]",
+        "expected": "\"a\""
+      }
+    ],
+    "similarIds": [
+      58,
+      3
+    ],
+    "enabled": true
+  },
+  {
+    "id": 136,
+    "number": 136,
+    "title": "只出现一次的数字",
+    "difficulty": "easy",
+    "passRate": 72.1,
+    "submissions": "5.3M",
+    "tags": [
+      "位运算",
+      "哈希表"
+    ],
+    "description": "给你一个非空整数数组 nums ，除了某个元素只出现一次以外，其余每个元素均出现两次。\n\n找出那个只出现了一次的元素。",
+    "examples": [
+      {
+        "input": [
+          "nums = [2,2,1]"
+        ],
+        "output": [
+          "1"
+        ]
+      },
+      {
+        "input": [
+          "nums = [4,1,2,1,2]"
+        ],
+        "output": [
+          "4"
+        ]
+      }
+    ],
+    "defaultCode": "# 只出现一次的数字\ndef singleNumber(nums):\n    # 你的代码\n    pass\n",
+    "funcName": "singleNumber",
+    "testcases": [
+      {
+        "input": "nums = [2,2,1]",
+        "expected": "1"
+      },
+      {
+        "input": "nums = [4,1,2,1,2]",
+        "expected": "4"
+      },
+      {
+        "input": "nums = [1]",
+        "expected": "1"
+      }
+    ],
+    "similarIds": [
+      217,
+      169
+    ],
+    "enabled": true
+  },
+  {
+    "id": 169,
+    "number": 169,
+    "title": "多数元素",
+    "difficulty": "easy",
+    "passRate": 66.8,
+    "submissions": "5.9M",
+    "tags": [
+      "数组",
+      "哈希表",
+      "排序"
+    ],
+    "description": "给定一个大小为 n 的数组 nums ，返回其中的多数元素。\n\n多数元素是指在数组中出现次数大于 n/2 的元素。你可以假设数组是非空的，并且给定的数组总是存在多数元素。",
+    "examples": [
+      {
+        "input": [
+          "nums = [3,2,3]"
+        ],
+        "output": [
+          "3"
+        ]
+      },
+      {
+        "input": [
+          "nums = [2,2,1,1,1,2,2]"
+        ],
+        "output": [
+          "2"
+        ]
+      }
+    ],
+    "defaultCode": "# 多数元素\ndef majorityElement(nums):\n    # 你的代码\n    pass\n",
+    "funcName": "majorityElement",
+    "testcases": [
+      {
+        "input": "nums = [3,2,3]",
+        "expected": "3"
+      },
+      {
+        "input": "nums = [2,2,1,1,1,2,2]",
+        "expected": "2"
+      },
+      {
+        "input": "nums = [1]",
+        "expected": "1"
+      }
+    ],
+    "similarIds": [
+      136,
+      215
+    ],
+    "enabled": true
+  },
+  {
+    "id": 217,
+    "number": 217,
+    "title": "存在重复元素",
+    "difficulty": "easy",
+    "passRate": 56.4,
+    "submissions": "6.3M",
+    "tags": [
+      "数组",
+      "哈希表"
+    ],
+    "description": "给你一个整数数组 nums 。\n\n如果任一值在数组中出现至少两次，返回 true；如果数组中每个元素互不相同，返回 false。",
+    "examples": [
+      {
+        "input": [
+          "nums = [1,2,3,1]"
+        ],
+        "output": [
+          "true"
+        ]
+      },
+      {
+        "input": [
+          "nums = [1,2,3,4]"
+        ],
+        "output": [
+          "false"
+        ]
+      }
+    ],
+    "defaultCode": "# 存在重复元素\ndef containsDuplicate(nums):\n    # 你的代码\n    pass\n",
+    "funcName": "containsDuplicate",
+    "testcases": [
+      {
+        "input": "nums = [1,2,3,1]",
+        "expected": "true"
+      },
+      {
+        "input": "nums = [1,2,3,4]",
+        "expected": "false"
+      },
+      {
+        "input": "nums = [1,1,1,3,3,4,3,2,4,2]",
+        "expected": "true"
+      }
+    ],
+    "similarIds": [
+      136,
+      1
+    ],
+    "enabled": true
+  },
+  {
+    "id": 122,
+    "number": 122,
+    "title": "买卖股票的最佳时机 II",
+    "difficulty": "easy",
+    "passRate": 71.2,
+    "submissions": "4.8M",
+    "tags": [
+      "数组",
+      "贪心",
+      "动态规划"
+    ],
+    "description": "给你一个整数数组 prices ，其中 prices[i] 表示某支股票第 i 天的价格。\n\n在每一天，你可以决定是否购买和/或出售股票。你在任何时候最多只持有一股股票，也可以先购买然后在同一天出售。\n\n返回你能获得的最大利润。",
+    "examples": [
+      {
+        "input": [
+          "prices = [7,1,5,3,6,4]"
+        ],
+        "output": [
+          "7"
+        ],
+        "explain": "第 2 天买入、第 3 天卖出获利 4；第 4 天买入、第 5 天卖出获利 3，总利润 7。"
+      },
+      {
+        "input": [
+          "prices = [1,2,3,4,5]"
+        ],
+        "output": [
+          "4"
+        ]
+      }
+    ],
+    "defaultCode": "# 买卖股票的最佳时机 II\ndef maxProfit(prices):\n    # 你的代码\n    pass\n",
+    "funcName": "maxProfit",
+    "testcases": [
+      {
+        "input": "prices = [7,1,5,3,6,4]",
+        "expected": "7"
+      },
+      {
+        "input": "prices = [1,2,3,4,5]",
+        "expected": "4"
+      },
+      {
+        "input": "prices = [7,6,4,3,1]",
+        "expected": "0"
+      }
+    ],
+    "similarIds": [
+      121,
+      53
+    ],
+    "enabled": true
+  },
+  {
+    "id": 7,
+    "number": 7,
+    "title": "整数反转",
+    "difficulty": "medium",
+    "passRate": 35.9,
+    "submissions": "6.6M",
+    "tags": [
+      "数学"
+    ],
+    "description": "给你一个 32 位的有符号整数 x ，返回将 x 中的数字部分反转后的结果。\n\n如果反转后整数超过 32 位有符号整数的范围（-2147483648 到 2147483647），就返回 0。",
+    "examples": [
+      {
+        "input": [
+          "x = 123"
+        ],
+        "output": [
+          "321"
+        ]
+      },
+      {
+        "input": [
+          "x = -123"
+        ],
+        "output": [
+          "-321"
+        ]
+      },
+      {
+        "input": [
+          "x = 120"
+        ],
+        "output": [
+          "21"
+        ]
+      }
+    ],
+    "defaultCode": "# 整数反转\ndef reverseInt(x):\n    # 你的代码\n    pass\n",
+    "funcName": "reverseInt",
+    "testcases": [
+      {
+        "input": "x = 123",
+        "expected": "321"
+      },
+      {
+        "input": "x = -123",
+        "expected": "-321"
+      },
+      {
+        "input": "x = 120",
+        "expected": "21"
+      },
+      {
+        "input": "x = 1534236469",
+        "expected": "0"
+      }
+    ],
+    "similarIds": [
+      9,
+      50
+    ],
+    "enabled": true
+  },
+  {
+    "id": 33,
+    "number": 33,
+    "title": "搜索旋转排序数组",
+    "difficulty": "medium",
+    "passRate": 43.7,
+    "submissions": "5.5M",
+    "tags": [
+      "数组",
+      "二分查找"
+    ],
+    "description": "整数数组 nums 按升序排列后，在某个未知下标处进行了旋转（例如 [0,1,2,4,5,6,7] 旋转后可能变为 [4,5,6,7,0,1,2]）。\n\n给你旋转后的数组 nums 和一个整数 target ，如果 nums 中存在这个目标值，则返回它的下标，否则返回 -1。",
+    "examples": [
+      {
+        "input": [
+          "nums = [4,5,6,7,0,1,2]",
+          "target = 0"
+        ],
+        "output": [
+          "4"
+        ]
+      },
+      {
+        "input": [
+          "nums = [4,5,6,7,0,1,2]",
+          "target = 3"
+        ],
+        "output": [
+          "-1"
+        ]
+      }
+    ],
+    "defaultCode": "# 搜索旋转排序数组\ndef search(nums, target):\n    # 你的代码\n    pass\n",
+    "funcName": "search",
+    "testcases": [
+      {
+        "input": "nums = [4,5,6,7,0,1,2], target = 0",
+        "expected": "4"
+      },
+      {
+        "input": "nums = [4,5,6,7,0,1,2], target = 3",
+        "expected": "-1"
+      },
+      {
+        "input": "nums = [1], target = 0",
+        "expected": "-1"
+      }
+    ],
+    "similarIds": [
+      35,
+      34
+    ],
+    "enabled": true
+  },
+  {
+    "id": 34,
+    "number": 34,
+    "title": "在排序数组中查找元素的第一个和最后一个位置",
+    "difficulty": "medium",
+    "passRate": 42.6,
+    "submissions": "5.2M",
+    "tags": [
+      "数组",
+      "二分查找"
+    ],
+    "description": "给你一个按照非递减顺序排列的整数数组 nums 和一个目标值 target 。\n\n请你找出给定目标值在数组中的开始位置和结束位置。如果数组中不存在目标值，返回 [-1, -1]。",
+    "examples": [
+      {
+        "input": [
+          "nums = [5,7,7,8,8,10]",
+          "target = 8"
+        ],
+        "output": [
+          "[3,4]"
+        ]
+      },
+      {
+        "input": [
+          "nums = [5,7,7,8,8,10]",
+          "target = 6"
+        ],
+        "output": [
+          "[-1,-1]"
+        ]
+      }
+    ],
+    "defaultCode": "# 在排序数组中查找元素的第一个和最后一个位置\ndef searchRange(nums, target):\n    # 你的代码\n    pass\n",
+    "funcName": "searchRange",
+    "testcases": [
+      {
+        "input": "nums = [5,7,7,8,8,10], target = 8",
+        "expected": "[3,4]"
+      },
+      {
+        "input": "nums = [5,7,7,8,8,10], target = 6",
+        "expected": "[-1,-1]"
+      },
+      {
+        "input": "nums = [], target = 0",
+        "expected": "[-1,-1]"
+      }
+    ],
+    "similarIds": [
+      35,
+      33
+    ],
+    "enabled": true
+  },
+  {
+    "id": 55,
+    "number": 55,
+    "title": "跳跃游戏",
+    "difficulty": "medium",
+    "passRate": 44.1,
+    "submissions": "5.1M",
+    "tags": [
+      "贪心",
+      "数组",
+      "动态规划"
+    ],
+    "description": "给你一个非负整数数组 nums ，你最初位于数组的第一个下标。\n\n数组中的每个元素代表你在该位置可以跳跃的最大长度。判断你是否能够到达最后一个下标。",
+    "examples": [
+      {
+        "input": [
+          "nums = [2,3,1,1,4]"
+        ],
+        "output": [
+          "true"
+        ],
+        "explain": "可以先跳 1 步到下标 1，再跳 3 步到最后一个下标。"
+      },
+      {
+        "input": [
+          "nums = [3,2,1,0,4]"
+        ],
+        "output": [
+          "false"
+        ]
+      }
+    ],
+    "defaultCode": "# 跳跃游戏\ndef canJump(nums):\n    # 你的代码\n    pass\n",
+    "funcName": "canJump",
+    "testcases": [
+      {
+        "input": "nums = [2,3,1,1,4]",
+        "expected": "true"
+      },
+      {
+        "input": "nums = [3,2,1,0,4]",
+        "expected": "false"
+      },
+      {
+        "input": "nums = [0]",
+        "expected": "true"
+      }
+    ],
+    "similarIds": [
+      121,
+      70
+    ],
+    "enabled": true
+  },
+  {
+    "id": 56,
+    "number": 56,
+    "title": "合并区间",
+    "difficulty": "medium",
+    "passRate": 46.3,
+    "submissions": "4.9M",
+    "tags": [
+      "数组",
+      "排序"
+    ],
+    "description": "以数组 intervals 表示若干个区间的集合，其中单个区间为 intervals[i] = [starti, endi] 。\n\n请你合并所有重叠的区间，并返回一个不重叠的区间数组，该数组需恰好覆盖输入中的所有区间。",
+    "examples": [
+      {
+        "input": [
+          "intervals = [[1,3],[2,6],[8,10],[15,18]]"
+        ],
+        "output": [
+          "[[1,6],[8,10],[15,18]]"
+        ],
+        "explain": "区间 [1,3] 和 [2,6] 重叠，合并为 [1,6]。"
+      },
+      {
+        "input": [
+          "intervals = [[1,4],[4,5]]"
+        ],
+        "output": [
+          "[[1,5]]"
+        ]
+      }
+    ],
+    "defaultCode": "# 合并区间\ndef mergeIntervals(intervals):\n    # 你的代码\n    pass\n",
+    "funcName": "mergeIntervals",
+    "testcases": [
+      {
+        "input": "intervals = [[1,3],[2,6],[8,10],[15,18]]",
+        "expected": "[[1,6],[8,10],[15,18]]",
+        "mode": "set"
+      },
+      {
+        "input": "intervals = [[1,4],[4,5]]",
+        "expected": "[[1,5]]",
+        "mode": "set"
+      },
+      {
+        "input": "intervals = [[1,4],[2,3]]",
+        "expected": "[[1,4]]",
+        "mode": "set"
+      }
+    ],
+    "similarIds": [
+      15,
+      42
+    ],
+    "enabled": true
+  },
+  {
+    "id": 62,
+    "number": 62,
+    "title": "不同路径",
+    "difficulty": "medium",
+    "passRate": 68.9,
+    "submissions": "4.3M",
+    "tags": [
+      "数学",
+      "动态规划"
+    ],
+    "description": "一个机器人位于 m x n 网格的左上角，每次只能向下或者向右移动一步。\n\n机器人试图达到网格的右下角。问总共有多少条不同的路径？",
+    "examples": [
+      {
+        "input": [
+          "m = 3",
+          "n = 7"
+        ],
+        "output": [
+          "28"
+        ]
+      },
+      {
+        "input": [
+          "m = 3",
+          "n = 2"
+        ],
+        "output": [
+          "3"
+        ],
+        "explain": "从左上角开始，共有 3 条路径可以到达右下角。"
+      }
+    ],
+    "defaultCode": "# 不同路径\ndef uniquePaths(m, n):\n    # 你的代码\n    pass\n",
+    "funcName": "uniquePaths",
+    "testcases": [
+      {
+        "input": "m = 3, n = 7",
+        "expected": "28"
+      },
+      {
+        "input": "m = 3, n = 2",
+        "expected": "3"
+      },
+      {
+        "input": "m = 1, n = 1",
+        "expected": "1"
+      }
+    ],
+    "similarIds": [
+      70,
+      64
+    ],
+    "enabled": true
+  },
+  {
+    "id": 64,
+    "number": 64,
+    "title": "最小路径和",
+    "difficulty": "medium",
+    "passRate": 70.5,
+    "submissions": "3.2M",
+    "tags": [
+      "数组",
+      "动态规划"
+    ],
+    "description": "给定一个包含非负整数的 m x n 网格 grid ，请找出一条从左上角到右下角的路径，使得路径上的数字总和为最小。\n\n说明：每次只能向下或者向右移动一步。",
+    "examples": [
+      {
+        "input": [
+          "grid = [[1,3,1],[1,5,1],[4,2,1]]"
+        ],
+        "output": [
+          "7"
+        ],
+        "explain": "路径 1→3→1→1→1 的总和最小。"
+      },
+      {
+        "input": [
+          "grid = [[1,2,3],[4,5,6]]"
+        ],
+        "output": [
+          "12"
+        ]
+      }
+    ],
+    "defaultCode": "# 最小路径和\ndef minPathSum(grid):\n    # 你的代码\n    pass\n",
+    "funcName": "minPathSum",
+    "testcases": [
+      {
+        "input": "grid = [[1,3,1],[1,5,1],[4,2,1]]",
+        "expected": "7"
+      },
+      {
+        "input": "grid = [[1,2,3],[4,5,6]]",
+        "expected": "12"
+      }
+    ],
+    "similarIds": [
+      62,
+      70
+    ],
+    "enabled": true
+  },
+  {
+    "id": 78,
+    "number": 78,
+    "title": "子集",
+    "difficulty": "medium",
+    "passRate": 81.2,
+    "submissions": "3.9M",
+    "tags": [
+      "位运算",
+      "数组",
+      "回溯"
+    ],
+    "description": "给你一个整数数组 nums ，数组中的元素互不相同。返回该数组所有可能的子集。\n\n解集不能包含重复的子集，你可以按任意顺序返回解集。",
+    "examples": [
+      {
+        "input": [
+          "nums = [1,2,3]"
+        ],
+        "output": [
+          "[[],[1],[2],[3],[1,2],[1,3],[2,3],[1,2,3]]"
+        ]
+      },
+      {
+        "input": [
+          "nums = [0]"
+        ],
+        "output": [
+          "[[],[0]]"
+        ]
+      }
+    ],
+    "defaultCode": "# 子集\ndef subsets(nums):\n    # 你的代码\n    pass\n",
+    "funcName": "subsets",
+    "testcases": [
+      {
+        "input": "nums = [1,2,3]",
+        "expected": "[[],[1],[2],[3],[1,2],[1,3],[2,3],[1,2,3]]",
+        "mode": "deepset"
+      },
+      {
+        "input": "nums = [0]",
+        "expected": "[[],[0]]",
+        "mode": "deepset"
+      }
+    ],
+    "similarIds": [
+      46,
+      22
+    ],
+    "enabled": true
+  },
+  {
+    "id": 79,
+    "number": 79,
+    "title": "单词搜索",
+    "difficulty": "medium",
+    "passRate": 47.3,
+    "submissions": "2.9M",
+    "tags": [
+      "数组",
+      "回溯",
+      "深度优先搜索"
+    ],
+    "description": "给定一个 m x n 二维字符网格 board 和一个字符串单词 word 。\n\n如果 word 存在于网格中，返回 true；否则返回 false。单词必须按照字母顺序，通过相邻的单元格内的字母构成（相邻指水平或垂直方向）。",
+    "examples": [
+      {
+        "input": [
+          "board = [[\"A\",\"B\",\"C\",\"E\"],[\"S\",\"F\",\"C\",\"S\"],[\"A\",\"D\",\"E\",\"E\"]]",
+          "word = \"ABCCED\""
+        ],
+        "output": [
+          "true"
+        ]
+      },
+      {
+        "input": [
+          "board = [[\"A\",\"B\",\"C\",\"E\"],[\"S\",\"F\",\"C\",\"S\"],[\"A\",\"D\",\"E\",\"E\"]]",
+          "word = \"ABCB\""
+        ],
+        "output": [
+          "false"
+        ]
+      }
+    ],
+    "defaultCode": "# 单词搜索\ndef exist(board, word):\n    # 你的代码\n    pass\n",
+    "funcName": "exist",
+    "testcases": [
+      {
+        "input": "board = [[\"A\",\"B\",\"C\",\"E\"],[\"S\",\"F\",\"C\",\"S\"],[\"A\",\"D\",\"E\",\"E\"]], word = \"ABCCED\"",
+        "expected": "true"
+      },
+      {
+        "input": "board = [[\"A\",\"B\",\"C\",\"E\"],[\"S\",\"F\",\"C\",\"S\"],[\"A\",\"D\",\"E\",\"E\"]], word = \"SEE\"",
+        "expected": "true"
+      },
+      {
+        "input": "board = [[\"A\",\"B\",\"C\",\"E\"],[\"S\",\"F\",\"C\",\"S\"],[\"A\",\"D\",\"E\",\"E\"]], word = \"ABCB\"",
+        "expected": "false"
+      }
+    ],
+    "similarIds": [
+      200,
+      46
+    ],
+    "enabled": true
+  },
+  {
+    "id": 128,
+    "number": 128,
+    "title": "最长连续序列",
+    "difficulty": "medium",
+    "passRate": 54.1,
+    "submissions": "3.6M",
+    "tags": [
+      "并查集",
+      "数组",
+      "哈希表"
+    ],
+    "description": "给定一个未排序的整数数组 nums ，找出数字连续的最长序列（不要求序列元素在原数组中连续）的长度。",
+    "examples": [
+      {
+        "input": [
+          "nums = [100,4,200,1,3,2]"
+        ],
+        "output": [
+          "4"
+        ],
+        "explain": "最长数字连续序列是 [1, 2, 3, 4]，长度为 4。"
+      },
+      {
+        "input": [
+          "nums = [0,3,7,2,5,8,4,6,0,1]"
+        ],
+        "output": [
+          "9"
+        ]
+      }
+    ],
+    "defaultCode": "# 最长连续序列\ndef longestConsecutive(nums):\n    # 你的代码\n    pass\n",
+    "funcName": "longestConsecutive",
+    "testcases": [
+      {
+        "input": "nums = [100,4,200,1,3,2]",
+        "expected": "4"
+      },
+      {
+        "input": "nums = [0,3,7,2,5,8,4,6,0,1]",
+        "expected": "9"
+      },
+      {
+        "input": "nums = []",
+        "expected": "0"
+      }
+    ],
+    "similarIds": [
+      3,
+      217
+    ],
+    "enabled": true
+  },
+  {
+    "id": 152,
+    "number": 152,
+    "title": "乘积最大子数组",
+    "difficulty": "medium",
+    "passRate": 43.8,
+    "submissions": "2.7M",
+    "tags": [
+      "数组",
+      "动态规划"
+    ],
+    "description": "给你一个整数数组 nums ，请你找出数组中乘积最大的非空连续子数组，并返回该子数组所对应的乘积。",
+    "examples": [
+      {
+        "input": [
+          "nums = [2,3,-2,4]"
+        ],
+        "output": [
+          "6"
+        ],
+        "explain": "子数组 [2,3] 有最大乘积 6。"
+      },
+      {
+        "input": [
+          "nums = [-2,0,-1]"
+        ],
+        "output": [
+          "0"
+        ]
+      }
+    ],
+    "defaultCode": "# 乘积最大子数组\ndef maxProduct(nums):\n    # 你的代码\n    pass\n",
+    "funcName": "maxProduct",
+    "testcases": [
+      {
+        "input": "nums = [2,3,-2,4]",
+        "expected": "6"
+      },
+      {
+        "input": "nums = [-2,0,-1]",
+        "expected": "0"
+      },
+      {
+        "input": "nums = [-2,3,-4]",
+        "expected": "24"
+      }
+    ],
+    "similarIds": [
+      53,
+      42
+    ],
+    "enabled": true
+  },
+  {
+    "id": 198,
+    "number": 198,
+    "title": "打家劫舍",
+    "difficulty": "medium",
+    "passRate": 54.7,
+    "submissions": "4.6M",
+    "tags": [
+      "数组",
+      "动态规划"
+    ],
+    "description": "你是一个专业的小偷，计划偷窃沿街的房屋。每间房内都藏有一定的现金，但相邻的房屋装有相互连通的防盗系统，如果两间相邻的房屋在同一晚上被小偷闯入，系统会自动报警。\n\n给定一个代表每个房屋存放金额的非负整数数组，计算你在不触动警报装置的情况下，一夜之内能够偷窃到的最高金额。",
+    "examples": [
+      {
+        "input": [
+          "nums = [1,2,3,1]"
+        ],
+        "output": [
+          "4"
+        ],
+        "explain": "偷窃 1 号房屋（金额 1）和 3 号房屋（金额 3），总金额 4。"
+      },
+      {
+        "input": [
+          "nums = [2,7,9,3,1]"
+        ],
+        "output": [
+          "12"
+        ]
+      }
+    ],
+    "defaultCode": "# 打家劫舍\ndef rob(nums):\n    # 你的代码\n    pass\n",
+    "funcName": "rob",
+    "testcases": [
+      {
+        "input": "nums = [1,2,3,1]",
+        "expected": "4"
+      },
+      {
+        "input": "nums = [2,7,9,3,1]",
+        "expected": "12"
+      },
+      {
+        "input": "nums = []",
+        "expected": "0"
+      },
+      {
+        "input": "nums = [2]",
+        "expected": "2"
+      }
+    ],
+    "similarIds": [
+      70,
+      53
+    ],
+    "enabled": true
+  },
+  {
+    "id": 238,
+    "number": 238,
+    "title": "除自身以外数组的乘积",
+    "difficulty": "medium",
+    "passRate": 75.3,
+    "submissions": "3.8M",
+    "tags": [
+      "数组",
+      "前缀和"
+    ],
+    "description": "给你一个整数数组 nums ，返回数组 answer ，其中 answer[i] 等于 nums 中除 nums[i] 之外其余各元素的乘积。\n\n请不要使用除法。",
+    "examples": [
+      {
+        "input": [
+          "nums = [1,2,3,4]"
+        ],
+        "output": [
+          "[24,12,8,6]"
+        ]
+      },
+      {
+        "input": [
+          "nums = [-1,1,0,-3,3]"
+        ],
+        "output": [
+          "[0,0,9,0,0]"
+        ]
+      }
+    ],
+    "defaultCode": "# 除自身以外数组的乘积\ndef productExceptSelf(nums):\n    # 你的代码\n    pass\n",
+    "funcName": "productExceptSelf",
+    "testcases": [
+      {
+        "input": "nums = [1,2,3,4]",
+        "expected": "[24,12,8,6]"
+      },
+      {
+        "input": "nums = [-1,1,0,-3,3]",
+        "expected": "[0,0,9,0,0]"
+      }
+    ],
+    "similarIds": [
+      42,
+      152
+    ],
+    "enabled": true
+  },
+  {
+    "id": 300,
+    "number": 300,
+    "title": "最长递增子序列",
+    "difficulty": "medium",
+    "passRate": 55.2,
+    "submissions": "4.1M",
+    "tags": [
+      "数组",
+      "二分查找",
+      "动态规划"
+    ],
+    "description": "给你一个整数数组 nums ，找到其中最长严格递增子序列的长度。",
+    "examples": [
+      {
+        "input": [
+          "nums = [10,9,2,5,3,7,101,18]"
+        ],
+        "output": [
+          "4"
+        ],
+        "explain": "最长递增子序列是 [2,3,7,101]，长度为 4。"
+      },
+      {
+        "input": [
+          "nums = [0,1,0,3,2,3]"
+        ],
+        "output": [
+          "4"
+        ]
+      }
+    ],
+    "defaultCode": "# 最长递增子序列\ndef lengthOfLIS(nums):\n    # 你的代码\n    pass\n",
+    "funcName": "lengthOfLIS",
+    "testcases": [
+      {
+        "input": "nums = [10,9,2,5,3,7,101,18]",
+        "expected": "4"
+      },
+      {
+        "input": "nums = [0,1,0,3,2,3]",
+        "expected": "4"
+      },
+      {
+        "input": "nums = [7,7,7,7]",
+        "expected": "1"
+      }
+    ],
+    "similarIds": [
+      3,
+      53
+    ],
+    "enabled": true
+  },
+  {
+    "id": 322,
+    "number": 322,
+    "title": "零钱兑换",
+    "difficulty": "medium",
+    "passRate": 46.9,
+    "submissions": "3.7M",
+    "tags": [
+      "广度优先搜索",
+      "数组",
+      "动态规划"
+    ],
+    "description": "给你一个整数数组 coins 表示不同面额的硬币，以及一个整数 amount 表示总金额。\n\n计算并返回可以凑成总金额所需的最少的硬币个数。如果没有任何一种硬币组合能组成总金额，返回 -1。",
+    "examples": [
+      {
+        "input": [
+          "coins = [1,2,5]",
+          "amount = 11"
+        ],
+        "output": [
+          "3"
+        ],
+        "explain": "11 = 5 + 5 + 1，共 3 枚硬币。"
+      },
+      {
+        "input": [
+          "coins = [2]",
+          "amount = 3"
+        ],
+        "output": [
+          "-1"
+        ]
+      }
+    ],
+    "defaultCode": "# 零钱兑换\ndef coinChange(coins, amount):\n    # 你的代码\n    pass\n",
+    "funcName": "coinChange",
+    "testcases": [
+      {
+        "input": "coins = [1,2,5], amount = 11",
+        "expected": "3"
+      },
+      {
+        "input": "coins = [2], amount = 3",
+        "expected": "-1"
+      },
+      {
+        "input": "coins = [1], amount = 0",
+        "expected": "0"
+      }
+    ],
+    "similarIds": [
+      70,
+      198
+    ],
+    "enabled": true
+  },
+  {
+    "id": 347,
+    "number": 347,
+    "title": "前 K 个高频元素",
+    "difficulty": "medium",
+    "passRate": 63.1,
+    "submissions": "2.8M",
+    "tags": [
+      "数组",
+      "哈希表",
+      "堆"
+    ],
+    "description": "给你一个整数数组 nums 和一个整数 k ，请你返回其中出现频率前 k 高的元素。\n\n你可以按任意顺序返回答案。",
+    "examples": [
+      {
+        "input": [
+          "nums = [1,1,1,2,2,3]",
+          "k = 2"
+        ],
+        "output": [
+          "[1,2]"
+        ]
+      },
+      {
+        "input": [
+          "nums = [1]",
+          "k = 1"
+        ],
+        "output": [
+          "[1]"
+        ]
+      }
+    ],
+    "defaultCode": "# 前 K 个高频元素\ndef topKFrequent(nums, k):\n    # 你的代码\n    pass\n",
+    "funcName": "topKFrequent",
+    "testcases": [
+      {
+        "input": "nums = [1,1,1,2,2,3], k = 2",
+        "expected": "[1,2]",
+        "mode": "deepset"
+      },
+      {
+        "input": "nums = [1], k = 1",
+        "expected": "[1]",
+        "mode": "deepset"
+      }
+    ],
+    "similarIds": [
+      215,
+      169
+    ],
+    "enabled": true
+  },
+  {
+    "id": 22,
+    "number": 22,
+    "title": "括号生成",
+    "difficulty": "medium",
+    "passRate": 78.6,
+    "submissions": "3.5M",
+    "tags": [
+      "字符串",
+      "回溯",
+      "动态规划"
+    ],
+    "description": "数字 n 代表生成括号的对数，请你设计一个函数，用于能够生成所有可能的并且有效的括号组合。",
+    "examples": [
+      {
+        "input": [
+          "n = 3"
+        ],
+        "output": [
+          "[\"((()))\",\"(()())\",\"(())()\",\"()(())\",\"()()()\"]"
+        ]
+      },
+      {
+        "input": [
+          "n = 1"
+        ],
+        "output": [
+          "[\"()\"]"
+        ]
+      }
+    ],
+    "defaultCode": "# 括号生成\ndef generateParenthesis(n):\n    # 你的代码\n    pass\n",
+    "funcName": "generateParenthesis",
+    "testcases": [
+      {
+        "input": "n = 3",
+        "expected": "[\"((()))\",\"(()())\",\"(())()\",\"()(())\",\"()()()\"]",
+        "mode": "set"
+      },
+      {
+        "input": "n = 1",
+        "expected": "[\"()\"]",
+        "mode": "set"
+      }
+    ],
+    "similarIds": [
+      20,
+      46
+    ],
+    "enabled": true
+  },
+  {
+    "id": 32,
+    "number": 32,
+    "title": "最长有效括号",
+    "difficulty": "hard",
+    "passRate": 38.4,
+    "submissions": "1.9M",
+    "tags": [
+      "栈",
+      "字符串",
+      "动态规划"
+    ],
+    "description": "给你一个只包含 '(' 和 ')' 的字符串，找出最长有效（格式正确且连续）括号子串的长度。",
+    "examples": [
+      {
+        "input": [
+          "s = \"(()\""
+        ],
+        "output": [
+          "2"
+        ],
+        "explain": "最长有效括号子串是 \"()\"。"
+      },
+      {
+        "input": [
+          "s = \")()())\""
+        ],
+        "output": [
+          "4"
+        ],
+        "explain": "最长有效括号子串是 \"()()\"。"
+      }
+    ],
+    "defaultCode": "# 最长有效括号\ndef longestValidParentheses(s):\n    # 你的代码\n    pass\n",
+    "funcName": "longestValidParentheses",
+    "testcases": [
+      {
+        "input": "s = \"(()\"",
+        "expected": "2"
+      },
+      {
+        "input": "s = \")()())\"",
+        "expected": "4"
+      },
+      {
+        "input": "s = \"\"",
+        "expected": "0"
+      },
+      {
+        "input": "s = \"()(())\"",
+        "expected": "6"
+      }
+    ],
+    "similarIds": [
+      20,
+      22
+    ],
+    "enabled": true
+  },
+  {
+    "id": 41,
+    "number": 41,
+    "title": "缺失的第一个正数",
+    "difficulty": "hard",
+    "passRate": 42.7,
+    "submissions": "2.1M",
+    "tags": [
+      "数组",
+      "哈希表"
+    ],
+    "description": "给你一个未排序的整数数组 nums ，请你找出其中没有出现的最小的正整数。",
+    "examples": [
+      {
+        "input": [
+          "nums = [1,2,0]"
+        ],
+        "output": [
+          "3"
+        ]
+      },
+      {
+        "input": [
+          "nums = [3,4,-1,1]"
+        ],
+        "output": [
+          "2"
+        ]
+      },
+      {
+        "input": [
+          "nums = [7,8,9,11,12]"
+        ],
+        "output": [
+          "1"
+        ]
+      }
+    ],
+    "defaultCode": "# 缺失的第一个正数\ndef firstMissingPositive(nums):\n    # 你的代码\n    pass\n",
+    "funcName": "firstMissingPositive",
+    "testcases": [
+      {
+        "input": "nums = [1,2,0]",
+        "expected": "3"
+      },
+      {
+        "input": "nums = [3,4,-1,1]",
+        "expected": "2"
+      },
+      {
+        "input": "nums = [7,8,9,11,12]",
+        "expected": "1"
+      }
+    ],
+    "similarIds": [
+      217,
+      128
+    ],
+    "enabled": true
+  },
+  {
+    "id": 76,
+    "number": 76,
+    "title": "最小覆盖子串",
+    "difficulty": "hard",
+    "passRate": 45.2,
+    "submissions": "2.4M",
+    "tags": [
+      "字符串",
+      "滑动窗口",
+      "哈希表"
+    ],
+    "description": "给你一个字符串 s 、一个字符串 t 。返回 s 中涵盖 t 所有字符的最小子串。\n\n如果 s 中不存在涵盖 t 所有字符的子串，则返回空字符串 \"\"。",
+    "examples": [
+      {
+        "input": [
+          "s = \"ADOBECODEBANC\"",
+          "t = \"ABC\""
+        ],
+        "output": [
+          "\"BANC\""
+        ]
+      },
+      {
+        "input": [
+          "s = \"a\"",
+          "t = \"aa\""
+        ],
+        "output": [
+          "\"\""
+        ],
+        "explain": "t 中的两个字符 a 在 s 中只有一个，无法覆盖。"
+      }
+    ],
+    "defaultCode": "# 最小覆盖子串\ndef minWindow(s, t):\n    # 你的代码\n    pass\n",
+    "funcName": "minWindow",
+    "testcases": [
+      {
+        "input": "s = \"ADOBECODEBANC\", t = \"ABC\"",
+        "expected": "\"BANC\""
+      },
+      {
+        "input": "s = \"a\", t = \"aa\"",
+        "expected": "\"\""
+      },
+      {
+        "input": "s = \"a\", t = \"a\"",
+        "expected": "\"a\""
+      }
+    ],
+    "similarIds": [
+      3,
+      200
+    ],
+    "enabled": true
+  },
+  {
+    "id": 239,
+    "number": 239,
+    "title": "滑动窗口最大值",
+    "difficulty": "hard",
+    "passRate": 50.8,
+    "submissions": "2.3M",
+    "tags": [
+      "队列",
+      "数组",
+      "滑动窗口",
+      "单调队列"
+    ],
+    "description": "给你一个整数数组 nums 和一个滑动窗口大小 k ，窗口从数组的最左侧移动到最右侧，每次向右移动一位。\n\n返回滑动窗口中的最大值数组。",
+    "examples": [
+      {
+        "input": [
+          "nums = [1,3,-1,-3,5,3,6,7]",
+          "k = 3"
+        ],
+        "output": [
+          "[3,3,5,5,6,7]"
+        ]
+      },
+      {
+        "input": [
+          "nums = [1]",
+          "k = 1"
+        ],
+        "output": [
+          "[1]"
+        ]
+      }
+    ],
+    "defaultCode": "# 滑动窗口最大值\ndef maxSlidingWindow(nums, k):\n    # 你的代码\n    pass\n",
+    "funcName": "maxSlidingWindow",
+    "testcases": [
+      {
+        "input": "nums = [1,3,-1,-3,5,3,6,7], k = 3",
+        "expected": "[3,3,5,5,6,7]"
+      },
+      {
+        "input": "nums = [1], k = 1",
+        "expected": "[1]"
+      }
+    ],
+    "similarIds": [
+      155,
+      84
+    ],
+    "enabled": true
+  }
+]

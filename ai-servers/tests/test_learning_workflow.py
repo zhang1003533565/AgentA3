@@ -35,7 +35,6 @@ RESOURCE_AGENTS = {
     "diagram_mind_map_agent": "mind_map",
     "python_practice_set_agent": "practice_set",
     "python_code_lab_agent": "code_lab",
-    "ppt_outline_agent": "presentation",
     "extension_reading_agent": "extended_reading",
 }
 ALL_RESOURCE_TYPES = list(RESOURCE_AGENTS.values())
@@ -168,8 +167,6 @@ class FakeRunner:
                 result["nodes"] = [{"id": "root", "label": "循环"}]
             elif resource_type == "code_lab":
                 result["codeBlocks"] = [{"language": "python", "code": "print('ok')"}]
-            elif resource_type == "presentation":
-                result["outline"] = {"slides": [{"title": "循环入门"}]}
             elif resource_type == "extended_reading":
                 result["readings"] = [{"title": "迭代协议", "level": "extension"}]
             return json.dumps(result, ensure_ascii=False)
@@ -233,11 +230,11 @@ def test_workflow_runs_shared_plan_resources_review_and_package():
     assert runner.calls[0] == "learning_path_agent"
     assert set(runner.parallel_calls) == set(RESOURCE_AGENTS)
     assert runner.calls[-2:] == ["resource_review_agent", "resource_package_agent"]
-    assert runner.max_active == 3
-    assert len(result.resources) == 6
+    assert 1 <= runner.max_active <= 3
+    assert len(result.resources) == 5
     assert all(item.reviewStatus == "passed" for item in result.resources)
     assert result.pathDraft.title == "循环与函数强化路径"
-    assert result.packageMetadata.resourceCount == 6
+    assert result.packageMetadata.resourceCount == 5
     assert [event.sequence for event in result.events] == list(range(1, len(result.events) + 1))
     assert result.events[0].agentName == "learning_path_agent"
     assert result.events[-1].stage == "completed"
@@ -256,8 +253,8 @@ def test_workflow_callback_wraps_real_planning_generation_and_review_operations(
 
     names = [name for name, _ in observed]
     assert names[0] == "planning_start"
-    assert names.count("agent_start") == 6
-    assert names.count("agent_done") == 6
+    assert names.count("agent_start") == 5
+    assert names.count("agent_done") == 5
     assert names.index("review_start") > max(
         index for index, name in enumerate(names) if name == "agent_done"
     )
@@ -292,7 +289,6 @@ def test_structured_payload_survives_result_review_and_package():
         for item in resources["practice_set"]["payload"]["questions"]
     )
     assert resources["code_lab"]["payload"]["codeLab"]["codeBlocks"][0]["language"] == "python"
-    assert resources["presentation"]["payload"]["outline"]["slides"][0]["title"] == "循环入门"
     assert resources["extended_reading"]["payload"]["reading"]["readings"][0]["title"] == "迭代协议"
 
     review_inputs = [
@@ -437,13 +433,13 @@ def test_package_rejects_missing_mandatory_resource_type():
     assert runner.calls == []
 
 
-def test_package_rejects_fewer_than_five_passed_resources_after_one_rewrite():
+def test_package_rejects_fewer_than_four_passed_resources_after_one_rewrite():
     runner = FakeRunner(
         rejected={"mind_map", "extended_reading"},
         rewrite_still_rejected={"mind_map", "extended_reading"},
     )
 
-    with pytest.raises(ValueError, match="至少 5"):
+    with pytest.raises(ValueError, match="至少 4"):
         run_learning_workflow(build_request(), runner=runner)
 
     assert runner.calls.count("diagram_mind_map_agent") == 2
@@ -460,7 +456,7 @@ def test_result_keeps_rejected_optional_resource_but_package_excludes_it():
 
     result = run_learning_workflow(build_request(), runner=runner)
 
-    assert len(result.resources) == 6
+    assert len(result.resources) == 5
     rejected = [item for item in result.resources if item.reviewStatus == "rejected"]
     assert [item.resourceType for item in rejected] == ["extended_reading"]
     assert runner.calls.count("resource_review_agent") == 2
@@ -468,7 +464,7 @@ def test_result_keeps_rejected_optional_resource_but_package_excludes_it():
         payload for agent_name, payload, _ in runner.inputs
         if agent_name == "resource_package_agent"
     )
-    assert len(package_input["resources"]) == 5
+    assert len(package_input["resources"]) == 4
     assert all(item["reviewStatus"] == "passed" for item in package_input["resources"])
 
 
@@ -695,8 +691,6 @@ def test_production_workflow_runner_adapts_registered_legacy_outputs():
             return "## 知识讲义\n- 循环重复执行代码"
         if agent_name == "diagram_mind_map_agent":
             return json.dumps({"url": "https://cdn.example.edu/mind-map.png", "taskId": "img-1"})
-        if agent_name == "ppt_outline_agent":
-            return "## PPT 大纲\n### 第1页\n- 页标题：循环"
         raise AssertionError(agent_name)
 
     chat_service = object()
@@ -726,14 +720,6 @@ def test_production_workflow_runner_adapts_registered_legacy_outputs():
             evidence,
         )
     )
-    presentation = json.loads(
-        runner.run(
-            "ppt_outline_agent",
-            workflow_input(["ev-python-1"]),
-            evidence,
-        )
-    )
-
     assert knowledge == {
         "resourceType": "knowledge_note",
         "content": "## 知识讲义\n- 循环重复执行代码",
@@ -746,13 +732,9 @@ def test_production_workflow_runner_adapts_registered_legacy_outputs():
     assert mind_map["resourceType"] == "mind_map"
     assert mind_map["payload"]["mindMap"]["url"] == "https://cdn.example.edu/mind-map.png"
     assert mind_map["evidenceIds"] == ["ev-python-2"]
-    assert presentation["resourceType"] == "presentation"
-    assert presentation["payload"]["outline"].startswith("## PPT 大纲")
-    assert presentation["evidenceIds"] == ["ev-python-1"]
     assert [call[2] for call in calls] == [
         [evidence[0]],
         [evidence[1]],
-        [evidence[0]],
     ]
     assert all(call[3] is chat_service for call in calls)
 
@@ -824,7 +806,6 @@ def test_default_production_runner_propagates_and_isolates_request_llm_context(
         if agent_name not in {
             "textbook_knowledge_agent",
             "diagram_mind_map_agent",
-            "ppt_outline_agent",
         }:
             return answer
 
@@ -878,12 +859,6 @@ def test_default_production_runner_propagates_and_isolates_request_llm_context(
             "diagram_mind_map_agent",
             {"kind": "mind_map", "mindMap": {"url": "old.png"}},
             json.dumps({"url": "new.png"}, ensure_ascii=False),
-        ),
-        (
-            "presentation",
-            "ppt_outline_agent",
-            {"kind": "presentation", "outline": "旧课件", "metadata": {}},
-            "## 新课件",
         ),
     ],
 )

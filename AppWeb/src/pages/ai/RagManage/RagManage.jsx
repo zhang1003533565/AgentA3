@@ -356,7 +356,7 @@ function RagManage({ page = 'playground' }) {
       { value: 'leader_agent', label: 'Leader 自动路由 · 意图识别/分发' },
       ...agents.filter((item) => item.name !== 'leader_agent').map((item) => ({
         value: item.name,
-        label: `${item.role} · ${item.name}${isAgentEnabled(item) ? '' : ' · 已关闭'}`,
+        label: `${item.role} · ${item.name}${item.internalOnly ? ' · 系统内部必用' : (isAgentEnabled(item) ? '' : ' · 已关闭')}`,
         disabled: !isAgentEnabled(item),
       })),
     ],
@@ -366,7 +366,7 @@ function RagManage({ page = 'playground' }) {
   const agentTestOptions = useMemo(
     () => agents.map((item) => ({
       value: item.name,
-      label: `${item.role} · ${item.name}${isAgentEnabled(item) ? '' : ' · 已关闭'}`,
+      label: `${item.role} · ${item.name}${item.internalOnly ? ' · 系统内部必用' : (isAgentEnabled(item) ? '' : ' · 已关闭')}`,
       disabled: !isAgentEnabled(item),
     })),
     [agents]

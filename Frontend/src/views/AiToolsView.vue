@@ -6,13 +6,9 @@ import examHero from '../assets/ai-tools/exam-hero.png'
 import campusIllustrations from '../assets/ai-tools/campus-illustrations-strip.png'
 import toolIllustrations from '../assets/ai-tools/tool-illustrations-strip.png'
 import { getCampusCourses } from '../api/campusCourse'
-import { getUserInfo } from '../utils/auth'
+import AppTabBar from '../components/AppTabBar.vue'
 
 const router = useRouter()
-const userInfo = computed(() => getUserInfo() || {})
-const displayName = computed(() => userInfo.value.realName || userInfo.value.username || '同学')
-const avatarUrl = computed(() => userInfo.value.avatar || '')
-const avatarText = computed(() => displayName.value.slice(0, 1).toUpperCase())
 
 const heroIndex = ref(0)
 const activeCategory = ref('hot')
@@ -104,6 +100,7 @@ const categories = [
   { key: 'diagram', label: '图表设计', icon: 'campus', color: '#18a37d' },
   { key: 'learning', label: '学习测评', icon: 'book', color: '#f59e0b' },
   { key: 'campus', label: '校园求职', icon: 'briefcase', color: '#1768e6' },
+  { key: 'convert', label: '格式转换', icon: 'convert', color: '#315f8c' },
 ]
 
 const baseTools = [
@@ -118,6 +115,12 @@ const baseTools = [
   { name: '知识图谱', desc: '查看课程知识关系与学习路径', category: ['diagram', 'learning'], artSet: 'core', art: 4, route: '/learning/knowledge-graph', accent: '#18a37d' },
   { name: '校园地图', desc: '查询校园地点、设施和导航', category: ['campus'], artSet: 'service', art: 1, route: '/map', accent: '#56aa1b' },
   { name: 'AI 简历', desc: '智能创建、解析与优化简历', category: ['hot', 'campus'], artSet: 'service', art: 2, route: '/resume', accent: '#1768e6' },
+  { name: 'PDF → Word', desc: 'PDF 转 Word 文档', category: ['convert'], artSet: 'core', art: 0, route: '/convert?type=pdf_to_docx', accent: '#5C7A99' },
+  { name: 'PPT → Word', desc: 'PPT 转 Word 文档', category: ['convert'], artSet: 'core', art: 1, route: '/convert?type=ppt_to_docx', accent: '#6B9B7A' },
+  { name: 'Word → PDF', desc: 'Word 转 PDF 文档', category: ['convert'], artSet: 'core', art: 2, route: '/convert?type=docx_to_pdf', accent: '#B89B7A' },
+  { name: 'PDF → PPT', desc: 'PDF 转 PPT 演示文稿', category: ['convert'], artSet: 'core', art: 3, route: '/convert?type=pdf_to_ppt', accent: '#8B7AB8' },
+  { name: 'PPT → PDF', desc: 'PPT 转 PDF 文档', category: ['convert'], artSet: 'core', art: 4, route: '/convert?type=ppt_to_pdf', accent: '#7A9BB8' },
+  { name: 'Word → PPT', desc: 'Word 转 PPT 演示文稿', category: ['convert'], artSet: 'core', art: 5, route: '/convert?type=docx_to_ppt', accent: '#A67B7B' },
 ]
 
 const displayedTools = computed(() => {
@@ -284,36 +287,7 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="ai-tools-page">
-    <header class="tools-header">
-      <div class="tools-header__inner">
-        <RouterLink class="campus-brand" to="/home" aria-label="智慧校园首页">
-          <span class="campus-brand__mark">A3</span>
-          <span>
-            <strong>智慧校园</strong>
-            <em>让学习，更有方法</em>
-          </span>
-        </RouterLink>
-
-        <nav class="tools-nav" aria-label="AI工具页导航">
-          <RouterLink to="/home">首页</RouterLink>
-          <RouterLink to="/map">校园地图</RouterLink>
-          <RouterLink to="/meetings">会议</RouterLink>
-          <RouterLink to="/ai">AI助手</RouterLink>
-          <RouterLink class="active" to="/ai-tools">AI工具</RouterLink>
-          <RouterLink to="/mine">我的页面</RouterLink>
-          <RouterLink to="/resume">我的简历</RouterLink>
-        </nav>
-
-        <RouterLink class="user-entry" to="/mine">
-          <span class="user-avatar">
-            <img v-if="avatarUrl" :src="avatarUrl" alt="" />
-            <span v-else>{{ avatarText }}</span>
-          </span>
-          <span>你好，{{ displayName }}</span>
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 10 5 5 5-5" /></svg>
-        </RouterLink>
-      </div>
-    </header>
+    <AppTabBar />
 
     <main>
       <section
@@ -385,6 +359,7 @@ onBeforeUnmount(() => {
             <svg v-else-if="category.icon === 'book'" viewBox="0 0 24 24"><path d="M3 5.5A3.5 3.5 0 0 1 6.5 2H11v17H6.5A3.5 3.5 0 0 0 3 22V5.5Zm18 0A3.5 3.5 0 0 0 17.5 2H13v17h4.5A3.5 3.5 0 0 1 21 22V5.5Z" /></svg>
             <svg v-else-if="category.icon === 'campus'" viewBox="0 0 24 24"><path d="M3 21V9l5-3v15m8 0V6l5 3v12M8 9h8M6 12h1m-1 3h1m-1 3h1m10-6h1m-1 3h1m-1 3h1M10 13h4v8h-4z" /></svg>
             <svg v-else-if="category.icon === 'briefcase'" viewBox="0 0 24 24"><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M3 9h18v11H3zM3 13c5 2 13 2 18 0M10 13h4" /></svg>
+            <svg v-else-if="category.icon === 'convert'" viewBox="0 0 24 24"><path d="M4 8h13m-3-3 3 3-3 3M20 16H7m3 3-3-3 3-3" /></svg>
             <svg v-else viewBox="0 0 24 24"><path d="m13 2-8 12h6l-1 8 9-13h-6z" /></svg>
           </span>
           <strong>{{ category.label }}</strong>
@@ -475,6 +450,7 @@ onBeforeUnmount(() => {
 .ai-tools-page {
   --ink: #17191f;
   min-height: 100vh;
+  padding-top: 60px;
   overflow: hidden;
   color: var(--ink);
   background:
@@ -892,7 +868,7 @@ svg {
   position: relative;
   z-index: 16;
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
+  grid-template-columns: repeat(6, 1fr);
   width: min(1080px, calc(100% - 56px));
   min-height: 72px;
   margin: -32px auto 0;

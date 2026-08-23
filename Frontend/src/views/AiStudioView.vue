@@ -1,10 +1,11 @@
 <script setup>
-import { computed, ref } from 'vue'
-import { useRoute } from 'vue-router'
+import { computed, onMounted, ref } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import AppTabBar from '../components/AppTabBar.vue'
-import { generateImage, getImageTask, queryLeaderAgent, writeWithAi } from '../api/aiGeneration'
+import { generateImage, getAiWritingModels, getImageTask, queryLeaderAgent, writeWithAi } from '../api/aiGeneration'
 
 const route = useRoute()
+const router = useRouter()
 const active = ref(String(route.params.tool || 'writing'))
 const prompt = ref('')
 const tone = ref('专业')
@@ -12,6 +13,8 @@ const wordCount = ref('800')
 const loading = ref(false)
 const error = ref('')
 const result = ref(null)
+const models = ref([])
+const selectedModel = ref('')
 const tools = [
   ['writing','智能写作','生成校园常用文稿'],
   ['image','AI 文生图','根据描述生成图片'],
@@ -34,12 +37,31 @@ async function poll(taskId) {
     if (['success','partial_success','failed'].includes(snapshot.status)) break
   }
 }
+async function loadModels() {
+  try {
+    const list = await getAiWritingModels()
+    models.value = (Array.isArray(list) ? list : [])
+      .map((m) => {
+        const model = String(m?.model || m?.displayName || '').trim()
+        const providerName = String(m?.providerName || m?.provider || '').trim()
+        const configPrefix = String(m?.configPrefix || '').trim()
+        return { value: configPrefix || model, label: m?.displayName || model || providerName || '未命名模型' }
+      })
+      .filter((o) => o.value)
+    if (models.value.length && !models.value.some((o) => o.value === selectedModel.value)) {
+      selectedModel.value = models.value[0].value
+    }
+  } catch {
+    models.value = []
+  }
+}
+onMounted(loadModels)
 async function generate() {
   if (!prompt.value.trim() || loading.value) return
   loading.value=true;error.value='';result.value=null
   try {
     if (active.value === 'writing') {
-      result.value = await writeWithAi({ prompt:prompt.value.trim(),tone:tone.value,wordCount:wordCount.value })
+      result.value = await writeWithAi({ prompt:prompt.value.trim(),tone:tone.value,wordCount:wordCount.value,modelName:selectedModel.value })
     } else if (active.value === 'image') {
       result.value = await generateImage({ prompt:prompt.value.trim(),style:'clean',size:'1024x1024',count:1,returnType:'url',metadata:{source:'web_ai_studio'} })
       if (result.value.taskId && result.value.status === 'running') await poll(result.value.taskId)
@@ -55,8 +77,8 @@ async function generate() {
 function switchTool(value){active.value=value;result.value=null;error.value='';history.replaceState(null,'',`/ai-studio/${value}`)}
 </script>
 <template><div class="feature-page"><AppTabBar/><main class="studio">
-  <aside class="feature-card studio-nav"><h2>AI 创作工具</h2><button v-for="[value,label,desc] in tools" :key="value" :class="{active:active===value}" @click="switchTool(value)"><i></i><span><strong>{{label}}</strong><small>{{desc}}</small></span></button></aside>
-  <section class="feature-card studio-config"><header><span>AI STUDIO</span><h1>{{currentTool[1]}}</h1><p>{{currentTool[2]}}</p></header><label>创作需求<textarea v-model="prompt" class="feature-textarea" placeholder="描述需要生成的内容、用途和约束"></textarea></label><div v-if="active==='writing'" class="form-grid"><label>表达语气<select v-model="tone" class="feature-select"><option>专业</option><option>简洁</option><option>正式</option><option>亲切</option></select></label><label>目标字数<input v-model="wordCount" class="feature-input"/></label></div><button class="feature-button feature-button--primary" :disabled="loading||!prompt.trim()" @click="generate">{{loading?'生成中…':`生成${currentTool[1]}`}}</button><div v-if="error" class="feature-error">{{error}}</div></section>
+  <aside class="feature-card studio-nav"><h2>AI 创作工具</h2><button v-for="[value,label,desc] in tools" :key="value" :class="{active:active===value}" @click="switchTool(value)"><i></i><span><strong>{{label}}</strong><small>{{desc}}</small></span></button><button type="button" @click="router.push('/convert')"><i></i><span><strong>格式转换</strong><small>PDF / Word / PPT 互转</small></span></button></aside>
+  <section class="feature-card studio-config"><header><span>AI STUDIO</span><h1>{{currentTool[1]}}</h1><p>{{currentTool[2]}}</p></header><label>创作需求<textarea v-model="prompt" class="feature-textarea" placeholder="描述需要生成的内容、用途和约束"></textarea></label><div v-if="active==='writing'" class="form-grid"><label>选择模型<select v-model="selectedModel" class="feature-select"><option v-if="!models.length" value="">暂无可用模型</option><option v-for="m in models" :key="m.value" :value="m.value">{{m.label}}</option></select></label><label>表达语气<select v-model="tone" class="feature-select"><option>专业</option><option>简洁</option><option>正式</option><option>亲切</option></select></label><label>目标字数<input v-model="wordCount" class="feature-input"/></label></div><button class="feature-button feature-button--primary" :disabled="loading||!prompt.trim()" @click="generate">{{loading?'生成中…':`生成${currentTool[1]}`}}</button><div v-if="error" class="feature-error">{{error}}</div></section>
   <section class="feature-card studio-result"><div class="feature-section__head"><h2>生成结果</h2><span v-if="result" class="feature-status feature-status--completed">已返回</span></div><div v-if="!result" class="feature-empty">填写需求并开始生成，结果将显示在这里</div><article v-else><div v-if="answer" class="answer">{{answer}}</div><div v-if="images.length" class="image-results"><img v-for="image in images" :key="image.url||image" :src="image.url||image" alt="AI 生成图片"/></div><div v-if="resources.length" class="feature-list"><a v-for="resource in resources" :key="resource.id" class="feature-row" :href="resource.previewUrl||resource.url" target="_blank" rel="noreferrer"><div class="feature-row__copy"><strong>{{resource.title||resource.kind}}</strong><span>{{resource.summary}}</span></div><b>打开资源</b></a></div><div v-if="!answer&&!images.length&&!resources.length" class="feature-empty">{{result.message||'任务已受理，请稍后在 AI 历史中查看结果'}}</div></article></section>
 </main></div></template>
 <style scoped>

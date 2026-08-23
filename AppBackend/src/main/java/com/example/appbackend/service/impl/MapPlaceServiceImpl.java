@@ -86,7 +86,7 @@ public class MapPlaceServiceImpl implements MapPlaceService {
         String type = normalizeOptional(placeType);
         String normalizedStatus = normalizeOptional(status);
         String normalizedKeyword = keyword == null ? null : keyword.trim().toLowerCase(Locale.ROOT);
-        return source.stream()
+        List<MapPlaceResponse> responses = source.stream()
                 .filter(item -> parentId == null || Objects.equals(parentId, item.getParentId()))
                 .filter(item -> type == null || type.equals(item.getPlaceType()))
                 .filter(item -> normalizedStatus == null || normalizedStatus.equals(item.getStatus()))
@@ -95,6 +95,8 @@ public class MapPlaceServiceImpl implements MapPlaceService {
                 .sorted(Comparator.comparing(MapPlace::getSortOrder).thenComparing(MapPlace::getId))
                 .map(item -> toResponse(item, false))
                 .toList();
+        attachFences(responses);
+        return responses;
     }
 
     @Override
@@ -135,7 +137,13 @@ public class MapPlaceServiceImpl implements MapPlaceService {
     @Override
     @Transactional(readOnly = true)
     public MapPlaceResponse detail(Long id) {
-        return toResponse(requirePlace(id), true);
+        return detail(id, true);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public MapPlaceResponse detail(Long id, boolean includeChildren) {
+        return toResponse(requirePlace(id), true, includeChildren);
     }
 
     @Override
@@ -283,9 +291,17 @@ public class MapPlaceServiceImpl implements MapPlaceService {
 
     @Override
     @Transactional(readOnly = true)
-    public List<MapPlaceIndoorPosition> listPositions(Long floorPlanId) {
-        requireFloorPlan(floorPlanId);
-        return positionRepository.findByFloorPlanIdOrderByIdAsc(floorPlanId);
+    public List<MapIndoorPositionResponse> listPositions(Long floorPlanId) {
+        MapFloorPlan plan = requireFloorPlan(floorPlanId);
+        MapPlace floor = requireFloor(plan.getFloorPlaceId());
+        List<MapPlaceIndoorPosition> positions = positionRepository.findByFloorPlanIdOrderByIdAsc(floorPlanId);
+        if (positions.isEmpty()) return List.of();
+        Map<Long, MapPlace> places = placeRepository.findAllById(
+                positions.stream().map(MapPlaceIndoorPosition::getPlaceId).toList()
+        ).stream().collect(Collectors.toMap(MapPlace::getId, Function.identity()));
+        return positions.stream()
+                .map(position -> toIndoorPositionResponse(position, places.get(position.getPlaceId()), floor))
+                .toList();
     }
 
     @Override
@@ -398,6 +414,10 @@ public class MapPlaceServiceImpl implements MapPlaceService {
     }
 
     private MapPlaceResponse toResponse(MapPlace place, boolean includeDetails) {
+        return toResponse(place, includeDetails, includeDetails);
+    }
+
+    private MapPlaceResponse toResponse(MapPlace place, boolean includeDetails, boolean includeChildren) {
         MapPlaceResponse response = new MapPlaceResponse();
         response.setId(place.getId());
         response.setParentId(place.getParentId());
@@ -435,6 +455,50 @@ public class MapPlaceServiceImpl implements MapPlaceService {
                                 .findByPlaceIdAndFloorPlanId(place.getId(), plan.getId()).orElse(null))
                 );
             }
+            if (includeChildren) {
+                List<MapPlace> children = placeRepository.findByParentIdOrderBySortOrderAscIdAsc(place.getId());
+                if (!children.isEmpty()) {
+                    response.setChildren(children.stream()
+                            .map(child -> toResponse(child, true, true))
+                            .toList());
+                }
+            }
+        }
+        return response;
+    }
+
+    private void attachFences(List<MapPlaceResponse> items) {
+        if (items == null || items.isEmpty()) return;
+        List<Long> ids = items.stream().map(MapPlaceResponse::getId).filter(Objects::nonNull).toList();
+        if (ids.isEmpty()) return;
+        Map<Long, MapPlaceFence> fences = fenceRepository.findByPlaceIdIn(ids).stream()
+                .collect(Collectors.toMap(MapPlaceFence::getPlaceId, Function.identity(), (left, right) -> left));
+        items.forEach(item -> item.setFence(fences.get(item.getId())));
+    }
+
+    private MapIndoorPositionResponse toIndoorPositionResponse(
+            MapPlaceIndoorPosition position, MapPlace place, MapPlace floor
+    ) {
+        MapIndoorPositionResponse response = new MapIndoorPositionResponse();
+        response.setId(position.getId());
+        response.setPlaceId(position.getPlaceId());
+        response.setFloorPlanId(position.getFloorPlanId());
+        response.setXRatio(position.getXRatio());
+        response.setYRatio(position.getYRatio());
+        if (place != null) {
+            response.setName(place.getName());
+            response.setPlaceType(place.getPlaceType());
+            response.setDescription(place.getDescription());
+            response.setStatus(place.getStatus());
+            response.setLocationDesc(place.getLocationDesc());
+            response.setStallStatus(place.getStallStatus());
+            response.setBusinessHours(place.getBusinessHours());
+            response.setAvgPrice(place.getAvgPrice());
+            response.setImageUrl(place.getImageUrl());
+        }
+        if (floor != null) {
+            response.setFloorPlaceId(floor.getId());
+            response.setFloorName(floor.getName());
         }
         return response;
     }

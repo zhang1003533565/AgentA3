@@ -4,6 +4,7 @@ import { getToken } from '../utils/auth'
 const unwrap = (promise) => promise.then((response) => response.data)
 
 export const writeWithAi = (data) => unwrap(request({ url: '/api/ai/write', method: 'POST', data }))
+export const getAiWritingModels = () => unwrap(request({ url: '/api/ai/write/models', method: 'GET' }))
 export const generateImage = (data) => unwrap(request({ url: '/api/ai/images/generate', method: 'POST', data }))
 export const getImageTask = (id) => unwrap(request({ url: `/api/ai/images/tasks/${encodeURIComponent(id)}` }))
 export const queryLeaderAgent = (data) => unwrap(request({
@@ -124,3 +125,17 @@ export function streamLeaderAgent(data, handlers = {}) {
 }
 
 export const getProfileRadar = () => unwrap(request({ url: '/api/profile/radar/my' }))
+
+export const getLeaderSessions = (params = {}) => unwrap(request({
+  url: '/api/ai/leader/sessions',
+  params,
+}))
+
+export const getLeaderSessionDetail = (sessionId) => unwrap(request({
+  url: `/api/ai/leader/sessions/${encodeURIComponent(sessionId)}`,
+}))
+
+export const deleteLeaderSession = (sessionId) => unwrap(request({
+  url: `/api/ai/leader/sessions/${encodeURIComponent(sessionId)}`,
+  method: 'DELETE',
+}))
