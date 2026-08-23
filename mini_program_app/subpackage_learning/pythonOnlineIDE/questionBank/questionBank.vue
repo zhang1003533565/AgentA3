@@ -19,26 +19,38 @@
       </view>
     </view>
 
+    <view v-if="loading && questions.length === 0" class="state-block">
+      <text class="empty-state-text">加载中...</text>
+    </view>
+    <view v-else-if="loadError && questions.length === 0" class="state-block">
+      <text class="empty-state-text">题库加载失败</text>
+      <text class="empty-state-hint">请检查网络连接后重试</text>
+      <view class="retry-btn" @tap="loadProblems">
+        <text class="retry-btn-text">重新加载</text>
+      </view>
+    </view>
+    <view v-else class="bank-content">
     <view class="progress-card">
       <view class="progress-header">
         <text class="progress-label">当前进度</text>
-        <text class="progress-sub">{{ doneCount }}/{{ totalCount }} 已解决</text>
+        <text class="progress-sub">{{ doneCount }}/{{ judgeableTotal }} 已解决</text>
       </view>
       <view class="progress-track">
         <view class="progress-fill" :style="{ width: progressPercent + '%' }"></view>
       </view>
+      <text class="progress-note">共 {{ totalCount }} 题，其中 {{ unjudgeableTotal }} 题暂不支持在线判题，不计入进度</text>
       <view class="progress-stats">
-        <view class="stat-item" @tap="selectDifficulty('all')">
+        <view class="stat-item" @tap="selectDifficulty('easy')">
           <view class="stat-dot stat-dot--easy"></view>
           <text class="stat-text">简单</text>
           <text class="stat-num">{{ easyTotal }}</text>
         </view>
-        <view class="stat-item" @tap="selectDifficulty('all')">
+        <view class="stat-item" @tap="selectDifficulty('medium')">
           <view class="stat-dot stat-dot--medium"></view>
           <text class="stat-text">中等</text>
           <text class="stat-num">{{ mediumTotal }}</text>
         </view>
-        <view class="stat-item" @tap="selectDifficulty('all')">
+        <view class="stat-item" @tap="selectDifficulty('hard')">
           <view class="stat-dot stat-dot--hard"></view>
           <text class="stat-text">困难</text>
           <text class="stat-num">{{ hardTotal }}</text>
@@ -141,34 +153,14 @@
         <text class="empty-state-hint">试试调整筛选条件</text>
       </view>
     </view>
+    </view>
   </view>
 </template>
 
 <script>
 import NavBar from '@/components/nav-bar/nav-bar.vue'
-
-const ALL_QUESTIONS = [
-  { id: 1,   number: 1,   title: '两数之和',           difficulty: 'easy',   passRate: 45.2, tags: ['数组','哈希表'],                                          done: true  },
-  { id: 15,  number: 15,  title: '三数之和',           difficulty: 'medium', passRate: 30.8, tags: ['数组','双指针','排序'],                              done: false },
-  { id: 20,  number: 20,  title: '有效括号',           difficulty: 'easy',   passRate: 42.1, tags: ['栈','字符串'],                                                done: false },
-  { id: 3,   number: 3,   title: '无重复字符的最长子串', difficulty: 'medium', passRate: 28.5, tags: ['字符串','滑动窗口','哈希表'],          done: true  },
-  { id: 5,   number: 5,   title: '最长回文子串',        difficulty: 'medium', passRate: 32.4, tags: ['字符串','动态规划'],                              done: true  },
-  { id: 10,  number: 10,  title: '正则表达式匹配',      difficulty: 'hard',   passRate: 18.2, tags: ['字符串','动态规划','递归'],                done: false },
-  { id: 50,  number: 50,  title: 'Pow(x, n)',         difficulty: 'medium', passRate: 35.6, tags: ['数学','递归'],                                                  done: false },
-  { id: 69,  number: 69,  title: 'x 的平方根',         difficulty: 'easy',   passRate: 40.3, tags: ['数学','二分查找'],                                          done: true  },
-  { id: 70,  number: 70,  title: '爬楼梯',             difficulty: 'easy',   passRate: 48.7, tags: ['动态规划','数学'],                                        done: true  },
-  { id: 121, number: 121, title: '买卖股票的最佳时机', difficulty: 'easy',   passRate: 52.3, tags: ['数组','贪心','动态规划'],                    done: false },
-  { id: 42,  number: 42,  title: '接雨水',             difficulty: 'hard',   passRate: 22.1, tags: ['数组','动态规划','双指针','单调栈'],        done: false },
-  { id: 84,  number: 84,  title: '柱状图中最大矩形',    difficulty: 'hard',   passRate: 19.8, tags: ['数组','单调栈','栈'],                                done: true  },
-  { id: 155, number: 155, title: '最小栈',             difficulty: 'easy',   passRate: 40.9, tags: ['栈','设计'],                                                    done: false },
-  { id: 206, number: 206, title: '反转链表',           difficulty: 'easy',   passRate: 60.5, tags: ['链表','递归','迭代'],                                        done: true  },
-  { id: 146, number: 146, title: 'LRU 缓存',           difficulty: 'medium', passRate: 38.2, tags: ['设计','哈希表','链表'],                                        done: false },
-  { id: 53,  number: 53,  title: '最大子数组和',       difficulty: 'medium', passRate: 50.4, tags: ['数组','动态规划','分治'],                        done: false },
-  { id: 215, number: 215, title: '数组中的第K个最大元素', difficulty: 'medium', passRate: 45.8, tags: ['数组','堆','排序','分治'],                    done: false },
-  { id: 200, number: 200, title: '岛屿数量',           difficulty: 'medium', passRate: 38.9, tags: ['深度优先搜索','广度优先搜索','并查集'],   done: false },
-  { id: 46,  number: 46,  title: '全排列',             difficulty: 'medium', passRate: 52.1, tags: ['数组','回溯'],                                                  done: true  },
-  { id: 141, number: 141, title: '环形链表',           difficulty: 'easy',   passRate: 48.3, tags: ['链表','双指针','哈希表'],                              done: true  },
-]
+import { getPythonProblemList } from '@/api/pythonProblem.js'
+import { PROGRESS_STORAGE_KEY } from '../problems.js'
 
 const DIFFICULTY_LABELS = { easy: '简单', medium: '中等', hard: '困难' }
 
@@ -176,13 +168,18 @@ export default {
   components: { NavBar },
   data() {
     return {
-      questions: ALL_QUESTIONS,
+      questions: [],
       searchKeyword: '',
       activeDifficulty: 'all',
       activeStatus: 'all',
       activeTags: [],
       searchFocused: false,
+      loading: false,
+      loadError: false,
     }
+  },
+  onShow() {
+    this.loadProblems()
   },
   computed: {
     allTags() {
@@ -246,6 +243,12 @@ export default {
     totalCount() {
       return this.questions.length
     },
+    judgeableTotal() {
+      return this.questions.filter(function(q) { return q.judgeable }).length
+    },
+    unjudgeableTotal() {
+      return this.totalCount - this.judgeableTotal
+    },
     easyTotal() {
       return this.questions.filter(function(q) { return q.difficulty === 'easy' }).length
     },
@@ -265,11 +268,37 @@ export default {
       return this.questions.filter(function(q) { return q.difficulty === 'hard' && q.done }).length
     },
     progressPercent() {
-      if (this.totalCount === 0) return 0
-      return Math.round(this.doneCount / this.totalCount * 100)
+      if (this.judgeableTotal === 0) return 0
+      return Math.round(this.doneCount / this.judgeableTotal * 100)
     }
   },
   methods: {
+    // 从后端拉取上架题目，叠加本地存储的真实做题进度
+    async loadProblems() {
+      this.loadError = false
+      if (this.questions.length === 0) {
+        this.loading = true
+      }
+      try {
+        var res = await getPythonProblemList()
+        var list = (res && res.data) || []
+        var solved = uni.getStorageSync(PROGRESS_STORAGE_KEY) || []
+        var solvedSet = {}
+        solved.forEach(function (id) {
+          solvedSet[id] = true
+        })
+        this.questions = list.map(function (p) {
+          return Object.assign({}, p, {
+            done: !!solvedSet[p.id],
+            judgeable: !!p.judgeable
+          })
+        })
+      } catch (e) {
+        console.error('加载题库失败:', e)
+        this.loadError = true
+      }
+      this.loading = false
+    },
     formatTags(tags) {
       return tags.map(function(t) { return '#' + t }).join(' ')
     },
@@ -401,6 +430,14 @@ export default {
   height: 100%;
   background: linear-gradient(90deg, #4f46e5, #7c3aed);
   border-radius: 999rpx;
+}
+
+.progress-note {
+  display: block;
+  font-size: 21rpx;
+  color: #9ca3af;
+  margin-top: 12rpx;
+  margin-bottom: 6rpx;
 }
 
 .progress-stats {
@@ -677,6 +714,27 @@ export default {
   align-items: center;
   justify-content: center;
   padding: 80rpx 28rpx;
+}
+
+.state-block {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 120rpx 28rpx;
+}
+
+.retry-btn {
+  margin-top: 28rpx;
+  padding: 16rpx 44rpx;
+  border-radius: 999rpx;
+  background: #ffffff;
+  border: 1rpx solid #dfe3ea;
+}
+
+.retry-btn-text {
+  font-size: 26rpx;
+  color: #4b5563;
 }
 
 .empty-state-text {

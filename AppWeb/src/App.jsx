@@ -28,6 +28,7 @@ import StallIndoorManage from './pages/StallManage/StallIndoorManage'
 import MarkerManage from './pages/facility/MarkerManage/MarkerManage'
 import FacilityPlaceManage from './pages/facility/FacilityPlaceManage/FacilityPlaceManage'
 import CampusCourseManage from './pages/learning/CampusCourseManage'
+import PythonProblemManage from './pages/learning/PythonProblemManage'
 import './App.css'
 
 // 论坛独立页面路径集合（不走 WorkspacePage）
@@ -88,6 +89,7 @@ function App() {
           <Route path="/ai/profile-rules" element={<ProfileRules />} />
           <Route path="/facility/marker" element={<MarkerManage />} />
           <Route path="/learning/courses" element={<CampusCourseManage />} />
+          <Route path="/learning/python-problems" element={<PythonProblemManage />} />
           {workspaceRoutes}
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />

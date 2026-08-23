@@ -15,6 +15,16 @@ class ChatRequest(BaseModel):
     attachments: List[Dict[str, Any]] = Field(default_factory=list, max_length=8)
 
 
+class CodingAssistRequest(BaseModel):
+    sessionId: Optional[str] = Field(default=None, max_length=64)
+    questionType: str = Field(pattern="^(hint|solution|explain|debug|optimize|free)$")
+    problem: Dict[str, Any] = Field(default_factory=dict)
+    userCode: Optional[str] = Field(default=None, max_length=30000)
+    judgeResult: Optional[Dict[str, Any]] = Field(default=None)
+    followUp: Optional[str] = Field(default=None, max_length=2000)
+    history: List[Dict[str, Any]] = Field(default_factory=list, max_length=10)
+
+
 class ChatResponse(BaseModel):
     sessionId: str
     sessionToken: str
