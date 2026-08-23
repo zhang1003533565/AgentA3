@@ -442,6 +442,10 @@
           <view v-if="editorPreviewError" class="slide-editor__preview-status">
             <text>{{ editorPreviewError }}</text>
           </view>
+          <view v-if="editorPreviewLoading" class="slide-editor__preview-status slide-editor__preview-status--loading">
+            <view class="slide-editor__preview-spinner"></view>
+            <text>正在渲染中</text>
+          </view>
         </view>
 
         <view class="slide-layout-lock-row">
@@ -2942,6 +2946,7 @@ export default {
         }
       }
       if (immediate) return render()
+      this.editorPreviewLoading = true
       this.editorPreviewTimer = setTimeout(render, 500)
     },
     async prepareExport() {
@@ -3722,6 +3727,8 @@ export default {
         this.editorPreviewTimer = null
       }
       this.editorPreviewRequestId += 1
+      this.editorPreviewLoading = false
+      this.editorPreviewQueued = false
     }
   }
 }
@@ -3808,6 +3815,8 @@ export default {
 .slide-editor__preview-image{display:block;width:100%;height:100%;background:#fff}
 .slide-editor__preview-fallback{position:relative;display:flex;width:100%;height:100%;padding:32rpx;justify-content:center;flex-direction:column;box-sizing:border-box}
 .slide-editor__preview-status{position:absolute;z-index:3;right:12rpx;bottom:12rpx;max-width:76%;padding:8rpx 13rpx;border-radius:99rpx;background:rgba(24,32,51,.76);color:#fff;font-size:17rpx;line-height:1.35}
+.slide-editor__preview-status--loading{top:50%;right:auto;bottom:auto;left:50%;display:flex;align-items:center;gap:10rpx;max-width:none;padding:13rpx 18rpx;border-radius:14rpx;background:rgba(24,32,51,.84);font-size:20rpx;transform:translate(-50%,-50%)}
+.slide-editor__preview-spinner{width:22rpx;height:22rpx;border:3rpx solid rgba(255,255,255,.42);border-top-color:#fff;border-radius:50%;box-sizing:border-box;animation:ppt-preview-spin .8s linear infinite}
 .slide-editor__preview--campus{border-left-color:#f1a653;background:#fff6e8}
 .slide-editor__preview--focus{border-left-color:#3eabbc;background:#172034;color:#fff}
 .slide-editor__preview-index,.slide-editor__preview-title,.slide-editor__preview-content{position:relative;z-index:1;display:block}
@@ -4094,6 +4103,7 @@ export default {
 .retry-render-card__button{flex:none;height:58rpx;margin:0;padding:0 18rpx;border:1px solid #d8b06f;border-radius:12rpx;background:#fff;color:#8b5f23;font-size:20rpx;line-height:58rpx}
 .retry-render-card__button::after{border:0}
 .retry-render-card__button[disabled]{opacity:.5}
+@keyframes ppt-preview-spin{to{transform:rotate(360deg)}}
 .stepper-card{margin-bottom:18rpx;padding:14rpx 18rpx 10rpx;border:1px solid #e2e8f0;border-radius:16rpx;background:#fff;box-shadow:0 8rpx 24rpx rgba(30,50,90,.04)}
 .stepper-card__head{display:flex;min-height:34rpx;align-items:center;justify-content:flex-end;margin-bottom:2rpx}
 .stepper-card__head>text{color:#5265f5;font-size:20rpx;font-weight:700}
