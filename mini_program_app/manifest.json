@@ -61,10 +61,23 @@
     /* 快应用特有相关 */
     "quickapp" : {},
     "h5" : {
+        "devServer" : {
+            "port" : 5173,
+            "proxy" : {
+                "/api" : {
+                    "target" : "http://127.0.0.1:8080",
+                    "changeOrigin" : true
+                }
+            }
+        },
+        "async" : {
+            "timeout" : 30000
+        },
         "sdkConfigs" : {
             "maps" : {
                 "amap" : {
-                    "key" : "64bc139adb6a611277fb8f6821b371ac"
+                    "key" : "64bc139adb6a611277fb8f6821b371ac",
+                    "securityJsCode" : "f3eda2c1d4c4c76bdb907d570b69d8c"
                 }
             }
         }

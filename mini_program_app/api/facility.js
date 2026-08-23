@@ -19,9 +19,10 @@ export function getFacilityTypes() {
     code: 200,
     data: [
       { value: 1, label: '食堂' },
-      { value: 2, label: '运动场' },
+      { value: 2, label: '体育场馆' },
       { value: 3, label: '教学楼' },
-      { value: 4, label: '宿舍' },
+      { value: 4, label: '基础设施' },
+      { value: 99, label: '基础设施' },
     ],
   })
   task.abort = () => false

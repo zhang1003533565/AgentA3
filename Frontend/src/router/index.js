@@ -41,6 +41,7 @@ import ResumeDesigner from '../views/ResumeDesigner.vue'
 import ResumeWizard from '../views/ResumeWizard.vue'
 import CampusCourseView from '../views/CampusCourseView.vue'
 import CampusDiscountView from '../views/CampusDiscountView.vue'
+import DocumentConvertView from '../views/DocumentConvertView.vue'
 import { getToken } from '../utils/auth'
 
 const routes = [
@@ -90,6 +91,7 @@ const routes = [
   { path: '/resume', name: 'resume', component: ResumeView },
   { path: '/resume/designer', name: 'resume-designer', component: ResumeDesigner },
   { path: '/resume/wizard', name: 'resume-wizard', component: ResumeWizard },
+  { path: '/convert', name: 'convert', component: DocumentConvertView },
 ]
 
 const router = createRouter({

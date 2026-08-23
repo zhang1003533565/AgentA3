@@ -62,7 +62,10 @@ class XiaomiProvider(ChatModelProvider):
             SystemMessage(content=system_prompt),
             HumanMessage(content=build_multimodal_human_content(user_prompt)),
         ])
-        return extract_response_text(response)
+        content = extract_response_text(response)
+        if not content and isinstance(getattr(response, "additional_kwargs", None), dict):
+            content = str(response.additional_kwargs.get("reasoning_content") or "").strip()
+        return content
 
     def stream_complete(self, system_prompt: str, user_prompt: str, reasoning_effort: Optional[str] = None) -> Iterator[str]:
         from langchain_core.messages import HumanMessage, SystemMessage

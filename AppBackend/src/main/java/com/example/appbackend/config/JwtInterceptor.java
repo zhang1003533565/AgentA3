@@ -21,6 +21,19 @@ public class JwtInterceptor implements HandlerInterceptor {
         }
         String token = request.getHeader("Authorization");
 
+        // 校园地图点位只读接口允许未登录预览，便于前端直接渲染后端标点
+        if ("GET".equalsIgnoreCase(request.getMethod()) && isPublicMapPlaceRead(request.getRequestURI())) {
+            if (token != null && token.startsWith("Bearer ")) {
+                String raw = token.substring(7);
+                if (jwtUtil.validateToken(raw)) {
+                    request.setAttribute("username", jwtUtil.getUsernameFromToken(raw));
+                    request.setAttribute("role", jwtUtil.getRoleFromToken(raw));
+                    request.setAttribute("userId", jwtUtil.getUserIdFromToken(raw));
+                }
+            }
+            return true;
+        }
+
         if (token == null || !token.startsWith("Bearer ")) {
             response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
             response.setContentType("application/json;charset=UTF-8");
@@ -45,5 +58,18 @@ public class JwtInterceptor implements HandlerInterceptor {
         request.setAttribute("userId", userId);
 
         return true;
+    }
+
+    private boolean isPublicMapPlaceRead(String requestUri) {
+        if (requestUri == null || requestUri.isBlank()) return false;
+        String path = requestUri;
+        int queryIndex = path.indexOf('?');
+        if (queryIndex >= 0) path = path.substring(0, queryIndex);
+        if ("/api/v1/map-places".equals(path)) return true;
+        if (path.matches("^/api/v1/map-places/\\d+$")) return true;
+        if (path.matches("^/api/v1/map-places/\\d+/fence$")) return true;
+        if (path.matches("^/api/v1/map-places/\\d+/images$")) return true;
+        if (path.matches("^/api/v1/map-places/floors/\\d+/plan$")) return true;
+        return path.matches("^/api/v1/map-places/floor-plans/\\d+/positions$");
     }
 }

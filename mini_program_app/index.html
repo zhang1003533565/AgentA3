@@ -3,6 +3,12 @@
   <head>
     <meta charset="UTF-8" />
     <script>
+      // 高德 JS API 2.0 必须在地图脚本加载前设置安全密钥，否则 H5 地图会卡住/超时
+      window._AMapSecurityConfig = {
+        securityJsCode: 'f3eda2c1d4c4c76bdb907d570b69d8c'
+      }
+    </script>
+    <script>
       var coverSupport = 'CSS' in window && typeof CSS.supports === 'function' && (CSS.supports('top: env(a)') ||
         CSS.supports('top: constant(a)'))
       document.write(
@@ -10,11 +16,12 @@
         (coverSupport ? ', viewport-fit=cover' : '') + '" />')
     </script>
     <title></title>
-    <!--preload-links-->
-    <!--app-context-->
   </head>
   <body>
-    <div id="app"><!--app-html--></div>
+    <div id="app"></div>
     <script type="module" src="/main.js"></script>
+    
+    <!-- 终极方案：直接采用标准 CDN 加载，不加任何后缀，确保 HBuilderX 能正确编译 -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/5.3.0/fabric.min.js"></script>
   </body>
 </html>

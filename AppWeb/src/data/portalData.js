@@ -78,6 +78,7 @@ export const portalGroups = [
   {
     label: 'AI 模块',
     items: [
+      { path: '/ai', label: 'AI 智能助手', icon: 'robot', exact: true },
       { path: '/ai/model', label: '模型配置', icon: 'robot', pageKey: 'system-config' },
       { path: '/ai/agent-settings', label: '智能体设置', icon: 'setting' },
       { path: '/ai/rag/agents', label: '智能体测试', icon: 'robot' },

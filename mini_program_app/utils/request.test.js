@@ -4,7 +4,7 @@ const { join } = require('node:path')
 const test = require('node:test')
 
 const source = readFileSync(join(__dirname, 'request.js'), 'utf8')
-  .replace("import { BASE_URL } from './config.js'", "const BASE_URL = 'http://localhost:8080'")
+  .replace("import { getApiBaseUrl } from './config.js'", "const getApiBaseUrl = () => 'http://localhost:8080'")
   .replace("import { getToken, clearAuth } from './storage.js'", 'const getToken = () => \'token\'; const clearAuth = () => {}')
 const modulePromise = import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`)
 
@@ -54,13 +54,13 @@ test('request resolves the existing response envelope and cannot abort after com
   assert.equal(task.abort(), false)
 })
 
-test('request can suppress error toasts for optional background refreshes', async () => {
+test('request rejects HTML bodies so a frontend page is not treated as map-places data', async () => {
   const toasts = []
   globalThis.uni = {
     request(options) {
       options.success({
-        statusCode: 404,
-        data: { message: 'No static resource api/app-message/unread/count.' }
+        statusCode: 200,
+        data: '<!doctype html><html><body>index</body></html>'
       })
       return { abort() {} }
     },
@@ -68,7 +68,28 @@ test('request can suppress error toasts for optional background refreshes', asyn
     reLaunch() {}
   }
   const { request } = await modulePromise
+  await assert.rejects(request({ url: '/api/v1/map-places', showError: false }), (error) => (
+    /网页而非 JSON/.test(error?.message || '')
+  ))
+  assert.equal(toasts.length, 0)
+})
 
-  await assert.rejects(request({ url: '/api/app-message/unread/count', showError: false }))
-  assert.deepEqual(toasts, [])
+test('request strips undefined query params so map-places is not filtered empty', async () => {
+  let requestOptions
+  globalThis.uni = {
+    request(options) {
+      requestOptions = options
+      options.success({ statusCode: 200, data: { code: 200, data: [] } })
+      return { abort() {} }
+    },
+    showToast() {},
+    reLaunch() {}
+  }
+  const { request } = await modulePromise
+  await request({
+    url: '/api/v1/map-places',
+    method: 'GET',
+    params: { keyword: undefined, status: 'ENABLED' }
+  })
+  assert.deepEqual(requestOptions.data, { status: 'ENABLED' })
 })
