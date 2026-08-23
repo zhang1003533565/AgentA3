@@ -2330,13 +2330,7 @@ export default {
           }
         }
         if (slides.length < 2) throw new Error('生成的页面数量不足，请调整大纲后重试')
-        this.slides = slides.map((slide, index) => ({
-          ...slide,
-          id: slide.id || `slide-${Date.now()}-${index}`,
-          title: String(slide.title || `第 ${index + 1} 页`),
-          content: Array.isArray(slide.content) ? slide.content.join('\n') : String(slide.content || ''),
-          privatePrompt: String(slide.privatePrompt || '')
-        }))
+        this.slides = this.normalizeEditorSlides(slides)
         this.layoutMarkdown = String(result.layoutMarkdown || '')
         if (result.sharedPrompt) this.sharedPrompt = String(result.sharedPrompt)
         this.pageCount = this.slides.length
@@ -2418,6 +2412,21 @@ export default {
         contentQuality: this.slidesDirty ? null : this.clonePptValue(this.contentQuality)
       }
     },
+    normalizeEditorSlides(slides) {
+      if (!Array.isArray(slides)) return []
+      return slides.map((slide, index) => {
+        const source = slide && typeof slide === 'object' ? slide : {}
+        return {
+          ...source,
+          id: source.id || `slide-${index + 1}`,
+          title: String(source.title || `第 ${index + 1} 页`),
+          content: Array.isArray(source.content)
+            ? source.content.map(item => String(item || '').trim()).filter(Boolean).join('\n')
+            : String(source.content || ''),
+          privatePrompt: String(source.privatePrompt || '')
+        }
+      })
+    },
     clonePptValue(value) {
       if (value == null) return value
       try {
@@ -2456,7 +2465,7 @@ export default {
       if (!saved?.taskId || !saved.taskResult) return false
       this.taskId = String(saved.taskId)
       this.taskResult = this.clonePptValue(saved.taskResult)
-      this.slides = this.clonePptValue(saved.slides || [])
+      this.slides = this.normalizeEditorSlides(this.clonePptValue(saved.slides || []))
       this.pageCount = Number(saved.pageCount || this.slides.length || this.pageCount)
       this.pptStyle = saved.pptStyle || this.pptStyle
       this.settings = { ...this.settings, ...(saved.settings || {}) }
@@ -2961,7 +2970,9 @@ export default {
     },
     applyManualTextOverride() {
       // Manual editing updates only existing text runs; the Presenton tree,
-      // geometry, styles, SVGs and assets remain untouched.
+      // geometry, styles, SVGs and assets remain untouched. The preview and
+      // final export both consume this same UI tree, so the lower fields are
+      // the single editing source of truth.
       const slide = this.activeSlide
       const ui = slide?.ui
       if (!ui || typeof ui !== 'object') return
@@ -2992,19 +3003,52 @@ export default {
       const titleNode = textNodes.find(node => {
         const name = String(node.name || '').toLowerCase()
         return /(headline|heading|title|main_title|main_heading|slide_headline|primary_heading)/.test(name)
-          && !/(item|card|feature|metric|label|number|page|footer|badge|caption)/.test(name)
+          && !/(subtitle|section|item|card|feature|milestone|step|metric|label|number|page|footer|badge|caption)/.test(name)
       })
       if (titleNode) setText(titleNode, slide.title)
 
       const bodyNodes = textNodes.filter(node => {
         const name = String(node.name || '').toLowerCase()
-        return /(body|paragraph|description|supporting|summary|copy|intro|detail)/.test(name)
-          && !/(footer|page|label|number|caption)/.test(name)
+        return /(body|paragraph|description|supporting|summary|copy|intro|detail|content)/.test(name)
+          && !/(subtitle|footer|page|label|number|caption|badge|author|date)/.test(name)
       })
+      const headingNodes = textNodes.filter(node => {
+        const name = String(node.name || '').toLowerCase()
+        return /(section_heading|card_title|milestone_title|feature_title|step_title|item_title)/.test(name)
+          && !/(subtitle|footer|page|label|number|caption|badge)/.test(name)
+      })
+      const lines = String(slide.content || '')
+        .split(/\r?\n/)
+        .map(line => line.replace(/^\s*[-*•]\s*/, '').trim())
+        .filter(Boolean)
+
+      const contentChunks = (count) => {
+        if (!count) return []
+        if (count === 1) return [lines.join('\n')]
+        const chunks = Array.from({ length: count }, () => [])
+        lines.forEach((line, index) => chunks[Math.min(index, count - 1)].push(line))
+        return chunks.map(chunk => chunk.join('\n'))
+      }
+      const compactLabel = value => {
+        const text = String(value || '').trim()
+        const delimiter = text.search(/[：:]/)
+        const label = delimiter > 0 && delimiter <= 32 ? text.slice(0, delimiter).trim() : text
+        return label.length > 28 ? `${label.slice(0, 28)}…` : label
+      }
+
       if (bodyNodes.length) {
-        const lines = String(slide.content || '').split(/\r?\n/).map(line => line.trim()).filter(Boolean)
-        if (bodyNodes.length === 1) setText(bodyNodes[0], lines.join('\n'))
-        else bodyNodes.forEach((node, index) => setText(node, lines[index] || ''))
+        contentChunks(bodyNodes.length).forEach((value, index) => setText(bodyNodes[index], value))
+      }
+      if (headingNodes.length) {
+        lines.forEach((line, index) => {
+          if (headingNodes[index]) setText(headingNodes[index], compactLabel(line))
+        })
+        headingNodes.slice(lines.length).forEach(node => setText(node, ''))
+      } else if (!bodyNodes.length && textNodes.length) {
+        // Older/fallback layouts may expose only generic text slots. Keep the
+        // edit contract useful without touching structural labels.
+        const fallbackNodes = textNodes.filter(node => node !== titleNode && !/(footer|page|label|number|caption|badge|author|date)/.test(String(node.name || '').toLowerCase()))
+        contentChunks(fallbackNodes.length).forEach((value, index) => setText(fallbackNodes[index], value))
       }
     },
     persistActiveTask(kind, taskId) {
@@ -3153,7 +3197,7 @@ export default {
       this.contentLevel = snapshot.contentLevel || this.contentLevel
       this.settings = { ...this.settings, ...(snapshot.settings || {}) }
       this.sharedPrompt = snapshot.sharedPrompt || this.sharedPrompt
-      this.slides = Array.isArray(snapshot.slides) ? snapshot.slides : []
+      this.slides = this.normalizeEditorSlides(snapshot.slides)
       this.activeSlideIndex = Math.min(Math.max(0, Number(snapshot.activeSlideIndex || 0)), Math.max(0, this.slides.length - 1))
       this.slidesDirty = Boolean(snapshot.slidesDirty)
       this.outlineSourceDirty = Boolean(snapshot.outlineSourceDirty)
@@ -3299,7 +3343,7 @@ export default {
       if (saved.templateCategory) this.templateCategory = saved.templateCategory
       this.settings = { ...this.settings, ...(saved.settings || {}) }
       this.sharedPrompt = saved.sharedPrompt || this.sharedPrompt
-      this.slides = Array.isArray(saved.slides) ? saved.slides : this.slides
+      this.slides = Array.isArray(saved.slides) ? this.normalizeEditorSlides(saved.slides) : this.slides
       this.activeSlideIndex = Math.min(Math.max(0, Number(saved.activeSlideIndex || 0)), Math.max(0, this.slides.length - 1))
       this.slidesDirty = Boolean(saved.slidesDirty)
       this.outlineSourceDirty = Boolean(saved.outlineSourceDirty)
@@ -3337,7 +3381,7 @@ export default {
           this.slideGenerationSnapshot = task
           const restoredSlides = Array.isArray(task.slides) && task.slides.length ? task.slides : saved.slides
           if (status === 'completed' && Array.isArray(restoredSlides) && restoredSlides.length >= 2) {
-            this.slides = restoredSlides
+            this.slides = this.normalizeEditorSlides(restoredSlides)
             this.pageCount = this.slides.length
             this.currentStep = hasSavedStep ? savedStep : 5
             this.generationWarnings = Array.isArray(task.warnings) ? task.warnings : []
@@ -3361,7 +3405,7 @@ export default {
           : null
         this.progress = Number(task?.progress || 0)
         if (status === 'completed') {
-          if (Array.isArray(task.slides) && task.slides.length) this.slides = task.slides
+          if (Array.isArray(task.slides) && task.slides.length) this.slides = this.normalizeEditorSlides(task.slides)
           this.progress = 100
           this.currentStep = hasSavedStep ? savedStep : 7
           this.saveSuccessfulResult()
