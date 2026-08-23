@@ -828,6 +828,12 @@ export default {
       editorPreviewTimer: null,
       editorPreviewRequestId: 0,
       editorPreviewQueued: false,
+      editorPreviewInFlight: {},
+      editorPreviewRevisions: {},
+      editorPreviewSession: 0,
+      editorPreviewBatchRunId: 0,
+      editorPreviewBatchPromise: null,
+      editorPreviewRenderTail: Promise.resolve(),
       sharedPrompt: '保持资料内容准确，版面简洁清晰，突出核心知识点，使用清晰易读的视觉层级。',
       settings: {
         includeCover: true,
@@ -1408,7 +1414,7 @@ export default {
       this.templateReturnContext = null
       this.currentStep = target
       if (target === 5) {
-        this.refreshEditorPreview()
+        this.enterEditorPreview()
       } else if (target === 7) {
         this.loadPreviewImages()
       }
@@ -1874,7 +1880,7 @@ export default {
       this.generationWarnings = []
       this.contentQuality = null
       this.previewImages = {}
-      this.editorPreviewCache = {}
+      this.resetEditorPreviewSession()
       this.editorPreviewImage = ''
       this.editorPreviewSlideIndex = -1
       this.lastPptError = ''
@@ -2249,7 +2255,7 @@ export default {
     handleSettingsNext() {
       if (this.canReturnToEditor) {
         this.currentStep = 5
-        this.refreshEditorPreview()
+        this.enterEditorPreview()
         return
       }
       return this.prepareSlides()
@@ -2328,9 +2334,9 @@ export default {
         this.activeSlideIndex = 0
         this.slidesDirty = false
         this.clearActiveTaskStorage()
-        this.editorPreviewCache = {}
+        this.resetEditorPreviewSession()
         this.currentStep = 5
-        this.refreshEditorPreview(0)
+        this.enterEditorPreview(0)
       } catch (error) {
         this.handlePptError(error, '页面内容生成失败')
       } finally {
@@ -2771,6 +2777,13 @@ export default {
       this.editorPreviewError = ''
       this.editorPreviewRequestId += 1
     },
+    resetEditorPreviewSession() {
+      this.editorPreviewSession += 1
+      this.editorPreviewBatchRunId += 1
+      this.editorPreviewCache = {}
+      this.editorPreviewInFlight = {}
+      this.editorPreviewRevisions = {}
+    },
     refreshEditorPreview(index = this.activeSlideIndex) {
       const cachedPreview = this.editorPreviewCache[this.editorPreviewCacheKey(index)] || ''
       if (cachedPreview) {
@@ -2784,6 +2797,71 @@ export default {
       }
       this.resetEditorPreviewState()
       this.$nextTick(() => this.scheduleEditorPreview(true))
+    },
+    enterEditorPreview(index = this.activeSlideIndex) {
+      const nextIndex = Number(index)
+      if (Number.isInteger(nextIndex) && nextIndex >= 0 && nextIndex < this.slides.length) {
+        this.activeSlideIndex = nextIndex
+      }
+      this.startEditorPreviewBatch(0)
+      this.refreshEditorPreview(this.activeSlideIndex)
+    },
+    startEditorPreviewBatch(startIndex = 0) {
+      const runId = ++this.editorPreviewBatchRunId
+      const firstIndex = Math.max(0, Number(startIndex) || 0)
+      const render = async () => {
+        for (let index = firstIndex; index < this.slides.length; index += 1) {
+          if (runId !== this.editorPreviewBatchRunId) return
+          const slide = this.slides[index]
+          if (!slide || !slide.ui || typeof slide.ui !== 'object') continue
+          const cacheKey = this.editorPreviewCacheKey(index)
+          if (this.editorPreviewCache[cacheKey]) continue
+          try {
+            await this.renderEditorPreviewSlide(index)
+          } catch (error) {
+            // A failed page must not block the following independent pages.
+          }
+        }
+      }
+      this.editorPreviewBatchPromise = render()
+      return this.editorPreviewBatchPromise
+    },
+    renderEditorPreviewSlide(index) {
+      const slide = this.slides[index]
+      if (!slide || !slide.ui || typeof slide.ui !== 'object') return Promise.resolve('')
+      const cacheKey = this.editorPreviewCacheKey(index)
+      const cachedPreview = this.editorPreviewCache[cacheKey] || ''
+      if (cachedPreview) return Promise.resolve(cachedPreview)
+      if (this.editorPreviewInFlight[cacheKey]) return this.editorPreviewInFlight[cacheKey]
+
+      const session = this.editorPreviewSession
+      const revision = this.editorPreviewRevisions[cacheKey] || 0
+      const previous = this.editorPreviewRenderTail || Promise.resolve()
+      const request = previous.then(async () => {
+        if (session !== this.editorPreviewSession || revision !== (this.editorPreviewRevisions[cacheKey] || 0)) return ''
+        const currentSlide = this.slides[index]
+        if (!currentSlide || !currentSlide.ui || typeof currentSlide.ui !== 'object') return ''
+        const snapshot = JSON.parse(JSON.stringify(currentSlide))
+        snapshot.index = index + 1
+        const response = await renderPptPreview({
+          templateId: this.pptStyle || 'general',
+          title: this.outlineName || this.resultName || '演示文稿',
+          settings: this.buildSettings(),
+          slide: snapshot
+        })
+        const result = this.responseData(response)
+        if (!result.imageBase64) throw new Error('服务端未返回预览图')
+        const image = `data:${result.mimeType || 'image/png'};base64,${result.imageBase64}`
+        if (session === this.editorPreviewSession && revision === (this.editorPreviewRevisions[cacheKey] || 0)) {
+          this.editorPreviewCache[cacheKey] = image
+        }
+        return image
+      }).finally(() => {
+        if (this.editorPreviewInFlight[cacheKey] === request) delete this.editorPreviewInFlight[cacheKey]
+      })
+      this.editorPreviewInFlight[cacheKey] = request
+      this.editorPreviewRenderTail = request.catch(() => {})
+      return request
     },
     async loadPreviewImages() {
       if (!this.taskId || !Array.isArray(this.taskResult?.previews)) return
@@ -2868,7 +2946,7 @@ export default {
       }
       this.currentStep = 5
       this.exportReady = false
-      this.refreshEditorPreview()
+      this.enterEditorPreview()
     },
     returnToLastSuccessfulResult() {
       if (!this.hasLastSuccessfulResult) return
@@ -2895,7 +2973,11 @@ export default {
     onEditorContentInput() {
       this.markEditorDirty()
       this.applyManualTextOverride()
-      delete this.editorPreviewCache[this.editorPreviewCacheKey()]
+      const cacheKey = this.editorPreviewCacheKey()
+      this.editorPreviewRevisions[cacheKey] = (this.editorPreviewRevisions[cacheKey] || 0) + 1
+      delete this.editorPreviewCache[cacheKey]
+      delete this.editorPreviewInFlight[cacheKey]
+      this.editorPreviewRequestId += 1
       this.editorPreviewImage = ''
       this.editorPreviewSlideIndex = -1
       this.editorPreviewError = ''
@@ -2919,24 +3001,15 @@ export default {
           this.editorPreviewError = '当前页面暂无可视化预览'
           return
         }
-        const snapshot = JSON.parse(JSON.stringify(slide))
         const previewSlideIndex = this.activeSlideIndex
-        snapshot.index = previewSlideIndex + 1
         this.editorPreviewLoading = true
         this.editorPreviewError = ''
         try {
-          const response = await renderPptPreview({
-            templateId: this.pptStyle || 'general',
-            title: this.outlineName || this.resultName || '演示文稿',
-            settings: this.buildSettings(),
-            slide: snapshot
-          })
+          const image = await this.renderEditorPreviewSlide(previewSlideIndex)
           if (requestId !== this.editorPreviewRequestId) return
-          const result = this.responseData(response)
-           if (!result.imageBase64) throw new Error('服务端未返回预览图')
-           this.editorPreviewImage = `data:${result.mimeType || 'image/png'};base64,${result.imageBase64}`
-           this.editorPreviewSlideIndex = previewSlideIndex
-           this.editorPreviewCache[this.editorPreviewCacheKey(previewSlideIndex)] = this.editorPreviewImage
+          if (!image) throw new Error('服务端未返回预览图')
+          this.editorPreviewImage = image
+          this.editorPreviewSlideIndex = previewSlideIndex
         } catch (error) {
           if (requestId !== this.editorPreviewRequestId) return
           this.editorPreviewError = this.errorMessage(error, '最终预览暂不可用')
@@ -3476,10 +3549,10 @@ export default {
             this.slides = this.normalizeEditorSlides(restoredSlides)
             this.pageCount = this.slides.length
             this.activeSlideIndex = Math.min(this.activeSlideIndex, Math.max(0, this.slides.length - 1))
-            this.editorPreviewCache = {}
+            this.resetEditorPreviewSession()
             this.currentStep = hasSavedStep ? savedStep : 5
             if (this.currentStep === 5) {
-              this.refreshEditorPreview()
+              this.enterEditorPreview()
             }
             this.generationWarnings = Array.isArray(task.warnings) ? task.warnings : []
             this.contentQuality = task.contentQuality && typeof task.contentQuality === 'object'
@@ -3723,6 +3796,8 @@ export default {
         this.editorPreviewTimer = null
       }
       this.editorPreviewRequestId += 1
+      this.editorPreviewSession += 1
+      this.editorPreviewBatchRunId += 1
       this.editorPreviewLoading = false
       this.editorPreviewQueued = false
     }
