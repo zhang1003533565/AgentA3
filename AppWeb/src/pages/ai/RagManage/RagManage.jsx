@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Alert, Button, Card, Col, Collapse, Empty, Form, Image, Input, Row, Select, Space, Table, Tabs, Tag, Typography, message } from 'antd'
-import { DatabaseOutlined, PlayCircleOutlined, ReloadOutlined, SaveOutlined } from '@ant-design/icons'
+import { Alert, Button, Card, Col, Collapse, Empty, Form, Image, Input, Row, Select, Space, Table, Tabs, Tag, Typography, Upload, message } from 'antd'
+import { DatabaseOutlined, PlayCircleOutlined, PlusOutlined, ReloadOutlined, SaveOutlined } from '@ant-design/icons'
 import { importExamQuestions } from '../../../api/examQuestion'
 import {
   getRagAgents,
@@ -22,6 +22,41 @@ import './RagManage.css'
 
 const { TextArea } = Input
 const { Text, Title } = Typography
+const MAX_AGENT_TEST_IMAGES = 8
+const MAX_AGENT_TEST_IMAGE_BYTES = 10 * 1024 * 1024
+const MAX_AGENT_TEST_IMAGE_EDGE = 1800
+
+const readFileAsDataUrl = (file) => new Promise((resolve, reject) => {
+  const reader = new FileReader()
+  reader.onload = () => resolve(String(reader.result || ''))
+  reader.onerror = () => reject(new Error('图片读取失败'))
+  reader.readAsDataURL(file)
+})
+
+const loadImageElement = (src) => new Promise((resolve, reject) => {
+  const image = new window.Image()
+  image.onload = () => resolve(image)
+  image.onerror = () => reject(new Error('图片解析失败'))
+  image.src = src
+})
+
+const canvasToDataUrl = (canvas, type, quality) => canvas.toDataURL(type, quality)
+
+const normalizeAgentTestImage = async (file) => {
+  const source = await readFileAsDataUrl(file)
+  const image = await loadImageElement(source)
+  const ratio = Math.min(1, MAX_AGENT_TEST_IMAGE_EDGE / Math.max(image.width, image.height))
+  if (ratio === 1 && file.size <= 2 * 1024 * 1024) return source
+
+  const canvas = document.createElement('canvas')
+  canvas.width = Math.max(1, Math.round(image.width * ratio))
+  canvas.height = Math.max(1, Math.round(image.height * ratio))
+  const context = canvas.getContext('2d')
+  if (!context) throw new Error('当前浏览器不支持图片压缩')
+  context.drawImage(image, 0, 0, canvas.width, canvas.height)
+  const outputType = file.type === 'image/png' ? 'image/png' : 'image/jpeg'
+  return canvasToDataUrl(canvas, outputType, outputType === 'image/png' ? undefined : 0.82)
+}
 
 const QUESTION_AGENT_TYPES = {
   textbook_question_single_choice_agent: 'single_choice',
@@ -303,6 +338,7 @@ function RagManage({ page = 'playground' }) {
   const [questionImportLoading, setQuestionImportLoading] = useState(false)
   const [llmModelOptions, setLlmModelOptions] = useState([])
   const [agentModelBindings, setAgentModelBindings] = useState({})
+  const [agentTestImages, setAgentTestImages] = useState([])
   const [queryForm] = Form.useForm()
   const [sqlForm] = Form.useForm()
   const [agentTestForm] = Form.useForm()
@@ -374,12 +410,41 @@ function RagManage({ page = 'playground' }) {
 
   const fillAgentTestForm = useCallback((agent) => {
     if (!agent) return
+    setAgentTestImages([])
     agentTestForm.setFieldsValue({
       agentName: agent.name,
       llmModel: getDefaultModelForAgent(agent) || undefined,
       input: getAgentExampleInput(agent),
     })
   }, [agentTestForm, getAgentExampleInput, getDefaultModelForAgent])
+
+  const beforeAgentTestImageUpload = async (file) => {
+    if (!file.type?.startsWith('image/')) {
+      message.error('只能上传图片文件')
+      return Upload.LIST_IGNORE
+    }
+    if (file.size > MAX_AGENT_TEST_IMAGE_BYTES) {
+      message.error('单张图片不能超过 10MB')
+      return Upload.LIST_IGNORE
+    }
+    try {
+      const dataUrl = await normalizeAgentTestImage(file)
+      setAgentTestImages((current) => {
+        if (current.length >= MAX_AGENT_TEST_IMAGES) return current
+        return [...current, {
+          uid: file.uid,
+          name: file.name,
+          status: 'done',
+          type: file.type,
+          url: dataUrl,
+          thumbUrl: dataUrl,
+        }]
+      })
+    } catch (error) {
+      message.error(error.message || '图片处理失败')
+    }
+    return Upload.LIST_IGNORE
+  }
 
   const saveAgentExampleInput = async (agentName, inputValue, options = {}) => {
     const selectedAgentName = agentName || 'leader_agent'
@@ -538,6 +603,9 @@ function RagManage({ page = 'playground' }) {
         agentRole: agent.role,
         needRetrieval: agent.needRetrieval,
       },
+    }
+    if (agentTestImages.length) {
+      payload.imageDataUrls = agentTestImages.map((item) => item.url)
     }
 
     setAgentTestLoading(true)
@@ -992,6 +1060,41 @@ function RagManage({ page = 'playground' }) {
                     rules={[{ required: true, message: '请输入测试内容' }]}
                   >
                     <TextArea rows={8} placeholder="输入一段课程内容、会议记录、PPT 大纲或任务要求" />
+                  </Form.Item>
+                  <Form.Item
+                    noStyle
+                    shouldUpdate={(prev, next) => prev.agentName !== next.agentName}
+                  >
+                    {({ getFieldValue }) => {
+                      const selectedAgent = agents.find((item) => item.name === getFieldValue('agentName'))
+                      const supportsVision = getAgentRequiredModelModalities(selectedAgent).includes('vision')
+                      if (!supportsVision) return null
+                      return (
+                        <Form.Item
+                          label="测试图片"
+                          extra={`支持 JPG、PNG、WebP 等常见图片，最多 ${MAX_AGENT_TEST_IMAGES} 张，单张不超过 10MB。`}
+                        >
+                          <Upload
+                            accept="image/*"
+                            listType="picture-card"
+                            fileList={agentTestImages}
+                            beforeUpload={beforeAgentTestImageUpload}
+                            onRemove={(file) => {
+                              setAgentTestImages((current) => current.filter((item) => item.uid !== file.uid))
+                              return true
+                            }}
+                            multiple
+                          >
+                            {agentTestImages.length < MAX_AGENT_TEST_IMAGES ? (
+                              <div>
+                                <PlusOutlined />
+                                <div className="rag-agent-image-upload-label">上传图片</div>
+                              </div>
+                            ) : null}
+                          </Upload>
+                        </Form.Item>
+                      )
+                    }}
                   </Form.Item>
                   <Form.Item
                     noStyle
