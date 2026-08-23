@@ -95,7 +95,6 @@ _MIME_TYPES = {
 EXPORTABLE_MARKDOWN_ANSWER_TYPES = {
     "markdown",
     "ppt_outline",
-    "ppt_layout",
     "ppt_review",
     "tool_result",
 }
@@ -108,7 +107,6 @@ EXPORTABLE_MARKDOWN_AGENTS = {
     "meeting_resource_recommendation_agent",
     "meeting_voice_broadcast_agent",
     "ppt_outline_agent",
-    "ppt_layout_agent",
     "ppt_review_agent",
 }
 EXPORTABLE_DIAGRAM_ANSWER_TYPES = {
@@ -1800,7 +1798,6 @@ def _agent_title(agent: str) -> str:
         "meeting_summary_agent": "会议纪要",
         "meeting_resource_recommendation_agent": "学习资源推荐",
         "ppt_outline_agent": "PPT 大纲",
-        "ppt_layout_agent": "PPT 布局方案",
         "ppt_review_agent": "PPT 审查报告",
     }
     if agent.startswith("textbook_question_"):

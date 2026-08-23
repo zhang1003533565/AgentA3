@@ -1,12 +1,8 @@
 <template>
   <view class="conversation-page">
-    <nav-bar title="Leader 智能助手" :showBack="true" fixed placeholder />
+    <nav-bar title="智能助手" :showBack="true" fixed placeholder />
 
     <view class="conversation-actions">
-      <view class="conversation-action" @click="openQuestionAssembly">
-        <text class="conversation-action__icon">▤</text>
-        <text>后台题库</text>
-      </view>
       <view class="conversation-action" @click="openHistory">
         <text class="conversation-action__icon">◷</text>
         <text>历史</text>
@@ -26,7 +22,7 @@
       @scrolltolower="handleReachBottom"
     >
       <view v-if="messages.length === 0" class="conversation-empty">
-        <text class="conversation-empty__title">和 Leader 开始聊吧</text>
+        <text class="conversation-empty__title">和智能助手开始聊吧</text>
         <text class="conversation-empty__desc">这里会保存成一条历史会话，下次可以从个人中心继续打开。</text>
       </view>
 
@@ -41,15 +37,18 @@
       >
         <view
           class="message-bubble"
-          :class="message.role === 'user'
-            ? 'message-bubble--user'
-            : (message.role === 'action' ? 'message-bubble--action' : 'message-bubble--assistant')"
+          :class="[
+            message.role === 'user'
+              ? 'message-bubble--user'
+              : (message.role === 'action' ? 'message-bubble--action' : 'message-bubble--assistant'),
+            message.displayMode ? `message-bubble--${message.displayMode}` : ''
+          ]"
         >
           <view v-if="message.role === 'action'" class="action-message">
             <text class="action-message__icon">↳</text>
             <text class="action-message__text">{{ getDisplayText(message) }}</text>
           </view>
-          <view v-else-if="message.type === 'thinking'" class="thinking-indicator">
+          <view v-else-if="message.type === 'thinking' && !shouldShowCallDetail(message)" class="thinking-indicator">
             <text class="thinking-text">{{ message.content || '思考中' }}</text>
             <view class="thinking-dots">
               <text></text>
@@ -57,10 +56,10 @@
               <text></text>
             </view>
           </view>
-          <view v-else class="message-content">
+          <view v-else-if="!(message.type === 'thinking' && shouldShowCallDetail(message))" class="message-content">
             <view v-if="message.role === 'assistant'" class="assistant-identity">
               <view class="assistant-identity__avatar">AI</view>
-              <text class="assistant-identity__name">Leader</text>
+              <text class="assistant-identity__name">智能助手</text>
               <text v-if="message.responseState === 'stopped'" class="assistant-identity__state">已停止</text>
               <text v-else-if="message.responseState === 'interrupted'" class="assistant-identity__state assistant-identity__state--warning">已中断</text>
             </view>
@@ -78,6 +77,25 @@
               :content="getDisplayText(message)"
             />
             <text v-else-if="getDisplayText(message)" class="message-text">{{ getDisplayText(message) }}</text>
+            <view v-if="shouldShowSmartWritingActions(message)" class="smart-writing-action-bar">
+              <view class="smart-writing-action smart-writing-action--save" @click="saveSmartWritingMessage(message)">
+                <text class="smart-writing-action__icon">存</text>
+                <text>{{ getSmartWritingSaveLabel(message) }}</text>
+              </view>
+              <view class="smart-writing-action" @click="exportSmartWritingMessage(message)">
+                <text class="smart-writing-action__icon">导</text>
+                <text>导出</text>
+              </view>
+              <view class="smart-writing-action" @click="copyMessage(message)">
+                <text class="smart-writing-action__icon">复</text>
+                <text>复制</text>
+              </view>
+            </view>
+            <view v-if="message.inputAttachments?.length" class="input-attachment-list">
+              <view v-for="item in message.inputAttachments" :key="item.id || item.url" class="input-attachment">
+                <text class="input-attachment__name">{{ item.name }}</text>
+              </view>
+            </view>
             <view v-if="isMessageGenerating(message)" class="generation-status">
               <view class="generation-spinner"></view>
               <text class="generation-status__text">图片生成中</text>
@@ -176,7 +194,7 @@
               </view>
             </view>
             <view
-              v-if="message.role === 'assistant' && (getMessageChoicePrompt(message) || getFollowUpActions(message).length)"
+              v-if="message.role === 'assistant' && !isSmartWritingContinueMessage(message) && (getMessageChoicePrompt(message) || getFollowUpActions(message).length)"
               class="follow-up-panel"
             >
               <text v-if="getMessageChoicePrompt(message)" class="follow-up-prompt">{{ getMessageChoicePrompt(message) }}</text>
@@ -190,90 +208,43 @@
                 >{{ action.label }}</view>
               </view>
             </view>
-            <view v-if="message.role === 'assistant' && message.type !== 'thinking'" class="message-action-bar">
+            <view v-if="message.role === 'assistant' && message.type !== 'thinking' && !isSmartWritingContinueMessage(message)" class="message-action-bar">
               <view class="message-action" @click="copyMessage(message)">复制</view>
               <view class="message-action" @click="retryMessage(message)">重答</view>
             </view>
-            <view
-              v-if="shouldShowEvidence(message)"
-              class="evidence-panel"
-              :class="`evidence-panel--${getEvidenceSummary(message).state}`"
-            >
-              <view class="evidence-panel__header" @click="toggleEvidence(message)">
-                <view class="evidence-panel__heading-row">
-                  <text class="evidence-panel__icon">{{ getEvidenceIcon(message) }}</text>
-                  <text class="evidence-panel__title">{{ getEvidenceCompactLabel(message) }}</text>
-                </view>
-                <text class="evidence-panel__toggle">
-                  {{ isEvidenceExpanded(message) ? '收起' : '查看' }}
-                </text>
-              </view>
-              <view v-if="isEvidenceExpanded(message)" class="evidence-panel__sources">
-                <text class="evidence-panel__meta">
-                  {{ getEvidenceAgentLabel(message) }} · {{ getEvidenceGeneratedAtLabel(message) }}
-                </text>
-                <view
-                  v-for="source in getEvidenceSources(message)"
-                  :key="source.evidenceId"
-                  class="evidence-source"
-                >
-                  <view class="evidence-source__header">
-                    <text class="evidence-source__title">{{ source.title || '未命名来源' }}</text>
-                    <text class="evidence-source__type">{{ getEvidenceSourceLabel(source.sourceType) }}</text>
-                  </view>
-                  <text v-if="source.excerpt" class="evidence-source__excerpt">{{ source.excerpt }}</text>
-                  <text v-if="source.retrievedAt" class="evidence-source__time">检索时间：{{ source.retrievedAt }}</text>
-                </view>
-              </view>
-            </view>
           </view>
-          <view v-if="message.role === 'assistant' && shouldShowCallDetail(message)" class="call-detail-panel">
+          <view
+            v-if="message.role === 'assistant' && shouldShowCallDetail(message) && !(message.type !== 'thinking' && isSmartWritingContinueMessage(message))"
+            class="call-detail-panel"
+          >
             <view class="call-detail-header" @click="toggleCallDetail(message)">
               <view class="call-detail-heading">
                 <view class="call-detail-status-dot" :class="`call-detail-status-dot--${getCallDetailStatus(message)}`"></view>
                 <view class="call-detail-title-wrap">
-                  <text class="call-detail-title">运行过程</text>
-                  <text class="call-detail-summary">{{ getCallDetailSummary(message) }}</text>
+                  <view class="call-detail-thinking-title">
+                    <text class="call-detail-title">思考中</text>
+                    <view class="thinking-dots thinking-dots--inline">
+                      <text></text>
+                      <text></text>
+                      <text></text>
+                    </view>
+                  </view>
                 </view>
               </view>
               <text class="call-detail-toggle">{{ isCallDetailExpanded(message) ? '收起' : '展开' }}</text>
             </view>
             <view v-if="isCallDetailExpanded(message)" class="call-detail-body">
-              <view class="call-detail-meta">
+              <view class="simple-thinking-steps">
                 <view
-                  v-for="item in getCallDetailMetaItems(message)"
-                  :key="`${message.localId || message.id}-meta-${item.label}`"
-                  class="call-detail-meta-item"
+                  v-for="(step, stepIndex) in getSimpleThinkingSteps(message)"
+                  :key="`${message.localId || message.id}-simple-step-${stepIndex}`"
+                  class="simple-thinking-step"
+                  :class="`simple-thinking-step--${step.status}`"
                 >
-                  <text class="call-detail-meta-label">{{ item.label }}</text>
-                  <text class="call-detail-meta-value">{{ item.value }}</text>
+                  <text class="simple-thinking-step__mark">{{ step.status === 'completed' ? '✓' : '' }}</text>
+                  <text class="simple-thinking-step__label">{{ step.label }}</text>
                 </view>
               </view>
-              <view v-if="getCallDetailTools(message).length" class="call-detail-tools">
-                <text
-                  v-for="tool in getCallDetailTools(message)"
-                  :key="`${message.localId || message.id}-tool-${tool}`"
-                  class="call-detail-tool"
-                >{{ tool }}</text>
-              </view>
-              <view class="call-detail-steps">
-                <view
-                  v-for="(step, stepIndex) in getCallDetailSteps(message)"
-                  :key="`${message.localId || message.id}-step-${stepIndex}`"
-                  class="call-detail-step"
-                  :class="`call-detail-step--${step.status}`"
-                >
-                  <view class="call-detail-step-dot"></view>
-                  <view class="call-detail-step-body">
-                    <view class="call-detail-step-head">
-                      <text class="call-detail-step-title">{{ step.title }}</text>
-                      <text class="call-detail-step-status">{{ step.statusLabel }}</text>
-                    </view>
-                    <text v-if="step.description" class="call-detail-step-desc">{{ step.description }}</text>
-                  </view>
-                </view>
-              </view>
-              <text v-if="getCallDetailError(message)" class="call-detail-error">{{ getCallDetailError(message) }}</text>
             </view>
           </view>
         </view>
@@ -281,20 +252,41 @@
       <view id="message-anchor"></view>
     </scroll-view>
 
-    <view v-if="showScrollToBottom" class="scroll-to-bottom" @click="resumeAutoFollow">
-      回到底部 ↓
+    <scroll-view v-if="pendingResources.length" class="pending-resources" scroll-x>
+      <view v-for="item in pendingResources" :key="item.localId" class="pending-resource">
+        <view class="pending-resource__body">
+          <text class="pending-resource__name">{{ item.name }}</text>
+          <text class="pending-resource__status">{{ item.status === 'uploading' ? '上传中' : item.status === 'error' ? item.error : '已就绪' }}</text>
+        </view>
+        <text v-if="item.status === 'error'" class="pending-resource__action" @click="retryPendingResource(item)">重试</text>
+        <text class="pending-resource__remove" @click="removePendingResource(item.localId)">×</text>
+      </view>
+    </scroll-view>
+    <view v-if="exportPanelMessageKey" class="export-panel-mask" @click="closeExportPanel">
+      <view class="export-panel" @click.stop>
+        <view class="export-option" @click="handleExportOption('txt')">
+          <text class="export-option__icon">文</text>
+          <text class="export-option__label">纯文本</text>
+        </view>
+        <view class="export-option" @click="handleExportOption('md')">
+          <text class="export-option__icon">MD</text>
+          <text class="export-option__label">Markdown</text>
+        </view>
+        <view class="export-option" @click="handleExportOption('word')">
+          <text class="export-option__icon">W</text>
+          <text class="export-option__label">Word</text>
+        </view>
+      </view>
     </view>
-
     <view class="composer">
       <textarea
         v-model="inputValue"
         class="composer-input"
-        placeholder="继续问 Leader 智能助手"
+        placeholder="继续问智能助手"
         maxlength="4000"
         auto-height
         confirm-type="send"
         :confirm-hold="true"
-        :disabled="sending"
         @confirm="handleInputConfirm"
         @keydown.enter="handleEnterKey"
       />
@@ -310,8 +302,10 @@
 import NavBar from '@/components/nav-bar/nav-bar.vue'
 import SafeMarkdown from '@/components/safe-markdown/safe-markdown.vue'
 import { ASSISTANT_PUBLIC_RESOURCE_HOSTS, BASE_URL } from '@/utils/config.js'
+import { uploadAiResource } from '@/utils/upload.js'
 import {
   downloadAssistantResource,
+  exportSmartWritingAsWord,
   getLeaderSessionDetail,
   queryLeaderAgent,
   streamLeaderAgent,
@@ -327,8 +321,10 @@ import {
   resolveBusinessResourceRoute,
   summarizeEvidenceChain
 } from '@/subpackage_ai/assistantMessage.js'
+import { saveSmartWritingSavedWork } from '@/utils/smartWritingHistory.js'
 
 const STORAGE_KEY = 'aiAssistantSessionId'
+const SMART_WRITING_CONTINUE_CONTEXT_KEY = 'smartWritingContinueContext'
 const CALL_DETAIL_STAGE_LABELS = {
   status: '请求已提交',
   processing: '处理中',
@@ -356,7 +352,7 @@ const CALL_DETAIL_STATUS_LABELS = {
   failed: '失败'
 }
 const AGENT_LABELS = {
-  leader_agent: 'Leader 智能体',
+  leader_agent: '智能助手',
   profile_summary_agent: '个人画像汇总智能体',
   mind_map_agent: '思维导图图片提示词智能体',
   diagram_mind_map_agent: '思维导图图片生成智能体',
@@ -369,10 +365,10 @@ const AGENT_LABELS = {
   textbook_knowledge_agent: '教材知识点智能体',
   image_agent: '图片智能体',
   ppt_outline_agent: 'PPT 大纲智能体',
-  ppt_layout_agent: 'PPT 布局智能体',
+  ppt_structure_agent: 'PPT 结构智能体',
   ppt_review_agent: 'PPT 审查智能体',
   ppt_image_agent: 'PPT 图片智能体',
-  ppt_to_docx_agent: 'PPT 转 DOCX 智能体',
+  ppt_to_docx_agent: 'PPT 转 Word 智能体',
   meeting_summary_agent: '会议总结智能体'
 }
 const TOOL_LABELS = {
@@ -481,6 +477,7 @@ export default {
       sessionId: '',
       messages: [],
       inputValue: '',
+      pendingResources: [],
       sending: false,
       blockingRequestCount: 0,
       scrollAnchor: 'message-anchor',
@@ -492,10 +489,11 @@ export default {
       activeAudioKey: '',
       activeStreamTask: null,
       activeStreamLocalId: '',
+      activeLlmModel: '',
       stopRequestedLocalId: '',
       stopping: false,
       autoFollowMessages: true,
-      showScrollToBottom: false,
+      exportPanelMessageKey: '',
       viewEpoch: 0,
       localRevision: 0,
       historyRequestGeneration: 0,
@@ -504,7 +502,10 @@ export default {
   },
   computed: {
     canSend() {
-      return !this.sending && this.inputValue.trim().length > 0
+      return !this.sending
+        && !this.pendingResources.some((item) => item.status === 'uploading')
+        && (this.inputValue.trim().length > 0
+          || this.pendingResources.some((item) => item.status === 'success'))
     }
   },
   watch: {
@@ -524,6 +525,26 @@ export default {
       uni.setStorageSync(STORAGE_KEY, this.sessionId)
     }
     this.loadDetail()
+    if (options.smartWritingContinue === '1') {
+      const context = uni.getStorageSync(SMART_WRITING_CONTINUE_CONTEXT_KEY) || {}
+      uni.removeStorageSync(SMART_WRITING_CONTINUE_CONTEXT_KEY)
+      const requestText = String(context.requestText || '').trim()
+      const displayText = String(context.displayText || '请帮我续写这篇作品').trim()
+      const llmModel = String(context.llmModel || '').trim()
+      this.activeLlmModel = llmModel
+      if (requestText) {
+        this.inputValue = ''
+        this.$nextTick(() => {
+          this.sendMessage({
+            requestText,
+            displayText,
+            displayMode: context.displayMode,
+            sceneMode: 'smart_writing_continue',
+            llmModel
+          })
+        })
+      }
+    }
   },
   onUnload() {
     this.abortActiveStream(true)
@@ -584,23 +605,36 @@ export default {
         : {}
       const hasRequestText = Object.prototype.hasOwnProperty.call(requestOptions, 'requestText')
       const text = String(hasRequestText ? requestOptions.requestText : this.inputValue).trim()
-      if (!text || this.sending) return
-      const displayText = String(requestOptions.displayText || text).trim()
+      const inputAttachments = hasRequestText
+        ? []
+        : this.pendingResources.filter((item) => item.status === 'success').map((item) => item.resource)
+      const requestText = text || (inputAttachments.length ? '请分析我上传的资源' : '')
+      if (!requestText || this.sending || this.pendingResources.some((item) => item.status === 'uploading')) return
+      const displayText = String(requestOptions.displayText || requestText).trim()
       const displayRole = requestOptions.displayRole === 'action' ? 'action' : 'user'
       const interactionType = String(requestOptions.interactionType || '').trim()
-      if (!hasRequestText) this.inputValue = ''
+      const sceneMode = String(requestOptions.sceneMode || '').trim()
+      const llmModel = String(requestOptions.llmModel || this.activeLlmModel || '').trim()
+      if (!hasRequestText) {
+        this.inputValue = ''
+        this.pendingResources = []
+      }
       const releaseComposer = this.createComposerRelease()
       this.appendMessage({
         role: displayRole,
         content: displayText,
-        requestContent: text,
+        requestContent: requestText,
+        inputAttachments,
         answerType: interactionType ? `action_${interactionType}` : 'text',
-        interactionType
+        interactionType,
+        displayMode: requestOptions.displayMode || '',
+        sceneMode
       }, true)
       const thinkingMessage = this.appendMessage({
         role: 'assistant',
         type: 'thinking',
         content: '思考中',
+        sceneMode,
         callDetail: this.createInitialCallDetail(displayText),
         callDetailExpanded: false
       }, true)
@@ -612,7 +646,9 @@ export default {
       const leaderRequest = {
         sessionId: requestContext.sessionId,
         agentName: 'leader_agent',
-        input: text,
+        input: requestText,
+        ...(llmModel ? { llmModel } : {}),
+        ...(inputAttachments.length ? { attachments: inputAttachments } : {}),
         ...(interactionType ? {
           interactionType,
           displayInput: displayText,
@@ -710,6 +746,7 @@ export default {
               outputType: payload?.outputType || payload?.answerType || 'text',
               agentName: payload?.agentName || current?.callDetail?.agentName || 'leader_agent',
               searchKeyword: payload?.searchKeyword || current?.callDetail?.searchKeyword || '',
+              sceneMode: current?.sceneMode || sceneMode,
               callDetail: this.buildFinalCallDetail(payload, current?.callDetail, 'completed'),
               callDetailExpanded: current?.callDetailExpanded || false,
               evidenceExpanded: current?.evidenceExpanded || false,
@@ -827,7 +864,7 @@ export default {
         ...(payload || {}),
         role: 'assistant',
         type: '',
-        content: payload?.answer || '已开始生成图片，你可以继续提问，生成完成后会更新到这里。',
+        content: payload?.answer || '',
         answerType: payload?.answerType || 'image_generation',
         outputType: payload?.outputType || 'image',
         outputTypes: payload?.outputTypes || ['image'],
@@ -879,6 +916,7 @@ export default {
           outputType: payload.outputType || payload.answerType || 'text',
           agentName: payload.agentName || 'leader_agent',
           searchKeyword: payload.searchKeyword || '',
+          sceneMode: current?.sceneMode || requestPayload?.sceneMode || '',
           callDetail: this.buildFinalCallDetail(payload, null, 'completed'),
           callDetailExpanded: false
         })
@@ -905,7 +943,7 @@ export default {
         trace: [
           this.createLiveTraceStep('status', {
             stage: 'processing',
-            message: '已提交给 Leader 智能助手'
+            message: '已提交给智能助手'
           })
         ]
       }
@@ -1073,6 +1111,16 @@ export default {
       if (matchedCount > 0 || this.getToolNameFromDetail(detail) || meaningfulStages.length) return true
       return !['smalltalk', 'greeting'].includes(intent)
     },
+    isSmartWritingContinueMessage(message) {
+      return String(message?.sceneMode || '') === 'smart_writing_continue'
+    },
+    shouldShowSmartWritingActions(message) {
+      return Boolean(message
+        && message.role === 'assistant'
+        && message.type !== 'thinking'
+        && this.isSmartWritingContinueMessage(message)
+        && String(this.getDisplayText(message) || '').trim())
+    },
     getMessageKey(message) {
       return message?.localId || message?.id || ''
     },
@@ -1154,7 +1202,7 @@ export default {
       const tools = []
       const trace = Array.isArray(detail.trace) ? detail.trace : []
       if (trace.some((step) => ['leader_plan', 'leader_route'].includes(String(step?.stage || ''))) || detail.intent) {
-        tools.push('Leader 意图识别')
+        tools.push('智能助手意图识别')
       }
       const usedRetrieval = Boolean(detail.searchKeyword)
         || trace.some((step) => ['retrieve', 'search'].includes(String(step?.stage || '')) && !step?.detail?.skipped)
@@ -1179,7 +1227,7 @@ export default {
       if (detail.agentName && detail.agentName !== 'leader_agent') {
         tools.push(this.getAgentLabel(detail.agentName))
       } else {
-        tools.push('Leader 回答汇总')
+        tools.push('智能助手回答汇总')
       }
       return [...new Set(tools.filter(Boolean))]
     },
@@ -1201,6 +1249,18 @@ export default {
           statusLabel: CALL_DETAIL_STATUS_LABELS[status] || '已完成'
         }
       })
+    },
+    getSimpleThinkingSteps(message) {
+      const detail = this.normalizeCallDetail(message)
+      const labels = ['分析创作内容', '组织续写思路', '生成续写内容', '优化表达细节']
+      const rawCount = Array.isArray(detail.trace) ? detail.trace.length : 1
+      const completedCount = detail.status === 'completed'
+        ? labels.length
+        : Math.max(1, Math.min(labels.length - 1, rawCount))
+      return labels.map((label, index) => ({
+        label,
+        status: index < completedCount ? 'completed' : 'pending'
+      }))
     },
     getCallDetailError(message) {
       return this.normalizeCallDetail(message).error || ''
@@ -1307,7 +1367,7 @@ export default {
       if (stage === 'tool_result_summary') {
         const count = detail.resultCount !== undefined && detail.resultCount !== null ? ` · ${detail.resultCount} 条数据` : ''
         if (detail.summarizedByModel) {
-          return `Leader 智能体已整理工具结果${count}`
+          return `智能助手已整理工具结果${count}`
         }
         return detail.error ? `工具结果整理失败，已回退展示${count}` : `工具结果已回退展示${count}`
       }
@@ -1344,7 +1404,7 @@ export default {
       return INTENT_LABELS[intent] || intent
     },
     getAgentLabel(agentName) {
-      if (!agentName) return 'Leader 智能体'
+      if (!agentName) return '智能助手'
       if (AGENT_LABELS[agentName]) return AGENT_LABELS[agentName]
       if (String(agentName).startsWith('textbook_question_')) return '题库生成智能体'
       if (String(agentName).startsWith('meeting_')) return '会议智能体'
@@ -1429,11 +1489,6 @@ export default {
     openHistory() {
       uni.redirectTo({ url: '/subpackage_ai/aiHistory/aiHistory' })
     },
-    openQuestionAssembly() {
-      const prefill = String(this.inputValue || '').trim()
-      const query = prefill ? `?prefill=${encodeURIComponent(prefill)}` : ''
-      uni.navigateTo({ url: `/subpackage_ai/examGenerate/examGenerate${query}` })
-    },
     startNewConversation() {
       if (this.sending) return
       this.advanceViewEpoch()
@@ -1441,6 +1496,7 @@ export default {
       this.messages = []
       this.markLocalMutation()
       this.inputValue = ''
+      this.pendingResources = []
       this.resetResourceState()
       uni.removeStorageSync(STORAGE_KEY)
       this.scrollToBottom(true)
@@ -1486,6 +1542,73 @@ export default {
         && context.viewEpoch === this.viewEpoch
         && context.sessionId === this.sessionId
     },
+    chooseResources() {
+      if (this.sending || this.pendingResources.length >= 8) return
+      const supportsAllFiles = typeof uni.chooseMessageFile === 'function'
+        || typeof uni.chooseFile === 'function'
+      const chooser = typeof uni.chooseMessageFile === 'function'
+        ? uni.chooseMessageFile
+        : (typeof uni.chooseFile === 'function' ? uni.chooseFile : uni.chooseMedia)
+      if (typeof chooser !== 'function') {
+        uni.showToast({ title: '当前环境暂不支持文件选择', icon: 'none' })
+        return
+      }
+      if (!supportsAllFiles) {
+        uni.showToast({ title: '当前端支持选择图片和视频', icon: 'none' })
+      }
+      const chooserOptions = {
+        count: 8 - this.pendingResources.length,
+        success: (result) => {
+          const files = Array.isArray(result.tempFiles) ? result.tempFiles : []
+          files.forEach((file) => {
+            const entry = {
+              localId: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+              source: file.file || file,
+              name: file.name || String(file.path || file.tempFilePath || '').split('/').pop() || 'resource',
+              status: 'uploading',
+              resource: null,
+              error: ''
+            }
+            this.pendingResources.push(entry)
+            this.uploadPendingResource(entry)
+          })
+        },
+        fail: (error) => {
+          if (!String(error?.errMsg || '').includes('cancel')) {
+            uni.showToast({ title: '选择资源失败', icon: 'none' })
+          }
+        }
+      }
+      if (supportsAllFiles) {
+        chooserOptions.type = 'all'
+        chooserOptions.extension = [
+          'jpg', 'jpeg', 'png', 'webp', 'gif', 'pdf', 'doc', 'docx', 'ppt', 'pptx',
+          'xls', 'xlsx', 'csv', 'txt', 'md', 'mmd', 'json', 'zip',
+          'mp3', 'wav', 'm4a', 'ogg', 'mp4', 'mov', 'webm'
+        ]
+      } else {
+        chooserOptions.mediaType = ['image', 'video']
+      }
+      chooser(chooserOptions)
+    },
+    async uploadPendingResource(entry) {
+      entry.status = 'uploading'
+      entry.error = ''
+      try {
+        entry.resource = await uploadAiResource(entry.source)
+        entry.status = 'success'
+      } catch (error) {
+        entry.status = 'error'
+        entry.error = error?.msg || error?.message || '上传失败'
+      }
+    },
+    retryPendingResource(entry) {
+      if (!entry || entry.status === 'uploading') return
+      this.uploadPendingResource(entry)
+    },
+    removePendingResource(localId) {
+      this.pendingResources = this.pendingResources.filter((item) => item.localId !== localId)
+    },
     handleInputConfirm() {
       this.sendMessage()
     },
@@ -1500,25 +1623,16 @@ export default {
       const deltaY = Number(event?.detail?.deltaY || 0)
       if (deltaY < -2) {
         this.autoFollowMessages = false
-        this.showScrollToBottom = true
       }
     },
     handleReachBottom() {
       this.autoFollowMessages = true
-      this.showScrollToBottom = false
-    },
-    resumeAutoFollow() {
-      this.autoFollowMessages = true
-      this.showScrollToBottom = false
-      this.scrollToBottom(true)
     },
     scrollToBottom(force = false) {
       if (!force && !this.autoFollowMessages) {
-        this.showScrollToBottom = true
         return
       }
       if (force) this.autoFollowMessages = true
-      this.showScrollToBottom = false
       this.$nextTick(() => {
         this.scrollAnchor = ''
         this.$nextTick(() => {
@@ -1990,6 +2104,169 @@ export default {
         fail: () => uni.showToast({ title: '复制失败', icon: 'none' })
       })
     },
+    getSmartWritingSaveLabel(message) {
+      return message?.outputMeta?.savedWorkId ? '已保存' : '保存'
+    },
+    buildSmartWritingRecord(message) {
+      const content = String(this.getDisplayText(message) || '').trim()
+      const titleSource = content.split(/\n+/).find(Boolean) || '智能写作作品'
+      const title = titleSource.length > 18 ? `${titleSource.slice(0, 18)}...` : titleSource
+      const idSource = message?.messageId || message?.id || message?.localId || Date.now()
+      return {
+        id: `smart-writing-continue-${idSource}`,
+        title,
+        scene: 'continue',
+        sceneLabel: 'AI续写',
+        prompt: titleSource,
+        content,
+        model: this.activeLlmModel || message?.model || message?.outputMeta?.model || '',
+        modelConfigPrefix: this.activeLlmModel || '',
+        createdAt: new Date().toISOString()
+      }
+    },
+    formatExportTime(value = new Date()) {
+      const date = value instanceof Date ? value : new Date(value)
+      if (Number.isNaN(date.getTime())) return ''
+      const pad = (number) => String(number).padStart(2, '0')
+      return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`
+    },
+    getSafeExportFilename(title, extension) {
+      const safeTitle = String(title || '智能写作')
+        .replace(/[\\/:*?"<>|]/g, '')
+        .replace(/\s+/g, '-')
+        .slice(0, 28) || '智能写作'
+      return `${safeTitle}-${Date.now()}.${extension}`
+    },
+    buildSmartWritingExportData(message) {
+      const record = this.buildSmartWritingRecord(message)
+      const generatedAt = this.formatExportTime()
+      const model = record.model || '未记录'
+      const title = record.title || '智能写作作品'
+      return {
+        title,
+        text: [
+          `标题：${title}`,
+          `类型：${record.sceneLabel || '智能写作'}`,
+          `导出时间：${generatedAt}`,
+          `模型：${model}`,
+          '',
+          '正文：',
+          record.content
+        ].join('\n'),
+        markdown: [
+          `# ${title}`,
+          '',
+          `- 类型：${record.sceneLabel || '智能写作'}`,
+          `- 导出时间：${generatedAt}`,
+          `- 模型：${model}`,
+          '',
+          '## 正文',
+          '',
+          record.content
+        ].join('\n')
+      }
+    },
+    downloadTextContent(content, filename, successTitle) {
+      if (typeof window !== 'undefined' && typeof document !== 'undefined' && typeof Blob !== 'undefined') {
+        const blob = new Blob([`\uFEFF${content}`], { type: 'text/plain;charset=utf-8' })
+        const url = window.URL.createObjectURL(blob)
+        const link = document.createElement('a')
+        link.href = url
+        link.download = filename
+        document.body.appendChild(link)
+        link.click()
+        document.body.removeChild(link)
+        window.URL.revokeObjectURL(url)
+        uni.showToast({ title: successTitle, icon: 'success' })
+        return
+      }
+      uni.showToast({ title: '当前环境暂不支持下载文件', icon: 'none' })
+    },
+    saveSmartWritingMessage(message) {
+      if (!this.shouldShowSmartWritingActions(message)) {
+        uni.showToast({ title: '暂无可保存内容', icon: 'none' })
+        return
+      }
+      const savedRecord = saveSmartWritingSavedWork(this.buildSmartWritingRecord(message))
+      const key = this.getMessageKey(message)
+      const index = this.messages.findIndex((item) => this.getMessageKey(item) === key)
+      if (index >= 0) {
+        const outputMeta = { ...(this.messages[index].outputMeta || {}), savedWorkId: savedRecord.id }
+        this.messages.splice(index, 1, { ...this.messages[index], outputMeta })
+        this.markLocalMutation()
+      }
+      uni.showToast({ title: '已保存', icon: 'success' })
+    },
+    exportSmartWritingMessage(message) {
+      const content = String(this.getDisplayText(message) || '').trim()
+      if (!content) {
+        uni.showToast({ title: '暂无可导出内容', icon: 'none' })
+        return
+      }
+      this.exportPanelMessageKey = this.getMessageKey(message)
+    },
+    closeExportPanel() {
+      this.exportPanelMessageKey = ''
+    },
+    getExportPanelMessage() {
+      if (!this.exportPanelMessageKey) return null
+      return this.messages.find((item) => this.getMessageKey(item) === this.exportPanelMessageKey) || null
+    },
+    handleExportOption(type) {
+      const message = this.getExportPanelMessage()
+      this.closeExportPanel()
+      if (!message) return
+      const exportData = this.buildSmartWritingExportData(message)
+      if (type === 'txt') {
+        this.downloadTextContent(
+          exportData.text,
+          this.getSafeExportFilename(exportData.title, 'txt'),
+          '已导出文本'
+        )
+      } else if (type === 'md') {
+        this.downloadTextContent(
+          exportData.markdown,
+          this.getSafeExportFilename(exportData.title, 'md'),
+          '已导出 Markdown'
+        )
+      } else if (type === 'word') {
+        this.downloadWordDocument(message, exportData)
+      }
+    },
+    downloadWordDocument(message, exportData) {
+      uni.showLoading({ title: '正在生成文档...' })
+      const record = this.buildSmartWritingRecord(message)
+      const payload = {
+        title: exportData.title,
+        sceneLabel: record.sceneLabel || '',
+        generatedAt: record.createdAt ? this.formatExportTime(new Date(record.createdAt)) : '',
+        model: record.model || '',
+        content: String(record.content || '').trim()
+      }
+      exportSmartWritingAsWord(payload)
+        .then(blob => {
+          if (typeof window !== 'undefined' && typeof document !== 'undefined' && typeof URL !== 'undefined') {
+            const url = window.URL.createObjectURL(blob)
+            const link = document.createElement('a')
+            link.href = url
+            link.download = this.getSafeExportFilename(exportData.title, 'docx')
+            document.body.appendChild(link)
+            link.click()
+            document.body.removeChild(link)
+            window.URL.revokeObjectURL(url)
+            uni.hideLoading()
+            uni.showToast({ title: '已导出 Word 文档', icon: 'success' })
+          } else {
+            uni.hideLoading()
+            uni.showToast({ title: '当前环境暂不支持下载文件', icon: 'none' })
+          }
+        })
+        .catch(error => {
+          uni.hideLoading()
+          const msg = error?.message || '导出失败'
+          uni.showToast({ title: msg, icon: 'none' })
+        })
+    },
     retryMessage(message) {
       if (!message || this.sending) return
       const index = this.messages.findIndex((item) => this.getMessageKey(item) === this.getMessageKey(message))
@@ -2150,6 +2427,15 @@ export default {
   max-width: 82%;
   background: linear-gradient(135deg, #3D7DF5, #69A6FF);
   color: #FFFFFF;
+}
+
+.message-bubble--smart-writing-source {
+  width: 100%;
+  max-width: 100%;
+  background: #FFFFFF;
+  color: #1F2933;
+  border: 1rpx solid rgba(100, 116, 139, 0.1);
+  box-shadow: 0 8rpx 22rpx rgba(72, 103, 163, 0.06);
 }
 
 .message-bubble--assistant {
@@ -2678,6 +2964,112 @@ export default {
   color: #2F6FE4;
 }
 
+.smart-writing-action-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-around;
+  gap: 18rpx;
+  margin-top: 24rpx;
+  padding-top: 20rpx;
+  border-top: 1rpx solid #EEF2F7;
+}
+
+.smart-writing-action {
+  min-width: 116rpx;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8rpx;
+  color: #5B6472;
+  font-size: 23rpx;
+  line-height: 1.2;
+}
+
+.smart-writing-action__icon {
+  width: 52rpx;
+  height: 52rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 14rpx;
+  background: #F1F5F9;
+  color: #365F7D;
+  font-size: 22rpx;
+  font-weight: 800;
+}
+
+.smart-writing-action--save {
+  color: #23A36A;
+}
+
+.smart-writing-action--save .smart-writing-action__icon {
+  background: #EAF8F1;
+  color: #20A464;
+}
+
+.smart-writing-action:active .smart-writing-action__icon {
+  background: #E8F0FF;
+  color: #2F6FE4;
+}
+
+.export-panel-mask {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  z-index: 22;
+  background: rgba(17, 24, 39, 0.18);
+}
+
+.export-panel {
+  position: absolute;
+  left: 28rpx;
+  right: 28rpx;
+  bottom: calc(118rpx + env(safe-area-inset-bottom));
+  z-index: 23;
+  display: flex;
+  align-items: center;
+  justify-content: space-around;
+  gap: 16rpx;
+  padding: 22rpx 24rpx;
+  border-radius: 28rpx;
+  background: rgba(255, 255, 255, 0.98);
+  box-shadow: 0 18rpx 48rpx rgba(20, 25, 40, 0.16);
+  box-sizing: border-box;
+}
+
+.export-option {
+  flex: 1;
+  min-width: 0;
+  min-height: 72rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10rpx;
+  border-radius: 18rpx;
+  color: #4B5563;
+  font-size: 24rpx;
+  font-weight: 700;
+}
+
+.export-option__icon {
+  width: 44rpx;
+  height: 44rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 13rpx;
+  background: #EEF4FF;
+  color: #2F6FE4;
+  font-size: 19rpx;
+  font-weight: 800;
+}
+
+.export-option:active {
+  background: #F3F6FB;
+}
+
 .evidence-panel {
   padding: 12rpx 0 0;
   border-radius: 0;
@@ -2844,8 +3236,14 @@ export default {
 .call-detail-title-wrap {
   min-width: 0;
   display: flex;
-  flex-direction: column;
-  gap: 4rpx;
+  flex-direction: row;
+  align-items: center;
+}
+
+.call-detail-thinking-title {
+  display: flex;
+  align-items: center;
+  gap: 12rpx;
 }
 
 .call-detail-title {
@@ -2870,14 +3268,47 @@ export default {
 }
 
 .call-detail-body {
-  margin-top: 12rpx;
-  padding: 16rpx;
-  border-radius: 18rpx;
-  background: #F7F9FD;
-  border: 1rpx solid rgba(100, 116, 139, 0.12);
+  margin-top: 16rpx;
+  padding: 4rpx 0 2rpx;
   display: flex;
   flex-direction: column;
-  gap: 14rpx;
+  gap: 18rpx;
+}
+
+.simple-thinking-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 18rpx;
+}
+
+.simple-thinking-step {
+  display: flex;
+  align-items: center;
+  gap: 18rpx;
+  color: #9AA5B5;
+  font-size: 27rpx;
+  line-height: 1.35;
+}
+
+.simple-thinking-step--completed {
+  color: #243044;
+  font-weight: 750;
+}
+
+.simple-thinking-step__mark {
+  width: 22rpx;
+  min-width: 22rpx;
+  color: #6C4DF6;
+  font-size: 26rpx;
+  line-height: 1;
+  text-align: center;
+}
+
+.simple-thinking-step:not(.simple-thinking-step--completed) .simple-thinking-step__mark {
+  width: 18rpx;
+  height: 18rpx;
+  border: 2rpx solid #B9A8FF;
+  border-radius: 50%;
 }
 
 .call-detail-meta {
@@ -3025,6 +3456,10 @@ export default {
   gap: 8rpx;
 }
 
+.thinking-dots--inline {
+  gap: 7rpx;
+}
+
 .thinking-dots text {
   width: 10rpx;
   height: 10rpx;
@@ -3058,24 +3493,68 @@ export default {
   }
 }
 
-.scroll-to-bottom {
-  position: absolute;
-  right: 24rpx;
-  bottom: calc(112rpx + env(safe-area-inset-bottom));
-  margin: 0;
-  z-index: 21;
-  min-height: 60rpx;
-  padding: 0 20rpx;
-  border-radius: 999rpx;
+.pending-resources {
+  flex-shrink: 0;
+  width: 100%;
+  padding: 12rpx 24rpx 0;
+  box-sizing: border-box;
+  white-space: nowrap;
   background: #FFFFFF;
-  color: #2F6FE4;
-  border: 1rpx solid rgba(47, 111, 228, 0.18);
-  box-shadow: 0 10rpx 24rpx rgba(31, 41, 55, 0.12);
-  display: flex;
+}
+
+.pending-resource {
+  display: inline-flex;
+  width: 360rpx;
   align-items: center;
-  justify-content: center;
-  font-size: 22rpx;
-  font-weight: 800;
+  gap: 12rpx;
+  margin-right: 12rpx;
+  padding: 16rpx;
+  border: 1rpx solid #E5E7EB;
+  border-radius: 16rpx;
+  background: #F8FAFC;
+  box-sizing: border-box;
+}
+
+.pending-resource__body {
+  min-width: 0;
+  flex: 1;
+}
+
+.pending-resource__name,
+.pending-resource__status {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pending-resource__name { color: #1F2937; font-size: 24rpx; }
+.pending-resource__status { margin-top: 4rpx; color: #718096; font-size: 20rpx; }
+.pending-resource__action { color: #365F7D; font-size: 22rpx; }
+.pending-resource__remove { color: #718096; font-size: 34rpx; }
+
+.input-attachment-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8rpx;
+  margin-top: 12rpx;
+}
+
+.input-attachment {
+  max-width: 100%;
+  padding: 8rpx 12rpx;
+  border: 1rpx solid rgba(54, 95, 125, 0.18);
+  border-radius: 10rpx;
+  background: rgba(54, 95, 125, 0.06);
+}
+
+.input-attachment__name {
+  display: block;
+  overflow: hidden;
+  color: #365F7D;
+  font-size: 21rpx;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .composer {

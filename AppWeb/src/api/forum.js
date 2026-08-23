@@ -172,6 +172,7 @@ export const getReportList = (params = {}) =>
       size: params.pageSize ?? params.size ?? 10,
       status: params.status,
       targetType: params.targetType,
+      keyword: params.keyword,
     },
   })
 
@@ -188,6 +189,12 @@ export const handleReport = (id, data) =>
     data,
   })
 
+export const reopenReport = (id) =>
+  request({
+    url: `/api/forum/reports/${id}/reopen`,
+    method: 'put',
+  })
+
 export const getReportStatistics = () =>
   request({
     url: '/api/forum/reports/statistics',
@@ -198,6 +205,13 @@ export const getReportLogs = (id) =>
   request({
     url: `/api/forum/reports/${id}/logs`,
     method: 'get',
+  })
+
+export const batchDeleteReports = (ids) =>
+  request({
+    url: '/api/forum/reports/batch',
+    method: 'delete',
+    data: ids,
   })
 
 // ========== 话题 ==========
@@ -241,11 +255,24 @@ export const deleteTopic = (id) =>
     method: 'delete',
   })
 
+export const batchDeleteTopics = (ids) =>
+  request({
+    url: '/api/forum/topics/batch',
+    method: 'delete',
+    data: ids,
+  })
+
 // ========== 审核 / 管理 ==========
 
 // ========== 论坛统计 ==========
 export const getForumStatistics = () =>
   request({
     url: '/api/forum/statistics/overview',
+    method: 'get',
+  })
+
+export const getForumRules = () =>
+  request({
+    url: '/api/forum/statistics/rules',
     method: 'get',
   })

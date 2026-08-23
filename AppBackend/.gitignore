@@ -5,6 +5,7 @@ target/
 !**/src/test/**/target/
 .data/
 .redis-data/
+.neo4j-data/
 
 
 # Spring Boot
@@ -34,3 +35,5 @@ target/
 # OS
 .DS_Store
 Thumbs.db
+
+uploads/

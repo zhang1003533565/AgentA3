@@ -6,10 +6,6 @@
         <text class="top-action-icon">ℹ</text>
         <text class="top-action-text">使用指南</text>
       </view>
-      <view class="top-action" @tap="goHistory">
-        <text class="top-action-icon">🕐</text>
-        <text class="top-action-text">历史记录</text>
-      </view>
       <view class="top-action" @tap="handleExport">
         <text class="top-action-icon">↗</text>
         <text class="top-action-text">导出</text>
@@ -179,7 +175,6 @@ import { ref } from 'vue'
 const activeCodeTab = ref('mermaid')
 
 const goGuide = () => { uni.showToast({ title: '使用指南', icon: 'none' }) }
-const goHistory = () => { uni.showToast({ title: '历史记录', icon: 'none' }) }
 const handleExport = () => { uni.showToast({ title: '导出', icon: 'none' }) }
 const copyResult = () => { uni.showToast({ title: '已复制', icon: 'success' }) }
 const downloadResult = () => { uni.showToast({ title: '下载', icon: 'none' }) }

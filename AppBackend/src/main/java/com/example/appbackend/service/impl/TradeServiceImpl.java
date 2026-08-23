@@ -39,7 +39,7 @@ public class TradeServiceImpl implements TradeService {
     private static final DateTimeFormatter FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
     private static final List<TradeStatus> ACTIVE_STATUSES = Arrays.asList(TradeStatus.WAIT_CONFIRM, TradeStatus.TRADING);
     private static final int ITEM_ON_SALE = 2;
-    private static final int ITEM_SOLD = 3;
+    private static final int ITEM_OFFLINE = 4;
     private static final String CONTACT_EXCHANGE_NONE = "NONE";
     private static final String CONTACT_EXCHANGE_REQUESTED = "REQUESTED";
     private static final String CONTACT_EXCHANGE_EXCHANGED = "EXCHANGED";
@@ -112,7 +112,7 @@ public class TradeServiceImpl implements TradeService {
         if (tradeRecord.getStatus() != TradeStatus.TRADING) {
             throw new BusinessException(400, "只有交易中记录可以完成");
         }
-        int updated = itemRepository.updateStatusIfCurrent(tradeRecord.getItemId(), ITEM_ON_SALE, ITEM_SOLD);
+        int updated = itemRepository.updateStatusIfCurrent(tradeRecord.getItemId(), ITEM_ON_SALE, ITEM_OFFLINE);
         if (updated != 1) {
             throw new BusinessException(400, "商品状态异常，无法完成交易");
         }
@@ -149,14 +149,29 @@ public class TradeServiceImpl implements TradeService {
 
     @Override
     @Transactional(readOnly = true)
-    public PageResponse<ChatDTO.TradeRecordVO> getTradeList(Long currentUserId, Integer current, Integer size) {
+    public PageResponse<ChatDTO.TradeRecordVO> getTradeList(Long currentUserId, Integer current, Integer size, String role) {
         if (current == null) current = 1;
         if (size == null) size = 20;
-        Page<TradeRecord> page = tradeRecordRepository.findByUserId(currentUserId, PageRequest.of(current - 1, size));
+        Page<TradeRecord> page;
+        if ("buyer".equals(role)) {
+            page = tradeRecordRepository.findByBuyerId(currentUserId, PageRequest.of(current - 1, size));
+        } else if ("seller".equals(role)) {
+            page = tradeRecordRepository.findBySellerId(currentUserId, PageRequest.of(current - 1, size));
+        } else {
+            page = tradeRecordRepository.findByUserId(currentUserId, PageRequest.of(current - 1, size));
+        }
         List<ChatDTO.TradeRecordVO> records = page.getContent().stream()
                 .map(record -> toVO(record, currentUserId))
                 .collect(Collectors.toList());
         return new PageResponse<>(records, page.getTotalElements(), current, size);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public ChatDTO.TradeRecordVO getTradeRecordByItem(Long itemId, Long currentUserId) {
+        List<TradeRecord> records = tradeRecordRepository.findByUserIdAndItemId(currentUserId, itemId);
+        if (records.isEmpty()) return null;
+        return toVO(records.get(0), currentUserId);
     }
 
     private void checkParticipant(TradeRecord tradeRecord, Long currentUserId) {
@@ -225,6 +240,12 @@ public class TradeServiceImpl implements TradeService {
         if (tradeRecord.getItem() != null) {
             vo.setItemTitle(tradeRecord.getItem().getTitle());
             vo.setItemPrice(tradeRecord.getItem().getPrice());
+        }
+        if (tradeRecord.getBuyer() != null) {
+            vo.setBuyerName(tradeRecord.getBuyer().getUsername());
+        }
+        if (tradeRecord.getSeller() != null) {
+            vo.setSellerName(tradeRecord.getSeller().getUsername());
         }
         if (tradeRecord.getBuyer() != null && Objects.equals(vo.getOtherUserId(), tradeRecord.getBuyerId())) {
             vo.setOtherUsername(tradeRecord.getBuyer().getUsername());

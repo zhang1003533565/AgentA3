@@ -139,4 +139,5 @@ public class CanteenStallServiceImpl implements CanteenStallService {
 
         return dto;
     }
+
 }

@@ -11,9 +11,14 @@ export const DEFAULT_MARKET_FILTER = {
 }
 
 const CONDITION_ALIASES = {
-  new: ['new', '全新'],
-  'like-new': ['like_new', 'like-new', '九成新', '很少用'],
-  used: ['used', 'good', '二手', '正常使用', '有瑕疵']
+  '1': ['1', 'new', '全新', '未使用'],
+  '2': ['2', 'like_new', 'like-new', '很新', '几乎全新', '九成新', '很少用', '使用很少'],
+  '3': ['3', 'used', 'good', 'normal', '正常使用', '轻微使用', '轻微使用痕迹', '二手'],
+  '4': ['4', 'worn', 'obvious', '明显使用', '较多使用痕迹', '有瑕疵'],
+  '5': ['5', 'parts', '配件', '零件', '仅限零件'],
+  new: ['1', 'new', '全新', '未使用'],
+  'like-new': ['2', 'like_new', 'like-new', '很新', '几乎全新', '九成新', '很少用', '使用很少'],
+  used: ['3', '4', 'used', 'good', 'normal', '二手', '正常使用', '明显使用', '有瑕疵']
 }
 
 const LOCATION_ALIASES = {
@@ -164,4 +169,48 @@ export function filterMarketItems(items = [], filter = {}) {
       && matchAttributes(item, normalized.attributes)
   })
   return sortMarketItems(list, normalized.sortBy)
+}
+
+/**
+ * 根据前端筛选状态构建后端 /api/secondhand/item/list 请求参数。
+ * 仅包含后端支持的字段（categoryId / keyword / condition / minPrice / maxPrice / sort），
+ * 发布时间、取货地点等后端不支持的字段仍由前端 filterMarketItems 过滤。
+ */
+export function buildItemListParams(options = {}) {
+  const params = { current: options.current || 1, size: options.size || 100 }
+  if (options.sort) params.sort = options.sort
+
+  const keyword = String(options.keyword || '').trim()
+  if (keyword) params.keyword = keyword
+
+  if (options.categoryLevel1Id && options.categoryLevel1Id !== 'all') {
+    const num = Number(options.categoryLevel1Id)
+    if (!Number.isNaN(num)) params.categoryId = num
+  }
+
+  if (options.condition && options.condition !== 'all') {
+    const num = Number(options.condition)
+    if (!Number.isNaN(num)) params.condition = num
+  }
+
+  const priceRange = options.priceRange
+  if (priceRange && priceRange !== 'all') {
+    if (priceRange === '0-50') {
+      params.minPrice = 0
+      params.maxPrice = 50
+    } else if (priceRange === '50-200') {
+      params.minPrice = 50
+      params.maxPrice = 200
+    } else if (priceRange === '200+') {
+      params.minPrice = 200
+    } else if (priceRange.includes('-')) {
+      const [min, max] = priceRange.split('-')
+      const minNum = Number(min)
+      const maxNum = Number(max)
+      if (!Number.isNaN(minNum)) params.minPrice = minNum
+      if (!Number.isNaN(maxNum)) params.maxPrice = maxNum
+    }
+  }
+
+  return params
 }

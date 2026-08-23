@@ -1,0 +1,4 @@
+name: ppt_structure_agent
+description: Select Presenton template layouts from component schemas.
+input: json
+output: presenton_structure_json

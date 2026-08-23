@@ -68,6 +68,46 @@ class SystemConfigServiceImplTest {
         assertEquals(1, repository.findActiveCalls());
     }
 
+    @Test
+    void completeLocalLlmConfigOverridesDatabaseTextConfig() {
+        String key = "ai.service.text.api-key";
+        RecordingRepository repository = new RecordingRepository(config(key, "database-key"));
+        SystemConfigServiceImpl service = new SystemConfigServiceImpl(repository.proxy(), completeLocalLlmEnvironment());
+
+        assertEquals("local-key", service.getValue(key, ""));
+        assertEquals(0, repository.findActiveCalls());
+    }
+
+    @Test
+    void completeLocalLlmConfigOverridesAgentBindingToDefaultTextPrefix() {
+        String key = "ai.agent-bindings.diagram_architecture_agent.model";
+        RecordingRepository repository = new RecordingRepository(config(key, "ai.service.text.public"));
+        SystemConfigServiceImpl service = new SystemConfigServiceImpl(repository.proxy(), completeLocalLlmEnvironment());
+
+        assertEquals("ai.service.text", service.getValue(key, ""));
+        assertEquals(0, repository.findActiveCalls());
+    }
+
+    @Test
+    void partialLocalLlmConfigFallsBackToDatabase() {
+        String key = "ai.service.text.api-key";
+        RecordingRepository repository = new RecordingRepository(config(key, "database-key"));
+        MockEnvironment environment = new MockEnvironment()
+                .withProperty("LLM_API_KEY", "local-key");
+        SystemConfigServiceImpl service = new SystemConfigServiceImpl(repository.proxy(), environment);
+
+        assertEquals("database-key", service.getValue(key, ""));
+        assertEquals(1, repository.findActiveCalls());
+    }
+
+    private static MockEnvironment completeLocalLlmEnvironment() {
+        return new MockEnvironment()
+                .withProperty("LLM_PROVIDER", "deepseek")
+                .withProperty("LLM_BASE_URL", "https://api.deepseek.com")
+                .withProperty("LLM_API_KEY", "local-key")
+                .withProperty("LLM_MODEL", "deepseek-chat");
+    }
+
     private static SystemConfig config(String key, String value) {
         SystemConfig config = new SystemConfig();
         config.setConfigKey(key);

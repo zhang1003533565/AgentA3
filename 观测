@@ -1,0 +1,11 @@
+sk-lf-3bfbcf94-74cd-4812-85de-71a60cdfc437
+
+pk-lf-d7b318ad-4179-435f-8d53-876bb0b3b149
+
+
+LANGFUSE_SECRET_KEY="sk-lf-3bfbcf94-74cd-4812-85de-71a60cdfc437"
+LANGFUSE_PUBLIC_KEY="pk-lf-d7b318ad-4179-435f-8d53-876bb0b3b149"
+LANGFUSE_BASE_URL="http://localhost:3000"
+
+
+Install the Langfuse AI skill from github.com/langfuse/skills and use it to add tracing to this application with Langfuse following best practices.

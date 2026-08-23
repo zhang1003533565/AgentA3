@@ -66,6 +66,26 @@ function Sync-Dependencies {
 }
 
 function Start-AiServer {
+    if (-not $env:CHROMIUM_PATH) {
+        $playwrightRoot = "$env:LOCALAPPDATA\ms-playwright"
+        $chromiumDirs = Get-ChildItem -Path $playwrightRoot -Directory -Filter "chromium-*" -ErrorAction SilentlyContinue `
+            | Sort-Object Name -Descending
+        foreach ($dir in $chromiumDirs) {
+            # Playwright 旧版装到 chrome-win，新版(1.5x+)装到 chrome-win64，两者都探测
+            $chromeExe = @(
+                (Join-Path $dir.FullName "chrome-win64\chrome.exe"),
+                (Join-Path $dir.FullName "chrome-win\chrome.exe")
+            ) | Where-Object { Test-Path $_ } | Select-Object -First 1
+            if ($chromeExe) {
+                $env:CHROMIUM_PATH = $chromeExe
+                Write-Log "Using Chromium: $chromeExe"
+                break
+            }
+        }
+        if (-not $env:CHROMIUM_PATH) {
+            Write-Log "WARNING: No Playwright Chromium found, PPT rendering will fail"
+        }
+    }
     Write-Log "Starting AI Server at http://${AiServerHost}:$PythonServerPort ..."
     & uv run python -m uvicorn app.main:app --host $AiServerHost --port $PythonServerPort
     exit $LASTEXITCODE

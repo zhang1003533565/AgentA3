@@ -66,9 +66,28 @@ public class ActivityController {
             @Parameter(description = "分类ID", example = "1") 
             @RequestParam(required = false) Long categoryId,
             @Parameter(description = "活动状态: DRAFT-草稿, PUBLISHED-已发布, REJECTED-已驳回, CANCELLED-已取消, COMPLETED-已完成", example = "PUBLISHED")
-            @RequestParam(required = false) String status) {
+            @RequestParam(required = false) String status,
+            @Parameter(description = "时间阶段: upcoming-即将开始, ongoing-进行中, ended-已结束（可选）", example = "upcoming")
+            @RequestParam(required = false) String timePhase) {
         Status statusEnum = status != null ? Status.valueOf(status) : null;
-        PageResponse<Activity> list = activityService.getActivityList(page, size, title, categoryId, statusEnum);
+        PageResponse<Activity> list = activityService.getActivityList(page, size, title, categoryId, statusEnum, timePhase);
+        return Result.success(list);
+    }
+
+    @Operation(summary = "我发起的活动", description = "获取当前用户发起的活动（分页）")
+    @ApiResponses(value = {
+        @ApiResponse(responseCode = "200", description = "成功获取"),
+        @ApiResponse(responseCode = "401", description = "未登录")
+    })
+    @GetMapping("/mine")
+    public Result<PageResponse<Activity>> getMyActivities(
+            @Parameter(description = "页码，从1开始", example = "1")
+            @RequestParam(defaultValue = "1") Integer page,
+            @Parameter(description = "每页数量", example = "10")
+            @RequestParam(defaultValue = "10") Integer size,
+            HttpServletRequest request) {
+        Long userId = (Long) request.getAttribute("userId");
+        PageResponse<Activity> list = activityService.getActivitiesByOrganizer(userId, page, size);
         return Result.success(list);
     }
 

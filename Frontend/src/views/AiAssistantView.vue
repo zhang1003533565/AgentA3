@@ -1,6 +1,16 @@
 <script setup>
-import { computed, h, nextTick, onBeforeUnmount, ref } from 'vue'
+import { computed, h, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
+
+import AppTabBar from '../components/AppTabBar.vue'
+import { deleteLeaderSession, getLeaderSessionDetail, getLeaderSessions, queryLeaderAgent, streamLeaderAgent } from '../api/aiGeneration'
+import { AI_RESOURCE_ACCEPT, uploadAiResource } from '../api/upload'
+import pdfIcon from '../assets/file-icons/pdf.png'
+import pptIcon from '../assets/file-icons/ppt.png'
+import excelIcon from '../assets/file-icons/excel.png'
+import wordIcon from '../assets/file-icons/word.png'
+import markdownIcon from '../assets/file-icons/markdown.png'
+import zipIcon from '../assets/file-icons/zip.png'
 
 const IconLine = (props) => {
   const paths = {
@@ -58,13 +68,8 @@ const toast = ref('')
 const searchText = ref('')
 const router = useRouter()
 
-const modules = [
-  { id: 'chat', label: '智能问答', icon: 'chat' },
-  { id: 'writing', label: 'AI 创作', icon: 'pen' },
-  { id: 'meeting', label: '会议助手', icon: 'meeting' },
-]
-
-const pageTitle = computed(() => modules.find((item) => item.id === activeModule.value)?.label)
+// AI 页面只有默认对话，不再提供模块切换入口。
+const pageTitle = computed(() => '默认对话')
 
 function showToast(message) {
   toast.value = message
@@ -84,19 +89,21 @@ function returnHome() {
 }
 
 // 智能问答
-let conversationSeed = 2
-const conversations = ref([
-  { id: 1, title: '图书馆开放时间' },
-  { id: 2, title: '校园活动策划建议' },
-])
-const activeConversationId = ref(1)
+const conversations = ref([])
+const activeConversationId = ref('')
+const conversationSessionIds = ref({})
+const historyLoading = ref(false)
+const historyError = ref('')
 const chatDraft = ref('')
 const chatBusy = ref(false)
+const resourceInput = ref(null)
+const pendingResources = ref([])
 const onlineSearch = ref(true)
 const deepThinking = ref(false)
 const messageList = ref(null)
 const quickPrompts = ['查课表', '图书馆时间', '奖学金申请', '校园卡补办']
 const feedback = ref({})
+let activeStreamTask = null
 
 const messages = ref([
   {
@@ -105,6 +112,96 @@ const messages = ref([
     content: '你好，我是校园 AI 助手。你可以直接询问校园服务、学习安排或日常事务。',
   },
 ])
+
+function normalizeConversation(item) {
+  const sessionId = String(item?.sessionId || '').trim()
+  return {
+    id: sessionId,
+    sessionId,
+    title: item?.title || item?.lastMessage || '未命名会话',
+    lastMessage: item?.lastMessage || '',
+    messageCount: Number(item?.messageCount || 0),
+    updateTime: item?.updateTime || item?.createTime || '',
+  }
+}
+
+function normalizeHistoryMessage(item, index) {
+  const role = item?.role === 'user' ? 'user' : 'assistant'
+  const trace = Array.isArray(item?.trace) ? item.trace : []
+  const steps = trace
+    .map((entry) => entry?.message || entry?.detail || entry?.stage || '')
+    .filter(Boolean)
+  return {
+    id: item?.id || `${role}-${index}`,
+    role,
+    content: item?.content || item?.answer || '',
+    answerType: item?.answerType || 'text',
+    outputType: item?.outputType || '',
+    agentName: item?.agentName || 'leader_agent',
+    resources: Array.isArray(item?.resources) ? item.resources : [],
+    attachments: Array.isArray(item?.attachments) ? item.attachments : [],
+    steps,
+    streaming: false,
+  }
+}
+
+async function openConversation(id) {
+  const sessionId = String(id || '').trim()
+  if (!sessionId) return
+  activeStreamTask?.abort?.('conversation_changed')
+  activeConversationId.value = sessionId
+  historyError.value = ''
+  try {
+    const response = await getLeaderSessionDetail(sessionId)
+    const data = response || {}
+    conversationSessionIds.value = { ...conversationSessionIds.value, [sessionId]: sessionId }
+    messages.value = (data.messages || []).map(normalizeHistoryMessage)
+    await scrollMessages()
+  } catch (cause) {
+    historyError.value = cause.message || '加载会话内容失败'
+  }
+}
+
+async function loadConversationHistory({ openFirst = true } = {}) {
+  historyLoading.value = true
+  historyError.value = ''
+  try {
+    const response = await getLeaderSessions({ pageNum: 1, pageSize: 50 })
+    const records = Array.isArray(response?.records) ? response.records : []
+    const items = records.map(normalizeConversation).filter((item) => item.sessionId)
+    conversations.value = items
+    conversationSessionIds.value = Object.fromEntries(items.map((item) => [item.id, item.sessionId]))
+    if (openFirst && items.length && !items.some((item) => item.id === activeConversationId.value)) {
+      await openConversation(items[0].id)
+    }
+  } catch (cause) {
+    historyError.value = cause.message || '加载 AI 会话历史失败'
+  } finally {
+    historyLoading.value = false
+  }
+}
+
+async function removeConversation(item) {
+  const sessionId = String(item?.sessionId || '').trim()
+  if (!sessionId || !window.confirm('确定删除这个历史会话吗？删除后无法恢复。')) return
+  try {
+    await deleteLeaderSession(sessionId)
+    conversations.value = conversations.value.filter((conversation) => conversation.sessionId !== sessionId)
+    if (activeConversationId.value === sessionId) {
+      activeConversationId.value = ''
+      messages.value = [{
+        id: `assistant-${Date.now()}`,
+        role: 'assistant',
+        content: '已删除该会话。你可以点击“新建对话”开始新的对话。',
+      }]
+    }
+    showToast('历史会话已删除')
+  } catch (cause) {
+    showToast(cause.message || '删除历史会话失败')
+  }
+}
+
+onMounted(() => { void loadConversationHistory() })
 
 function isCodeQuestion(question) {
   return /代码|编程|程序|开发|报错|bug|函数|算法|接口|api|python|javascript|typescript|\bjava\b|vue|react|css|html|sql|c\+\+|c#|shell|npm|vite/i.test(question)
@@ -163,44 +260,307 @@ async function scrollMessages() {
 }
 
 function createConversation() {
-  const item = { id: ++conversationSeed, title: '新对话' }
-  conversations.value.unshift(item)
-  activeConversationId.value = item.id
-  messages.value = []
+  activeStreamTask?.abort?.('conversation_changed')
+  activeConversationId.value = ''
+  messages.value = [{
+    id: Date.now(),
+    role: 'assistant',
+    content: '你好，我是校园 AI 助手。你可以直接询问校园服务、学习安排或日常事务。',
+  }]
   chatDraft.value = ''
   nextTick(() => document.querySelector('.chat-input')?.focus())
 }
 
 function switchConversation(id) {
-  activeConversationId.value = id
-  const conversation = conversations.value.find((item) => item.id === id)
-  messages.value = [{
-    id: Date.now(),
-    role: 'assistant',
-    content: `已打开“${conversation?.title}”对话。你可以继续提问。`,
-  }]
+  void openConversation(id)
 }
 
-function sendMessage(text = chatDraft.value) {
-  const value = text.trim()
-  if (!value || chatBusy.value) return
+function resourceEntry(file) {
+  const isImage = file.type?.startsWith('image/') || /\.(jpe?g|png|webp|gif)$/i.test(file.name)
+  return {
+    localId: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    file,
+    name: file.name,
+    size: file.size,
+    previewUrl: isImage ? URL.createObjectURL(file) : '',
+    status: 'uploading',
+    resource: null,
+    error: '',
+  }
+}
 
-  messages.value.push({ id: Date.now(), role: 'user', content: value })
+async function uploadEntry(entry) {
+  entry.status = 'uploading'
+  entry.error = ''
+  try {
+    entry.resource = await uploadAiResource(entry.file)
+    entry.status = 'success'
+  } catch (cause) {
+    entry.status = 'error'
+    entry.error = cause.message || '上传失败'
+  }
+}
+
+function chooseResources() {
+  resourceInput.value?.click()
+}
+
+function handleResourceSelect(event) {
+  const remaining = 8 - pendingResources.value.length
+  const files = Array.from(event.target.files || []).slice(0, Math.max(0, remaining))
+  if (!files.length) return
+  const entries = files.map(resourceEntry)
+  pendingResources.value.push(...entries)
+  entries.forEach((entry) => void uploadEntry(entry))
+  event.target.value = ''
+}
+
+function removeResource(localId) {
+  const item = pendingResources.value.find((entry) => entry.localId === localId)
+  if (item?.previewUrl) URL.revokeObjectURL(item.previewUrl)
+  pendingResources.value = pendingResources.value.filter((entry) => entry.localId !== localId)
+}
+
+function isImageAttachment(item) {
+  return String(item?.type || '').toLowerCase() === 'image'
+    || String(item?.mimeType || '').toLowerCase().startsWith('image/')
+    || /\.(jpe?g|png|webp|gif)$/i.test(String(item?.name || item?.fileName || item?.title || item?.url || ''))
+}
+
+function attachmentUrl(item) {
+  return item?.previewUrl || item?.url || item?.sourceUrl || item?.downloadUrl || ''
+}
+
+function attachmentName(item) {
+  return item?.name || item?.fileName || item?.title || '上传图片'
+}
+
+function fileExtension(item) {
+  const name = attachmentName(item)
+  const match = String(name).match(/\.([a-z0-9]+)$/i)
+  return (match?.[1] || 'file').toUpperCase()
+}
+
+function fileIconClass(item) {
+  const extension = fileExtension(item).toLowerCase()
+  if (extension === 'pdf') return 'pdf'
+  if (['ppt', 'pptx'].includes(extension)) return 'ppt'
+  if (['xls', 'xlsx', 'csv'].includes(extension)) return 'excel'
+  if (['doc', 'docx'].includes(extension)) return 'word'
+  if (['md', 'mmd', 'txt'].includes(extension)) return 'text'
+  if (['zip', 'rar', '7z'].includes(extension)) return 'archive'
+  return 'generic'
+}
+
+function fileIconAsset(item) {
+  const extension = fileExtension(item).toLowerCase()
+  if (extension === 'pdf') return pdfIcon
+  if (['ppt', 'pptx'].includes(extension)) return pptIcon
+  if (['xls', 'xlsx', 'csv'].includes(extension)) return excelIcon
+  if (['doc', 'docx'].includes(extension)) return wordIcon
+  if (['md', 'mmd', 'txt'].includes(extension)) return markdownIcon
+  if (['zip', 'rar', '7z'].includes(extension)) return zipIcon
+  return ''
+}
+
+function formatFileSize(size) {
+  if (!size) return '0 KB'
+  return size >= 1024 * 1024
+    ? `${(size / 1024 / 1024).toFixed(1)} MB`
+    : `${Math.ceil(size / 1024)} KB`
+}
+
+function syncConversationSession(conversationId, sessionId) {
+  const value = String(sessionId || '').trim()
+  if (!value) return
+  conversationSessionIds.value = {
+    ...conversationSessionIds.value,
+    [conversationId]: value,
+  }
+  if (!conversationId && !activeConversationId.value) activeConversationId.value = value
+}
+
+function updateChatMessage(id, patch) {
+  const target = messages.value.find((item) => item.id === id)
+  if (target) Object.assign(target, patch)
+  return target
+}
+
+async function sendMessage(text) {
+  const hasExplicitText = typeof text === 'string'
+  const value = String(hasExplicitText ? text : chatDraft.value).trim()
+  const uploading = pendingResources.value.some((item) => item.status === 'uploading')
+  const attachments = hasExplicitText
+    ? []
+    : pendingResources.value
+      .filter((item) => item.status === 'success')
+      .map((item) => item.resource)
+  if ((!value && !attachments.length) || chatBusy.value || uploading) return
+
+  const requestText = value
+  messages.value.push({ id: Date.now(), role: 'user', content: requestText, attachments })
   const conversation = conversations.value.find((item) => item.id === activeConversationId.value)
-  if (conversation?.title === '新对话') conversation.title = value.slice(0, 18)
-  chatDraft.value = ''
+  if (conversation?.title === '新对话' && requestText) conversation.title = requestText.slice(0, 18)
+  if (!hasExplicitText) {
+    chatDraft.value = ''
+    pendingResources.value = []
+  }
+
+  const assistantMessageId = Date.now() + 1
+  const requestConversationId = activeConversationId.value
+  messages.value.push({
+    id: assistantMessageId,
+    role: 'assistant',
+    content: attachments.length ? '正在读取并分析上传的资源…' : '正在思考…',
+    streaming: true,
+    steps: [attachments.length ? '正在读取并分析上传的资源' : '已提交给智能助手，正在思考'],
+  })
   chatBusy.value = true
   void scrollMessages()
 
-  window.setTimeout(() => {
-    messages.value.push({
-      id: Date.now() + 1,
-      role: 'assistant',
-      ...buildChatReply(value),
+  const requestPayload = {
+    sessionId: conversationSessionIds.value[requestConversationId] || undefined,
+    input: requestText,
+    ...(attachments.length ? { attachments } : {}),
+    metadata: {
+      onlineSearch: onlineSearch.value,
+      deepThinking: deepThinking.value,
+      source: 'web_ai_assistant',
+    },
+  }
+  let streamTouched = false
+  let streamCompleted = false
+
+  try {
+    const streamTask = streamLeaderAgent(requestPayload, {
+      onEvent(eventName, payload) {
+        streamTouched = true
+        syncConversationSession(requestConversationId, payload?.sessionId)
+        const current = messages.value.find((item) => item.id === assistantMessageId)
+        if (eventName === 'generation_start') {
+          updateChatMessage(assistantMessageId, {
+            content: payload?.answer || current?.content || '',
+            streaming: true,
+            steps: [...(current?.steps || []), '开始生成回答'],
+          })
+        } else if (eventName === 'tool_start' && payload?.message) {
+          updateChatMessage(assistantMessageId, {
+            content: current?.receivedDelta ? current.content : '',
+            streaming: true,
+            steps: [...(current?.steps || []), payload.message],
+          })
+        }
+        void scrollMessages()
+      },
+      onSession(payload) {
+        streamTouched = true
+        syncConversationSession(requestConversationId, payload?.sessionId)
+        const current = messages.value.find((item) => item.id === assistantMessageId)
+        updateChatMessage(assistantMessageId, {
+          steps: [...(current?.steps || []), `已建立会话${payload?.agentName ? `，由 ${payload.agentName} 处理` : ''}${payload?.model ? ` · ${payload.model}` : ''}`],
+        })
+      },
+      onSearch(payload) {
+        streamTouched = true
+        const current = messages.value.find((item) => item.id === assistantMessageId)
+        if (current?.streaming) {
+          updateChatMessage(assistantMessageId, {
+            content: payload?.searchKeyword
+              ? `正在检索“${payload.searchKeyword}”…`
+              : '正在检索相关资料…',
+            steps: [...(current.steps || []), payload?.searchKeyword ? `正在检索：${payload.searchKeyword}` : '正在检索相关资料'],
+          })
+        }
+        void scrollMessages()
+      },
+      onDelta(content) {
+        if (!content) return
+        streamTouched = true
+        const current = messages.value.find((item) => item.id === assistantMessageId)
+        const previous = current?.receivedDelta ? current.content : ''
+        updateChatMessage(assistantMessageId, {
+          content: `${previous}${content}`,
+          receivedDelta: true,
+          streaming: true,
+        })
+        void scrollMessages()
+      },
+      onDone(payload) {
+        streamTouched = true
+        streamCompleted = true
+        syncConversationSession(requestConversationId, payload?.sessionId)
+        const current = messages.value.find((item) => item.id === assistantMessageId)
+        const finalContent = String(payload?.answer || current?.content || '').trim()
+        updateChatMessage(assistantMessageId, {
+          content: finalContent || 'AI 已完成本次资源分析。',
+          attachments: payload?.attachments || [],
+          resources: payload?.resources || [],
+          streaming: false,
+          receivedDelta: false,
+          answerType: payload?.answerType || 'text',
+          steps: [...(current?.steps || []), '回答完成'],
+        })
+        void scrollMessages()
+      },
+      onError(payload) {
+        const error = new Error(payload?.message || '流式请求失败')
+        error.payload = payload
+        throw error
+      },
     })
+    activeStreamTask = streamTask
+    await streamTask
+    await loadConversationHistory({ openFirst: false })
+
+    if (!streamCompleted) {
+      const current = messages.value.find((item) => item.id === assistantMessageId)
+      if (current?.receivedDelta && String(current.content || '').trim()) {
+        updateChatMessage(assistantMessageId, { streaming: false, receivedDelta: false })
+      } else {
+        throw new Error('AI 未返回完整结果')
+      }
+    }
+  } catch (cause) {
+    if (cause?.name === 'AbortError') {
+      const current = messages.value.find((item) => item.id === assistantMessageId)
+      updateChatMessage(assistantMessageId, {
+        content: current?.receivedDelta && current.content
+          ? `${current.content}\n\n已停止生成。`
+          : '已停止生成。',
+        streaming: false,
+        receivedDelta: false,
+      })
+    } else if (cause?.fallbackToNormalRequest && !streamTouched) {
+      try {
+        const response = await queryLeaderAgent(requestPayload)
+        syncConversationSession(requestConversationId, response?.sessionId)
+        updateChatMessage(assistantMessageId, {
+          content: response?.answer || response?.content || 'AI 已完成本次资源分析。',
+          attachments: response?.attachments || [],
+          resources: response?.resources || [],
+          streaming: false,
+        })
+      } catch (fallbackError) {
+        updateChatMessage(assistantMessageId, {
+          content: fallbackError.message || 'AI 请求失败，请稍后重试。',
+          streaming: false,
+        })
+      }
+    } else {
+      updateChatMessage(assistantMessageId, {
+        content: cause.message || 'AI 请求失败，请稍后重试。',
+        streaming: false,
+      })
+    }
+  } finally {
+    activeStreamTask = null
     chatBusy.value = false
     void scrollMessages()
-  }, deepThinking.value ? 1300 : 700)
+  }
+}
+
+function stopGeneration() {
+  activeStreamTask?.abort?.('user_cancelled')
 }
 
 function regenerate(message) {
@@ -650,6 +1010,7 @@ async function startMicrophone() {
 }
 
 onBeforeUnmount(stopMicrophone)
+onBeforeUnmount(() => activeStreamTask?.abort?.('page_unload'))
 
 function createMeeting() {
   const item = {
@@ -675,6 +1036,7 @@ function handleUpload(event) {
 </script>
 
 <template>
+  <AppTabBar />
   <div class="campus-ai" :data-theme="darkMode ? 'dark' : 'light'">
     <aside :class="['side-nav', { collapsed: sidebarCollapsed }]">
       <button
@@ -694,20 +1056,6 @@ function handleUpload(event) {
         </span>
       </div>
 
-      <nav class="module-nav" aria-label="AI 功能">
-        <button
-          v-for="item in modules"
-          :key="item.id"
-          :class="{ active: activeModule === item.id }"
-          type="button"
-          :title="sidebarCollapsed ? item.label : undefined"
-          @click="selectModule(item.id)"
-        >
-          <IconLine :name="item.icon" />
-          <span>{{ item.label }}</span>
-        </button>
-      </nav>
-
       <section class="history-section">
         <div class="section-heading">
           <span>最近记录</span>
@@ -715,6 +1063,8 @@ function handleUpload(event) {
             <IconLine name="plus" :size="16" />
           </button>
         </div>
+        <p v-if="historyError" class="history-error">{{ historyError }}</p>
+        <div v-if="historyLoading && !conversations.length" class="history-empty">正在加载历史会话…</div>
         <div class="history-list">
           <button
             v-for="item in conversations"
@@ -725,6 +1075,14 @@ function handleUpload(event) {
           >
             <IconLine name="chat" :size="15" />
             <span>{{ item.title }}</span>
+            <span
+              class="history-delete"
+              role="button"
+              tabindex="0"
+              title="删除会话"
+              @click.stop="removeConversation(item)"
+              @keydown.enter.stop="removeConversation(item)"
+            >×</span>
           </button>
         </div>
       </section>
@@ -800,7 +1158,28 @@ function handleUpload(event) {
                 <span v-if="message.role === 'assistant'" class="ai-avatar"><IconLine name="logo" :size="17" /></span>
                 <div class="message-wrap">
                   <div class="message-bubble">
+                    <div v-if="message.role === 'assistant' && message.steps?.length" class="thinking-steps">
+                      <div v-for="(step, stepIndex) in message.steps" :key="`${message.id}-step-${stepIndex}`" class="thinking-step">
+                        <i></i><span>{{ step }}</span>
+                      </div>
+                    </div>
                     <p>{{ message.content }}</p>
+                    <div v-if="message.attachments?.length" class="message-attachments">
+                      <template v-for="item in message.attachments" :key="item.id || item.url || item.name">
+                        <img
+                          v-if="isImageAttachment(item) && attachmentUrl(item)"
+                          class="message-image"
+                          :src="attachmentUrl(item)"
+                          :alt="attachmentName(item)"
+                          loading="lazy"
+                        />
+                        <span v-else class="message-file">
+                          <img v-if="fileIconAsset(item)" class="file-type-image" :src="fileIconAsset(item)" :alt="fileExtension(item)" />
+                          <i v-else :class="['file-type-icon', `file-type-icon--${fileIconClass(item)}`]">{{ fileExtension(item) }}</i>
+                          <span>{{ attachmentName(item) }}</span>
+                        </span>
+                      </template>
+                    </div>
                     <pre v-if="message.code"><code>{{ message.code }}</code></pre>
                     <div v-if="message.table?.rows?.length" class="response-table">
                         <table>
@@ -825,14 +1204,23 @@ function handleUpload(event) {
                   </div>
                 </div>
               </article>
-              <article v-if="chatBusy" class="message-row assistant">
-                <span class="ai-avatar"><IconLine name="logo" :size="17" /></span>
-                <div class="message-bubble typing-bubble"><i></i><i></i><i></i></div>
-              </article>
             </div>
           </div>
 
           <div class="composer-zone">
+            <div v-if="pendingResources.length" class="upload-queue">
+              <div v-for="item in pendingResources" :key="item.localId" class="upload-item">
+                <img v-if="item.previewUrl" class="upload-preview" :src="item.previewUrl" :alt="item.name" />
+                <img v-if="fileIconAsset(item)" class="file-type-image upload-file-icon" :src="fileIconAsset(item)" :alt="fileExtension(item)" />
+                <i v-else :class="['file-type-icon', `file-type-icon--${fileIconClass(item)}`]">{{ fileExtension(item) }}</i>
+                <span>
+                  <strong>{{ item.name }}</strong>
+                  <small>{{ formatFileSize(item.size) }} · {{ item.status === 'uploading' ? '上传中' : item.status === 'error' ? item.error : '已就绪' }}</small>
+                </span>
+                <button v-if="item.status === 'error'" type="button" @click="uploadEntry(item)">重试</button>
+                <button type="button" title="移除" @click="removeResource(item.localId)"><IconLine name="x" :size="15" /></button>
+              </div>
+            </div>
             <div class="composer-tools">
               <button :class="{ active: onlineSearch }" type="button" @click="onlineSearch = !onlineSearch">
                 <IconLine name="globe" :size="16" />联网搜索
@@ -844,6 +1232,7 @@ function handleUpload(event) {
               </button>
             </div>
             <form class="chat-composer" @submit.prevent="sendMessage()">
+              <input ref="resourceInput" class="resource-input" type="file" multiple :accept="AI_RESOURCE_ACCEPT" @change="handleResourceSelect" />
               <textarea
                 v-model="chatDraft"
                 class="chat-input"
@@ -852,8 +1241,12 @@ function handleUpload(event) {
                 @keydown.enter.exact.prevent="sendMessage()"
               ></textarea>
               <div class="composer-actions">
+                <button class="icon-button" type="button" title="上传资源" :disabled="chatBusy || pendingResources.length >= 8" @click="chooseResources"><IconLine name="plus" /></button>
                 <button class="icon-button" type="button" title="语音输入"><IconLine name="mic" /></button>
-                <button class="send-button" type="submit" :disabled="!chatDraft.trim() || chatBusy" title="发送">
+                <button v-if="chatBusy" class="send-button stop-button" type="button" title="停止生成" @click="stopGeneration">
+                  <IconLine name="x" :size="18" />
+                </button>
+                <button v-else class="send-button" type="submit" :disabled="(!chatDraft.trim() && !pendingResources.some(item => item.status === 'success')) || pendingResources.some(item => item.status === 'uploading')" title="发送">
                   <IconLine name="send" :size="19" />
                 </button>
               </div>
@@ -1103,13 +1496,6 @@ function handleUpload(event) {
       </main>
     </section>
 
-    <nav class="mobile-tabs" aria-label="移动端功能导航">
-      <button v-for="item in modules" :key="item.id" :class="{ active: activeModule === item.id }" type="button" @click="selectModule(item.id)">
-        <IconLine :name="item.icon" :size="20" />
-        <span>{{ item.label }}</span>
-      </button>
-    </nav>
-
     <transition name="toast">
       <div v-if="toast" class="toast-message"><IconLine name="check" :size="17" />{{ toast }}</div>
     </transition>
@@ -1133,6 +1519,7 @@ function handleUpload(event) {
   --shadow: 0 10px 28px rgba(30, 58, 95, 0.08);
   min-width: 320px;
   min-height: 100vh;
+  padding-top: 60px;
   color: var(--text);
   background: var(--bg);
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
@@ -1163,12 +1550,12 @@ function handleUpload(event) {
 
 .side-nav {
   position: fixed;
-  inset: 0 auto 0 0;
+  inset: 60px auto 0 0;
   z-index: 30;
   display: flex;
   width: 252px;
   flex-direction: column;
-  padding: 22px 16px 18px;
+  padding: 22px 16px 106px;
   border-right: 1px solid var(--line);
   background: var(--surface);
   transition: width .24s ease, padding .24s ease;
@@ -1253,7 +1640,22 @@ function handleUpload(event) {
   text-align: left;
 }
 .history-list button:hover, .history-list button.active { color: var(--primary); background: var(--surface-soft); }
-.history-list span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.history-list button > span:nth-child(2) { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.history-delete {
+  display: grid;
+  width: 22px;
+  height: 22px;
+  flex: none;
+  place-items: center;
+  border-radius: 6px;
+  color: var(--muted);
+  opacity: 0;
+  font-size: 18px;
+  line-height: 1;
+  transition: opacity .18s ease, color .18s ease, background .18s ease;
+}
+.history-list button:hover .history-delete, .history-list button.active .history-delete { opacity: 1; }
+.history-delete:hover { color: #b42318; background: #fee4e2; }
 
 .back-home {
   display: flex;
@@ -1300,11 +1702,11 @@ function handleUpload(event) {
 }
 .avatar { width: 34px; height: 34px; }
 
-.app-area { min-height: 100vh; margin-left: 252px; transition: margin-left .24s ease; }
+.app-area { min-height: calc(100vh - 60px); margin-left: 252px; transition: margin-left .24s ease; }
 .app-area.sidebar-collapsed { margin-left: 76px; }
 .global-header {
   position: fixed;
-  inset: 0 0 auto 252px;
+  inset: 60px 0 auto 252px;
   z-index: 20;
   display: flex;
   height: 68px;
@@ -1367,12 +1769,12 @@ function handleUpload(event) {
 .user-popover button { display: flex; width: 100%; align-items: center; gap: 9px; padding: 9px; border-radius: 7px; background: transparent; text-align: left; font-size: 13px; }
 .user-popover button:hover { background: var(--primary-soft); }
 
-.main-content { min-height: 100vh; padding-top: 68px; }
-.module-page { min-height: calc(100vh - 68px); }
+.main-content { min-height: calc(100vh - 60px); padding-top: 68px; }
+.module-page { min-height: calc(100vh - 128px); }
 .page-enter { animation: page-fade .28s ease both; }
 @keyframes page-fade { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: none; } }
 
-.chat-page { position: relative; height: calc(100vh - 68px); min-height: 600px; overflow: hidden; }
+.chat-page { position: relative; height: calc(100vh - 128px); min-height: 600px; overflow: hidden; }
 .chat-scroll { height: 100%; overflow-y: auto; padding: 42px clamp(24px, 6vw, 88px) 230px; }
 .welcome-block { width: min(860px, 100%); margin: 0 auto 38px; }
 .eyebrow { color: var(--accent); font-size: 11px; font-weight: 800; letter-spacing: .13em; }
@@ -1396,6 +1798,10 @@ function handleUpload(event) {
 .message-wrap { max-width: min(720px, 82%); }
 .message-bubble { padding: 15px 17px; border: 1px solid var(--line); border-radius: 5px 16px 16px 16px; background: var(--surface); box-shadow: 0 4px 14px rgba(30, 58, 95, .045); line-height: 1.72; }
 .message-row.user .message-bubble { max-width: 620px; border: 0; border-radius: 16px 5px 16px 16px; color: #fff; background: #1e3a5f; }
+.thinking-steps { display: grid; gap: 5px; margin: 0 0 11px; padding-bottom: 10px; border-bottom: 1px solid var(--line); color: var(--muted); font-size: 12px; line-height: 1.5; }
+.thinking-step { display: flex; align-items: center; gap: 7px; }
+.thinking-step i { width: 6px; height: 6px; flex: 0 0 6px; border-radius: 50%; background: var(--accent); }
+.thinking-step:last-child i { box-shadow: 0 0 0 3px var(--primary-soft); }
 .message-bubble > p { margin: 0; }
 .message-bubble pre { overflow-x: auto; margin: 15px 0; padding: 15px; border-radius: 10px; color: #dce8f4; background: #15283e; font: 12px/1.65 Consolas, monospace; }
 .response-table { overflow-x: auto; margin-top: 15px; }
@@ -1426,6 +1832,32 @@ function handleUpload(event) {
 .mini-switch i { display: block; width: 10px; height: 10px; border-radius: 50%; background: #fff; transition: transform .2s ease; }
 .composer-tools button.active .mini-switch { background: #356c9f; }
 .composer-tools button.active .mini-switch i { transform: translateX(10px); }
+.resource-input { display: none; }
+.upload-queue { display: flex; width: min(860px, 100%); gap: 8px; margin: 0 auto 8px; overflow-x: auto; }
+.upload-item { display: flex; min-width: 210px; max-width: 280px; align-items: center; gap: 8px; padding: 9px 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+.upload-preview { width: 48px; height: 48px; flex: none; border-radius: 7px; object-fit: cover; background: var(--surface-soft); }
+.file-type-icon { display: inline-grid; width: 30px; height: 34px; flex: none; place-items: center; border-radius: 6px; color: #fff; font-size: 8px; font-style: normal; font-weight: 800; letter-spacing: -.03em; line-height: 1; }
+.file-type-icon--pdf { background: #e05252; }
+.file-type-icon--ppt { background: #e87532; }
+.file-type-icon--excel { background: #2f9b68; }
+.file-type-icon--word { background: #3d76c8; }
+.file-type-icon--text { background: #64748b; }
+.file-type-icon--archive { background: #8b5fc7; }
+.file-type-icon--generic { background: #718096; }
+.file-type-image { display: block; width: 30px; height: 34px; flex: none; object-fit: contain; }
+.upload-file-icon { width: 48px; height: 48px; }
+.upload-item > span { min-width: 0; flex: 1; }
+.upload-item strong, .upload-item small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.upload-item strong { font-size: 12px; }
+.upload-item small { margin-top: 3px; color: var(--muted); font-size: 10px; }
+.upload-item > button { color: var(--primary); background: transparent; font-size: 11px; }
+.message-attachments { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 9px; }
+.message-image { display: block; width: min(346px, 100%); max-height: 300px; border-radius: 12px; object-fit: cover; cursor: zoom-in; }
+.message-file { display: inline-flex; align-items: center; gap: 5px; padding: 5px 8px; border: 1px solid var(--line); border-radius: 7px; font-size: 11px; }
+.message-file > span { min-width: 0; max-width: 290px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.message-file .file-type-icon { width: 24px; height: 28px; font-size: 7px; }
+.message-file .file-type-image { width: 30px; height: 34px; }
+.message-row.user .message-image { border: 1px solid rgba(255, 255, 255, .35); }
 .chat-composer {
   display: flex;
   width: min(860px, 100%);
@@ -1445,6 +1877,7 @@ function handleUpload(event) {
 .icon-button { color: var(--muted); background: transparent; }
 .icon-button:hover { background: var(--primary-soft); transform: scale(1.04); }
 .send-button { color: #fff !important; background: #1e3a5f; }
+.stop-button { background: #40546b; }
 .send-button:disabled { cursor: not-allowed; opacity: .4; }
 .composer-zone > small { display: block; margin-top: 7px; color: var(--subtle); font-size: 10px; text-align: center; }
 
@@ -1726,7 +2159,7 @@ function handleUpload(event) {
   .header-actions { position: static; }
   .desktop-avatar { display: none; }
   .main-content { padding-top: 58px; padding-bottom: 66px; }
-  .module-page { min-height: calc(100vh - 124px); }
+  .module-page { min-height: calc(100vh - 184px); }
   .mobile-tabs {
     position: fixed;
     inset: auto 0 0;
@@ -1741,7 +2174,7 @@ function handleUpload(event) {
   }
   .mobile-tabs button { display: grid; place-items: center; align-content: center; gap: 3px; border-radius: 9px; color: var(--subtle); background: transparent; font-size: 10px; }
   .mobile-tabs button.active { color: var(--primary); background: var(--primary-soft); }
-  .chat-page { height: calc(100vh - 124px); min-height: 520px; }
+  .chat-page { height: calc(100vh - 184px); min-height: 520px; }
   .chat-scroll { padding: 25px 14px 212px; }
   .welcome-block { margin-bottom: 28px; }
   .welcome-block h1 { font-size: 26px; }

@@ -289,6 +289,8 @@ INSERT INTO sys_user (id, username, password, real_name, phone, email, role_id, 
 (3, 'fjj2', 'admin123', '李老师', '13800000003', 'lilaoshi@campus.edu.cn', 2, 1, NOW(), NOW(),'313','32132313','2026-02-24','SCH000003'),
 -- 学生 (用户名: zzs, 密码: admin123)
 (4, 'zzs', 'admin123', 'A3演示学生', '13800000000', 'a3-demo@example.invalid', 3, 1, NOW(), NOW(),'','A3DEMO001','2026-02-24','SCH000004'),
+-- 学生 (用户名: qb_peer, 密码: admin123) — 题库公私可见性对照账号
+(13, 'qb_peer', 'admin123', '题库对照学生', '13900000099', 'qb_peer@stu.campus.edu.cn', 3, 1, NOW(), NOW(),'','QBPEER001','2026-02-24','SCHQBPEER1'),
 -- 学生 (用户名: lisi, 密码: admin123)
 (5, 'lisi', 'admin123', '李四', '13800000005', 'lisi@stu.campus.edu.cn', 3, 1, NOW(), NOW(),'313','32132313','2026-02-24','SCH000005'),
 -- 学生 (用户名: wangwu, 密码: admin123)
@@ -1239,14 +1241,17 @@ INSERT INTO activity_notice (id, activity_id, title, content, publisher_id, publ
 -- 论坛话题（forum_post.topic_id 外键依赖；与小程序分类/发帖选项 id 对齐）
 -- =============================================
 INSERT IGNORE INTO forum_topic (id, topic_name, post_count, is_hot, status, create_time) VALUES
-(1, '校园生活', 0, 1, 'ACTIVE', NOW()),
-(2, '学习交流', 0, 1, 'ACTIVE', NOW()),
-(3, '求职招聘', 0, 1, 'ACTIVE', NOW()),
-(4, '二手交易', 0, 1, 'ACTIVE', NOW()),
-(5, '情感树洞', 0, 1, 'ACTIVE', NOW()),
-(6, '美食探店', 0, 1, 'ACTIVE', NOW()),
-(7, '求助问答', 0, 0, 'ACTIVE', NOW()),
-(8, '失物招领', 0, 0, 'ACTIVE', NOW())
+(1, '热门', 0, 1, 'ACTIVE', NOW()),
+(2, '最新', 0, 0, 'ACTIVE', NOW()),
+(3, '📢公告', 0, 0, 'ACTIVE', NOW()),
+(4, '💰集市', 0, 1, 'ACTIVE', NOW()),
+(5, '😊求助', 0, 0, 'ACTIVE', NOW()),
+(6, '🔑失物', 0, 0, 'ACTIVE', NOW()),
+(7, '💕表白', 0, 0, 'ACTIVE', NOW()),
+(8, '🍟美食', 0, 1, 'ACTIVE', NOW()),
+(9, '🤝搭子', 0, 0, 'ACTIVE', NOW()),
+(10, '📚学习资料', 0, 0, 'ACTIVE', NOW()),
+(11, '🌸影忆青春', 0, 0, 'ACTIVE', NOW())
 ON DUPLICATE KEY UPDATE topic_name = VALUES(topic_name), status = 'ACTIVE';
 
 CREATE TABLE IF NOT EXISTS forum_follow (
@@ -1341,12 +1346,27 @@ UPDATE forum_topic SET post_count = 0 WHERE id IN (5, 8);
 -- =============================================
 DROP TABLE IF EXISTS dish_review;
 DROP TABLE IF EXISTS dish;
+CREATE TABLE IF NOT EXISTS dish_cuisine (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY COMMENT '菜系 ID',
+    canteen_place_id BIGINT NOT NULL COMMENT '所属食堂点位 ID',
+    cuisine_name VARCHAR(50) NOT NULL COMMENT '菜系名称',
+    status INT NOT NULL DEFAULT 1 COMMENT '状态: 1-启用 0-停用',
+    sort_order INT NOT NULL DEFAULT 0 COMMENT '排序值',
+    create_time DATETIME COMMENT '创建时间',
+    update_time DATETIME COMMENT '更新时间',
+    UNIQUE KEY uk_dish_cuisine_canteen_name (canteen_place_id, cuisine_name),
+    INDEX idx_dish_cuisine_canteen (canteen_place_id),
+    FOREIGN KEY (canteen_place_id) REFERENCES map_place(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='菜品菜系表';
+
 CREATE TABLE IF NOT EXISTS dish (
     id BIGINT AUTO_INCREMENT PRIMARY KEY COMMENT '菜品 ID',
     name VARCHAR(100) NOT NULL COMMENT '菜品名称',
-    stall_id BIGINT NOT NULL COMMENT '所属档口 ID',
+    stall_id BIGINT COMMENT '旧档口业务 ID（兼容字段）',
+    stall_place_id BIGINT COMMENT '所属档口点位 ID',
     price DECIMAL(10,2) NOT NULL COMMENT '菜品价格',
     category VARCHAR(50) COMMENT '菜品分类',
+    cuisine_id BIGINT COMMENT '菜系分类 ID',
     image_url VARCHAR(255) COMMENT '菜品图片 URL',
     rating DECIMAL(3,2) DEFAULT 0 COMMENT '菜品评分 (0-5)',
     sold_count INT DEFAULT 0 COMMENT '销量',
@@ -1355,7 +1375,9 @@ CREATE TABLE IF NOT EXISTS dish (
     description TEXT COMMENT '菜品描述',
     create_time DATETIME COMMENT '创建时间',
     update_time DATETIME COMMENT '更新时间',
-    FOREIGN KEY (stall_id) REFERENCES canteen_stall(id)
+    FOREIGN KEY (stall_id) REFERENCES canteen_stall(id),
+    FOREIGN KEY (stall_place_id) REFERENCES map_place(id),
+    FOREIGN KEY (cuisine_id) REFERENCES dish_cuisine(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='菜品表';
 
 -- =============================================
@@ -1535,6 +1557,16 @@ CREATE TABLE IF NOT EXISTS system_config (
     create_time DATETIME COMMENT '创建时间',
     update_time DATETIME COMMENT '更新时间'
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='系统配置表';
+
+CREATE TABLE IF NOT EXISTS langfuse_config (
+    id BIGINT PRIMARY KEY COMMENT '固定为 1 的 Langfuse 配置记录',
+    enabled TINYINT NOT NULL DEFAULT 0 COMMENT '是否启用 Langfuse 观测',
+    base_url VARCHAR(500) NULL COMMENT 'Langfuse 服务地址',
+    public_key TEXT NULL COMMENT '加密保存的 Langfuse Public Key',
+    secret_key TEXT NULL COMMENT '加密保存的 Langfuse Secret Key',
+    create_time DATETIME NULL COMMENT '创建时间',
+    update_time DATETIME NULL COMMENT '更新时间'
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Langfuse AI 观测配置';
 
 DELETE FROM system_config WHERE config_key IN (
   'ai.provider', 'ai.base-url', 'ai.api-key', 'ai.model',

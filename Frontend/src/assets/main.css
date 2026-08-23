@@ -1,4 +1,5 @@
 @import './base.css';
+@import './features.css';
 
 * {
   box-sizing: border-box;
@@ -98,10 +99,8 @@ button {
 }
 
 .app-tab-nav__profile {
-  position: absolute;
-  right: 24px;
-  top: 50%;
-  transform: translateY(-50%);
+  position: relative;
+  flex: 0 0 auto;
 }
 
 .app-tab-nav__avatar {

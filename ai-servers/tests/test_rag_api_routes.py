@@ -12,7 +12,7 @@ from app.model_providers import factory as model_provider_factory
 from app.model_providers.multimodal import build_multimodal_human_content, extract_image_references
 from app.model_providers.runtime_config import LlmRuntimeConfig
 from app.multi_agents.catalog import AGENT_ORDER, LEADER_CALLABLE_AGENT_ORDER
-from app.multi_agents.ppt_layout_agent.agent import normalize_ppt_layout_answer
+from app.multi_agents.ppt_structure_agent.agent import normalize_structure_answer
 from app.multi_agents.ppt_outline_agent.agent import normalize_ppt_outline_answer
 
 
@@ -174,6 +174,23 @@ class RagApiRoutesTest(unittest.TestCase):
         export_tool = next(item for item in catalog["tools"] if item["name"] == "generated_export_tools")
 
         self.assertTrue(export_tool["enabled"])
+
+    def test_ai_ppt_tool_is_configurable_but_not_leader_callable_before_wiring(self):
+        request = SimpleNamespace(metadata={
+            "toolToggles": {"ai_ppt_generation_tool": False},
+        })
+
+        catalog = self._rag_routes._build_leader_callable_catalog(request)
+        content_tool = next(
+            item
+            for item in catalog["tools"]
+            if item["name"] == "ai_ppt_generation_tool"
+        )
+
+        self.assertFalse(content_tool["enabled"])
+        self.assertEqual("unwired", content_tool["invocation"])
+        self.assertEqual("registered", content_tool["status"])
+        self.assertIn("ai_ppt_generation_tool", {item["name"] for item in catalog["tools"]})
 
     def test_file_transform_action_forces_real_export_tool(self):
         request = SimpleNamespace(metadata={
@@ -597,7 +614,7 @@ class RagApiRoutesTest(unittest.TestCase):
         self.assertIn("meeting_controller_agent", names)
         self.assertIn("meeting_voice_broadcast_agent", names)
         self.assertIn("ppt_outline_agent", names)
-        self.assertIn("ppt_layout_agent", names)
+        self.assertIn("ppt_structure_agent", names)
         self.assertIn("ppt_review_agent", names)
         self.assertIn("ppt_image_agent", names)
         self.assertNotIn("textbook_question_bank_agent", names)
@@ -682,56 +699,60 @@ class RagApiRoutesTest(unittest.TestCase):
         self.assertEqual("direct_agent", payload["trace"][-1]["stage"])
         self.assertEqual("direct_agent", payload["metadata"]["executionMode"])
 
-    def test_ppt_layout_normalizer_rewrites_legacy_fields(self):
-        raw = """## PPT 布局方案
-### 第 1 页：封面布局
-- 版式类型：封面布局
-- 标题区：页面上方居中标题
-- 正文区：副标题和课程信息
-- 图表/图片区：背景示意图
-- 视觉层级：标题最强
-- 留白：四周留白充足
-- 讲解动线：从标题到副标题到背景图
-"""
-        outline = """## PPT 大纲
-### 大纲信息
-- 主题：数据结构中的栈与队列
-- 使用场景：学术
-- 受众：学生
-- 建议页数：6 页
-- 整体目标：帮助学生理解栈与队列
-- 风格建议：结构清晰
-
-### 第1页
-- 页标题：数据结构中的栈与队列
-- 页面类型：封面页
-- 本页目标：引入主题
-- 核心内容：
-  - 主标题
-  - 副标题
-- 展示建议：封面大标题布局
-- 素材建议：主视觉插图
-"""
-        normalized = normalize_ppt_layout_answer(
-            raw,
-            outline,
+    def test_image_attachment_automatically_calls_bound_vision_tool(self):
+        response = self.client.post(
+            "/internal/rag/query",
+            headers=self.headers,
+            json={
+                "input": "请分析这张图片",
+                "agentName": "leader_agent",
+                "attachments": [{
+                    "type": "image",
+                    "mimeType": "image/png",
+                    "name": "screen.png",
+                    "url": "https://files.test/screen.png",
+                }],
+                "metadata": {"agentModelConfigs": self.agent_model_configs},
+            },
         )
-        self.assertIn("### 布局信息", normalized)
-        self.assertIn("- 使用场景：学术", normalized)
-        self.assertIn("- 受众：学生", normalized)
-        self.assertIn("- 页面类型：封面页", normalized)
-        self.assertIn("- 布局结构：", normalized)
-        self.assertIn("- 信息层级：", normalized)
-        self.assertIn("- 区域安排：", normalized)
-        self.assertIn("- 视觉建议：", normalized)
-        self.assertIn("- 素材处理：", normalized)
-        self.assertNotIn("版式类型", normalized)
-        self.assertNotIn("标题区", normalized)
-        self.assertNotIn("正文区", normalized)
-        self.assertNotIn("图表/图片区", normalized)
-        self.assertNotIn("视觉层级", normalized)
-        self.assertNotIn("留白", normalized)
-        self.assertNotIn("讲解动线", normalized)
+
+        self.assertEqual(200, response.status_code)
+        payload = response.json()
+        self.assertEqual("recognize_image_tool", payload["strategy"])
+        self.assertEqual("image_analysis", payload["answerType"])
+        self.assertEqual("vision_agent", payload["metadata"]["boundAgent"])
+        self.assertEqual("attachment", payload["metadata"]["routeMode"])
+
+    def test_stream_image_attachment_uses_same_vision_tool_route(self):
+        response = self.client.post(
+            "/internal/rag/query/stream",
+            headers=self.headers,
+            json={
+                "input": "请分析这张图片",
+                "agentName": "leader_agent",
+                "attachments": [{
+                    "type": "image",
+                    "mimeType": "image/png",
+                    "name": "screen.png",
+                    "url": "https://files.test/screen.png",
+                }],
+                "metadata": {"agentModelConfigs": self.agent_model_configs},
+            },
+        )
+
+        self.assertEqual(200, response.status_code)
+        self.assertIn('"ragStrategy": "recognize_image_tool"', response.text)
+        self.assertIn('"answerType": "image_analysis"', response.text)
+        self.assertIn('"boundAgent": "vision_agent"', response.text)
+
+    def test_presenton_structure_normalizer_accepts_layout_ids(self):
+        normalized = normalize_structure_answer(
+            '{"layouts":[{"slideIndex":1,"layoutId":"title_intro"}]}'
+        )
+        self.assertEqual(
+            {"layouts": [{"slideIndex": 1, "layoutId": "title_intro"}]},
+            normalized,
+        )
 
     def test_leader_agent_routes_and_executes_specialist(self):
         response = self.client.post(

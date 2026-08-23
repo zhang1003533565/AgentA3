@@ -47,6 +47,14 @@ public class ChatController {
         return Result.success(chatService.getSessionList(getUserId(httpRequest), current, size));
     }
 
+    @GetMapping("/session/{sessionId}")
+    @Operation(summary = "会话详情", description = "获取单个会话详情（含商品信息）")
+    public Result<ChatDTO.SessionVO> getSessionById(
+            @PathVariable Long sessionId,
+            HttpServletRequest httpRequest) {
+        return Result.success(chatService.getSessionById(sessionId, getUserId(httpRequest)));
+    }
+
     @DeleteMapping("/session/{sessionId}")
     @Operation(summary = "删除会话", description = "删除会话，同时删除该会话下的所有消息")
     public Result<Void> deleteSession(
@@ -101,6 +109,17 @@ public class ChatController {
     @Operation(summary = "交易通知未读数量")
     public Result<Long> getUnreadTradeNotificationCount(HttpServletRequest httpRequest) {
         return Result.success(chatService.countUnreadTradeNotifications(getUserId(httpRequest)));
+    }
+
+    @GetMapping("/messages/summary")
+    @Operation(summary = "消息概览", description = "聚合返回聊天会话列表、聊天未读数、交易通知未读数，减少前端请求次数")
+    public Result<ChatDTO.MessageSummaryVO> getMessageSummary(
+            @Parameter(description = "当前页码")
+            @RequestParam(defaultValue = "1") Integer current,
+            @Parameter(description = "每页条数")
+            @RequestParam(defaultValue = "30") Integer size,
+            HttpServletRequest httpRequest) {
+        return Result.success(chatService.getMessageSummary(getUserId(httpRequest), current, size));
     }
 
     @PutMapping("/trade-notifications/{id}/read")

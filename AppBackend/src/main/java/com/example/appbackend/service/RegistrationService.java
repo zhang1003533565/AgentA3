@@ -12,6 +12,11 @@ public interface RegistrationService {
     Registration registerActivity(Long activityId, Long userId);
 
     /**
+     * 管理端手动为学生添加报名（不受报名时间窗口限制，仍校验名额与重复）
+     */
+    Registration adminRegisterActivity(Long activityId, Long userId);
+
+    /**
      * 取消报名
      */
     Registration cancelRegistration(Long registrationId, Long userId);
@@ -30,6 +35,11 @@ public interface RegistrationService {
      * 获取活动的报名列表
      */
     PageResponse<RegistrationListItem> getActivityRegistrations(Long activityId, Integer page, Integer size);
+
+    /**
+     * 获取全部报名列表（管理端，可按活动/状态/关键词筛选）
+     */
+    PageResponse<RegistrationListItem> getAllRegistrations(Long activityId, String status, String keyword, Integer page, Integer size);
 
     /**
      * 审核报名

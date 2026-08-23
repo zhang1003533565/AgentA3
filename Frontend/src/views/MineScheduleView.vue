@@ -1,6 +1,7 @@
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useRouter } from 'vue-router'
+import AppTabBar from '../components/AppTabBar.vue'
 
 const router = useRouter()
 
@@ -343,6 +344,7 @@ function closeShareCodeImportModal() {
 
 <template>
   <div class="schedule-shell" :class="{ 'has-bg': !!scheduleBg }" :style="shellStyle">
+    <AppTabBar />
 
     <!-- ── 顶部导航栏 ── -->
     <header class="navbar">
@@ -629,6 +631,7 @@ function closeShareCodeImportModal() {
   display: flex;
   flex-direction: column;
   min-height: 100vh;
+  padding-top: 60px;
   background: #f4f7fb;
   font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Helvetica Neue', sans-serif;
   color: #1f2937;
@@ -658,7 +661,7 @@ function closeShareCodeImportModal() {
 /* ─── 顶部导航 ─── */
 .navbar {
   position: sticky;
-  top: 0;
+  top: 60px;
   z-index: 100;
   display: flex;
   align-items: center;

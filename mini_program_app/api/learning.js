@@ -22,6 +22,11 @@ export const getPythonRecommendations = () => request({
   method: 'GET'
 })
 
+export const getPythonKnowledgeGraph = () => request({
+  url: '/api/app/learning/courses/python/knowledge-graph',
+  method: 'GET'
+})
+
 export const getLearningWorkflow = workflowId => request({
   url: `/api/app/learning/workflows/${encodeURIComponent(workflowId)}`,
   method: 'GET'

@@ -230,7 +230,7 @@ const agentExampleInputs = {
   meeting_resource_recommendation_agent: '李明：循环队列的 front、rear 变化和判满条件还不够熟。\n\n王芳：括号匹配算法步骤我需要再复习。\n\n陈强：我想找一个循环队列图文示例。',
   meeting_voice_broadcast_agent: '张老师：本次会议确定，本周完成数据结构复习资料初稿。\n\n李明：我负责栈与队列知识点。\n\n王芳：我负责练习题。\n\n陈强：我负责代码案例。',
   ppt_outline_agent: '数据结构：栈与队列\n\n课程重点包括栈的后进先出、队列的先进先出、循环队列的队空队满条件，以及括号匹配和任务调度等应用。',
-  ppt_layout_agent: '数据结构栈与队列 PPT 内容材料\n\n第 1 页课程导入，第 2 页概念对比，第 3 页栈操作流程，第 4 页队列操作流程，第 5 页应用案例，第 6 页课堂练习。',
+  ppt_structure_agent: '数据结构栈与队列 PPT 结构选择\n\n根据 Presenton 模板组件 Schema 为每页选择合适的 layoutId。',
   ppt_review_agent: 'PPT 大纲：数据结构栈与队列\n\n第 1 页课程导入；第 2 页栈；第 3 页队列；第 4 页循环队列；第 5 页应用案例；第 6 页课堂练习。',
   ppt_image_agent: 'PPT 插图素材：数据结构栈与队列\n\n封面包含栈容器和队列队伍。栈图体现入栈出栈，队列图体现入队出队，循环队列图体现 front 和 rear。',
   ppt_to_docx_agent: 'PPTX 转 DOCX 转换需求\n\n请上传一个 .pptx 文件，将每页幻灯片按顺序整理成 Word 文档。要求保留可提取的文字、表格和图片；内容可以根据 Word 文档重新排版。',
@@ -356,7 +356,7 @@ function RagManage({ page = 'playground' }) {
       { value: 'leader_agent', label: 'Leader 自动路由 · 意图识别/分发' },
       ...agents.filter((item) => item.name !== 'leader_agent').map((item) => ({
         value: item.name,
-        label: `${item.role} · ${item.name}${isAgentEnabled(item) ? '' : ' · 已关闭'}`,
+        label: `${item.role} · ${item.name}${item.internalOnly ? ' · 系统内部必用' : (isAgentEnabled(item) ? '' : ' · 已关闭')}`,
         disabled: !isAgentEnabled(item),
       })),
     ],
@@ -366,7 +366,7 @@ function RagManage({ page = 'playground' }) {
   const agentTestOptions = useMemo(
     () => agents.map((item) => ({
       value: item.name,
-      label: `${item.role} · ${item.name}${isAgentEnabled(item) ? '' : ' · 已关闭'}`,
+      label: `${item.role} · ${item.name}${item.internalOnly ? ' · 系统内部必用' : (isAgentEnabled(item) ? '' : ' · 已关闭')}`,
       disabled: !isAgentEnabled(item),
     })),
     [agents]

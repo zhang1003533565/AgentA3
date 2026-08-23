@@ -5,7 +5,6 @@ import { ArrowLeftOutlined, EditOutlined, MenuFoldOutlined, MenuUnfoldOutlined }
 import NavBar from '../NavBar/NavBar'
 import PageHeader from '../PageHeader/PageHeader'
 import { getNavMetaByPath, getBreadcrumbByPath } from '../../data/portalData'
-import { getUserInfo } from '../../utils/storage'
 import './Layout.css'
 
 function Layout() {
@@ -18,7 +17,7 @@ function Layout() {
   const facilityDetailMatch = /^\/facility\/analytics\/[^/]+$/.test(location.pathname)
 
   return (
-    <div className={`layout ${mobileOpen ? 'sidebar-open' : ''}`}>
+    <div className={`layout notranslate ${mobileOpen ? 'sidebar-open' : ''}`} translate="no">
       <NavBar mobileOpen={mobileOpen} onClose={() => setMobileOpen(false)} />
       <div className="layout-body">
         <header className="layout-topbar">
@@ -53,7 +52,7 @@ function Layout() {
 
         </header>
 
-        <main className="layout-content">
+        <main className="layout-content app-content-surface">
           <Outlet />
         </main>
       </div>

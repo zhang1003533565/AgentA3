@@ -36,6 +36,7 @@ export const getDishList = (params = {}) =>
     method: 'get',
     params: {
       stallId: params.stallId,
+      stallPlaceId: params.stallPlaceId,
       category: params.category,
       taste: params.taste,
       name: params.name ?? params.keyword,
@@ -65,5 +66,32 @@ export const updateDish = (id, data) =>
 export const deleteDish = (id) =>
   request({
     url: `/api/v1/dish/${id}`,
+    method: 'delete',
+  })
+
+export const getDishCuisines = (canteenPlaceId) =>
+  request({
+    url: '/api/v1/dish-cuisines',
+    method: 'get',
+    params: { canteenPlaceId },
+  })
+
+export const createDishCuisine = (data) =>
+  request({
+    url: '/api/v1/dish-cuisines',
+    method: 'post',
+    data,
+  })
+
+export const updateDishCuisine = (id, data) =>
+  request({
+    url: `/api/v1/dish-cuisines/${id}`,
+    method: 'put',
+    data,
+  })
+
+export const deleteDishCuisine = (id) =>
+  request({
+    url: `/api/v1/dish-cuisines/${id}`,
     method: 'delete',
   })

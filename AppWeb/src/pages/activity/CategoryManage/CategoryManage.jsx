@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react'
-import { message, Modal, Form, Input, InputNumber, Button, Table, Space, Popconfirm } from 'antd'
-import { PlusOutlined, EditOutlined, DeleteOutlined, SearchOutlined } from '@ant-design/icons'
+import { message, Modal, Form, Input, InputNumber, Button, Table, Space, Popconfirm, Switch } from 'antd'
+import { PlusOutlined, EditOutlined, DeleteOutlined, SearchOutlined, TagsOutlined, CheckCircleOutlined, StopOutlined } from '@ant-design/icons'
 import { getCategoryList, createCategory, updateCategory, deleteCategory } from '../../../api/category'
 import './CategoryManage.css'
+import '../activityCards.css'
 
 function CategoryManage() {
   const [categories, setCategories] = useState([])
@@ -34,6 +35,15 @@ function CategoryManage() {
   const filteredCategories = categories.filter(cat => 
     cat.name?.toLowerCase().includes(searchKeyword.toLowerCase())
   )
+
+  const enabledCount = categories.filter((cat) => cat.status === 1).length
+  const disabledCount = categories.filter((cat) => cat.status === 0).length
+
+  const statItems = [
+    { key: 'all', label: '分类总数', value: categories.length, color: '#2563eb', bg: '#eff6ff', icon: <TagsOutlined /> },
+    { key: 'enabled', label: '已启用', value: enabledCount, color: '#52c41a', bg: '#f6ffed', icon: <CheckCircleOutlined /> },
+    { key: 'disabled', label: '已停用', value: disabledCount, color: '#7c3aed', bg: '#f5f3ff', icon: <StopOutlined /> },
+  ]
 
   // 打开创建弹窗
   const handleCreate = () => {
@@ -153,6 +163,23 @@ function CategoryManage() {
     <div className="category-manage-container">
       {/* 主内容 */}
       <main className="manage-main">
+        {/* 统计卡片 */}
+        <div className="ac-stat-row ac-stat-row--3">
+          {statItems.map((item) => (
+            <div
+              key={item.key}
+              className="ac-stat-card ac-stat-card--static"
+              style={{ borderTop: `3px solid ${item.color}`, background: item.bg }}
+            >
+              <span className="ac-stat-card-icon" style={{ color: item.color }}>{item.icon}</span>
+              <span className="ac-stat-card-text">
+                <span className="ac-stat-card-value">{item.value}</span>
+                <span className="ac-stat-card-label">{item.label}</span>
+              </span>
+            </div>
+          ))}
+        </div>
+
         {/* 搜索栏 */}
         <div className="search-bar">
           <Input

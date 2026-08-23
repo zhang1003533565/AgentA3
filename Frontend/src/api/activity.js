@@ -22,6 +22,14 @@ export function getCategoryList() {
   })
 }
 
+export function getMyActivities(params = {}) {
+  return request({
+    url: '/api/activities/mine',
+    method: 'GET',
+    params,
+  })
+}
+
 export function getMyRegistrations(params = {}) {
   return request({
     url: '/api/registrations/my-registrations',
@@ -65,4 +73,20 @@ export function removeFavorite(activityId) {
     url: `/api/activities/${activityId}/favorite`,
     method: 'DELETE',
   })
+}
+
+export function createActivity(data) {
+  return request({ url: '/api/activities', method: 'POST', data })
+}
+
+export function publishActivity(id) {
+  return request({ url: `/api/activities/publish/${id}`, method: 'POST' })
+}
+
+export function getSignInStatus(activityId) {
+  return request({ url: `/api/signins/activities/${activityId}/signin-status`, method: 'GET' })
+}
+
+export function studentSignIn(activityId) {
+  return request({ url: `/api/signins/${activityId}`, method: 'POST' })
 }

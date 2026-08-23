@@ -11,11 +11,17 @@ const getErrorMessage = (data, fallback = '请求失败') => {
   return data?.msg || data?.message || data?.detail || data?.error || fallback
 }
 
+const redirectToLogin = () => {
+  if (window.location.pathname === '/login') return
+  const redirect = encodeURIComponent(window.location.pathname + window.location.search)
+  window.location.replace(`/login?redirect=${redirect}`)
+}
+
 export async function request({ url, method = 'GET', data, params, headers = {} }) {
   const target = url.startsWith('http') ? url : `${API_BASE_URL}${url}`
   const requestUrl = new URL(target)
 
-  if (params && method.toUpperCase() === 'GET') {
+  if (params) {
     Object.entries(params).forEach(([key, value]) => {
       if (value !== undefined && value !== null && value !== '') {
         requestUrl.searchParams.set(key, value)
@@ -38,7 +44,10 @@ export async function request({ url, method = 'GET', data, params, headers = {} 
   const payload = contentType.includes('application/json') ? await response.json() : await response.text()
 
   if (!response.ok || payload?.code !== 200) {
-    if (response.status === 401 || payload?.code === 401) clearAuth()
+    if (response.status === 401 || payload?.code === 401) {
+      clearAuth()
+      redirectToLogin()
+    }
     throw new Error(getErrorMessage(payload, `请求失败: ${response.status}`))
   }
 

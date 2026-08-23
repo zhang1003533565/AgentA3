@@ -325,7 +325,7 @@ class LeaderPlan:
     target_agent: str
     need_retrieval: bool
     rag_strategy: str
-    action: str = "delegate_agent"
+    action: str = "direct_answer"
     tool_name: str = ""
     route_reason: str = ""
     answer: str = ""
@@ -353,21 +353,26 @@ class LeaderAgent:
         if forced_plan:
             return forced_plan
 
-        learning_plan = self._plan_learning_workflow(learning_context)
-        if learning_plan:
-            return learning_plan
-
-        learning_guidance_plan = self._plan_learning_guidance_agent(input_text, callable_catalog)
-        if learning_guidance_plan:
-            return learning_guidance_plan
-
-        knowledge_generation_plan = self._plan_explicit_knowledge_generation_request(input_text, callable_catalog)
-        if knowledge_generation_plan:
-            return knowledge_generation_plan
-
         file_export_plan = self._plan_explicit_file_export_request(input_text)
         if file_export_plan:
             return file_export_plan
+
+        tool_selection = callable_catalog.get("toolSelection") if isinstance(callable_catalog, dict) else {}
+        if (
+            isinstance(tool_selection, dict)
+            and tool_selection.get("intent") == "capability_inquiry"
+        ):
+            return LeaderPlan(
+                intent="capability_inquiry",
+                target_agent="leader_agent",
+                need_retrieval=False,
+                rag_strategy="",
+                action="call_tool",
+                tool_name="tool_capability_query",
+                route_reason="用户询问系统能力，调用能力查询工具读取当前已启用工具。",
+                answer="正在查询当前已启用的工具能力。",
+                route_mode="rules",
+            )
 
         if self._is_explicit_visual_generation_request(input_text):
             visual_plan = self._plan_with_rules(input_text, rag_strategy)
@@ -601,7 +606,7 @@ class LeaderAgent:
         if any(token in normalized for token in ("ppt审查", "ppt评分", "置信度", "审查ppt", "检查ppt")):
             return LeaderPlan("ppt_review", "ppt_review_agent", False, "", route_reason="命中 PPT 审查/评分意图，分发给 PPT 审查智能体。")
         if any(token in normalized for token in ("ppt布局", "ppt排版", "ppt版式", "排布局", "排版")):
-            return LeaderPlan("ppt_layout", "ppt_layout_agent", False, "", route_reason="命中 PPT 布局/排版意图，分发给 PPT 布局智能体。")
+            return LeaderPlan("ppt_structure", "ppt_structure_agent", False, "", route_reason="命中 PPT 布局/排版意图，分发给 Presenton 结构智能体。")
         if (
             any(token in normalized for token in ("ppt图片", "ppt配图", "ppt插图", "ppt封面", "课件配图"))
             or (
@@ -936,7 +941,22 @@ class LeaderAgent:
         )
         plan = parse_json_object(text)
         if not plan:
-            raise HTTPException(status_code=502, detail=f"Leader LLM 路由结果不是合法 JSON：{text[:300]}")
+            # 路由模型偶尔会忽略 JSON 约束或在 JSON 外追加解释。
+            # 解析失败时只能安全地退化为直接回答，不能猜测工具并执行。
+            fallback_answer = str(text or "").strip()
+            if fallback_answer:
+                logger.warning("leader llm returned non-JSON; fallback to direct answer: %s", fallback_answer[:300])
+                return LeaderPlan(
+                    intent="campus_search",
+                    target_agent="leader_agent",
+                    need_retrieval=False,
+                    rag_strategy="",
+                    action="direct_answer",
+                    answer=fallback_answer,
+                    route_reason="Leader 路由结果不是合法 JSON，已安全降级为直接回答，未执行任何工具。",
+                    route_mode="llm_fallback",
+                )
+            raise HTTPException(status_code=502, detail="Leader LLM 路由结果为空，无法生成安全路由。")
         parsed = self._parse_llm_plan(plan, rag_strategy)
         if not parsed:
             raise HTTPException(status_code=502, detail=f"Leader LLM 路由结果字段不合法：{plan}")
@@ -981,16 +1001,12 @@ class LeaderAgent:
     def _parse_llm_plan(self, plan: Dict[str, Any], requested_rag_strategy: str) -> Optional[LeaderPlan]:
         if not isinstance(plan, dict):
             return None
-        action = str(plan.get("action") or "delegate_agent").strip()
+        action = str(plan.get("action") or "direct_answer").strip()
         tool_name = str(plan.get("tool_name") or plan.get("toolName") or "").strip()
-        default_target = "leader_agent" if action in {"direct_answer", "call_tool"} else "textbook_knowledge_agent"
-        target_agent = normalize_agent_name(str(plan.get("target_agent") or plan.get("targetAgent") or "")) or default_target
-        if target_agent not in {"leader_agent", *LEADER_CALLABLE_AGENT_ORDER}:
-            return None
-        need_retrieval = bool(plan.get("need_retrieval", plan.get("needRetrieval", False)))
-        profile = get_agent_profile(target_agent)
-        if profile and action == "delegate_agent":
-            need_retrieval = bool(profile["needRetrieval"])
+        if action not in {"direct_answer", "call_tool"}:
+            action = "direct_answer"
+        target_agent = "leader_agent"
+        need_retrieval = False
         rag_strategy = self._normalize_rag_strategy(plan.get("rag_strategy") or plan.get("ragStrategy"))
         if action == "call_tool" and tool_name == "text_to_sql" and not rag_strategy:
             rag_strategy = "text_to_sql"
@@ -1001,8 +1017,8 @@ class LeaderAgent:
             target_agent=target_agent,
             need_retrieval=need_retrieval,
             rag_strategy=rag_strategy,
-            action=action if action in {"direct_answer", "delegate_agent", "call_tool"} else "delegate_agent",
-            tool_name=tool_name,
+            action=action,
+            tool_name=tool_name if action == "call_tool" else "",
             route_reason=str(plan.get("route_reason") or plan.get("routeReason") or "Leader LLM 完成意图识别。").strip(),
             answer=str(plan.get("answer") or "").strip(),
             route_mode="llm",
@@ -1015,14 +1031,8 @@ class LeaderAgent:
         profile = get_agent_profile(agent_name)
         if not profile or agent_name == "leader_agent":
             return None
-        return LeaderPlan(
-            intent=profile["intent"],
-            target_agent=agent_name,
-            need_retrieval=bool(profile["needRetrieval"]),
-            rag_strategy="",
-            route_reason=f"用户显式选择 {profile['role']}，Leader 按指定智能体执行。",
-            route_mode="forced",
-        )
+        # 专业智能体不再作为 Leader 的独立路由目标；相关能力必须以系统工具形式进入工具目录。
+        return None
 
     def _is_structured_query(self, normalized_text: str) -> bool:
         query_tokens = ("统计", "数量", "多少", "有多少", "列表", "查询", "查一下", "排名")
@@ -1096,6 +1106,8 @@ class LeaderAgent:
                 "当用户提到简称、英文缩写、别名或不完整名称时，由你在 tool_results 中做语义匹配；不要要求完全同名。",
                 "如果多个结果都可能匹配且无法判断，先说明候选并请用户确认，不要随便选。",
                 "如果 tool_results 为空，要说明已调用对应系统能力但暂时没有可展示数据，并给出可能检查项。",
+                "如果 tool_results 中包含 type=tool_empty_result，要明确告诉用户本次查询没有查到数据，不要伪造结果。",
+                "如果 tool_results 中包含 type=tool_execution_error，要明确告诉用户工具调用失败，并说明错误状态；不要把失败说成没有数据。",
                 "如果 leader_planning_answer 不为空，可承接它，但最终必须给出查询结果或空结果说明。",
                 *answer_policy.get("requirements", []),
             ],
@@ -1137,6 +1149,18 @@ class LeaderAgent:
         plan: LeaderPlan,
         tool_results: List[Dict[str, Any]],
     ) -> Dict[str, Any]:
+        if plan.tool_name == "tool_capability_query":
+            return {
+                "mode": "capability_query",
+                "format": "concise_capability_summary",
+                "requirements": [
+                    "只根据 tool_results 中 enabledTools 的 purpose 和 category 总结当前可用能力。",
+                    "按用户能理解的功能分类，最多列出 5 类；每类用一句话概括，不要逐项照抄工具名称。",
+                    "不要输出 tool_name、agent_name、category 英文值、outputs 或其他内部字段。",
+                    "不要把禁用工具、未出现在 enabledTools 中的能力或静态提示词中的能力说成可用。",
+                    "如果 enabledTools 为空，只说明当前没有已启用的业务工具，仍可以进行普通对话。",
+                ],
+            }
         if plan.tool_name == "java_schedule_api":
             mode = self._schedule_answer_mode(input_text, tool_results)
             if mode == "course_time":
@@ -1358,7 +1382,7 @@ def build_leader_router_user_prompt(
             "当前输入与画像冲突时，以当前输入完成本轮回答，并在 route_reason 中说明冲突倾向。",
             "profile_snapshot.outputPreferenceHints 只能用于提供后续图片版/文件版选项，不能凭偏好把普通学习、解释或问答请求改成生图任务。只有当前 user_input 明确要求图片、图解或具体图表时，才允许选择图片/图表智能体。",
             "如果任务既可做图片又可做文件且没有稳定偏好，先询问用户要图片形式还是文件形式。",
-            "用户要求文件版/文档版/Excel/Word/打包下载时，优先路由到能生成知识、题库、会议纪要或 PPT 大纲的专业智能体；AI Server 会自动调用 generated_export_tools 生成附件，不要把长内容只当纯文字回复。",
+            "用户要求文件版/文档版/Excel/Word/打包下载时，调用已启用的 generated_export_tools；工具内部负责组织内容并生成附件，不要把长内容只当纯文字回复。",
             "用户要求题库表格或题库 Excel 时，仍先选择对应题型智能体生成严格题库 JSON，再由导出工具转换为 md/docx/xlsx/zip。",
             "用户要求 Mermaid 源文件、图表源码或后续编辑图表时，图表智能体返回 Mermaid 后会自动生成 mmd/md/zip 附件。",
             "如果用户已经提供了要导出的 Markdown、普通文本或标准题库 JSON，且只要求转成文件，可以直接 call_tool: generated_export_tools。",
@@ -1370,15 +1394,15 @@ def build_leader_router_user_prompt(
             "用户问某门课的老师是谁、任课老师、授课教师、谁教某门课时，这是课程信息查询，必须优先选择 java_schedule_api，不要路由到教材知识点智能体。",
             "用户问某门课什么时候学、什么时候上课、周几几点上时，也是课程信息查询，必须优先选择 java_schedule_api；但“什么时候开始没有课/哪天没课/今天有课吗”属于课表状态查询，不要套用最近课程。",
             "用户问某门课本学期有几节课、几次课、多少课时或上课次数时，也是课程信息查询，必须优先选择 java_schedule_api。",
-            "会议纪要/总结/转写/成员分析仍属于会议专业智能体；活动图/流程图仍属于图表智能体，不要误判为校园活动查询。",
-            "路由时只能选择 leader_callable_catalog 中 enabled=true 的 agents/tools；关闭项只可在 route_reason 中说明，不允许绕过后台配置。",
-            "用户询问你有什么功能、是否支持生图/PPT/题库/文档/图表等能力时，只能依据 leader_callable_catalog 中 enabled=true 的项目回答；不得把静态提示词、已知智能体名称或输出策略当成当前可用能力。",
-            "问候、闲聊和能力询问都必须由你在 answer 中直接生成自然回复；系统不会补写固定问候语、能力清单或其他兜底文案。",
-            "回答能力询问时面向普通用户说明可完成的事情，不要主动输出内部 agent/tool 标识；只有用户明确询问技术名称时才可给出。",
+            "会议纪要/总结/转写/成员分析以及活动图/流程图等能力，统一通过已启用的系统工具处理，不要单独委派专业智能体。",
+            "路由只有两种：普通问题使用 direct_answer；确实需要系统能力时使用 call_tool。只能选择 leader_callable_catalog.tools 中的工具；该列表已经过滤掉后台关闭项。",
+            "用户询问你有什么功能、是否支持生图/PPT/题库/文档/图表等能力时，必须 action=call_tool，tool_name=tool_capability_query；能力清单由该工具读取当前后台开关后返回，不能由 Leader 根据静态目录直接回答。",
+            "问候和闲聊可以由 Leader 直接回答；能力询问不允许 direct_answer，必须调用 tool_capability_query。",
+            "能力查询工具返回结果后，面向普通用户说明可完成的事情，不要主动输出内部 agent/tool 标识；只有用户明确询问技术名称时才可给出。",
             "某项能力未出现在启用清单中时，必须明确回答当前不可用或尚未完成配置，不得声称可以生成后再执行失败。",
             "leader_output_push_strategies 只是已启用能力的输出路由提示，不能单独证明某种生成能力当前可用。",
-            "所有图片、思维导图、流程图、活动图、架构图、知识图谱和 PPT 配图请求都必须 action=call_tool，并从 leader_callable_catalog.tools 选择对应 generate_*_image_tool；不得 delegate_agent 到提示词智能体或 image_agent。",
-            "target_agent 必须来自 leader_callable_catalog.agents.name；tool_name 必须来自 leader_callable_catalog.tools.name。",
+            "所有图片、思维导图、流程图、活动图、架构图、知识图谱和 PPT 配图请求都必须 action=call_tool，并从 leader_callable_catalog.tools 选择对应 generate_*_image_tool；不要单独委派任何智能体。",
+            "target_agent 固定为 leader_agent；call_tool 时 tool_name 必须来自 leader_callable_catalog.tools.name。",
             "action=call_tool 时，answer 必须是一句简短自然的进行中回复，例如“正在为你查询今日课表。”；最终结果会在工具返回后再由模型整理。",
         ],
         "leader_output_push_strategies": LEADER_OUTPUT_PUSH_STRATEGIES,
@@ -1386,7 +1410,7 @@ def build_leader_router_user_prompt(
 
 
 def parse_json_object(text: str) -> Dict[str, Any]:
-    raw = (text or "").strip()
+    raw = (text or "").strip().lstrip("\ufeff")
     if raw.startswith("```"):
         raw = re.sub(r"^```(?:json)?", "", raw, flags=re.IGNORECASE).strip()
         raw = re.sub(r"```$", "", raw).strip()
@@ -1394,11 +1418,15 @@ def parse_json_object(text: str) -> Dict[str, Any]:
         parsed = json.loads(raw)
         return parsed if isinstance(parsed, dict) else {}
     except Exception:
-        match = re.search(r"\{.*\}", raw, flags=re.DOTALL)
-        if not match:
-            return {}
-        try:
-            parsed = json.loads(match.group(0))
+        # 允许 JSON 前后存在说明文字，但只取第一个可完整解析的对象。
+        # 贪婪的 \{.*\} 会在字符串中包含大括号时吞掉后续内容。
+        decoder = json.JSONDecoder()
+        for index, char in enumerate(raw):
+            if char != "{":
+                continue
+            try:
+                parsed, _ = decoder.raw_decode(raw[index:])
+            except (TypeError, ValueError, json.JSONDecodeError):
+                continue
             return parsed if isinstance(parsed, dict) else {}
-        except Exception:
-            return {}
+        return {}

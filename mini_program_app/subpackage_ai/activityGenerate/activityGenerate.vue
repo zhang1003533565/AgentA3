@@ -9,7 +9,6 @@
         <text class="nav-title">生成活动图</text>
         <text class="nav-subtitle">选择生成方式，快速生成专业的活动图</text>
       </view>
-      <view class="nav-placeholder"></view>
     </view>
 
     <view class="content">
@@ -39,7 +38,7 @@
 
       <!-- 选择描述词来源 -->
       <view class="form-section">
-        <view class="section-title">选择描述词来源</view>
+        <view class="section-title section-title-with-history"><view class="inline-history-action" @tap="openHistory"><text>历史记录</text></view><text>选择描述词来源</text></view>
         <view class="source-options">
           <view
             class="source-option"
@@ -188,6 +187,20 @@
       </view>
 
       <!-- 生成按钮 -->
+      <view class="recent-card">
+        <view class="recent-head">
+          <view class="recent-head__icon">
+            <image src="/static/icons/diagram/flow-white.svg" mode="aspectFit" />
+          </view>
+          <text>最近生成</text>
+        </view>
+        <view class="recent-empty">暂无活动图历史</view>
+        <view class="recent-all" @tap="openHistory">
+          <text>查看全部历史</text>
+          <text class="recent-arrow">›</text>
+        </view>
+      </view>
+
       <view class="generate-btn" @tap="generateDescription">
         <text class="generate-btn-text">✦ 生成描述词</text>
       </view>
@@ -227,6 +240,7 @@ const laneOptions = ['2个', '3个', '4个', '5个']
 const nodeStyleOptions = ['圆角矩形', '矩形', '椭圆形']
 
 const goBack = () => { uni.navigateBack() }
+const openHistory = () => { uni.navigateTo({ url: '/subpackage_ai/diagramHistory/diagramHistory' }) }
 const showMoreStyles = () => { uni.showToast({ title: '更多风格', icon: 'none' }) }
 const customRatio = () => { uni.showToast({ title: '自定义比例', icon: 'none' }) }
 const onChartTypeChange = (e) => { selectedChartType.value = chartTypes[e.detail.value] }
@@ -243,6 +257,9 @@ const generateDescription = () => {
     return
   }
   // 跳转到预览页
+  const activityHistory = uni.getStorageSync('aiActivityHistory') || []
+  activityHistory.unshift({ id: Date.now(), title: '活动图', description: flowDescription.value, createTime: new Date().toISOString() })
+  uni.setStorageSync('aiActivityHistory', activityHistory.slice(0, 20))
   uni.navigateTo({
     url: `/subpackage_ai/activityPreview/activityPreview?desc=${encodeURIComponent(flowDescription.value)}&style=${selectedStyle.value}&chartType=${encodeURIComponent(selectedChartType.value)}&colorScheme=${encodeURIComponent(selectedColorScheme.value)}&ratio=${selectedRatio.value}`
   })
@@ -257,19 +274,24 @@ const generateDescription = () => {
 
 /* 导航栏 */
 .nav-bar {
+  position: relative;
   display: flex;
   align-items: center;
-  padding: 20rpx 24rpx;
-  background: #FFF;
+  height: 128rpx;
+  padding: 40rpx 28rpx 0;
+  box-sizing: border-box;
+  background: linear-gradient(180deg, #dff0ff 0%, #eaf5ff 100%);
   position: sticky;
   top: 0;
   z-index: 100;
   gap: 16rpx;
+  border-bottom: 0;
 }
 
 .nav-back {
-  width: 60rpx;
-  height: 60rpx;
+  position: relative;
+  width: 64rpx;
+  height: 64rpx;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -277,21 +299,39 @@ const generateDescription = () => {
 }
 
 .nav-back-icon {
-  font-size: 48rpx;
-  color: #333;
-  font-weight: 300;
+  font-size: 0;
+  line-height: 0;
+  color: transparent;
+}
+
+.nav-back::before {
+  content: '';
+  width: 20rpx;
+  height: 20rpx;
+  border-left: 4rpx solid #1D1D1F;
+  border-bottom: 4rpx solid #1D1D1F;
+  transform: rotate(45deg);
+  border-radius: 2rpx;
+  box-sizing: border-box;
 }
 
 .nav-title-wrapper {
-  flex: 1;
+  position: absolute;
+  left: 112rpx;
+  right: 112rpx;
+  top: calc(50% + 20rpx);
+  transform: translateY(-50%);
   min-width: 0;
+  text-align: center;
 }
 
 .nav-title {
-  font-size: 34rpx;
+  font-size: 32rpx;
   font-weight: 700;
   color: #222;
   display: block;
+  line-height: 1.2;
+  text-align: center;
 }
 
 .nav-subtitle {
@@ -299,6 +339,7 @@ const generateDescription = () => {
   color: #999;
   display: block;
   margin-top: 4rpx;
+  display: none;
 }
 
 .nav-placeholder {
@@ -707,4 +748,56 @@ const generateDescription = () => {
   font-weight: 700;
 }
 
+/* 与架构图页面统一视觉基准 */
+.page { background: #F6F7FB; color: #172033; }
+.form-section { border: 1rpx solid #E6E8F1; border-radius: 22rpx; background: #FFFFFF; box-shadow: 0 10rpx 28rpx rgba(20, 28, 48, 0.045); }
+.form-section + .form-section { margin-top: 18rpx; }
+.textarea-wrapper, .setting-picker, .ratio-item { border-color: #DBE1ED; background: #FFFFFF; }
+.desc-input { color: #172033; }
+.section-title { color: #182033; }
+.source-option, .style-item, .setting-option { border-color: #DBE1ED; }
+.source-option--active, .style-item--active { border-color: #123E6D; background: #F3F7FC; }
+.generate-btn { background: linear-gradient(180deg, #1D5D91 0%, #123E6D 100%); border-radius: 13rpx; box-shadow: 0 10rpx 22rpx rgba(18, 62, 109, 0.18); }
+.content { padding: 20rpx 24rpx 40rpx; }
+.form-section { padding: 24rpx; margin-bottom: 18rpx; }
+.form-section + .form-section { margin-top: 0; }
+.section-title { margin-bottom: 17rpx; font-size: 27rpx; line-height: 1.25; font-weight: 800; }
+.section-title { display: flex; align-items: center; gap: 12rpx; }
+.section-title::before { content: ''; display: inline-block; width: 26rpx; height: 26rpx; flex-shrink: 0; border: 3rpx solid #123E6D; border-radius: 7rpx; box-sizing: border-box; background: linear-gradient(90deg, transparent 42%, #123E6D 42%, #123E6D 58%, transparent 58%), linear-gradient(0deg, transparent 42%, #123E6D 42%, #123E6D 58%, transparent 58%); }
+.content > .form-section:nth-child(2) .section-title::before { border-radius: 50%; background: radial-gradient(circle at center, #123E6D 0 28%, transparent 31%); }
+.content > .form-section:nth-child(3) .section-title::before { border-radius: 5rpx; transform: rotate(-45deg); background: linear-gradient(135deg, transparent 38%, #123E6D 39% 52%, transparent 53%); }
+.content > .form-section:nth-child(4) .section-title::before { border: 0; background: radial-gradient(circle at 25% 25%, #123E6D 0 12%, transparent 14%), radial-gradient(circle at 75% 25%, #123E6D 0 12%, transparent 14%), radial-gradient(circle at 25% 75%, #123E6D 0 12%, transparent 14%), radial-gradient(circle at 75% 75%, #123E6D 0 12%, transparent 14%); }
+.content > .form-section:nth-child(5) .section-title::before { border-radius: 4rpx; background: linear-gradient(#123E6D 0 3rpx, transparent 3rpx 10rpx, #123E6D 10rpx 13rpx, transparent 13rpx); }
+.content > .form-section:nth-child(6) .section-title::before { border: 0; background: linear-gradient(#123E6D 0 3rpx, transparent 3rpx 11rpx, #123E6D 11rpx 14rpx, transparent 14rpx 22rpx, #123E6D 22rpx 25rpx); }
+.textarea-wrapper { border-radius: 13rpx; }
+.desc-input { min-height: 188rpx; padding: 20rpx 22rpx; font-size: 25rpx; line-height: 1.62; }
+.source-option, .style-item, .ratio-item, .setting-picker { border-color: #DBE1ED; background: #FFFFFF; }
+.source-option--active, .style-item--active, .ratio-item--active { border-color: #123E6D; background: #F3F7FC; }
+.source-title, .style-label, .setting-label, .advanced-title { color: #182033; font-weight: 800; }
+.source-desc, .setting-value, .advanced-item-label { color: #748096; }
+.style-item--active .style-label, .ratio-item--active .ratio-text { color: #123E6D; }
+.step-circle--active, .step-line--active { background: #123E6D; }
+.step-label--active { color: #123E6D; }
+.source-option--active { border-color: #123E6D; background: #F3F7FC; }
+.source-icon--ai, .source-icon--custom { background: #EEF4FC; }
+.source-icon-text { color: #123E6D; }
+.source-check, .style-check { background: #123E6D; }
+.desc-input { background: #FFFFFF; border: 1rpx solid #DBE1ED; border-radius: 13rpx; }
+.style-icon-wrap, .style-icon-wrap--more { background: #EEF4FC !important; border-color: transparent; }
+.style-item--active .style-icon-wrap { border-color: #123E6D; }
+.style-icon, .style-more-text, .style-label { color: #182033; }
+.style-check-icon { color: #FFFFFF; }
+.settings-panel, .recent-card { border-color: #E6E8F1; }
+.recent-card { padding: 22rpx 0 18rpx; margin: 0 0 18rpx; border: 1rpx solid #E6E8F1; border-radius: 22rpx; background: #FFFFFF; box-shadow: 0 10rpx 28rpx rgba(20, 28, 48, 0.045); }
+.recent-head { display: flex; align-items: center; gap: 14rpx; padding: 0 24rpx 18rpx; color: #182033; font-size: 27rpx; font-weight: 800; }
+.recent-head__icon { width: 42rpx; height: 42rpx; display: flex; align-items: center; justify-content: center; border-radius: 12rpx; background: #123E6D; }
+.recent-head__icon image { width: 26rpx; height: 26rpx; }
+.recent-empty { padding: 28rpx 24rpx; border-top: 1rpx solid #EDF0F5; border-bottom: 1rpx solid #EDF0F5; text-align: center; color: #8A98AD; font-size: 25rpx; }
+.recent-all { display: flex; align-items: center; justify-content: center; gap: 8rpx; margin: 16rpx 24rpx 0; height: 56rpx; border: 1rpx solid #DBE1ED; border-radius: 12rpx; color: #182033; font-size: 25rpx; font-weight: 700; }
+.recent-arrow { font-size: 32rpx; line-height: 1; }
+.nav-history-action { width: 64rpx; height: 64rpx; display: flex; align-items: center; justify-content: center; margin-left: auto; border-radius: 999rpx; }
+.nav-history-icon { width: 35rpx; height: 35rpx; opacity: .95; }
+.section-title-with-history { display: flex; align-items: center; gap: 8rpx; }
+.section-title-with-history .inline-history-action { margin-right: 0; order: -1; }
+.inline-history-action { min-width: 112rpx; height: 42rpx; padding: 0 12rpx; display: inline-flex; align-items: center; justify-content: center; color: #123E6D; background: #EEF4FC; border: 1rpx solid #C9D9EC; border-radius: 14rpx; box-sizing: border-box; font-size: 23rpx; font-weight: 700; white-space: nowrap; }
 </style>

@@ -239,7 +239,7 @@
 
 /* ============ 新增/编辑题目面板（通用 SidePanel 内的表单）============ */
 .question-bank-editor-form .ant-form-item {
-  margin-bottom: 16px;
+  margin-bottom: 18px;
 }
 
 .question-bank-editor-form .ant-form-item-label > label {
@@ -251,7 +251,29 @@
 .question-bank-editor-form .ant-input,
 .question-bank-editor-form .ant-select-selector {
   border-radius: 10px;
-  border-color: #e2e8f0;
+  border-color: rgba(148, 180, 226, 0.45);
+}
+
+/* 输入框统一高度（多行文本域除外） */
+.question-bank-editor-form .ant-input:not(textarea),
+.question-bank-editor-form .ant-select-selector,
+.question-bank-editor-form .ant-input-number {
+  height: 40px;
+}
+
+.question-bank-editor-form .ant-input-number {
+  width: 100%;
+  border-radius: 10px;
+  border-color: rgba(148, 180, 226, 0.45);
+}
+
+.question-bank-editor-form .ant-input-number-input {
+  height: 38px;
+}
+
+.question-bank-editor-form .ant-select-single .ant-select-selector {
+  display: flex;
+  align-items: center;
 }
 
 /* 选项编辑（仅选择题）：序号 + 输入框 + 删除 */
@@ -446,7 +468,7 @@
 
 /* 判断题 - 紫色 */
 .qb-tag-type-judge {
-  color: #7c3aed;
+  color: #4a7fad;
   background: #f2ecfe;
 }
 
@@ -500,7 +522,11 @@
 
 /* ============ 操作按钮（文字链接）============ */
 .qb-actions {
+  display: flex;
+  align-items: center;
   gap: 16px;
+  white-space: nowrap;
+  flex-wrap: nowrap;
 }
 
 .qb-actions .qb-action-link {
@@ -509,6 +535,9 @@
   text-decoration: none;
   transition: opacity 0.2s;
   padding: 2px 0;
+  display: flex;
+  align-items: center;
+  white-space: nowrap;
 }
 
 .qb-actions .qb-action-link:hover {
@@ -525,6 +554,76 @@
 
 .qb-action-delete {
   color: #ef4444 !important;
+}
+
+/* 收藏：浅灰色空心星，图标与文字水平排列；
+   固定宽度保证“收藏/已收藏”两态占位一致，避免挤偏右侧删除按钮 */
+.qb-action-favorite {
+  color: #94a3b8;
+  gap: 4px;
+  width: 64px;
+  flex: none;
+  justify-content: flex-start;
+}
+
+.qb-action-favorite .anticon {
+  font-size: 14px;
+}
+
+/* 已收藏：主题蓝实心星 */
+.qb-action-favorite-active {
+  color: var(--qb-primary) !important;
+}
+
+/* ============ 批量操作栏（勾选后显示，筛选区与表头之间）============ */
+.qb-batch-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 48px;
+  margin: 12px 16px 12px;
+  padding: 6px 16px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.6);
+  border: 1px solid rgba(148, 180, 226, 0.35);
+  box-shadow: 0 4px 14px rgba(11, 59, 143, 0.08);
+  backdrop-filter: blur(8px);
+}
+
+.qb-batch-count {
+  font-size: 14px;
+  font-weight: 500;
+  color: #1e3a5f;
+}
+
+/* 批量收藏：主题蓝，hover 提亮 */
+.qb-batch-fav-btn.ant-btn {
+  height: 40px;
+  padding: 0 18px;
+  border-radius: 8px;
+  background: var(--qb-primary);
+  border-color: var(--qb-primary);
+  font-weight: 500;
+}
+
+.qb-batch-fav-btn.ant-btn:hover,
+.qb-batch-fav-btn.ant-btn:focus {
+  filter: brightness(1.12);
+  background: var(--qb-primary) !important;
+  border-color: var(--qb-primary) !important;
+}
+
+/* 批量删除：红色，hover 透明度变化 */
+.qb-batch-del-btn.ant-btn {
+  height: 40px;
+  padding: 0 18px;
+  border-radius: 8px;
+  font-weight: 500;
+}
+
+.qb-batch-del-btn.ant-btn:hover,
+.qb-batch-del-btn.ant-btn:focus {
+  opacity: 0.82;
 }
 
 /* ============ 分页 - 三段式布局（固定在卡片底部）============ */

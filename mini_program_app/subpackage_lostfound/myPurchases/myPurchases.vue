@@ -3,7 +3,16 @@
     <view class="container">
       <common-page-header title="我的购买" :fixed="true" :placeholder="true" :showBack="true" />
       <scroll-view scroll-y class="page-body">
-        <view v-if="items.length === 0" class="empty"><text>暂无购买记录</text></view>
+        <view v-if="items.length === 0" class="empty">
+          <image class="empty-illustration" src="/static/illustrations/market-empty-publish.svg" mode="aspectFit" />
+          <view class="empty-title">还没有购买记录</view>
+          <view class="empty-subtitle">看中的校园闲置会在这里留下交易记录</view>
+          <button class="empty-primary-btn" @click="goToMarket">去逛市集</button>
+          <view class="empty-link" @click="goToHotList">
+            <text>看看热门商品</text>
+            <view class="empty-link-arrow"></view>
+          </view>
+        </view>
         <view v-for="record in items" :key="record.id" class="record-card" @click="openChat(record)">
           <image class="cover" :src="record.itemImage || '/static/images/default-goods.svg'" mode="aspectFill" />
           <view class="main">
@@ -116,12 +125,9 @@ export default {
     },
     async loadRecords() {
       try {
-        const res = await getTradeRecords({ current: 1, size: 100 })
+        const res = await getTradeRecords({ current: 1, size: 100, role: 'buyer' })
         const records = Array.isArray(res?.data?.records) ? res.data.records : (Array.isArray(res?.data) ? res.data : [])
-        this.items = records.filter((item) => {
-          const buyerId = getRecordBuyerId(item)
-          return Boolean(this.currentUserId && buyerId && String(buyerId) === String(this.currentUserId))
-        })
+        this.items = records
       } catch (e) {
         console.error('加载购买记录失败', e)
         this.items = []
@@ -141,6 +147,25 @@ export default {
         uni.navigateTo({ url: `/subpackage_lostfound/lostfoundDetail/lostfoundDetail?id=${record.itemId}` })
       }
     },
+    goToMarket() {
+      uni.redirectTo({
+        url: '/subpackage_lostfound/lostfoundList/lostfoundList',
+        animationType: 'none',
+        animationDuration: 0,
+        fail: () => {
+          uni.navigateTo({
+            url: '/subpackage_lostfound/lostfoundList/lostfoundList',
+            animationType: 'none',
+            animationDuration: 0
+          })
+        }
+      })
+    },
+    goToHotList() {
+      uni.navigateTo({
+        url: '/subpackage_lostfound/marketHotList/marketHotList'
+      })
+    },
     formatTime(value) {
       if (!value) return ''
       const date = new Date(String(value).replace(/-/g, '/'))
@@ -154,7 +179,66 @@ export default {
 .page-root { min-height: 100vh; background: #F7F8FA; }
 .container { width: 100%; max-width: 430px; min-height: 100vh; margin: 0 auto; box-sizing: border-box; background: #F7F8FA; }
 .page-body { height: calc(100vh - 88rpx); padding: 24rpx 16rpx 150rpx; box-sizing: border-box; background: #F7F8FA; }
-.empty { padding: 180rpx 0; text-align: center; color: #8aa1b2; font-size: 27rpx; }
+.empty {
+  min-height: calc(100vh - 320rpx - var(--status-bar-height, 0px));
+  padding: 118rpx 0 80rpx;
+  text-align: center;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.empty-illustration {
+  width: 350rpx;
+  height: 276rpx;
+  margin-bottom: 48rpx;
+}
+.empty-title {
+  color: #1D2430;
+  font-size: 34rpx;
+  font-weight: 900;
+  line-height: 1.25;
+}
+.empty-subtitle {
+  margin-top: 22rpx;
+  color: #9AA2AE;
+  font-size: 25rpx;
+  font-weight: 500;
+  line-height: 1.4;
+}
+.empty-primary-btn {
+  width: 236rpx;
+  height: 72rpx;
+  margin: 58rpx 0 0;
+  padding: 0;
+  border-radius: 999rpx;
+  background: #4D77F3;
+  color: #FFFFFF;
+  font-size: 26rpx;
+  font-weight: 800;
+  line-height: 72rpx;
+  box-shadow: 0 14rpx 30rpx rgba(77, 119, 243, 0.26);
+}
+.empty-primary-btn::after {
+  border: none;
+}
+.empty-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 12rpx;
+  margin-top: 44rpx;
+  color: #4D77F3;
+  font-size: 24rpx;
+  font-weight: 700;
+}
+.empty-link-arrow {
+  width: 12rpx;
+  height: 12rpx;
+  border-top: 3rpx solid currentColor;
+  border-right: 3rpx solid currentColor;
+  border-radius: 2rpx;
+  transform: rotate(45deg);
+}
 .record-card { display: flex; gap: 18rpx; padding: 20rpx; margin-bottom: 18rpx; background: #fff; border-radius: 18rpx; box-shadow: 0 6rpx 18rpx rgba(43, 68, 94, 0.08); }
 .cover { width: 132rpx; height: 132rpx; border-radius: 14rpx; background: #edf3f8; }
 .main { flex: 1; min-width: 0; }
