@@ -5,7 +5,7 @@
         <text class="flow-heading__title">{{ stepMeta[currentStep - 1].title }}</text>
       </view>
       <view v-if="canRestartFlow" class="flow-heading__actions">
-        <view class="restart-input-button" @tap="requestRestartFlow">重新输入</view>
+        <view class="restart-generation-button" @tap="requestRestartFlow">重新生成</view>
       </view>
     </view>
 
@@ -2728,17 +2728,19 @@ export default {
     },
     goToSettingsForRegeneration() {
       // 将编辑页里的单页提示词带回大纲，下一次页面内容生成时由后端明确传给模型。
-      if (this.slides.length) {
-        this.outlineItems = this.outlineItems.map((item, index) => ({
-          ...item,
-          privatePrompt: String(this.slides[index]?.privatePrompt || item.privatePrompt || '')
-        }))
-      }
+      this.copyEditorPromptsToOutline()
       this.markEditorDirty()
       this.slidesDirty = true
       this.progress = 0
       this.exportReady = false
       this.currentStep = 4
+    },
+    copyEditorPromptsToOutline() {
+      if (!this.slides.length) return
+      this.outlineItems = this.outlineItems.map((item, index) => ({
+        ...item,
+        privatePrompt: String(this.slides[index]?.privatePrompt || item.privatePrompt || '')
+      }))
     },
     slideTitle(slide) {
       return this.slides[slide - 1]?.title || `第 ${slide} 页`
@@ -3244,15 +3246,95 @@ export default {
       }
     },
     requestRestartFlow() {
+      const step = this.currentStep
+      const messages = {
+        1: {
+          title: '确认重新生成',
+          content: '将清空当前资料、本次大纲和页面内容，返回输入页面。历史记录不会删除，是否继续？',
+          confirmText: '清空并重来'
+        },
+        2: {
+          title: '确认重新生成',
+          content: '将清空当前资料、本次大纲和页面内容，返回输入页面。历史记录不会删除，是否继续？',
+          confirmText: '清空并重来'
+        },
+        3: {
+          title: '确认重新生成大纲',
+          content: '将根据当前资料重新生成一份大纲，当前未保存的大纲修改会被覆盖。是否继续？',
+          confirmText: '重新生成大纲'
+        },
+        4: {
+          title: '确认重新生成页面',
+          content: '将根据当前大纲和设置重新生成页面内容，当前页面内容会被覆盖。是否继续？',
+          confirmText: '重新生成页面'
+        },
+        5: {
+          title: '确认重新生成页面',
+          content: '将根据当前大纲和设置重新生成全部页面，当前逐页编辑内容会被覆盖。是否继续？',
+          confirmText: '覆盖并重新生成'
+        },
+        6: {
+          title: '确认重新生成',
+          content: '当前 PPT 正在生成，继续操作会取消当前任务并重新开始。是否继续？',
+          confirmText: '取消并重新生成'
+        },
+        7: {
+          title: '确认重新生成',
+          content: '将返回设置页重新生成页面内容，当前成品会保留在历史记录中。是否继续？',
+          confirmText: '返回设置'
+        },
+        8: {
+          title: '确认重新生成',
+          content: '将返回设置页重新生成页面内容，当前成品会保留在历史记录中。是否继续？',
+          confirmText: '返回设置'
+        }
+      }
+      const message = messages[step] || messages[1]
       uni.showModal({
-        title: '重新输入资料',
-        content: '重新输入会清空当前资料、大纲和页面设置，但不会删除历史记录。',
-        confirmText: '重新输入',
-        cancelText: '继续编辑',
+        title: message.title,
+        content: message.content,
+        confirmText: message.confirmText,
+        cancelText: '取消',
         success: result => {
-          if (result?.confirm) this.resetFlowState()
+          if (result?.confirm) this.executeRestartFlow(step)
         }
       })
+    },
+    async executeRestartFlow(step) {
+      if (step === 1 || step === 2) {
+        await this.resetFlowState()
+        return
+      }
+      if (step === 3) {
+        if (this.hasActivePptTask()) await this.cancelGeneration({ silent: true })
+        await this.prepareOutline()
+        return
+      }
+      if (step === 4) {
+        if (this.hasActivePptTask()) await this.cancelGeneration({ silent: true })
+        await this.prepareSlides()
+        return
+      }
+      if (step === 5) {
+        this.copyEditorPromptsToOutline()
+        this.markEditorDirty()
+        this.slidesDirty = true
+        this.progress = 0
+        this.exportReady = false
+        await this.prepareSlides()
+        return
+      }
+      if (step === 6) {
+        if (this.hasActivePptTask()) await this.cancelGeneration({ silent: true })
+        if (this.slides.length >= 2) await this.runGeneration()
+        else this.returnToEditor()
+        return
+      }
+      if (step === 7 || step === 8) {
+        this.goToSettingsForRegeneration()
+        return
+      }
+      await this.resetFlowState()
     },
     async resetFlowState(silent = false) {
       const savedActiveTask = this.readSavedWork().activeTask
@@ -4094,5 +4176,5 @@ export default {
 .slide-preview-feed__fallback{width:100%;aspect-ratio:16/9}
 .slide-preview-feed__meta{display:flex;align-items:center;justify-content:space-between;margin-top:8rpx;color:#7b8798;font-size:18rpx}
 .slide-preview-feed__meta text:last-child{min-width:0;margin-left:16rpx;overflow:hidden;color:#5265f5;font-weight:600;text-overflow:ellipsis;white-space:nowrap}
-.flow-heading{display:flex;align-items:center;justify-content:space-between}.flow-heading__copy{min-width:0}.flow-heading__actions{flex:none;margin-left:18rpx}.restart-input-button{display:flex;height:58rpx;align-items:center;padding:0 20rpx;border:1px solid #d7def4;border-radius:999rpx;background:#fff;color:#5265f5;font-size:21rpx;font-weight:700;line-height:1;box-shadow:0 5rpx 14rpx rgba(43,60,120,.06)}.restart-input-button:active{background:#f6f7ff;transform:scale(.97)}
+.flow-heading{display:flex;align-items:center;justify-content:space-between}.flow-heading__copy{min-width:0}.flow-heading__actions{flex:none;margin-left:18rpx}.restart-generation-button{display:flex;height:56rpx;align-items:center;padding:0 22rpx;border:1px solid #cbd6e3;border-radius:16rpx;background:#fff;color:#5c7a99;font-size:21rpx;font-weight:600;line-height:1;box-shadow:none}.restart-generation-button:active{background:#f3f6f8;color:#4f6b84;transform:scale(.98)}
 </style>
