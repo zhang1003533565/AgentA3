@@ -847,7 +847,7 @@ async def run_rag_query_stream(
             first_event_ms = _elapsed_ms(stream_started_at)
             yield build_sse("status", {"stage": "processing"})
             request.input = _prepare_request_input(request)
-            requested_agent = normalize_leader_request_agent(request.agentName)
+            requested_agent = _normalize_requested_agent(request)
             if request.agentName and not requested_agent:
                 raise HTTPException(status_code=400, detail="智能体不存在")
             if requested_agent in INTERNAL_ONLY_AGENT_NAMES and not (
@@ -1298,7 +1298,7 @@ def _build_learning_error_payload(
 
 def _run_rag_query_core(request: RagQueryRequest, authorization: str) -> RagQueryResponse:
     request.input = _prepare_request_input(request)
-    requested_agent = normalize_leader_request_agent(request.agentName)
+    requested_agent = _normalize_requested_agent(request)
     if request.agentName and not requested_agent:
         raise HTTPException(status_code=400, detail="智能体不存在")
     if requested_agent in INTERNAL_ONLY_AGENT_NAMES and not (
@@ -1318,6 +1318,17 @@ def _run_rag_query_core(request: RagQueryRequest, authorization: str) -> RagQuer
         return _run_direct_agent(request, agent_profile)
 
     return _run_agent_without_local_retrieval(request, active_agent)
+
+
+def _normalize_requested_agent(request: RagQueryRequest) -> Optional[str]:
+    """Allow the admin test console to exercise registered internal agents directly."""
+    normalized = normalize_leader_request_agent(request.agentName)
+    if normalized:
+        return normalized
+    metadata = request.metadata if isinstance(request.metadata, dict) else {}
+    if metadata.get("testFrom") == "admin_agent_console":
+        return normalize_agent_name(request.agentName)
+    return None
 
 
 def _finalize_rag_response(request: RagQueryRequest, response: RagQueryResponse) -> RagQueryResponse:
@@ -2811,7 +2822,7 @@ def _build_stream_error_payload(
         base_url = exc.base_url or ("" if is_specialist_failure else getattr(llm_config, "base_url", "") or "")
         model_config_prefix = exc.model_config_prefix or ""
     else:
-        agent_name = normalize_leader_request_agent(request.agentName) or "leader_agent"
+        agent_name = _normalize_requested_agent(request) or "leader_agent"
         intent = ""
         route_reason = ""
         message = _exception_message(exc)
