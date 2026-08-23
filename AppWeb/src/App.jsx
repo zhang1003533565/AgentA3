@@ -1,4 +1,4 @@
-import { BrowserRouter as Router, Navigate, Route, Routes } from 'react-router-dom'
+import { BrowserRouter as Router, Navigate, Route, Routes, useParams } from 'react-router-dom'
 import Layout from './components/Layout/Layout'
 import { allNavItems } from './data/portalData'
 import ActivityDetail from './pages/activity/ActivityDetail/ActivityDetail'
@@ -43,6 +43,16 @@ const FACILITY_PLACE_PATHS = new Set(['/facility/sports', '/facility/teaching', 
 const DISCOUNT_PATHS = new Set(['/discount/merchant', '/discount/activity', '/discount/category'])
 const SECONDHAND_INDEPENDENT_PATHS = new Set(['/market/report'])
 
+function DormitoryFloorManage() {
+  const { dormitoryId } = useParams()
+  return <FacilityPlaceManage sceneType="DORMITORY" rootPlaceId={dormitoryId} />
+}
+
+function DormitoryFloorFacilityManage() {
+  const { dormitoryId, floorId } = useParams()
+  return <FacilityPlaceManage sceneType="DORMITORY" rootPlaceId={dormitoryId} floorId={floorId} />
+}
+
 function App() {
   // 过滤掉论坛相关路由，避免与独立页面冲突
   const workspaceRoutes = allNavItems
@@ -68,6 +78,8 @@ function App() {
           <Route path="/facility/sports" element={<FacilityPlaceManage sceneType="SPORTS" />} />
           <Route path="/facility/teaching" element={<FacilityPlaceManage sceneType="TEACHING" />} />
           <Route path="/facility/dormitory" element={<FacilityPlaceManage sceneType="DORMITORY" />} />
+          <Route path="/facility/dormitory/:dormitoryId" element={<DormitoryFloorManage />} />
+          <Route path="/facility/dormitory/:dormitoryId/floors/:floorId" element={<DormitoryFloorFacilityManage />} />
           <Route path="/facility/canteen/:canteenId/stalls" element={<StallManage />} />
           <Route path="/facility/canteen/:canteenId/stalls/indoor" element={<StallIndoorManage />} />
           <Route path="/facility/canteen/:canteenId/stalls/:stallId/dishes" element={<StallManage />} />
