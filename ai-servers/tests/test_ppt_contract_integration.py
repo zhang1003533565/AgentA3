@@ -245,6 +245,55 @@ def test_merge_prunes_unused_repeated_card_groups_and_clears_template_copy(catal
     assert all("We provide ongoing support" not in text for text in texts)
 
 
+def test_fixed_card_template_preserves_all_slots_and_reports_ai_underfill(catalog):
+    """固定四卡片版式不能因模型少返回一组而删掉最后一张卡。"""
+    layout = catalog.get_layout("momentum", "title_over_cards_layout_8558")
+    merged = _merge_content_into_layout(layout, {
+        "main_heading": "大学计算机课程",
+        "subtitle_text": "课程结构与核心学习路径",
+        "card_title": ["基础概念", "知识结构", "方法与应用"],
+        "card_description": [
+            "建立课程的基本概念框架。",
+            "梳理知识点之间的组织关系。",
+            "说明知识在实际问题中的应用。",
+        ],
+    })
+
+    def collect(node, out):
+        if isinstance(node, list):
+            for item in node:
+                collect(item, out)
+            return
+        if isinstance(node, dict):
+            out.append(node)
+            for key in ("elements", "components", "children"):
+                if key in node:
+                    collect(node[key], out)
+            if "child" in node:
+                collect(node["child"], out)
+
+    nodes = []
+    collect(merged, nodes)
+    assert sum(node.get("name") == "card_title" for node in nodes) == 4
+    assert sum(node.get("name") == "card_description" for node in nodes) == 4
+    assert merged["_contentCardinalityIssues"] == [
+        {
+            "elementId": "card_title",
+            "expected": 4,
+            "rendered": 4,
+            "provided": 3,
+            "required": 4,
+        },
+        {
+            "elementId": "card_description",
+            "expected": 4,
+            "rendered": 4,
+            "provided": 3,
+            "required": 4,
+        },
+    ]
+
+
 def test_outline_fallback_clears_realistic_template_sample_copy(catalog):
     """componentContent 失效时，不能把看似正常的模板示例文案带入成品。"""
     layout = catalog.get_layout("momentum", "title_intro_staggered_cards_4014")

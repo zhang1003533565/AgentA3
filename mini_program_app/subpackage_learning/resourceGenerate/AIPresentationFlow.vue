@@ -2885,6 +2885,12 @@ export default {
       this.editorPreviewSlideIndex = cachedPreview ? nextIndex : -1
       this.editorPreviewError = ''
       this.ensureEditorLayoutPreview(nextIndex)
+      if (cachedPreview) {
+        this.editorPreviewLoading = false
+        this.editorPreviewQueued = false
+        this.editorPreviewRequestId += 1
+        return
+      }
       this.$nextTick(() => this.scheduleEditorPreview(true))
     },
     onEditorContentInput() {

@@ -483,8 +483,13 @@ class PptGenerationService:
                         "errorType": "CONTENT_CARDINALITY",
                         "elementId": issue.get("elementId"),
                         "detail": (
-                            f"内容槽位期望 {issue.get('expected')} 项，"
-                            f"实际只渲染 {issue.get('rendered')} 项"
+                            f"内容槽位要求 {issue.get('expected')} 项，"
+                            + (
+                                f"AI 返回 {issue.get('provided')} 项，"
+                                if issue.get("provided") is not None
+                                else ""
+                            )
+                            + f"实际只渲染 {issue.get('rendered')} 项"
                         ),
                         "severity": "error",
                     }
@@ -1758,6 +1763,8 @@ class PptGenerationService:
                     "同名组件按 occurrence 顺序返回字符串数组，例如 card_title:[\"结论一\",\"结论二\"]；"
                     "数组缺少的 occurrence 由系统按大纲回填，不能把第一个卡片内容复制到所有卡片。"
                     "componentContent 的键必须覆盖 schema 中所有可编辑语义槽位；"
+                    "固定重复容器若 schema 声明 fixed_children=N，所有重复文本槽位必须返回 N 项；"
+                    "只有未声明 fixed_children 的动态容器才可在 min_children/max_children 范围内调整数量。"
                     "metric_value 只能填单行可信数值，metric_label 只能填短名词，"
                     "metric_description 只能填短句，card_title 只能填短标题，"
                     "label/duration_label/phase_label/stage_label 只能填单行短标签，"
@@ -3637,12 +3644,15 @@ def _expand_repeated_layout_groups(
                 default=0,
             )
             max_children = int(value.get("max_children") or len(children))
+            fixed_children = int(value.get("fixed_children") or 0)
             same_named_children = len({
                 str(child.get("name") or "")
                 for child in children
                 if isinstance(child, Mapping)
             }) <= 1
             target = min(requested, max_children)
+            if fixed_children > 0:
+                target = min(max_children, max(fixed_children, target))
             if target > len(children) and same_named_children:
                 prototypes = [copy.deepcopy(child) for child in children]
                 while len(children) < target:
@@ -3824,7 +3834,32 @@ def _merge_content_into_layout(layout: Mapping[str, Any], component_content: Map
         _walk(node)
         return names
 
-    def _prune_repeated_groups(node: Any) -> None:
+    fixed_repeat_counts: Dict[str, int] = {}
+
+    def _collect_fixed_repeat_counts(node: Any) -> None:
+        if isinstance(node, list):
+            for child in node:
+                _collect_fixed_repeat_counts(child)
+            return
+        if not isinstance(node, Mapping):
+            return
+        node_type = str(node.get("type") or "").lower()
+        children = node.get("children")
+        if node_type in {"grid", "flex"} and isinstance(children, list) and children:
+            fixed_children = int(node.get("fixed_children") or 0)
+            if fixed_children > 0:
+                names = set().union(*(_descendant_names(child) for child in children))
+                for name in names:
+                    fixed_repeat_counts[name] = max(fixed_repeat_counts.get(name, 0), fixed_children)
+        for key in ("components", "elements", "children"):
+            if key in node:
+                _collect_fixed_repeat_counts(node[key])
+        if "child" in node:
+            _collect_fixed_repeat_counts(node["child"])
+
+    _collect_fixed_repeat_counts(result)
+
+    def _prune_repeated_groups(node: Any, fixed_children: int = 0) -> None:
         """Drop unused repeated card/item groups instead of leaving template art behind."""
         if isinstance(node, list):
             for child in list(node):
@@ -3856,6 +3891,12 @@ def _merge_content_into_layout(layout: Mapping[str, Any], component_content: Map
                         if count is not None
                     ]
                     desired = max(supplied_counts) if supplied_counts else None
+                    required = max(
+                        (fixed_repeat_counts.get(name, 0) for name in names),
+                        default=fixed_children,
+                    )
+                    if desired is not None:
+                        desired = max(desired, required)
                     if desired is not None and desired < run_length:
                         del node[cursor + desired:end]
                         end = cursor + desired
@@ -3863,9 +3904,11 @@ def _merge_content_into_layout(layout: Mapping[str, Any], component_content: Map
             return
         if not isinstance(node, Mapping):
             return
+        child_fixed_children = int(node.get("fixed_children") or 0) \
+            if str(node.get("type") or "").lower() in {"grid", "flex"} else 0
         for key in ("components", "elements", "children"):
             if key in node:
-                _prune_repeated_groups(node[key])
+                _prune_repeated_groups(node[key], child_fixed_children if key == "children" else 0)
         if "child" in node:
             _prune_repeated_groups(node["child"])
 
@@ -4064,18 +4107,23 @@ def _merge_content_into_layout(layout: Mapping[str, Any], component_content: Map
             _merge(result[key])
 
     rendered_text_counts = _count_text_nodes_by_name(result)
-    cardinality_issues = [
-        {
-            "elementId": str(name),
-            "expected": len(value),
-            "rendered": rendered_text_counts.get(str(name), 0),
-        }
-        for name, value in component_content.items()
-        if isinstance(value, list)
-        and len(value) > 1
-        and str(name) in dynamic_names
-        and rendered_text_counts.get(str(name), 0) < len(value)
-    ]
+    cardinality_issues = []
+    for name, value in component_content.items():
+        if not isinstance(value, list) or len(value) <= 1 or str(name) not in dynamic_names:
+            continue
+        required = fixed_repeat_counts.get(str(name), 0)
+        expected = max(len(value), required)
+        rendered = rendered_text_counts.get(str(name), 0)
+        if len(value) < required or rendered < expected:
+            issue = {
+                "elementId": str(name),
+                "expected": expected,
+                "rendered": rendered,
+            }
+            if len(value) < required:
+                issue["provided"] = len(value)
+                issue["required"] = required
+            cardinality_issues.append(issue)
 
     if not matched_names:
         logger.warning(
