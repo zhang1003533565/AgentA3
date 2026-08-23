@@ -21,6 +21,32 @@ def test_windows_local_backend_does_not_silently_use_low_fidelity_export(monkeyp
     assert renderer._use_docker_pptx_export(True) is False
 
 
+def test_windows_native_export_writes_editable_pptx(tmp_path):
+    from app.ppt_generation import presenton_html_renderer as renderer
+
+    path = tmp_path / "native.pptx"
+    renderer._export_windows_native_pptx(
+        [{
+            "ui": {
+                "background": "#ffffff",
+                "components": [{
+                    "type": "text",
+                    "name": "title",
+                    "position": {"x": 80, "y": 80},
+                    "size": {"width": 600, "height": 80},
+                    "font": {"size": 36, "color": "#111827"},
+                    "text": "本地导出测试",
+                }],
+            },
+        }],
+        path,
+    )
+
+    assert path.is_file()
+    with zipfile.ZipFile(path) as archive:
+        assert "ppt/slides/slide1.xml" in archive.namelist()
+
+
 def test_docker_payload_maps_host_assets_and_runtime(tmp_path):
     from app.ppt_generation import presenton_html_renderer as renderer
 

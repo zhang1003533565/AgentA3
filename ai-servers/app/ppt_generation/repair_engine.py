@@ -105,7 +105,10 @@ class RepairEngine:
                 "PPT slide 修复未完全成功 repair_rounds=%d unresolved_instances=%d errors=%s history=%s",
                 repair_rounds,
                 affected_instances,
-                [(issue.error_type, issue.element_id) for issue in final_errors],
+                [
+                    (issue.error_type, issue.element_id, issue.detail)
+                    for issue in final_errors
+                ],
                 history,
             )
         return RepairOutcome(ui=ui, history=history, final_issues=final.issues, status=status, last_result=final)

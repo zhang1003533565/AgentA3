@@ -107,7 +107,16 @@ class EmbeddedTemplateCatalog:
                             "name": name,
                             "occurrence": occurrence,
                             "semanticRole": element.semantic_role,
-                            "contentContract": semantic_content_contract(element.semantic_role),
+                            "contentContract": semantic_content_contract(
+                                element.semantic_role,
+                                element.constraint,
+                            ),
+                            "capacity": {
+                                "recommendedChars": int(element.constraint.recommended_chars),
+                                "hardMaxChars": int(element.constraint.hard_max_chars),
+                                "maxLines": int(element.constraint.max_lines),
+                                "charsPerLine": int(element.constraint.chars_per_line),
+                            } if element.constraint else {},
                         })
             except Exception:
                 # A malformed optional semantic summary must not make an

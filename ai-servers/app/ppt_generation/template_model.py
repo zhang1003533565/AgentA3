@@ -363,6 +363,12 @@ def _semantic_role_for(
         return "date"
     if re.search(r"(?:badge|tag|kicker|eyebrow)", key):
         return "badge"
+    # Timeline/step templates commonly call short metadata fields
+    # ``duration_label``/``phase_label``/``stage_label``.  These are not body
+    # copy: treating them as generic body text makes the content agent write a
+    # sentence into a one-line slot and guarantees a late overflow repair.
+    if re.search(r"(?:^|[_-])label(?:[_-]|$)", key):
+        return "label"
     if y > 540 and re.search(r"(?:supporting|note|caption|footer)", key):
         return "footer"
     if re.search(r"(?:section[_-]?title|chapter[_-]?title)", key):
@@ -380,7 +386,10 @@ def _semantic_role_for(
     return "body"
 
 
-def semantic_content_contract(role: str) -> Dict[str, Any]:
+def semantic_content_contract(
+    role: str,
+    constraint: Optional[TextConstraint] = None,
+) -> Dict[str, Any]:
     """Return the small, model-facing contract for a semantic slot."""
     contracts = {
         "page_title": {"kind": "title", "maxLines": 2, "bullet": False, "short": False},
@@ -389,6 +398,7 @@ def semantic_content_contract(role: str) -> Dict[str, Any]:
         "card_title": {"kind": "short_title", "maxLines": 2, "bullet": False, "short": True},
         "card_body": {"kind": "body", "maxLines": 5, "bullet": True, "short": False},
         "bullet_body": {"kind": "bullet_body", "maxLines": 6, "bullet": True, "short": False},
+        "label": {"kind": "label", "maxLines": 1, "bullet": False, "short": True},
         "metric_value": {"kind": "metric_value", "maxLines": 1, "bullet": False, "short": True},
         "metric_label": {"kind": "metric_label", "maxLines": 2, "bullet": False, "short": True},
         "metric_description": {"kind": "metric_description", "maxLines": 2, "bullet": False, "short": True},
@@ -398,7 +408,16 @@ def semantic_content_contract(role: str) -> Dict[str, Any]:
         "author": {"kind": "author", "maxLines": 1, "bullet": False, "short": True},
         "date": {"kind": "metadata", "maxLines": 1, "bullet": False, "short": True},
     }
-    return dict(contracts.get(role, {"kind": "body", "maxLines": 6, "bullet": True, "short": False}))
+    contract = dict(contracts.get(role, {"kind": "body", "maxLines": 6, "bullet": True, "short": False}))
+    # The geometry-derived constraint is the authoritative capacity.  The
+    # static semantic defaults describe intent only and must not tell the
+    # model that a two-line box can accept five lines of copy.
+    if constraint is not None:
+        contract["maxLines"] = max(1, int(constraint.max_lines))
+        contract["recommendedChars"] = int(constraint.recommended_chars)
+        contract["hardMaxChars"] = int(constraint.hard_max_chars)
+        contract["charsPerLine"] = int(constraint.chars_per_line)
+    return contract
 
 
 def parse_slide_layout(layout_json: Mapping[str, Any]) -> SlideLayoutModel:

@@ -25,8 +25,21 @@ class PptOutlineAgent:
     name = "ppt_outline_agent"
 
     def process(self, input_text: str, evidence: List[Dict[str, Any]], chat_service=None) -> str:
-        answer = complete_agent_or_raise(self.name, input_text, evidence or [], model_provider=chat_service)
-        return normalize_ppt_outline_answer(answer, input_text)
+        request = input_text
+        for attempt in range(2):
+            try:
+                answer = complete_agent_or_raise(self.name, request, evidence or [], model_provider=chat_service)
+                return normalize_ppt_outline_answer(answer, input_text)
+            except HTTPException as exc:
+                detail = str(getattr(exc, "detail", "") or "")
+                if attempt or int(getattr(exc, "status_code", 0) or 0) != 502 or "LLM 返回内容为空" in detail:
+                    raise
+                request = (
+                    f"{input_text}\n\n上一轮响应未通过 PPT 大纲格式校验。"
+                    "请严格按要求重新输出完整大纲，不要解释失败原因，不要输出 Markdown 代码围栏；"
+                    "每一页必须包含页标题、页面类型、本页目标、核心内容、展示建议和素材建议。"
+                )
+        raise RuntimeError("ppt_outline_agent structured retry did not execute")
 
 
 ppt_outline_agent = PptOutlineAgent()

@@ -19,6 +19,7 @@ from app.ppt_generation.service import (
     _node_display_text,
 )
 from app.ppt_generation.template_catalog import EmbeddedTemplateCatalog
+from app.ppt_generation.template_model import parse_slide_layout, semantic_content_contract
 
 
 @pytest.fixture(scope="module")
@@ -269,3 +270,63 @@ def test_capacity_injected_into_content_prompt(catalog, monkeypatch):
             }
     headline = next(e for e in enhanced if e["name"] == "headline_text")
     assert 0 < headline["capacity"]["hardMaxChars"] <= headline.get("max_length")
+
+
+def test_semantic_contract_uses_real_geometry_capacity(catalog):
+    """Timeline metadata must be a one-line label, not generic body copy."""
+    layout = catalog.get_layout("momentum", "title_timeline_cards_9036")
+    model = parse_slide_layout(layout)
+    duration = model.element("duration_label", 0)
+    description = model.element("milestone_description", 0)
+    assert duration is not None and duration.semantic_role == "label"
+    assert duration.constraint is not None and duration.constraint.max_lines == 1
+    assert description is not None and description.constraint is not None
+    contract = semantic_content_contract(description.semantic_role, description.constraint)
+    assert contract["maxLines"] == description.constraint.max_lines
+    assert contract["hardMaxChars"] == description.constraint.hard_max_chars
+
+
+def test_layout_catalog_exposes_per_slot_capacity(catalog):
+    summary = next(
+        item for item in catalog.layout_summaries("momentum")
+        if item["id"] == "title_timeline_cards_9036"
+    )
+    duration = next(
+        item for item in summary["semanticSlots"]
+        if item["name"] == "duration_label"
+    )
+    assert duration["semanticRole"] == "label"
+    assert duration["capacity"]["maxLines"] == 1
+    assert duration["contentContract"]["hardMaxChars"] == duration["capacity"]["hardMaxChars"]
+
+
+def test_overflow_page_recovers_with_same_template_fallback(catalog):
+    """A stubborn single page must not block the deck when another layout fits."""
+    service = PptGenerationService()
+    payload = catalog.load("momentum")
+    layouts = {
+        str(layout["id"]): layout
+        for layout in payload["layouts"]
+        if isinstance(layout, dict) and layout.get("id")
+    }
+    current_id = "title_timeline_cards_9036"
+    slide = {
+        "title": "复杂项目实施路线与阶段性目标",
+        "content": [
+            "第一阶段：完成需求调研、技术选型、人员分工与风险识别，形成完整实施方案。",
+            "第二阶段：完成核心功能开发、联调测试、性能优化、用户验收与问题闭环，确保系统稳定上线。",
+            "第三阶段：持续运营监控、收集反馈、迭代优化并形成长期治理机制。",
+        ],
+    }
+    slide["ui"] = _fill_layout_with_slide_text(layouts[current_id], slide, slide)
+    enforced = service._enforce_slide_contract(
+        slide, "momentum", current_id, layouts[current_id], None, 1
+    )
+    assert enforced["_qa"]["finalStatus"] == "partial"
+    recovered = service._try_overflow_layout_fallback(
+        enforced, "momentum", current_id, layouts, None, 1
+    )
+    assert recovered is not None
+    assert recovered["_qa"]["finalStatus"] in {"clean", "repaired"}
+    assert recovered["_qa"]["layoutFallback"]["from"] == current_id
+    assert recovered["templateLayoutId"] != current_id

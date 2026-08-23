@@ -120,6 +120,22 @@ def _use_docker_pptx_export(pptx_only: bool) -> bool:
     return backend in {"auto", "docker", "linux-docker"}
 
 
+def _export_windows_native_pptx(
+    slides: list[Mapping[str, Any]],
+    path: Path,
+) -> None:
+    """Export a validated Presenton UI tree to an editable Windows PPTX.
+
+    The official Presenton converter is Linux-only.  The project already has
+    a native Windows exporter for text/shapes/images; use it only when the
+    caller explicitly selects the local backend, while keeping Docker as the
+    fidelity-preserving default.
+    """
+    from app.ppt_generation.windows_pptx_export import export_presenton_slides
+
+    export_presenton_slides(slides, path)
+
+
 def _map_host_path_to_container(value: str, host_root: Path, runtime_root: Path) -> str:
     """Map absolute Windows asset paths into the read-only Docker project mount."""
     raw = str(value or "")
@@ -296,6 +312,9 @@ def render_presenton_html(
     preview_only = bool(settings.get("previewOnly"))
     pptx_only = bool(settings.get("pptxOnly"))
     use_docker = _use_docker_pptx_export(pptx_only)
+    use_windows_native_pptx = bool(
+        pptx_only and not preview_only and os.name == "nt" and not use_docker
+    )
     runtime_base = Path(os.getenv("AI_EXPORT_ROOT", str(_ROOT / "data" / "ai-exports"))) / "presenton-runtime"
     # Docker writes the official exporter's temp/data files into the bind
     # mount. Keep each task isolated so concurrent exports cannot share or
@@ -324,8 +343,16 @@ def render_presenton_html(
         "template": json.loads(template_path.read_text(encoding="utf-8")),
         "slides": render_slides,
         "outputRoot": _DOCKER_RUNTIME_ROOT if use_docker else str(runtime_root.resolve()),
-        "pngOnly": preview_only,
-        "pptxOnly": pptx_only,
+        # ``render.mjs`` uses pngOnly as the switch that suppresses its
+        # Linux presentation-export child process.  The local Windows path
+        # still receives the same preview PNGs and creates the PPTX in Python
+        # afterward, so it must set this flag even when the caller requested
+        # a PPTX.
+        "pngOnly": preview_only or use_windows_native_pptx,
+        # The Windows native exporter runs after the browser has produced the
+        # preview PNGs, so the browser must not try to invoke the Linux
+        # presentation-export executable itself.
+        "pptxOnly": pptx_only and not use_windows_native_pptx,
         # Editable mode is the product default: text and ordinary shapes stay
         # native in the downloaded PPTX. Fidelity remains available as an
         # explicit visual-baseline mode for regression comparisons.
@@ -377,6 +404,14 @@ def render_presenton_html(
     finally:
         input_path.unlink(missing_ok=True)
 
+    local_pptx_path: Path | None = None
+    if use_windows_native_pptx:
+        local_pptx_path = runtime_root / f"{task_id}-local.pptx"
+        try:
+            _export_windows_native_pptx(render_slides, local_pptx_path)
+        except Exception as exc:
+            raise RuntimeError(f"Windows 本地 PPTX 导出失败：{exc}") from exc
+
     try:
         previews: list[dict[str, Any]] = []
         for index in range(1, int(result.get("slideCount") or 0) + 1):
@@ -391,8 +426,13 @@ def render_presenton_html(
             item.update({"type": "preview", "slideIndex": index})
             previews.append(item)
         pptx_attachment = None
-        if not preview_only and result.get("pptxPath"):
-            source = _host_path_from_renderer(result["pptxPath"], runtime_root).resolve()
+        renderer_pptx_path = result.get("pptxPath")
+        if not preview_only and (renderer_pptx_path or local_pptx_path):
+            source = (
+                local_pptx_path.resolve()
+                if local_pptx_path is not None
+                else _host_path_from_renderer(renderer_pptx_path, runtime_root).resolve()
+            )
             if source.is_file():
                 _normalize_pptx_slide_size_metadata(source)
                 export_mode = str(os.getenv("PPTX_EXPORT_RENDER_MODE") or "editable").strip().lower()
@@ -415,8 +455,8 @@ def render_presenton_html(
                 pptx_attachment.update({"type": "pptx", "templateId": template_id})
         if not preview_only and pptx_only and pptx_attachment is None:
             raise RuntimeError(
-                "当前 PPTX Docker 官方导出器没有返回可用文件；"
-                "请确认 Docker Desktop 已启动且导出器镜像已构建。"
+                "当前 PPTX 导出器没有返回可用文件；"
+                "请确认 Docker Desktop/Windows 本地导出器已配置。"
             )
         return None, None, previews, pptx_attachment
     finally:

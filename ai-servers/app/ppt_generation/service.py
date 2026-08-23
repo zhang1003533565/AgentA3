@@ -82,11 +82,10 @@ PPT_OUTLINE_MAX_OUTPUT_TOKENS = max(1200, min(12000, int(os.getenv("PPT_OUTLINE_
 PPT_STRUCTURE_MAX_OUTPUT_TOKENS = max(500, min(4000, int(os.getenv("PPT_STRUCTURE_MAX_OUTPUT_TOKENS") or 1600)))
 PPT_CONTENT_MAX_OUTPUT_TOKENS = max(1200, min(12000, int(os.getenv("PPT_CONTENT_MAX_OUTPUT_TOKENS") or 4200)))
 PPT_REPAIR_MAX_OUTPUT_TOKENS = max(200, min(2000, int(os.getenv("PPT_REPAIR_MAX_OUTPUT_TOKENS") or 700)))
-PPT_CONTENT_BATCH_SIZE = max(1, min(5, int(os.getenv("PPT_CONTENT_BATCH_SIZE") or 3)))
-# 内容批次并发数：opencode/deepseek 服务端对同一 API key 的并发请求会直接断开
-# 连接（实测 2 并发即 APIConnectionError，单发正常），因此强制串行处理批次；
-# 串行只影响总时长（每批 40-80s），不会出现整批失败回退。
-PPT_CONTENT_MAX_WORKERS = max(1, min(4, int(os.getenv("PPT_CONTENT_MAX_WORKERS") or 1)))
+PPT_CONTENT_BATCH_SIZE = max(1, min(5, int(os.getenv("PPT_CONTENT_BATCH_SIZE") or 4)))
+# 默认允许稳定供应商使用 2 个内容批次并行；曾验证会断连的
+# opencode/deepseek 仍在 _content_worker_count 中强制串行。
+PPT_CONTENT_MAX_WORKERS = max(1, min(4, int(os.getenv("PPT_CONTENT_MAX_WORKERS") or 2)))
 # 大纲单次调用可携带的资料字符上限（资料通过 user_input 传递，绕过 evidence 的 1200 字符截断）。
 # 长资料会先做保结构压缩，默认不再把 24k 原文整段塞给模型。
 PPT_OUTLINE_SOURCE_MAX_CHARS = max(2_000, int(os.getenv("PPT_OUTLINE_SOURCE_MAX_CHARS") or 16_000))
@@ -123,6 +122,24 @@ PPT_OUTLINE_GENERIC_TOPICS = frozenset({
     "PPT生成", "AIPPT", "PPT大纲", "演示文稿", "复习资料", "手动输入资料",
 })
 PPT_ENABLE_CONTENT_REPAIR_LLM = str(os.getenv("PPT_ENABLE_CONTENT_REPAIR_LLM") or "false").strip().lower() in {"1", "true", "yes", "on"}
+
+_PARALLEL_CONTENT_PROVIDER_ALIASES = {
+    "qwen", "dashscope", "aliyun", "aliyun_qwen", "aliyun-qwen",
+    "alibaba_qwen", "alibaba-qwen", "qwen_openai", "qwen-openai",
+}
+_SERIAL_CONTENT_PROVIDER_ALIASES = {
+    "deepseek", "openai_compatible", "openai-compatible", "opencode",
+}
+
+
+def _content_worker_count(llm_config: Any, batch_count: int) -> int:
+    """Choose bounded concurrency without reintroducing known provider disconnects."""
+    provider = str(getattr(llm_config, "provider", "") or "").strip().lower()
+    if provider in _SERIAL_CONTENT_PROVIDER_ALIASES:
+        return 1
+    if provider not in _PARALLEL_CONTENT_PROVIDER_ALIASES:
+        return 1
+    return min(PPT_CONTENT_MAX_WORKERS, max(1, batch_count))
 
 _TERMINAL_TASK_STATUSES = {"completed", "failed", "cancelled", "timed_out"}
 
@@ -265,6 +282,118 @@ class PptGenerationService:
                     return False
         return True
 
+    def _overflow_fallback_layouts(
+        self,
+        template_id: str,
+        current_layout_id: str,
+        layouts_by_id: Mapping[str, Mapping[str, Any]],
+    ) -> List[tuple[str, Mapping[str, Any]]]:
+        """Return same-template layouts that can safely absorb body copy.
+
+        This is deliberately deterministic and does not invent data.  A
+        layout with a larger, real body area is a safer recovery than asking
+        the model to rewrite a page repeatedly, and numeric layouts are
+        excluded because a fallback must not fabricate a metric value.
+        """
+        candidates: List[tuple[tuple[int, int, int], str, Mapping[str, Any]]] = []
+        for layout_id, layout_json in layouts_by_id.items():
+            if str(layout_id) == str(current_layout_id) or not isinstance(layout_json, Mapping):
+                continue
+            if not self._layout_is_generation_safe(template_id, str(layout_id), layout_json):
+                continue
+            model = self._layout_model(template_id, str(layout_id), layout_json)
+            if model is None:
+                continue
+            mutable = [
+                element
+                for elements in model.elements.values()
+                for element in elements
+                if element.element_type in {"text", "text-list"} and element.mutable_text
+            ]
+            if not mutable or any(
+                element.semantic_role in {"metric_value", "card_value"}
+                for element in mutable
+            ):
+                continue
+            body = [
+                element for element in mutable
+                if element.semantic_role in {"body", "card_body", "bullet_body", "metric_description"}
+            ]
+            titles = [
+                element for element in mutable
+                if element.semantic_role in {"page_title", "section_title", "page_subtitle"}
+            ]
+            if not body or not titles:
+                continue
+            total_capacity = sum(int(element.constraint.hard_max_chars) for element in body if element.constraint)
+            max_capacity = max(
+                (int(element.constraint.hard_max_chars) for element in body if element.constraint),
+                default=0,
+            )
+            # Prefer layouts with both more total capacity and a larger
+            # individual slot; the final tie-break keeps catalog order stable.
+            score = (total_capacity, max_capacity, len(body))
+            candidates.append((score, str(layout_id), layout_json))
+        candidates.sort(key=lambda item: item[0], reverse=True)
+        return [(layout_id, layout_json) for _, layout_id, layout_json in candidates]
+
+    def _try_overflow_layout_fallback(
+        self,
+        slide: Mapping[str, Any],
+        template_id: str,
+        current_layout_id: str,
+        layouts_by_id: Mapping[str, Mapping[str, Any]],
+        llm_config: Any,
+        slide_index: int,
+    ) -> Optional[Dict[str, Any]]:
+        """Try bounded same-template recovery for a geometry overflow page."""
+        qa = slide.get("_qa") if isinstance(slide.get("_qa"), Mapping) else {}
+        errors = {str(error) for error in (qa.get("validationErrors") or [])}
+        if "TEXT_OVERFLOW" not in errors:
+            return None
+        for candidate_id, candidate_layout in self._overflow_fallback_layouts(
+            template_id, current_layout_id, layouts_by_id
+        )[:4]:
+            candidate = copy.deepcopy(dict(slide))
+            candidate["layout"] = candidate_id
+            candidate["templateLayoutId"] = candidate_id
+            # The editor serializes its current visible text back into
+            # ``title``/``content`` before export.  Use that source of truth
+            # rather than copying a partially repaired UI tree into a layout
+            # with a different slot structure.
+            candidate["ui"] = _fill_layout_with_slide_text(
+                candidate_layout,
+                candidate,
+                candidate,
+            )
+            candidate["_layoutFallbackFrom"] = current_layout_id
+            candidate["_layoutFallbackReason"] = "TEXT_OVERFLOW"
+            checked = self._enforce_slide_contract(
+                candidate,
+                template_id,
+                candidate_id,
+                candidate_layout,
+                llm_config,
+                slide_index,
+            )
+            checked_qa = checked.get("_qa") if isinstance(checked.get("_qa"), Mapping) else {}
+            if str(checked_qa.get("finalStatus") or "") in {"clean", "repaired"}:
+                checked_qa = dict(checked_qa)
+                checked_qa["layoutFallback"] = {
+                    "from": current_layout_id,
+                    "to": candidate_id,
+                    "reason": "TEXT_OVERFLOW",
+                }
+                checked["_qa"] = checked_qa
+                logger.warning(
+                    "PPT slide recovered with fallback layout index=%s from=%s to=%s",
+                    slide_index,
+                    current_layout_id,
+                    candidate_id,
+                )
+                return checked
+        return None
+
     def _enforce_slide_contract(
         self,
         item: Dict[str, Any],
@@ -335,6 +464,15 @@ class PptGenerationService:
                 issue.error_type for issue in outcome.final_issues
                 if issue.severity == "warning"
             ))
+            validation_details = [
+                {
+                    "errorType": issue.error_type,
+                    "elementId": issue.element_id,
+                    "detail": issue.detail,
+                    "severity": issue.severity,
+                }
+                for issue in outcome.final_issues
+            ]
             item["_qa"] = {
                 "layoutId": layout_id,
                 "semanticType": str(item.get("type") or ""),
@@ -343,6 +481,7 @@ class PptGenerationService:
                 ),
                 "validationErrors": validation_errors,
                 "validationWarnings": validation_warnings,
+                "validationDetails": validation_details,
                 "repairCount": outcome.repair_count,
                 "finalStatus": outcome.status,
                 "repairHistory": outcome.history,
@@ -474,14 +613,23 @@ class PptGenerationService:
             slide = copy.deepcopy(raw_slide) if isinstance(raw_slide, Mapping) else {}
             layout_id = str(slide.get("templateLayoutId") or slide.get("layout") or "")
             layout = layouts_by_id.get(layout_id) or {}
-            final_slides.append(self._enforce_slide_contract(
+            enforced = self._enforce_slide_contract(
                 slide,
                 template_id,
                 layout_id,
                 layout,
                 llm_config,
                 index,
-            ))
+            )
+            recovered = self._try_overflow_layout_fallback(
+                enforced,
+                template_id,
+                layout_id,
+                layouts_by_id,
+                llm_config,
+                index,
+            )
+            final_slides.append(recovered or enforced)
 
         models_by_layout: Dict[str, SlideLayoutModel] = {}
         for layout_id, layout_json in layouts_by_id.items():
@@ -506,6 +654,7 @@ class PptGenerationService:
                     "slide": index,
                     "status": status,
                     "errors": list(qa.get("validationErrors") or []),
+                    "details": list(qa.get("validationDetails") or []),
                     "detail": str(qa.get("enforcementError") or "页面质量校验未通过"),
                 })
         quality_warnings = [
@@ -981,6 +1130,16 @@ class PptGenerationService:
                 for element in elements
                 if element.constraint and element.role in {"body", "card"}
             ]
+            body_slot_capacities = sorted(
+                (
+                    int(element.constraint.hard_max_chars)
+                    for elements in layout_model.elements.values()
+                    for element in elements
+                    if element.constraint
+                    and element.semantic_role in {"body", "card_body", "bullet_body", "metric_description"}
+                ),
+                reverse=True,
+            )
             summary["capacityHints"] = {
                 # card_groups is split by semantic role (title/body/value),
                 # so its dictionary length is not the number of visual cards.
@@ -991,6 +1150,8 @@ class PptGenerationService:
                     default=0,
                 ),
                 "maxBodyChars": max(body_chars) if body_chars else 0,
+                "minBodyChars": min(body_slot_capacities) if body_slot_capacities else 0,
+                "bodySlotCapacities": body_slot_capacities[:12],
                 "slotCount": sum(len(values) for values in layout_model.elements.values()),
                 "semanticSlotCount": sum(
                     1
@@ -1523,7 +1684,10 @@ class PptGenerationService:
                             continue
                         entry["role"] = element.role
                         entry["semanticRole"] = element.semantic_role
-                        entry["contentContract"] = semantic_content_contract(element.semantic_role)
+                        entry["contentContract"] = semantic_content_contract(
+                            element.semantic_role,
+                            element.constraint,
+                        )
                         constraint = element.constraint
                         if constraint is not None:
                             entry["capacity"] = {
@@ -1575,6 +1739,7 @@ class PptGenerationService:
                     "componentContent 的键必须覆盖 schema 中所有可编辑语义槽位；"
                     "metric_value 只能填单行可信数值，metric_label 只能填短名词，"
                     "metric_description 只能填短句，card_title 只能填短标题，"
+                    "label/duration_label/phase_label/stage_label 只能填单行短标签，"
                     "body/card_body/bullet_body 才能填正文或要点。"
                     "不要把普通正文塞进 metric_value、metric_label、badge、author 或 date；"
                     "漏填指标槽位时不要编造数字，系统会记录缺失并由版式选择处理。"
@@ -1607,6 +1772,7 @@ class PptGenerationService:
             def _call(request_payload: Mapping[str, Any] = payload) -> str:
                 if self._task_is_stopped(task_id):
                     raise PptTaskStopped()
+                started_at = time.perf_counter()
                 timeout_token = set_active_llm_timeout(PPT_PAGE_LLM_TIMEOUT_SECONDS)
                 output_token = set_active_max_output_tokens(PPT_CONTENT_MAX_OUTPUT_TOKENS)
                 content_token = set_active_llm_config(llm_config)
@@ -1614,27 +1780,80 @@ class PptGenerationService:
                 try:
                     # 资料已通过 payload.sourceMaterial 全量进入 user_input；
                     # 不再放 evidence（会被截断到 1200 字符，纯浪费 token）
-                    return run_specialist_agent(
+                    answer = run_specialist_agent(
                         "ppt_content_agent",
                         json.dumps(request_payload, ensure_ascii=False),
                         [],
                     )
+                    logger.info(
+                        "PPT content LLM completed task=%s slides=%s-%s model=%s elapsed_ms=%s output_chars=%s",
+                        task_id or "",
+                        first,
+                        last,
+                        str(getattr(llm_config, "model", "") or ""),
+                        int((time.perf_counter() - started_at) * 1000),
+                        len(str(answer or "")),
+                    )
+                    return answer
                 finally:
+                    logger.info(
+                        "PPT content LLM finished task=%s slides=%s-%s model=%s elapsed_ms=%s",
+                        task_id or "",
+                        first,
+                        last,
+                        str(getattr(llm_config, "model", "") or ""),
+                        int((time.perf_counter() - started_at) * 1000),
+                    )
                     reset_active_reasoning_effort(effort_token)
                     reset_active_llm_config(content_token)
                     reset_active_llm_timeout(timeout_token)
                     reset_active_max_output_tokens(output_token)
 
-            content_answer = _retry_llm_call(_call)
+            def _split_invalid_batch(error: Exception) -> List[Dict[str, Any]]:
+                logger.warning(
+                    "PPT content batch invalid JSON; splitting batch slides=%s error=%s",
+                    [index + 1 for index in indices],
+                    _safe_error_message(error),
+                )
+                split_slides: List[Dict[str, Any]] = []
+                for index in indices:
+                    if self._task_is_stopped(task_id):
+                        raise PptTaskStopped()
+                    split_slides.extend(_generate_batch([index]))
+                return split_slides
+
+            try:
+                content_answer = _retry_llm_call(_call)
+            except Exception as exc:
+                # run_specialist_agent may convert an upstream non-JSON answer
+                # into HTTP 502 before json.loads() is reached. Treat that
+                # wrapper exactly like a locally observed invalid JSON payload,
+                # but only split multi-page batches and only for JSON-specific
+                # errors; ordinary 502s still use the normal batch fallback.
+                if len(indices) > 1 and _is_invalid_json_llm_error(exc):
+                    return _split_invalid_batch(exc)
+                raise
             if self._task_is_stopped(task_id):
                 raise PptTaskStopped()
-            normalized = _sanitize_content_payload(
-                json.loads(content_answer),
-                batch_layout_ids,
-                batch_layouts_by_id,
-                len(indices),
-                current_slides,
-            )
+            try:
+                raw_content_payload = json.loads(content_answer)
+                normalized = _sanitize_content_payload(
+                    raw_content_payload,
+                    batch_layout_ids,
+                    batch_layouts_by_id,
+                    len(indices),
+                    current_slides,
+                )
+            except (TypeError, ValueError) as exc:
+                # A long multi-page JSON response is much more likely to be
+                # truncated or wrapped in prose than a one-page response. Do
+                # not discard all pages in that batch: split it into singleton
+                # requests and let each page use the normal model/fallback
+                # chain. A singleton failure still reaches the existing
+                # outline-only fallback without an infinite retry loop.
+                if len(indices) > 1:
+                    return _split_invalid_batch(exc)
+                raise
             quality_flags = [
                 _content_quality_flags(
                     normalized["slides"][offset],
@@ -1643,51 +1862,71 @@ class PptGenerationService:
                 for offset, slide_index in enumerate(indices)
             ]
             if PPT_CONTENT_QUALITY_REPAIR and any(quality_flags):
-                # 只有检测到“目标/大纲式正文”时才追加一次质量修复，避免每页无条件
-                # 增加模型调用；修复仍沿用同一资料、版式 schema 和事实边界。
-                correction_payload = copy.deepcopy(payload)
-                correction_payload["contentQualityCorrection"] = (
+                # 只修复被质量规则命中的页面。原来一次质量问题会重新生成整个批次，
+                # 既放大耗时，也让一个修复失败拖累同批其他正常页面；单页失败时保留
+                # 首轮结果，质量门禁仍由后续 contract/QA 继续负责。
+                correction_instruction = (
                     "以下 draftSlides 的 content 过于像大纲或页面目标。请重新生成页面正文："
                     "每条都要从 sourceMaterial 展开实际定义、原理、关系、公式、步骤结果、"
                     "资料中的例子或具体对比；不要写本页介绍/本页目标/梳理要点等元话语，"
                     "不要原样复制 keyPoints。componentContent 的 body/card 槽也同步改成展开后的正文。"
                 )
+                raw_slides = raw_content_payload.get("slides") if isinstance(raw_content_payload, Mapping) else []
+                repair_offsets = [offset for offset, flags in enumerate(quality_flags) if flags]
+                correction_payload = copy.deepcopy(payload)
+                repair_indices = [indices[offset] for offset in repair_offsets]
+                correction_payload["contentQualityCorrection"] = correction_instruction
+                correction_payload["uiOutputInstruction"] = (
+                    str(payload.get("uiOutputInstruction") or "")
+                    + "这是质量修复批次，只返回被标记页面，必须返回每页完整 componentContent。"
+                )
+                correction_payload["selectedLayouts"] = [unique_layouts[offset] for offset in repair_offsets]
+                correction_payload["currentSlides"] = [current_slides[offset] for offset in repair_offsets]
+                correction_payload["slideInstructions"] = [
+                    instruction
+                    for instruction in payload.get("slideInstructions") or []
+                    if int(instruction.get("index") or 0) in {index + 1 for index in repair_indices}
+                ]
                 correction_payload["draftSlides"] = [
                     {
-                        "index": slide.get("index"),
-                        "title": slide.get("title"),
-                        "content": slide.get("content"),
+                        "index": normalized["slides"][offset].get("index"),
+                        "title": normalized["slides"][offset].get("title"),
+                        "content": normalized["slides"][offset].get("content"),
                         "componentContent": (
-                            raw.get("componentContent")
-                            if isinstance(raw, Mapping)
+                            raw_slides[offset].get("componentContent")
+                            if isinstance(raw_slides, list)
+                            and offset < len(raw_slides)
+                            and isinstance(raw_slides[offset], Mapping)
                             else None
                         ),
                     }
-                    for slide, raw in zip(
-                        normalized["slides"],
-                        (json.loads(content_answer).get("slides") or []),
-                    )
+                    for offset in repair_offsets
                 ]
-                corrected_answer = _retry_llm_call(
-                    lambda: _call(correction_payload),
-                    max_retries=0,
-                )
-                corrected = _sanitize_content_payload(
-                    json.loads(corrected_answer),
-                    batch_layout_ids,
-                    batch_layouts_by_id,
-                    len(indices),
-                    current_slides,
-                )
-                corrected_flags = [
-                    _content_quality_flags(
-                        corrected["slides"][offset],
-                        items[slide_index],
+                try:
+                    corrected_answer = _retry_llm_call(
+                        lambda request_payload=correction_payload: _call(request_payload),
+                        max_retries=0,
                     )
-                    for offset, slide_index in enumerate(indices)
-                ]
-                if sum(bool(flags) for flags in corrected_flags) <= sum(bool(flags) for flags in quality_flags):
-                    normalized = corrected
+                    corrected = _sanitize_content_payload(
+                        json.loads(corrected_answer),
+                        [batch_layout_ids[offset] for offset in repair_offsets],
+                        batch_layouts_by_id,
+                        len(repair_offsets),
+                        [current_slides[offset] for offset in repair_offsets],
+                    )
+                    for corrected_offset, original_offset in enumerate(repair_offsets):
+                        corrected_flags = _content_quality_flags(
+                            corrected["slides"][corrected_offset],
+                            items[indices[original_offset]],
+                        )
+                        if len(corrected_flags) <= len(quality_flags[original_offset]):
+                            normalized["slides"][original_offset] = corrected["slides"][corrected_offset]
+                except Exception as exc:
+                    logger.warning(
+                        "PPT quality repair skipped for slides %s; keeping first-pass content: %s",
+                        [indices[offset] + 1 for offset in repair_offsets],
+                        _safe_error_message(exc),
+                    )
             # 模板合同执行：校验 → 修复（内容优先，几何只还原）→ QA 元数据。
             # 单页失败不影响其他页；抛错只影响本批次（外层已有整批回退）。
             enforced: List[Dict[str, Any]] = []
@@ -1749,7 +1988,7 @@ class PptGenerationService:
                 "message": message,
             })
 
-        max_workers = min(PPT_CONTENT_MAX_WORKERS, max(1, len(batches)))
+        max_workers = _content_worker_count(llm_config, len(batches))
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             future_to_batch: Dict[Any, int] = {}
             for batch_idx in range(min(max_workers, len(batches))):
@@ -4713,3 +4952,17 @@ def _safe_error_message(error: Exception) -> str:
     message = re.sub(r"(?i)(api[-_ ]?key|authorization|token)\s*[:=]\s*\S+", r"\1=[已隐藏]", raw_message)
     message = re.sub(r"https?://[^\s]+", "[模型服务地址]", message)
     return (message.strip() or error.__class__.__name__)[:300]
+
+
+def _is_invalid_json_llm_error(error: Exception) -> bool:
+    """识别模型网关把非 JSON 响应包装成 502 的情况。"""
+    detail = getattr(error, "detail", error)
+    message = str(detail or error).lower()
+    return (
+        "invalid json" in message
+        or "invalid_json" in message
+        or "无效 json" in message
+        or "无效json" in message
+        or "未返回有效 json" in message
+        or "未返回有效json" in message
+    )

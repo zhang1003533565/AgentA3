@@ -115,12 +115,12 @@ def test_repair_targets_all_equal_repeated_slots(catalog):
     targets = _target_elements(model, issue)
     assert [index for _, index in targets if _.name == "stacked_label"] == [0, 1, 2, 3]
     outcome = RepairEngine().repair(tree, model, llm_rewrite=None)
-    assert outcome.status == "partial"
-    assert all(text == "这是一个需要压缩到单行标签容量以内的较长页面标签" for text in _get_text(outcome.ui, "stacked_label"))
-    assert any(
-        issue.error_type == "TEXT_OVERFLOW" and issue.severity == "error"
-        for issue in outcome.final_issues
-    )
+    assert outcome.status == "repaired"
+    repaired_labels = _get_text(outcome.ui, "stacked_label")
+    assert len(repaired_labels) == 4
+    assert all(text and text != "这是一个需要压缩到单行标签容量以内的较长页面标签"
+               for text in repaired_labels)
+    assert not any(issue.severity == "error" for issue in outcome.final_issues)
 
 
 def test_bounded_font_shrink_is_applied_and_revalidated():
