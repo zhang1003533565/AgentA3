@@ -548,6 +548,25 @@ export const getNavMetaByPath = (path) => {
   }
 }
 
+// 下钻页面的面包屑规则：带 path 的父级可点击返回（match 支持正则匹配动态路由）
+const drilldownBreadcrumbs = [
+  {
+    match: /^\/facility\/canteen\/[^/]+\/stalls$/,
+    items: ['校园设施', { label: '食堂管理', path: '/facility/canteen' }, '档口管理'],
+  },
+  {
+    match: /^\/facility\/restaurant$/,
+    items: ['校园设施', { label: '食堂管理', path: '/facility/canteen' }, '档口管理'],
+  },
+  {
+    match: /^\/facility\/stall-dish$/,
+    items: ['校园设施', { label: '食堂管理', path: '/facility/canteen' }, '档口菜品管理'],
+  },
+  {
+    match: /^\/facility\/analytics\/[^/]+$/,
+    items: ['校园设施', { label: '设施统计', path: '/facility/analytics' }, '图文详情'],
+  },
+]
 const normalizePortalPath = (path) => {
   const normalized = String(path || '').split(/[?#]/, 1)[0].replace(/\/+$/, '')
   return normalized || '/'
@@ -555,6 +574,8 @@ const normalizePortalPath = (path) => {
 
 export const getBreadcrumbByPath = (path) => {
   const normalizedPath = normalizePortalPath(path)
+  const drilldown = drilldownBreadcrumbs.find((rule) => rule.match.test(normalizedPath))
+  if (drilldown) return drilldown.items
 
   for (const section of navigationSections) {
     const item = section.items.find((navItem) => normalizePortalPath(navItem.path) === normalizedPath)

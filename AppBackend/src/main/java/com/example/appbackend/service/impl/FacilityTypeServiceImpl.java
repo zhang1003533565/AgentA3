@@ -28,21 +28,16 @@ public class FacilityTypeServiceImpl implements FacilityTypeService {
 
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
     private static final TypeReference<List<FacilityTypeItem>> TYPE_LIST = new TypeReference<>() {};
+    private static final String DEFAULT_COLOR = "#3b82f6";
 
     private static final List<FacilityTypeItem> DEFAULT_TYPES = List.of(
-            new FacilityTypeItem(1, "食堂"),
-            new FacilityTypeItem(2, "球类场地"),
-            new FacilityTypeItem(3, "水上及特殊场地"),
-            new FacilityTypeItem(4, "田径及综合场地"),
-            new FacilityTypeItem(5, "其他"),
-            new FacilityTypeItem(6, "教学楼"),
-            new FacilityTypeItem(7, "宿舍")
+            new FacilityTypeItem(5, "其他", DEFAULT_COLOR)
     );
 
     @Autowired
     private MapConfigRepository mapConfigRepository;
 
-    private volatile Map<Integer, String> labelCache = buildLabelMap(DEFAULT_TYPES);
+    private volatile Map<Integer, FacilityTypeItem> typeCache = buildTypeMap(DEFAULT_TYPES);
     private volatile boolean loaded = false;
 
     @Override
@@ -66,7 +61,7 @@ public class FacilityTypeServiceImpl implements FacilityTypeService {
             config.setConfigValue(json);
             config.setUpdateTime(LocalDateTime.now());
             mapConfigRepository.save(config);
-            labelCache = buildLabelMap(normalized);
+            typeCache = buildTypeMap(normalized);
         } catch (Exception e) {
             throw new BusinessException(500, "保存设施类型失败");
         }
@@ -75,14 +70,14 @@ public class FacilityTypeServiceImpl implements FacilityTypeService {
     @Override
     public String getLabel(Integer type) {
         if (type == null) {
-            return labelCache.getOrDefault(OTHER, "其他");
+            return getType(OTHER).getLabel();
         }
-        return labelCache.getOrDefault(type, labelCache.getOrDefault(OTHER, "其他"));
+        return getType(type).getLabel();
     }
 
     @Override
     public boolean isKnown(Integer type) {
-        return type != null && labelCache.containsKey(type);
+        return type != null && typeCache.containsKey(type);
     }
 
     private List<FacilityTypeItem> loadTypesFromConfig() {
@@ -97,20 +92,20 @@ public class FacilityTypeServiceImpl implements FacilityTypeService {
                                     try {
                                         List<FacilityTypeItem> parsed = OBJECT_MAPPER.readValue(raw, TYPE_LIST);
                                         List<FacilityTypeItem> normalized = normalizeTypes(parsed);
-                                        labelCache = buildLabelMap(normalized);
+                                        typeCache = buildTypeMap(normalized);
                                     } catch (Exception ignored) {
-                                        labelCache = buildLabelMap(DEFAULT_TYPES);
+                                        typeCache = buildTypeMap(DEFAULT_TYPES);
                                     }
                                 });
                     } catch (Exception ignored) {
-                        labelCache = buildLabelMap(DEFAULT_TYPES);
+                        typeCache = buildTypeMap(DEFAULT_TYPES);
                     }
                     loaded = true;
                 }
             }
         }
-        return labelCache.entrySet().stream()
-                .map(e -> new FacilityTypeItem(e.getKey(), e.getValue()))
+        return typeCache.values().stream()
+                .map(this::copyType)
                 .collect(Collectors.toList());
     }
 
@@ -118,10 +113,10 @@ public class FacilityTypeServiceImpl implements FacilityTypeService {
         try {
             List<FacilityTypeItem> parsed = OBJECT_MAPPER.readValue(raw, TYPE_LIST);
             List<FacilityTypeItem> normalized = normalizeTypes(parsed);
-            labelCache = buildLabelMap(normalized);
+            typeCache = buildTypeMap(normalized);
             return normalized;
         } catch (Exception e) {
-            labelCache = buildLabelMap(DEFAULT_TYPES);
+            typeCache = buildTypeMap(DEFAULT_TYPES);
             return DEFAULT_TYPES;
         }
     }
@@ -138,18 +133,33 @@ public class FacilityTypeServiceImpl implements FacilityTypeService {
             if (item.getValue() <= 0) {
                 throw new BusinessException(400, "设施类型编码必须大于 0");
             }
-            unique.put(item.getValue(), new FacilityTypeItem(item.getValue(), item.getLabel().trim()));
+            unique.put(item.getValue(), new FacilityTypeItem(item.getValue(), item.getLabel().trim(), normalizeColor(item.getColor())));
         }
         if (!unique.containsKey(OTHER)) {
-            unique.put(OTHER, new FacilityTypeItem(OTHER, "其他"));
+            unique.put(OTHER, new FacilityTypeItem(OTHER, "其他", DEFAULT_COLOR));
         }
         return unique.values().stream().collect(Collectors.toList());
     }
 
-    private Map<Integer, String> buildLabelMap(List<FacilityTypeItem> types) {
-        Map<Integer, String> map = new LinkedHashMap<>();
+    private String normalizeColor(String color) {
+        if (color == null || color.isBlank()) {
+            return DEFAULT_COLOR;
+        }
+        return color.trim();
+    }
+
+    private FacilityTypeItem getType(Integer value) {
+        return typeCache.getOrDefault(value, typeCache.getOrDefault(OTHER, new FacilityTypeItem(OTHER, "其他", DEFAULT_COLOR)));
+    }
+
+    private FacilityTypeItem copyType(FacilityTypeItem item) {
+        return new FacilityTypeItem(item.getValue(), item.getLabel(), normalizeColor(item.getColor()));
+    }
+
+    private Map<Integer, FacilityTypeItem> buildTypeMap(List<FacilityTypeItem> types) {
+        Map<Integer, FacilityTypeItem> map = new LinkedHashMap<>();
         for (FacilityTypeItem item : types) {
-            map.put(item.getValue(), item.getLabel());
+            map.put(item.getValue(), copyType(item));
         }
         return map;
     }

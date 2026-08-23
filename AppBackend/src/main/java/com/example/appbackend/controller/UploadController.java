@@ -20,6 +20,7 @@ import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.nio.file.StandardCopyOption;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -96,7 +97,10 @@ public class UploadController {
             return Result.badRequest(error.getMessage());
         }
         try {
-            return Result.success(Map.of("url", store(file, objectKey)));
+            if (!StringUtils.hasText(bucket) || !StringUtils.hasText(domain)) {
+                return saveLocalImage(file, objectKey, request);
+            }
+            return Result.success(Map.of("url", storeToCos(file, objectKey)));
         } catch (Exception error) {
             return Result.error("文件上传失败: " + error.getMessage());
         }
@@ -180,6 +184,10 @@ public class UploadController {
         if (!StringUtils.hasText(bucket) || !StringUtils.hasText(domain)) {
             return saveLocally(file, objectKey);
         }
+        return storeToCos(file, objectKey);
+    }
+
+    private String storeToCos(MultipartFile file, String objectKey) throws IOException {
         ObjectMetadata metadata = new ObjectMetadata();
         metadata.setContentLength(file.getSize());
         String ext = extensionOf(objectKey);
@@ -203,6 +211,23 @@ public class UploadController {
                 ? fileBaseUrl.trim().replaceAll("/+$", "")
                 : "";
         return normalizedBaseUrl + "/uploads/" + objectKey.replace('\\', '/');
+    }
+
+    private Result<Map<String, String>> saveLocalImage(MultipartFile file, String objectKey, HttpServletRequest request) throws IOException {
+        Path uploadRoot = Paths.get(System.getProperty("user.dir"), "uploads");
+        Path targetPath = uploadRoot.resolve(objectKey).normalize();
+        if (!targetPath.startsWith(uploadRoot)) {
+            return Result.badRequest("Invalid upload path");
+        }
+        Files.createDirectories(targetPath.getParent());
+        try (InputStream inputStream = file.getInputStream()) {
+            Files.copy(inputStream, targetPath, StandardCopyOption.REPLACE_EXISTING);
+        }
+
+        String contextPath = request.getContextPath() == null ? "" : request.getContextPath();
+        String baseUrl = request.getScheme() + "://" + request.getServerName() + ":" + request.getServerPort() + contextPath;
+        String fileUrl = baseUrl + "/uploads/" + objectKey.replace("\\", "/");
+        return Result.success(Map.of("url", fileUrl));
     }
 
     private String buildObjectKey(String extension, String folder) {
