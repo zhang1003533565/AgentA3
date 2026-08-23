@@ -170,5 +170,11 @@ class AppAiPptControllerTest {
                 Long userId, String templateId, String authorization) {
             return new PythonAiProxyService.GeneratedExportResponse(new byte[0], MediaType.IMAGE_PNG, 0);
         }
+
+        @Override
+        public PythonAiProxyService.GeneratedExportResponse downloadTemplateLayoutPreview(
+                Long userId, String templateId, Integer slideIndex, String authorization) {
+            return new PythonAiProxyService.GeneratedExportResponse(new byte[0], MediaType.IMAGE_PNG, 0);
+        }
     }
 }

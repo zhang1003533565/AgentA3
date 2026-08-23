@@ -33,6 +33,7 @@ import MarkerManage from './pages/facility/MarkerManage/MarkerManage'
 import FacilityPlaceManage from './pages/facility/FacilityPlaceManage/FacilityPlaceManage'
 import TeachingBuildingManage from './pages/facility/TeachingBuildingManage/TeachingBuildingManage'
 import CampusCourseManage from './pages/learning/CampusCourseManage'
+import CareerNebulaManage from './pages/careerNebula/CareerNebulaManage'
 import DiscountActivityManage from './pages/discount/ActivityManage'
 import DiscountMerchantManage from './pages/discount/MerchantManage'
 import DiscountCategoryManage from './pages/discount/CategoryManage'
@@ -106,6 +107,7 @@ function App() {
           <Route path="/ai/profile-rules" element={<ProfileRules />} />
           <Route path="/facility/marker" element={<MarkerManage />} />
           <Route path="/learning/courses" element={<CampusCourseManage />} />
+          <Route path="/career/nebula" element={<CareerNebulaManage />} />
           <Route path="/discount/merchant" element={<DiscountMerchantManage />} />
           <Route path="/discount/activity" element={<DiscountActivityManage />} />
           <Route path="/discount/category" element={<DiscountCategoryManage />} />
