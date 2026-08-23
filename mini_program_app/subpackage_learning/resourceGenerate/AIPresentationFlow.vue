@@ -545,13 +545,6 @@
         <view class="result-summary__meta"><text>生成完成</text><text>刚刚</text></view>
       </view>
 
-      <view v-if="generationWarnings.length" class="generation-warning">
-        <text>{{ generationWarnings.join('；') }}</text>
-      </view>
-      <view v-if="formatErrorList.length" class="generation-warning generation-warning--error">
-        <text>{{ formatErrorList[0].label }}：{{ formatErrorList[0].message }}</text>
-      </view>
-
       <view class="format-status-panel">
         <view class="format-status-panel__head">
           <view>
@@ -3753,8 +3746,6 @@ export default {
 .template-empty{display:flex;min-height:130rpx;align-items:center;justify-content:center;gap:12rpx;flex-direction:column;border:1px dashed #d9deea;border-radius:12rpx;background:#fafbfe;color:#8b94a5;font-size:20rpx}
 .template-empty__retry{color:#5265f5;font-weight:600}
 .slide-thumb__image{position:absolute;inset:0;z-index:0;width:100%;height:100%}
-.generation-warning{margin-top:16rpx;padding:14rpx 18rpx;border:1px solid #f1d9a6;border-radius:12rpx;background:#fff9eb;color:#9a6a18;font-size:19rpx;line-height:1.5}
-.generation-warning--error{border-color:#efc7c2;background:#fff5f4;color:#9d4f49}
 .export-choice--disabled{opacity:.52}
 .product-hero{position:relative;margin-bottom:28rpx;padding:28rpx 28rpx 30rpx;overflow:hidden;border:1px solid #dfe7ef;border-radius:20rpx;background:#f6f8fb}
 .product-hero__copy{position:relative;z-index:1;max-width:470rpx}
