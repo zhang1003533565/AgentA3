@@ -46,6 +46,7 @@ from app.ppt_generation.presenton_generation_prompts import (
     PRESENTON_CONTENT_RULES,
     PRESENTON_STRUCTURE_RULES,
 )
+from app.ppt_generation.pptx_export_qa import validate_exported_pptx
 from app.ppt_generation.ppt_mapper import (
     template_for_settings,
 )
@@ -2308,6 +2309,9 @@ class PptGenerationService:
                     "请求的导出格式均未生成："
                     + ", ".join(sorted(requested))
                 )
+            # 对最终 PPTX 做一次本地只读复查。该复查不调用模型、不重试导出，
+            # 即使发现成品问题也只进入 warning，不能把已成功生成的任务改成 failed。
+            export_quality = _run_export_quality_check(pptx_attachment)
             warnings = [str(value) for value in (request.get("generationWarnings") or []) if str(value).strip()]
             warnings.extend(quality_warning_messages(content_quality))
             warnings.extend([
@@ -2318,6 +2322,7 @@ class PptGenerationService:
                 f"第{item['slide']}页存在容量提示（{', '.join(item['warnings'])}），请检查预览"
                 for item in (qa.get("qualityWarnings") or [])
             ])
+            warnings.extend(export_quality.get("messages") or [])
             warnings.extend(f"{key}: {value}" for key, value in format_errors.items())
             quality_status = "partial" if warnings or str(content_quality.get("status") or "") != "complete" or any(
                 isinstance(slide.get("_qa"), Mapping)
@@ -2351,6 +2356,7 @@ class PptGenerationService:
                 slides=slides,
                 qa=qa,
                 contentQuality=content_quality,
+                exportQuality=export_quality,
                 engine="presenton-embedded",
                 templateId=template_id,
             )
@@ -5067,6 +5073,99 @@ def _safe_error_message(error: Exception) -> str:
     message = re.sub(r"(?i)(api[-_ ]?key|authorization|token)\s*[:=]\s*\S+", r"\1=[已隐藏]", raw_message)
     message = re.sub(r"https?://[^\s]+", "[模型服务地址]", message)
     return (message.strip() or error.__class__.__name__)[:300]
+
+
+def _run_export_quality_check(attachment: Any) -> Dict[str, Any]:
+    """Inspect the finished PPTX without adding a failure path to generation.
+
+    Export QA is deliberately best-effort.  The PPTX has already been
+    produced at this point, so a missing/invalid audit input must not turn a
+    successful export into a 502 or failed task.
+    """
+    if not isinstance(attachment, Mapping):
+        return {
+            "status": "skipped",
+            "passed": True,
+            "slides": 0,
+            "errors": [],
+            "warnings": [],
+            "messages": [],
+        }
+    if str(attachment.get("ext") or "").strip().lower() != "pptx":
+        return {
+            "status": "skipped",
+            "passed": True,
+            "slides": 0,
+            "errors": [],
+            "warnings": [],
+            "messages": [],
+        }
+    storage_key = str(attachment.get("storageKey") or "").strip()
+    if not storage_key:
+        return {
+            "status": "unavailable",
+            "passed": False,
+            "slides": 0,
+            "errors": [],
+            "warnings": [],
+            "messages": [],
+        }
+    try:
+        export_root = generated_exporter._current_export_root().resolve()
+        export_path = (export_root / storage_key).resolve()
+        if not export_path.is_relative_to(export_root) or not export_path.is_file():
+            raise FileNotFoundError(storage_key)
+        report = validate_exported_pptx(export_path)
+        errors = list(report.get("errors") or [])
+        audit_warnings = list(report.get("warnings") or [])
+        messages = _export_quality_messages(errors, audit_warnings)
+        return {
+            "status": "warning" if errors or audit_warnings else "clean",
+            "passed": not errors,
+            "slides": int(report.get("slides") or 0),
+            "errors": errors,
+            "warnings": audit_warnings,
+            "messages": messages,
+        }
+    except Exception as exc:
+        logger.warning("PPT exported-file QA skipped: %s", _safe_error_message(exc))
+        return {
+            "status": "unavailable",
+            "passed": False,
+            "slides": 0,
+            "errors": [],
+            "warnings": [],
+            "messages": [],
+        }
+
+
+def _export_quality_messages(
+    errors: List[Mapping[str, Any]],
+    warnings: List[Mapping[str, Any]],
+) -> List[str]:
+    labels = {
+        "TEMPLATE_PLACEHOLDER": "检测到模板示例内容",
+        "TEXT_OVERLAP": "检测到文本区域重叠",
+        "TEXT_ELLIPSIS": "检测到疑似省略文本",
+        "INCOMPLETE_EXPRESSION": "检测到疑似不完整公式或表达式",
+        "PAGE_NUMBER_MISMATCH": "检测到页码与页面顺序不一致",
+    }
+    result: List[str] = []
+    seen: set[tuple[int, str]] = set()
+    for issue in [*errors, *warnings]:
+        if not isinstance(issue, Mapping):
+            continue
+        kind = str(issue.get("kind") or "EXPORT_QA")
+        slide = int(issue.get("slide") or 0)
+        key = (slide, kind)
+        if key in seen:
+            continue
+        seen.add(key)
+        label = labels.get(kind, "导出文件质量提示")
+        result.append(f"第{slide}页{label}")
+        if len(result) >= 80:
+            break
+    return result
 
 
 def _is_invalid_json_llm_error(error: Exception) -> bool:

@@ -35,3 +35,23 @@ def test_export_qa_allows_clean_text_boxes(tmp_path):
 
     assert report["passed"] is True
     assert report["errors"] == []
+
+
+def test_export_qa_detects_template_markers_and_footer_page_mismatch(tmp_path):
+    path = tmp_path / "template-leak.pptx"
+    presentation = Presentation()
+    presentation.slide_width = Inches(13.333)
+    presentation.slide_height = Inches(7.5)
+    for index, footer in enumerate(("09", "10", "03"), start=1):
+        slide = presentation.slides.add_slide(presentation.slide_layouts[6])
+        if index == 1:
+            marker = slide.shapes.add_textbox(Inches(1), Inches(1), Inches(3), Inches(1))
+            marker.text = "Metric / Last Year / Revenue"
+        page_number = slide.shapes.add_textbox(Inches(12.75), Inches(7.1), Inches(0.25), Inches(0.2))
+        page_number.text = footer
+    presentation.save(path)
+
+    report = validate_exported_pptx(path)
+
+    assert any(error["kind"] == "TEMPLATE_PLACEHOLDER" for error in report["errors"])
+    assert any(warning["kind"] == "PAGE_NUMBER_MISMATCH" for warning in report["warnings"])
