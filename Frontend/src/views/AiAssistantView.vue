@@ -113,6 +113,10 @@ const messages = ref([
   },
 ])
 
+const isFreshChat = computed(() => messages.value.length === 1
+  && messages.value[0]?.role === 'assistant'
+  && messages.value[0]?.content === '你好，我是校园 AI 助手。你可以直接询问校园服务、学习安排或日常事务。')
+
 function normalizeConversation(item) {
   const sessionId = String(item?.sessionId || '').trim()
   return {
@@ -1138,18 +1142,11 @@ function handleUpload(event) {
         <!-- 智能问答 -->
         <section v-if="activeModule === 'chat'" class="module-page chat-page page-enter">
           <div ref="messageList" class="chat-scroll">
-            <header class="welcome-block">
-              <span class="eyebrow">SMART CAMPUS ASSISTANT</span>
-              <h1>你好，今天想了解什么？</h1>
-              <p>我可以协助查询校园信息、整理学习资料和规划日常任务。</p>
-              <div class="quick-prompts">
-                <button v-for="prompt in quickPrompts" :key="prompt" type="button" @click="sendMessage(prompt)">
-                  {{ prompt }}
-                </button>
-              </div>
-            </header>
+            <div v-if="isFreshChat" class="empty-chat-state">
+              <h1>你今天在想些什么？</h1>
+            </div>
 
-            <div class="message-stream">
+            <div v-else class="message-stream">
               <article
                 v-for="message in messages"
                 :key="message.id"
@@ -1776,6 +1773,8 @@ function handleUpload(event) {
 
 .chat-page { position: relative; height: calc(100vh - 128px); min-height: 600px; overflow: hidden; }
 .chat-scroll { height: 100%; overflow-y: auto; padding: 42px clamp(24px, 6vw, 88px) 230px; }
+.empty-chat-state { display: flex; min-height: 100%; align-items: center; justify-content: center; padding: 0 0 125px; }
+.empty-chat-state h1 { margin: 0; color: var(--text); font-size: clamp(24px, 2.4vw, 32px); font-weight: 500; letter-spacing: -.025em; }
 .welcome-block { width: min(860px, 100%); margin: 0 auto 38px; }
 .eyebrow { color: var(--accent); font-size: 11px; font-weight: 800; letter-spacing: .13em; }
 .welcome-block h1, .page-heading h1 { margin: 8px 0 7px; color: var(--text); font-size: clamp(27px, 3vw, 38px); letter-spacing: -.025em; }

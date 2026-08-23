@@ -8,6 +8,7 @@ from app.multi_agents.runtime import complete_agent_or_raise
 
 
 PPT_OUTLINE_REQUIRED_FIELDS = ["页标题", "页面类型", "本页目标", "核心内容", "展示建议", "素材建议"]
+PPT_OUTLINE_OPTIONAL_FIELDS = ["页面节点"]
 PPT_OUTLINE_FORBIDDEN_FIELDS = ["讲解目标", "页面内容建议", "课堂互动建议", "教学目标", "互动建议"]
 PPT_LAYOUT_REQUIRED_FIELDS = ["页标题", "页面类型", "布局结构", "信息层级", "区域安排", "视觉建议", "素材处理"]
 PPT_LAYOUT_FORBIDDEN_FIELDS = ["版式类型", "标题区", "正文区", "图表/图片区", "视觉层级", "留白", "讲解动线"]
@@ -20,21 +21,25 @@ PPT_LAYOUT_FORBIDDEN_REPLACEMENTS = {
     "留白": "空白空间",
     "讲解动线": "阅读顺序",
 }
-SCENE_TYPE_LABELS = {
-    "academic": "学术",
-    "business": "商务",
-    "roadshow": "路演",
-    "report": "述职",
-    "teaching": "教学",
-}
-
-
 class PptOutlineAgent:
     name = "ppt_outline_agent"
 
     def process(self, input_text: str, evidence: List[Dict[str, Any]], chat_service=None) -> str:
-        answer = complete_agent_or_raise(self.name, input_text, evidence or [], model_provider=chat_service)
-        return normalize_ppt_outline_answer(answer, input_text)
+        request = input_text
+        for attempt in range(2):
+            try:
+                answer = complete_agent_or_raise(self.name, request, evidence or [], model_provider=chat_service)
+                return normalize_ppt_outline_answer(answer, input_text)
+            except HTTPException as exc:
+                detail = str(getattr(exc, "detail", "") or "")
+                if attempt or int(getattr(exc, "status_code", 0) or 0) != 502 or "LLM 返回内容为空" in detail:
+                    raise
+                request = (
+                    f"{input_text}\n\n上一轮响应未通过 PPT 大纲格式校验。"
+                    "请严格按要求重新输出完整大纲，不要解释失败原因，不要输出 Markdown 代码围栏；"
+                    "每一页必须包含页标题、页面类型、本页目标、核心内容、展示建议和素材建议。"
+                )
+        raise RuntimeError("ppt_outline_agent structured retry did not execute")
 
 
 ppt_outline_agent = PptOutlineAgent()
@@ -66,17 +71,15 @@ def _structured_outline_to_markdown(text: str, input_text: str) -> str:
     slides = payload.get("slides") if isinstance(payload, dict) else None
     if not isinstance(slides, list) or not slides:
         return ""
-    title = _strip_field_label_prefix(str(payload.get("title") or _match_labeled_value(input_text, ["topic", "主题"]) or "复习资料 PPT").strip())
-    scene = _match_labeled_value(input_text, ["scene_type", "使用场景"]) or "通用"
-    audience = _match_labeled_value(input_text, ["audience", "受众"]) or "学生"
+    title = _strip_field_label_prefix(str(payload.get("title") or _match_labeled_value(input_text, ["topic", "主题"]) or "演示文稿").strip())
+    audience = _match_labeled_value(input_text, ["audience", "受众"]) or "通用受众"
     lines = [
         "## PPT 大纲", "", "### 大纲信息",
         f"- 主题：{_normalize_inline_text(title)}",
-        f"- 使用场景：{_normalize_inline_text(scene)}",
         f"- 受众：{_normalize_inline_text(audience)}",
         f"- 建议页数：{len(slides)} 页",
-        f"- 整体目标：围绕 {_normalize_inline_text(title)} 建立清晰、连贯的知识结构。",
-        "- 风格建议：简洁、清晰、适合复习。", "",
+        f"- 整体目标：围绕 {_normalize_inline_text(title)} 建立清晰、连贯的演示结构。",
+        "- 风格建议：简洁、清晰。", "",
     ]
     for position, raw in enumerate(slides, start=1):
         if not isinstance(raw, dict):
@@ -90,6 +93,10 @@ def _structured_outline_to_markdown(text: str, input_text: str) -> str:
         if not isinstance(points, list):
             points = [str(points)]
         points = [str(point).strip() for point in points if str(point).strip()][:6] or ["提炼本页需要掌握的核心要点。"]
+        nodes = _normalize_outline_nodes(
+            raw.get("nodes") or raw.get("children") or raw.get("页面节点"),
+            points,
+        )
         lines.extend([
             f"### 第{position}页",
             f"- 页标题：{title_value}",
@@ -97,12 +104,53 @@ def _structured_outline_to_markdown(text: str, input_text: str) -> str:
             f"- 本页目标：{objective}",
             "- 核心内容：",
             *[f"  - {_normalize_inline_text(point)}" for point in points],
+            "- 页面节点：",
+            *[
+                f"  - 节点{node_index}：{_normalize_inline_text(node['title'])}｜{_normalize_inline_text(node['content'])}"
+                for node_index, node in enumerate(nodes, start=1)
+            ],
             f"- 展示建议：{_normalize_inline_text(str(raw.get('displaySuggestion') or raw.get('展示建议') or '突出本页核心信息，控制文字密度。'))}",
             f"- 素材建议：{_normalize_inline_text(str(raw.get('assetSuggestion') or raw.get('素材建议') or '按内容需要使用模板组件。'))}",
             "",
         ])
     result = "\n".join(lines).strip()
     return result if _is_valid_ppt_outline(result) else ""
+
+
+def _normalize_outline_nodes(raw_nodes: Any, points: List[str]) -> List[Dict[str, str]]:
+    """Normalize model nodes without exposing or requiring chain-of-thought.
+
+    The node is the audience-visible content unit under a slide. If a model
+    returns only key points, keep those points as explicit nodes so downstream
+    content generation still receives a usable hierarchy instead of a flat
+    chapter title.
+    """
+    candidates = raw_nodes if isinstance(raw_nodes, list) else []
+    nodes: List[Dict[str, str]] = []
+    for index, raw in enumerate(candidates, start=1):
+        if isinstance(raw, dict):
+            title = str(
+                raw.get("title") or raw.get("name") or raw.get("节点标题") or raw.get("label") or ""
+            ).strip()
+            content = str(
+                raw.get("content") or raw.get("description") or raw.get("说明") or raw.get("body") or ""
+            ).strip()
+        else:
+            title = str(raw or "").strip()
+            content = title
+        if not title and not content:
+            continue
+        nodes.append({
+            "title": title or f"要点{index}",
+            "content": content or title,
+        })
+    if nodes:
+        return nodes[:6]
+    return [
+        {"title": str(point).strip()[:36], "content": str(point).strip()}
+        for point in points[:6]
+        if str(point).strip()
+    ]
 
 def _clean_transport_noise(text: str) -> str:
     cleaned_lines = []
@@ -121,7 +169,7 @@ def _normalize_field_labels(text: str) -> str:
     输出"概括本页希望传达的关键信息"之类的空壳大纲。
     """
     value = text or ""
-    for field in PPT_OUTLINE_REQUIRED_FIELDS:
+    for field in PPT_OUTLINE_REQUIRED_FIELDS + PPT_OUTLINE_OPTIONAL_FIELDS:
         value = re.sub(
             rf"(-\s*)[\*`_=]+\s*{re.escape(field)}\s*[\*`_=]+\s*([:：])",
             rf"\g<1>{field}\g<2>",
@@ -140,7 +188,7 @@ def _is_valid_ppt_outline(text: str) -> bool:
         return False
     if any(field in normalized for field in PPT_OUTLINE_FORBIDDEN_FIELDS):
         return False
-    if "- 使用场景：" not in normalized or "- 受众：" not in normalized:
+    if "- 受众：" not in normalized:
         return False
     page_blocks = _split_ppt_pages(normalized)
     return bool(page_blocks) and all(f"- {field}：" in block for _, block in page_blocks for field in PPT_OUTLINE_REQUIRED_FIELDS)
@@ -154,7 +202,6 @@ def _rewrite_ppt_outline(text: str, input_text: str) -> str:
     lines.extend([
         "### 大纲信息",
         f"- 主题：{meta['topic']}",
-        f"- 使用场景：{meta['scene_label']}",
         f"- 受众：{meta['audience']}",
         f"- 建议页数：{meta['slide_count']} 页",
         f"- 整体目标：{meta['overall_goal']}",
@@ -182,20 +229,28 @@ def _rewrite_ppt_outline(text: str, input_text: str) -> str:
 def _extract_outline_meta(input_text: str, answer_text: str) -> Dict[str, str]:
     raw = input_text or ""
     topic = _match_labeled_value(raw, ["topic", "主题"]) or _extract_first_page_title(answer_text) or "未提供主题"
-    scene_type = (_match_labeled_value(raw, ["scene_type", "使用场景"]) or "").strip().lower()
     audience = _match_labeled_value(raw, ["audience", "受众"]) or "未明确"
     slide_count = _match_labeled_value(raw, ["slide_count", "页数"]) or str(max(len(_split_ppt_pages(answer_text)), 1))
-    scene_label = SCENE_TYPE_LABELS.get(scene_type, scene_type or "通用")
     return {
         "topic": topic,
-        "scene_label": scene_label,
         "audience": audience,
         "slide_count": re.sub(r"[^\d]", "", slide_count) or slide_count,
-        "overall_goal": _infer_overall_goal(topic, scene_label, audience),
-        "style": _infer_style(scene_label, audience),
+        "overall_goal": _infer_overall_goal(topic, audience),
+        "style": _infer_style(audience),
     }
 
 def _match_labeled_value(text: str, labels: List[str]) -> str:
+    # 大纲请求通常以 JSON 传入。模型返回结构化 slides 但省略 title 时，
+    # 不能只依赖 `topic: xxx` 文本格式，否则会退回“演示文稿”默认标题。
+    try:
+        payload = json.loads(text or "")
+    except (TypeError, json.JSONDecodeError):
+        payload = None
+    if isinstance(payload, dict):
+        for label in labels:
+            value = payload.get(label)
+            if value is not None and str(value).strip():
+                return str(value).strip()
     for label in labels:
         match = re.search(rf"{re.escape(label)}\s*[:：]\s*([^;\n]+)", text or "", flags=re.IGNORECASE)
         if match:
@@ -214,12 +269,28 @@ def _extract_first_page_title(text: str) -> str:
     return _extract_page_title(pages[0][1], pages[0][0]) if pages else ""
 
 def _split_ppt_pages(text: str) -> List[tuple[str, str]]:
+    """切分大纲页面块。
+
+    优先标准格式 `### 第N页`；模型偶发用内容型标题（`### 学校概况`）
+    而不是编号标题时，按 `### ` 二级标题分段兜底（排除"大纲信息"），
+    按出现顺序编号。避免把多页大纲整体压成"第 1 页"。
+    """
     matches = list(re.finditer(r"###\s*第\s*(\d+)\s*页(?:[:：]\s*([^\n]+))?", text or "", flags=re.IGNORECASE))
-    pages: List[tuple[str, str]] = []
-    for index, match in enumerate(matches):
+    if matches:
+        pages: List[tuple[str, str]] = []
+        for index, match in enumerate(matches):
+            start = match.start()
+            end = matches[index + 1].start() if index + 1 < len(matches) else len(text or "")
+            pages.append((match.group(1), (text or "")[start:end].strip()))
+        return pages
+    blocks = list(re.finditer(r"^###\s+(?!大纲信息\s*$)(.+)$", text or "", flags=re.MULTILINE))
+    if not blocks:
+        return []
+    pages = []
+    for index, match in enumerate(blocks, start=1):
         start = match.start()
-        end = matches[index + 1].start() if index + 1 < len(matches) else len(text or "")
-        pages.append((match.group(1), (text or "")[start:end].strip()))
+        end = blocks[index].start() if index < len(blocks) else len(text or "")
+        pages.append((str(index), (text or "")[start:end].strip()))
     return pages
 
 def _extract_page_title(block: str, page_no: str) -> str:
@@ -310,19 +381,11 @@ def _infer_asset_suggestion(content: str, page_type: str) -> str:
         suggestions.append("代码片段")
     return "、".join(dict.fromkeys(suggestions or ["图标或简洁配图"]))
 
-def _infer_overall_goal(topic: str, scene_label: str, audience: str) -> str:
-    return f"围绕“{topic}”建立清晰的叙事顺序，面向{audience}完成一套适用于{scene_label}场景的 PPT 大纲。"
+def _infer_overall_goal(topic: str, audience: str) -> str:
+    return f"围绕“{topic}”建立清晰的叙事顺序，面向{audience}完成一套结构完整的 PPT 大纲。"
 
-def _infer_style(scene_label: str, audience: str) -> str:
-    if scene_label == "商务":
-        return f"表达简洁、结论前置、强调价值与行动建议，适配{audience}阅读。"
-    if scene_label == "路演":
-        return f"突出亮点、差异化和说服力，控制文字密度，适配{audience}快速浏览。"
-    if scene_label == "述职":
-        return f"强调成果、问题、计划的递进结构，语气专业克制，适配{audience}。"
-    if scene_label == "教学":
-        return f"概念清晰、层次递进，但仍保持通用 PPT 表达，适配{audience}。"
-    return f"结构清晰、表达中性、信息密度适中，适配{audience}。"
+def _infer_style(audience: str) -> str:
+    return f"结构清晰、表达中性、信息密度适中，适配{audience}阅读。"
 
 def _replace_layout_forbidden_terms(text: str) -> str:
     value = text or ""

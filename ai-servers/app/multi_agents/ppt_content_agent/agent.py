@@ -13,13 +13,26 @@ class PptContentAgent:
     name = "ppt_content_agent"
 
     def process(self, input_text: str, evidence: List[Dict[str, Any]], chat_service=None) -> str:
-        answer = complete_agent_or_raise(
-            self.name,
-            input_text,
-            evidence or [],
-            model_provider=chat_service,
-        )
-        return json.dumps(_normalize(answer), ensure_ascii=False)
+        request = input_text
+        for attempt in range(2):
+            try:
+                answer = complete_agent_or_raise(
+                    self.name,
+                    request,
+                    evidence or [],
+                    model_provider=chat_service,
+                )
+                return json.dumps(_normalize(answer), ensure_ascii=False)
+            except HTTPException as exc:
+                detail = str(getattr(exc, "detail", "") or "")
+                if attempt or int(getattr(exc, "status_code", 0) or 0) != 502 or "LLM 返回内容为空" in detail:
+                    raise
+                request = (
+                    f"{input_text}\n\n上一轮响应未通过 PPT 内容 JSON 校验。"
+                    "请只返回一个可直接 json.loads 的 JSON 对象，禁止 Markdown、代码围栏、解释文字；"
+                    "必须包含非空 slides 数组，且每页必须包含 componentContent。"
+                )
+        raise RuntimeError("ppt_content_agent structured retry did not execute")
 
 
 def _normalize(value: str) -> Dict[str, Any]:
@@ -58,6 +71,11 @@ def _normalize(value: str) -> Dict[str, Any]:
             # 组件内容映射（组件name->文本/表格/图表数据），由 service 合并进模板版式。
             # 之前白名单漏掉该字段导致 ui 永远是模板原件。
             "componentContent": item.get("componentContent") if isinstance(item.get("componentContent"), dict) else None,
+            # 版式拒绝信号（第 94 节）：内容与当前版式不兼容时由 AI 主动上报，
+            # service 记录到 QA 并继续用压缩后的内容填充，不重新设计版式。
+            "layoutMismatch": item.get("layoutMismatch")
+            if isinstance(item.get("layoutMismatch"), dict)
+            else None,
         })
     return {"slides": normalized}
 
