@@ -25,6 +25,7 @@ from app.ppt_generation.service import (
     _source_outline_items,
     _content_quality_flags,
     _topic_outline_items,
+    _outline_topic_guidance,
     _sanitize_content_payload,
 )
 from app.ppt_generation.template_catalog import EmbeddedTemplateCatalog
@@ -321,6 +322,42 @@ def test_explicit_non_outline_mode_allows_framework_expansion(monkeypatch):
     assert calls[0]["source_mode"] == "non_outline"
     assert calls[0]["outline_mode"] == "ai_outline"
     assert "重新搭建" in calls[0]["constraints"]
+
+
+def test_topic_guidance_uses_semantic_career_arc_without_layout_leakage():
+    guidance = _outline_topic_guidance("大学计算机就业方向简介", "学生", "topic_only")
+
+    assert "岗位" in guidance["recommended_narrative"] or "方向" in guidance["recommended_narrative"]
+    assert any("能力" in item for item in guidance["must_cover"])
+    assert any("方向" in item or "下一步" in item for item in guidance["must_cover"])
+    assert all("layoutId" not in item for item in guidance["avoid"])
+
+
+def test_outline_prompt_separates_topic_logic_from_ppt_format(monkeypatch):
+    from app.ppt_generation import service as svc
+
+    calls = []
+
+    def fake_run_specialist_agent(agent, prompt, evidence):
+        calls.append(json.loads(prompt))
+        return _full_markdown(5)
+
+    monkeypatch.setattr(svc, "run_specialist_agent", fake_run_specialist_agent)
+    PptGenerationService().generate_outline(
+        {
+            "topic": "大学计算机就业方向简介",
+            "sourceContent": "大学计算机就业方向简介",
+            "audience": "学生",
+            "pageCount": 5,
+        },
+        None,
+    )
+
+    prompt = calls[0]
+    assert "topic_interpretation" in prompt
+    assert "岗位" in prompt["topic_interpretation"]["recommended_narrative"]
+    assert "format_boundary" in prompt["planning_requirements"]
+    assert "不要把所有主题套入同一套课程知识结构" in prompt["planning_requirements"]["topic_first"]
 
 
 def test_generic_route_topic_is_replaced_by_short_manual_input(monkeypatch):

@@ -916,11 +916,17 @@ class PptGenerationService:
             "detail_level": "deep",
             "planning_requirements": {
                 "internal_planning": "先完成主题拆解、受众适配、叙事顺序和页间递进，再只输出最终大纲，不输出思考过程。",
+                "topic_first": "先判断主题要解决的问题、受众要获得的结论或行动，再决定章节和页面；不要把所有主题套入同一套课程知识结构。",
+                "narrative_selection": "根据主题语义选择最合适的叙事：决策/就业类优先选项-差异-能力-路径-行动，项目/方案类优先问题-方案-证据-计划，知识讲解类才使用概念-结构-方法-应用；其他主题先自行判断，不得机械套用。",
+                "semantic_coverage": "每一页都必须推进主题的核心问题；主题中的关键对象、选择、关系、路径或行动不能被泛化成‘核心概念’‘知识结构’等空标题。",
+                "hierarchy": "大纲层级只表达内容关系：章节是主要叙事阶段，小节是阶段内的子主题，知识点是单一概念/方法/案例。页面节点是本页正文的信息单元，不是额外章节，也不用于迎合模板。",
+                "format_boundary": "先完成内容逻辑，再把内容序列化为固定字段；页面节点、展示建议和素材建议只服务于后续内容生成，不得改变主题叙事，不得把 layoutId、版式名称、区域位置或颜色写进核心内容。",
                 "key_points_per_page": "3-5 条，必须是可直接转成页面正文的具体信息，不写空泛方向。",
                 "nodes_per_page": "2-4 个页面节点；每个节点包含节点标题和面向观众的具体说明。",
-                "storyline": "至少覆盖背景/问题、核心概念或事实、结构化展开、方法或应用、总结/下一步中的适用部分。",
+                "storyline": "叙事阶段由主题类型决定；只覆盖与主题直接相关的背景、问题、事实、选择、方法、应用、总结或下一步，不强行补齐不适用的阶段。",
                 "page_roles": "每页只承担一个核心结论，明确与前后页的关系；封面和目录不得吞掉正文内容。",
             },
+            "topic_interpretation": _outline_topic_guidance(topic, audience=str(request.get("audience") or "通用受众"), source_mode=source_mode),
         }
         report_progress(
             "planning",
@@ -3109,6 +3115,78 @@ def _normalize_outline_mode(value: Any) -> str:
     if normalized in {"original_outline", "outline", "大纲", "上传大纲"}:
         return "original_outline"
     return "ai_outline"
+
+
+def _outline_topic_guidance(topic: str, audience: str, source_mode: str) -> Dict[str, Any]:
+    """Give the outline model a semantic route without hard-coding a slide template."""
+    topic_text = re.sub(r"\s+", "", str(topic or "")).lower()
+    audience_text = str(audience or "通用受众").strip()
+    if source_mode == "outline_grounded":
+        return {
+            "intent": "把用户已有结构整理为可编辑、可演示的页面计划",
+            "recommended_narrative": "保留资料中的章节顺序和主要层级；只补足页面目标、具体要点和必要的页间衔接",
+            "must_cover": ["原资料明确的章节和结论", "每页的核心信息", "原结构中的必要递进"],
+            "avoid": ["擅自改造成另一套主题框架", "用模板字段替代资料内容", "补造资料没有的事实"],
+            "audience_focus": audience_text,
+        }
+
+    routes = [
+        (
+            ("就业", "职业", "岗位", "求职", "招聘", "职业规划", "发展方向", "升学"),
+            {
+                "intent": "帮助受众理解方向选择，并形成可执行的选择或准备方案",
+                "recommended_narrative": "主题问题/目标 → 方向或岗位选项 → 工作内容与差异 → 能力要求 → 学习/项目路径 → 求职或下一步行动",
+                "must_cover": ["有哪些主要方向", "方向之间如何区分", "每个方向需要什么能力", "如何从当前状态走到下一步"],
+                "avoid": ["把就业主题写成学科知识目录", "没有岗位对象的‘核心概念’空标题", "只讲知识不讲选择和行动"],
+            },
+        ),
+        (
+            ("方案", "规划", "提案", "汇报", "项目", "实施", "建设", "架构"),
+            {
+                "intent": "让受众理解现状、方案价值和落地路径，并支持后续决策",
+                "recommended_narrative": "现状/问题 → 目标 → 方案框架 → 关键机制或模块 → 证据/风险 → 实施计划与下一步",
+                "must_cover": ["要解决的问题", "方案如何解决", "关键组成或机制", "落地条件和下一步"],
+                "avoid": ["把方案汇报写成概念百科", "只有功能罗列没有问题和价值", "虚构效果数据或实施结果"],
+            },
+        ),
+        (
+            ("产品", "功能", "运营", "市场", "商业", "品牌", "客户"),
+            {
+                "intent": "让受众理解对象、价值、使用方式和决策依据",
+                "recommended_narrative": "受众问题 → 产品/对象定位 → 核心能力或流程 → 使用场景 → 差异与证据 → 行动建议",
+                "must_cover": ["服务谁", "解决什么问题", "如何使用或运作", "为什么值得选择"],
+                "avoid": ["脱离用户问题堆砌功能名词", "把产品介绍写成技术课程", "没有证据时虚构市场数据"],
+            },
+        ),
+        (
+            ("研究", "分析", "调研", "实验", "论文", "数据"),
+            {
+                "intent": "清晰呈现研究问题、方法、发现和结论边界",
+                "recommended_narrative": "研究问题 → 背景与范围 → 方法 → 发现/证据 → 解释与局限 → 结论或后续工作",
+                "must_cover": ["问题和范围", "方法或证据来源", "主要发现", "结论边界"],
+                "avoid": ["没有数据时虚构数值", "把研究过程写成泛泛知识介绍", "把推测当成结论"],
+            },
+        ),
+        (
+            ("教程", "课程", "知识", "算法", "原理", "学习", "培训", "基础"),
+            {
+                "intent": "帮助受众建立理解、应用和复习所需的知识链路",
+                "recommended_narrative": "问题/目标 → 核心概念 → 结构或机制 → 方法/示例 → 应用或辨析 → 总结",
+                "must_cover": ["概念是什么", "概念之间的关系", "如何使用或判断", "需要记住的结论"],
+                "avoid": ["只列章节标题不写可讲解内容", "把所有页面都写成定义", "为了填节点虚构例子"],
+            },
+        ),
+    ]
+    for keywords, guidance in routes:
+        if any(keyword in topic_text for keyword in keywords):
+            return {**guidance, "audience_focus": audience_text}
+    return {
+        "intent": "先识别主题的核心问题和受众需要带走的结论，再组织一条自然的演示叙事",
+        "recommended_narrative": "主题目标/问题 → 核心对象或事实 → 关系、过程或方案 → 关键洞察/应用 → 结论与下一步；仅保留适用阶段",
+        "must_cover": ["主题的核心对象", "受众真正关心的关系或结论", "能够支撑理解或行动的具体信息"],
+        "avoid": ["默认套用背景-概念-知识结构-方法-总结", "用抽象标题代替主题对象", "为了适应模板虚构章节或事实"],
+        "audience_focus": audience_text,
+    }
 
 
 def _is_topic_only_outline_request(
