@@ -427,18 +427,11 @@
             @tap="openEditorPreview"
           />
           <image
-            v-else-if="editorPreviewLayoutImage"
-            class="slide-editor__preview-image slide-editor__preview-image--layout"
-            :src="editorPreviewLayoutImage"
+            v-else
+            class="slide-editor__preview-image slide-editor__preview-image--empty"
+            src="/static/images/default-goods.svg"
             mode="aspectFit"
-            @tap="openEditorPreview"
           />
-          <view v-else class="slide-editor__preview-fallback">
-            <text class="slide-editor__preview-index">{{ String(activeSlideIndex + 1).padStart(2, '0') }}</text>
-            <text class="slide-editor__preview-title">{{ activeSlide.title || '未命名页面' }}</text>
-            <text class="slide-editor__preview-content">{{ activeSlide.content || '暂未填写页面内容' }}</text>
-            <view class="slide-editor__preview-decor"></view>
-          </view>
           <view v-if="editorPreviewError" class="slide-editor__preview-status">
             <text>{{ editorPreviewError }}</text>
           </view>
@@ -987,12 +980,6 @@ export default {
       const layouts = this.selectedTemplateLayouts
       return layouts[this.activeSlideIndex % Math.max(1, layouts.length)]?.name || '图文内容'
     },
-    editorPreviewLayoutImage() {
-      const templateId = this.selectedTemplate?.id || this.pptStyle
-      const layoutIndex = this.editorLayoutIndex(this.activeSlideIndex)
-      if (!templateId || layoutIndex < 0) return ''
-      return this.layoutPreviewCache[templateId]?.[layoutIndex] || ''
-    },
     editorPreviewFrameStyle() {
       const background = this.activeSlide?.ui?.background
       const value = typeof background === 'string'
@@ -1421,7 +1408,7 @@ export default {
       this.templateReturnContext = null
       this.currentStep = target
       if (target === 5) {
-        this.$nextTick(() => this.scheduleEditorPreview(true))
+        this.refreshEditorPreview()
       } else if (target === 7) {
         this.loadPreviewImages()
       }
@@ -2262,7 +2249,7 @@ export default {
     handleSettingsNext() {
       if (this.canReturnToEditor) {
         this.currentStep = 5
-        this.$nextTick(() => this.scheduleEditorPreview(true))
+        this.refreshEditorPreview()
         return
       }
       return this.prepareSlides()
@@ -2343,10 +2330,7 @@ export default {
         this.clearActiveTaskStorage()
         this.editorPreviewCache = {}
         this.currentStep = 5
-        this.$nextTick(() => {
-          this.ensureEditorLayoutPreview(0)
-          this.scheduleEditorPreview(true)
-        })
+        this.refreshEditorPreview(0)
       } catch (error) {
         this.handlePptError(error, '页面内容生成失败')
       } finally {
@@ -2768,12 +2752,38 @@ export default {
     openEditorPreview() {
       const path = this.editorPreviewImage && this.editorPreviewSlideIndex === this.activeSlideIndex
         ? this.editorPreviewImage
-        : this.editorPreviewLayoutImage
+        : ''
       if (!path) {
         uni.showToast({ title: '当前页面还没有可放大的预览图', icon: 'none' })
         return
       }
       uni.previewImage({ urls: [path], current: path })
+    },
+    resetEditorPreviewState() {
+      if (this.editorPreviewTimer) {
+        clearTimeout(this.editorPreviewTimer)
+        this.editorPreviewTimer = null
+      }
+      this.editorPreviewImage = ''
+      this.editorPreviewSlideIndex = -1
+      this.editorPreviewLoading = false
+      this.editorPreviewQueued = false
+      this.editorPreviewError = ''
+      this.editorPreviewRequestId += 1
+    },
+    refreshEditorPreview(index = this.activeSlideIndex) {
+      const cachedPreview = this.editorPreviewCache[this.editorPreviewCacheKey(index)] || ''
+      if (cachedPreview) {
+        this.editorPreviewImage = cachedPreview
+        this.editorPreviewSlideIndex = index
+        this.editorPreviewLoading = false
+        this.editorPreviewQueued = false
+        this.editorPreviewError = ''
+        this.editorPreviewRequestId += 1
+        return
+      }
+      this.resetEditorPreviewState()
+      this.$nextTick(() => this.scheduleEditorPreview(true))
     },
     async loadPreviewImages() {
       if (!this.taskId || !Array.isArray(this.taskResult?.previews)) return
@@ -2858,7 +2868,7 @@ export default {
       }
       this.currentStep = 5
       this.exportReady = false
-      this.$nextTick(() => this.scheduleEditorPreview(true))
+      this.refreshEditorPreview()
     },
     returnToLastSuccessfulResult() {
       if (!this.hasLastSuccessfulResult) return
@@ -2880,18 +2890,7 @@ export default {
       const nextIndex = Number(index)
       if (!Number.isInteger(nextIndex) || nextIndex < 0 || nextIndex >= this.slides.length) return
       this.activeSlideIndex = nextIndex
-      const cachedPreview = this.editorPreviewCache[this.editorPreviewCacheKey(nextIndex)] || ''
-      this.editorPreviewImage = cachedPreview
-      this.editorPreviewSlideIndex = cachedPreview ? nextIndex : -1
-      this.editorPreviewError = ''
-      this.ensureEditorLayoutPreview(nextIndex)
-      if (cachedPreview) {
-        this.editorPreviewLoading = false
-        this.editorPreviewQueued = false
-        this.editorPreviewRequestId += 1
-        return
-      }
-      this.$nextTick(() => this.scheduleEditorPreview(true))
+      this.refreshEditorPreview(nextIndex)
     },
     onEditorContentInput() {
       this.markEditorDirty()
@@ -3476,7 +3475,12 @@ export default {
           if (status === 'completed' && Array.isArray(restoredSlides) && restoredSlides.length >= 2) {
             this.slides = this.normalizeEditorSlides(restoredSlides)
             this.pageCount = this.slides.length
+            this.activeSlideIndex = Math.min(this.activeSlideIndex, Math.max(0, this.slides.length - 1))
+            this.editorPreviewCache = {}
             this.currentStep = hasSavedStep ? savedStep : 5
+            if (this.currentStep === 5) {
+              this.refreshEditorPreview()
+            }
             this.generationWarnings = Array.isArray(task.warnings) ? task.warnings : []
             this.contentQuality = task.contentQuality && typeof task.contentQuality === 'object'
               ? this.clonePptValue(task.contentQuality)
@@ -3622,20 +3626,6 @@ export default {
     editorPreviewCacheKey(index = this.activeSlideIndex) {
       const slide = this.slides[index]
       return `${this.pptStyle}:${slide?.id || index}`
-    },
-    editorLayoutIndex(index = this.activeSlideIndex) {
-      const layouts = this.selectedTemplateLayouts
-      if (!layouts.length) return -1
-      const slide = this.slides[index]
-      const slideLayoutId = String(slide?.templateLayoutId || slide?.layout || '')
-      const matchedIndex = layouts.findIndex(layout => String(layout?.id || '') === slideLayoutId)
-      return matchedIndex >= 0 ? matchedIndex : index % layouts.length
-    },
-    ensureEditorLayoutPreview(index = this.activeSlideIndex) {
-      const templateId = this.selectedTemplate?.id || this.pptStyle
-      const layoutIndex = this.editorLayoutIndex(index)
-      if (!templateId || layoutIndex < 0) return
-      this.ensureLayoutPreview(templateId, layoutIndex)
     },
     responseData(response) {
       let value = response || {}
@@ -3819,6 +3809,7 @@ export default {
 .slide-editor__preview{position:relative;display:flex;min-height:270rpx;overflow:hidden;padding:32rpx;justify-content:center;flex-direction:column;border-left:7rpx solid #5265f5;border-radius:16rpx;background:#f6f8ff;box-sizing:border-box}
 .slide-editor__preview{aspect-ratio:16 / 9;min-height:0;padding:0;border-left:0;background:#eef1f7}
 .slide-editor__preview-image{display:block;width:100%;height:100%;background:#fff}
+.slide-editor__preview-image--empty{padding:54rpx;box-sizing:border-box;opacity:.92}
 .slide-editor__preview-fallback{position:relative;display:flex;width:100%;height:100%;padding:32rpx;justify-content:center;flex-direction:column;box-sizing:border-box}
 .slide-editor__preview-status{position:absolute;z-index:3;right:12rpx;bottom:12rpx;max-width:76%;padding:8rpx 13rpx;border-radius:99rpx;background:rgba(24,32,51,.76);color:#fff;font-size:17rpx;line-height:1.35}
 .slide-editor__preview-status--loading{top:50%;right:auto;bottom:auto;left:50%;display:flex;align-items:center;gap:10rpx;max-width:none;padding:13rpx 18rpx;border-radius:14rpx;background:rgba(24,32,51,.84);font-size:20rpx;transform:translate(-50%,-50%)}
