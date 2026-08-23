@@ -373,6 +373,21 @@ def test_outline_timeout_errors_from_http_clients_are_recoverable_transport_fail
     assert not _is_outline_transport_error(ValueError("invalid outline"))
 
 
+def test_outline_connection_errors_from_openai_and_httpx_are_recoverable_transport_failures():
+    openai = pytest.importorskip("openai")
+    httpx = pytest.importorskip("httpx")
+
+    openai_error = openai.APIConnectionError(
+        message="Connection error.",
+        request=httpx.Request("POST", "https://example.invalid"),
+    )
+    httpx_error = httpx.ConnectError("Connection error.")
+
+    assert _is_outline_transport_error(openai_error)
+    assert _is_outline_transport_error(httpx_error)
+    assert not _is_outline_transport_error(HTTPException(status_code=502, detail="Connection error."))
+
+
 def test_generic_route_topic_is_replaced_by_short_manual_input(monkeypatch):
     from app.ppt_generation import service as svc
 

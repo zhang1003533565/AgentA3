@@ -5779,16 +5779,56 @@ def _is_recoverable_outline_error(error: HTTPException) -> bool:
 
 
 def _is_outline_transport_error(error: BaseException) -> bool:
-    """Recognize timeout classes from httpx/OpenAI as transport failures."""
-    if isinstance(error, (ConnectionError, TimeoutError)):
-        return True
-    class_name = error.__class__.__name__.lower()
-    message = str(error or "").lower()
-    return (
-        any(marker in class_name for marker in ("timeout", "readtimeout", "connecttimeout"))
-        or "timed out" in message
-        or "request timeout" in message
-    )
+    """Recognize SDK transport failures without broadening normal 502 recovery.
+
+    OpenAI-compatible clients do not necessarily expose connection failures as
+    Python's built-in ``ConnectionError``.  The OpenAI SDK wraps them as
+    ``APIConnectionError`` and httpx exposes ``ConnectError``/``NetworkError``.
+    Walk the exception chain because either wrapper can be used as the cause of
+    the other, but keep the SDK class/module allow-list narrow so validation,
+    authentication, and malformed-output errors still take the normal 502 path.
+    """
+    pending = [error]
+    seen: set[int] = set()
+    while pending:
+        current = pending.pop(0)
+        if current is None or id(current) in seen:
+            continue
+        seen.add(id(current))
+
+        if isinstance(current, (ConnectionError, TimeoutError)):
+            return True
+
+        exception_type = type(current)
+        module_name = str(getattr(exception_type, "__module__", "") or "").lower()
+        class_name = str(getattr(exception_type, "__name__", "") or "").lower()
+        if module_name.startswith("openai") and class_name == "apiconnectionerror":
+            return True
+        if module_name.startswith(("httpx", "httpcore")) and class_name in {
+            "connecterror",
+            "networkerror",
+            "connecttimeout",
+            "readtimeout",
+            "writetimeout",
+            "pooltimeout",
+            "timeoutexception",
+        }:
+            return True
+
+        message = str(current or "").lower()
+        if (
+            any(marker in class_name for marker in ("timeout", "readtimeout", "connecttimeout"))
+            or "timed out" in message
+            or "request timeout" in message
+        ):
+            return True
+
+        pending.extend(
+            related
+            for related in (getattr(current, "__cause__", None), getattr(current, "__context__", None))
+            if related is not None
+        )
+    return False
 
 
 def _safe_error_message(error: Exception) -> str:
