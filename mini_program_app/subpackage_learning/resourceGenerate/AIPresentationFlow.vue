@@ -2039,11 +2039,7 @@ export default {
         const extracted = this.extractOutlineItems(task)
         const items = extracted.items
         const outline = extracted.outline
-        this.updateOperationFeedback(
-          Math.max(99, Number(task?.progress) || 0),
-          '正在整理可编辑大纲',
-          '大纲生成已完成，正在转换为可编辑内容'
-        )
+        this.updateOperationFeedback(100, '正在整理可编辑大纲', '大纲生成已完成，正在转换为可编辑内容')
         if (!items.length) {
           console.error('[PPT outline] completed task has no editable items', {
             taskId: this.outlineGenerationTaskId,
@@ -2071,7 +2067,7 @@ export default {
     async followOutlineGenerationTask(runId) {
       try {
         this.outlineGenerationStream = streamPptTask(this.outlineGenerationTaskId, {
-          onEvent: payload => this.applyOutlineGenerationSnapshot(payload, runId),
+          onEvent: (eventName, payload) => this.applyOutlineGenerationSnapshot(payload, runId),
           onDone: payload => this.applyOutlineGenerationSnapshot(payload, runId),
           onError: payload => this.applyOutlineGenerationSnapshot(payload, runId)
         })
@@ -2097,25 +2093,6 @@ export default {
       if (!task || runId !== this.outlineGenerationRunId) return
       this.outlineGenerationSnapshot = task
       this.persistActiveTask('outline', this.outlineGenerationTaskId)
-      const rawProgress = Number(task.progress)
-      const progress = Number.isFinite(rawProgress) ? Math.max(0, Math.min(100, rawProgress)) : 0
-      const stageDetails = {
-        queued: '任务已进入队列，正在等待处理',
-        outline: '正在整理资料并生成大纲',
-        preparing: '正在读取资料并整理生成参数',
-        planning: '正在拆解主题并组织页面结构',
-        model_generation: '模型正在生成大纲，完成当前调用后会更新进度',
-        model_retry: '正在根据质量检查结果补充大纲',
-        parsing: '正在解析模型返回的页面标题、要点和层级',
-        quality_check: '正在检查页数、内容覆盖和结构完整性',
-        finalizing: '正在整理为可编辑的大纲数据',
-        completed: '大纲生成完成，正在进入编辑页面'
-      }
-      this.updateOperationFeedback(
-        progress,
-        String(task.message || '正在生成大纲'),
-        String(task.detail || stageDetails[String(task.stage || '')] || '正在处理大纲生成任务')
-      )
       if (task.status === 'failed' || task.status === 'timed_out') {
         this.clearActiveTaskStorage()
         throw new Error(task.error?.message || task.message || '大纲生成失败')
@@ -3764,12 +3741,33 @@ export default {
     },
     startOperationFeedback() {
       this.stopOperationFeedback()
-      this.operationFeedback = {
-        active: true,
-        progress: 0,
-        message: '正在排队生成大纲',
-        detail: '等待 AI 任务开始'
+      const phases = [
+        { until: 12, message: '正在读取学习资料', detail: '准备文本与生成参数' },
+        { until: 30, message: '正在拆解文本结构', detail: '识别主题、章节和核心知识点' },
+        { until: 54, message: '正在组织复习大纲', detail: '重新整理适合 PPT 的知识结构' },
+        { until: 76, message: 'AI 正在生成页面计划', detail: '为每一页安排标题、要点和讲解重点' },
+        { until: 91, message: '正在检查大纲完整性', detail: '检查页数、内容覆盖和页面层级' },
+        { until: 92, message: '正在等待大纲生成结果', detail: '资料较长时会在此阶段等待模型完成' }
+      ]
+      let simulatedProgress = 3
+      const applySimulatedProgress = () => {
+        const phase = phases.find(item => simulatedProgress <= item.until) || phases[phases.length - 1]
+        this.operationFeedback = {
+          active: true,
+          progress: simulatedProgress,
+          message: phase.message,
+          detail: phase.detail
+        }
       }
+      applySimulatedProgress()
+      this.operationFeedbackTimer = setInterval(() => {
+        if (simulatedProgress >= 92) return
+        const phase = phases.find(item => simulatedProgress <= item.until) || phases[phases.length - 1]
+        const remaining = phase.until - simulatedProgress
+        const step = remaining > 10 ? 2 : 1
+        simulatedProgress = Math.min(92, simulatedProgress + step)
+        applySimulatedProgress()
+      }, 900)
     },
     updateOperationFeedback(progress, message, detail) {
       if (this.operationFeedbackTimer) clearInterval(this.operationFeedbackTimer)
