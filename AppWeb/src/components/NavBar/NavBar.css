@@ -229,6 +229,30 @@
   color: var(--text-secondary);
 }
 
+.navbar-section-direct {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 12px 10px;
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  text-align: left;
+}
+
+.navbar-section-direct h4 {
+  margin: 0;
+}
+
+.navbar-section-direct:hover,
+.navbar-section-direct.active,
+.navbar-section-direct:hover h4,
+.navbar-section-direct.active h4 {
+  color: #3a6a94;
+}
+
 .navbar-links {
   display: flex;
   flex-direction: column;

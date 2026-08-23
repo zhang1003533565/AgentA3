@@ -28,7 +28,7 @@ export default class AppErrorBoundary extends Component {
         <Result
           status="error"
           title="页面暂时无法显示"
-          subTitle="浏览器扩展或页面翻译可能修改了页面结构，请关闭当前站点的自动翻译后重新加载。"
+          subTitle="页面运行时出现异常，请重新加载；如果问题仍然存在，请检查页面数据或浏览器扩展。"
           extra={<Button type="primary" onClick={this.reloadPage}>重新加载页面</Button>}
         />
       </main>

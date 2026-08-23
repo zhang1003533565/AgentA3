@@ -90,6 +90,11 @@ export const portalGroups = [
       { path: '/ai/profile-rules', label: '画像规则', icon: 'pie-chart' },
     ],
   },
+  {
+    label: '岗位星图',
+    path: '/career/nebula',
+    items: [],
+  },
 ]
 
 export const navigationSections = portalGroups
