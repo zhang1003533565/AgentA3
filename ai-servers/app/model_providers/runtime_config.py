@@ -25,6 +25,23 @@ class LlmRuntimeConfig:
 
 
 _active_llm_config: ContextVar[Optional[LlmRuntimeConfig]] = ContextVar("active_llm_config", default=None)
+_active_llm_timeout_seconds: ContextVar[int] = ContextVar("active_llm_timeout_seconds", default=60)
+_active_max_output_tokens: ContextVar[Optional[int]] = ContextVar("active_max_output_tokens", default=None)
+# 单次调用的推理强度覆盖（deepseek 等支持 reasoning_effort 的模型）：
+# 内容生成等长输出任务需要保留推理，否则模型可能返回空内容
+_active_reasoning_effort: ContextVar[Optional[str]] = ContextVar("active_reasoning_effort", default=None)
+
+
+def set_active_reasoning_effort(effort: Optional[str]) -> Token:
+    return _active_reasoning_effort.set(effort)
+
+
+def reset_active_reasoning_effort(token: Token) -> None:
+    _active_reasoning_effort.reset(token)
+
+
+def get_active_reasoning_effort() -> Optional[str]:
+    return _active_reasoning_effort.get()
 
 
 def build_llm_runtime_config(
@@ -54,6 +71,31 @@ def set_active_llm_config(config: Optional[LlmRuntimeConfig]) -> Token:
 
 def reset_active_llm_config(token: Token) -> None:
     _active_llm_config.reset(token)
+
+
+def set_active_llm_timeout(seconds: int) -> Token:
+    return _active_llm_timeout_seconds.set(max(1, int(seconds)))
+
+
+def reset_active_llm_timeout(token: Token) -> None:
+    _active_llm_timeout_seconds.reset(token)
+
+
+def get_active_llm_timeout_seconds() -> int:
+    return _active_llm_timeout_seconds.get()
+
+
+def set_active_max_output_tokens(tokens: Optional[int]) -> Token:
+    value = None if tokens is None else max(1, int(tokens))
+    return _active_max_output_tokens.set(value)
+
+
+def reset_active_max_output_tokens(token: Token) -> None:
+    _active_max_output_tokens.reset(token)
+
+
+def get_active_max_output_tokens() -> Optional[int]:
+    return _active_max_output_tokens.get()
 
 
 def require_active_llm_config() -> LlmRuntimeConfig:

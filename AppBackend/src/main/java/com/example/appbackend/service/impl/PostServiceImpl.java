@@ -1,6 +1,7 @@
 package com.example.appbackend.service.impl;
 
 import com.example.appbackend.dto.*;
+import com.example.appbackend.entity.AppMessage;
 import com.example.appbackend.entity.ForumComment;
 import com.example.appbackend.entity.ForumLike;
 import com.example.appbackend.entity.ForumPost;
@@ -12,6 +13,7 @@ import com.example.appbackend.repository.ForumFavoriteRepository;
 import com.example.appbackend.repository.ForumLikeRepository;
 import com.example.appbackend.repository.ForumPostRepository;
 import com.example.appbackend.repository.ForumTopicRepository;
+import com.example.appbackend.repository.AppMessageRepository;
 import com.example.appbackend.repository.UserRepository;
 import com.example.appbackend.service.PostService;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -52,6 +54,9 @@ public class PostServiceImpl implements PostService {
 
     @Autowired
     private ForumLikeRepository likeRepository;
+
+    @Autowired
+    private AppMessageRepository appMessageRepository;
 
     @Autowired
     private ForumFavoriteRepository favoriteRepository;
@@ -233,8 +238,9 @@ public class PostServiceImpl implements PostService {
         List<Long> postIds = myPosts.stream().map(ForumPost::getId).collect(Collectors.toList());
         long commentCount = commentRepository.countByPostIdInAndUserIdNot(postIds, userId);
         response.setCommentCount(commentCount);
-        // 被点赞的帖子数
-        long likeCount = myPosts.stream().filter(p -> p.getLikeCount() != null && p.getLikeCount() > 0).count();
+        // 被点赞的未读消息数（基于真实消息记录，已读后清零；新点赞会重新产生未读）
+        long likeCount = appMessageRepository.countByUserIdAndModuleTypeAndEventTypeAndIsReadFalse(
+                userId, AppMessage.MODULE_FORUM, AppMessage.EVENT_POST_LIKE);
         response.setLikeCount(likeCount);
         // 系统通知数：公告话题（topicId=3）下的帖子数
         long systemCount = topicRepository.countById(3L);

@@ -2,6 +2,8 @@ package com.example.appbackend.service.impl;
 
 import com.example.appbackend.repository.SystemConfigRepository;
 import com.example.appbackend.service.SystemConfigService;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.core.env.Environment;
 import org.springframework.stereotype.Service;
 
@@ -9,6 +11,16 @@ import java.util.Set;
 
 @Service
 public class SystemConfigServiceImpl implements SystemConfigService {
+
+    private static final Logger log = LoggerFactory.getLogger(SystemConfigServiceImpl.class);
+
+    /**
+     * 显式开关：只有置为 true 时，环境变量 LLM_PROVIDER/LLM_BASE_URL/
+     * LLM_API_KEY/LLM_MODEL 才覆盖数据库 ai.service.text.* 配置。
+     * 曾因脚本残留的环境变量静默覆盖数据库导致调用错误服务商耗尽余额，
+     * 因此覆盖必须是显式开启的，且开启时会记录警告日志。
+     */
+    private static final String LLM_OVERRIDE_ENV_FLAG = "LLM_CONFIG_OVERRIDE";
 
     private static final Set<String> ENVIRONMENT_ONLY_KEYS = Set.of(
             "jwt.secret",
@@ -23,6 +35,7 @@ public class SystemConfigServiceImpl implements SystemConfigService {
 
     private final SystemConfigRepository systemConfigRepository;
     private final Environment environment;
+    private volatile boolean overrideWarningLogged;
 
     public SystemConfigServiceImpl(SystemConfigRepository systemConfigRepository, Environment environment) {
         this.systemConfigRepository = systemConfigRepository;
@@ -31,9 +44,11 @@ public class SystemConfigServiceImpl implements SystemConfigService {
 
     @Override
     public String getValue(String key, String defaultValue) {
-        String localLlmValue = getLocalLlmTextConfigValue(key);
-        if (localLlmValue != null) {
-            return localLlmValue;
+        if (isLocalLlmOverrideEnabled()) {
+            String localLlmValue = getLocalLlmTextConfigValue(key);
+            if (localLlmValue != null) {
+                return localLlmValue;
+            }
         }
         if (ENVIRONMENT_ONLY_KEYS.contains(key)) {
             String value = environment.getProperty(key);
@@ -43,6 +58,20 @@ public class SystemConfigServiceImpl implements SystemConfigService {
                 .map(item -> item.getConfigValue())
                 .filter(value -> value != null && !value.isBlank())
                 .orElse(defaultValue);
+    }
+
+    private boolean isLocalLlmOverrideEnabled() {
+        if (!"true".equalsIgnoreCase(trimToNull(environment.getProperty(LLM_OVERRIDE_ENV_FLAG)))) {
+            return false;
+        }
+        if (!overrideWarningLogged) {
+            overrideWarningLogged = true;
+            log.warn(
+                    "{} 已开启：ai.service.text.* 将使用环境变量 LLM_PROVIDER/LLM_BASE_URL/LLM_API_KEY/LLM_MODEL，数据库配置被忽略",
+                    LLM_OVERRIDE_ENV_FLAG
+            );
+        }
+        return true;
     }
 
     private String getLocalLlmTextConfigValue(String key) {

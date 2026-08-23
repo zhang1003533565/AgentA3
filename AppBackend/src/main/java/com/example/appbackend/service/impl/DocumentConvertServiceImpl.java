@@ -33,6 +33,10 @@ public class DocumentConvertServiceImpl {
 
     public static final String CONVERT_TYPE_PDF_TO_DOCX = "pdf_to_docx";
     public static final String CONVERT_TYPE_PPT_TO_DOCX = "ppt_to_docx";
+    public static final String CONVERT_TYPE_PDF_TO_PPT = "pdf_to_ppt";
+    public static final String CONVERT_TYPE_PPT_TO_PDF = "ppt_to_pdf";
+    public static final String CONVERT_TYPE_DOCX_TO_PDF = "docx_to_pdf";
+    public static final String CONVERT_TYPE_DOCX_TO_PPT = "docx_to_ppt";
 
     public static final long MAX_FILE_BYTES = 25L * 1024 * 1024;
 
@@ -41,12 +45,20 @@ public class DocumentConvertServiceImpl {
 
     private static final Set<String> SUPPORTED_CONVERT_TYPES = Set.of(
             CONVERT_TYPE_PDF_TO_DOCX,
-            CONVERT_TYPE_PPT_TO_DOCX
+            CONVERT_TYPE_PPT_TO_DOCX,
+            CONVERT_TYPE_PDF_TO_PPT,
+            CONVERT_TYPE_PPT_TO_PDF,
+            CONVERT_TYPE_DOCX_TO_PDF,
+            CONVERT_TYPE_DOCX_TO_PPT
     );
 
-    private static final Map<String, String> CONVERT_TYPE_EXTENSIONS = Map.of(
-            CONVERT_TYPE_PDF_TO_DOCX, ".pdf",
-            CONVERT_TYPE_PPT_TO_DOCX, ".pptx"
+    private static final Map<String, Set<String>> CONVERT_TYPE_EXTENSIONS = Map.of(
+            CONVERT_TYPE_PDF_TO_DOCX, Set.of(".pdf"),
+            CONVERT_TYPE_PPT_TO_DOCX, Set.of(".pptx"),
+            CONVERT_TYPE_PDF_TO_PPT, Set.of(".pdf"),
+            CONVERT_TYPE_PPT_TO_PDF, Set.of(".ppt", ".pptx"),
+            CONVERT_TYPE_DOCX_TO_PDF, Set.of(".docx"),
+            CONVERT_TYPE_DOCX_TO_PPT, Set.of(".docx")
     );
 
     private final String uploadDir;
@@ -75,7 +87,7 @@ public class DocumentConvertServiceImpl {
         return convertType != null && SUPPORTED_CONVERT_TYPES.contains(convertType);
     }
 
-    public String expectedExtension(String convertType) {
+    public Set<String> expectedExtensions(String convertType) {
         return CONVERT_TYPE_EXTENSIONS.get(convertType);
     }
 
@@ -199,10 +211,38 @@ public class DocumentConvertServiceImpl {
 
     private Object invokePythonConvert(DocumentConvertTask task, MultipartFile sourceFile, String authorization) {
         if (CONVERT_TYPE_PDF_TO_DOCX.equals(task.getConvertType())) {
-            return pythonAiProxyService.convertPdf(sourceFile, "docx", authorization);
+            String convertMode = task.getConvertMode();
+            if (!StringUtils.hasText(convertMode)) {
+                convertMode = "reflow";
+            }
+            return pythonAiProxyService.convertPdf(sourceFile, "docx", authorization, convertMode);
         }
         if (CONVERT_TYPE_PPT_TO_DOCX.equals(task.getConvertType())) {
-            return pythonAiProxyService.convertPpt(sourceFile, authorization);
+            String convertMode = task.getConvertMode();
+            if (!StringUtils.hasText(convertMode)) {
+                convertMode = "reflow";
+            }
+            return pythonAiProxyService.convertPpt(sourceFile, authorization, convertMode);
+        }
+        if (CONVERT_TYPE_PDF_TO_PPT.equals(task.getConvertType())) {
+            String convertMode = task.getConvertMode();
+            if (!StringUtils.hasText(convertMode)) {
+                convertMode = "image";
+            }
+            return pythonAiProxyService.convertPdfToPpt(sourceFile, authorization, convertMode);
+        }
+        if (CONVERT_TYPE_PPT_TO_PDF.equals(task.getConvertType())) {
+            return pythonAiProxyService.convertPptToPdf(sourceFile, authorization);
+        }
+        if (CONVERT_TYPE_DOCX_TO_PDF.equals(task.getConvertType())) {
+            return pythonAiProxyService.convertDocxToPdf(sourceFile, authorization);
+        }
+        if (CONVERT_TYPE_DOCX_TO_PPT.equals(task.getConvertType())) {
+            String convertMode = task.getConvertMode();
+            if (!StringUtils.hasText(convertMode)) {
+                convertMode = "smart";
+            }
+            return pythonAiProxyService.convertDocxToPpt(sourceFile, authorization, convertMode);
         }
         throw new BusinessException(Result.BAD_REQUEST_CODE, "不支持的转换类型: " + task.getConvertType());
     }

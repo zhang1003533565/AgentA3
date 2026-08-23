@@ -45,7 +45,9 @@ test('every visible AI Create action resolves to a real page and never silently 
     assert.match(route, /^\//, `${name} should resolve to a page`)
   }
 
-  assert.match(resolveAiToolDestination({ name: 'PPT生成' }), /resourceGenerate\/resourceGenerate\?resourceType=presentation/)
+  assert.match(resolveAiToolDestination({ name: 'PPT生成' }), /resourceGenerate\/resourceGenerate\?resourceType=presentation&presentationEntry=templateFirst/)
+  assert.match(resolveAiToolDestination({ name: 'AIPPT' }), /presentationEntry=templateFirst/)
+  assert.match(resolveAiToolDestination({ name: 'PPT大纲' }), /presentationEntry=templateFirst/)
   assert.match(resolveAiToolDestination({ name: '试卷生成' }), /resourceType=practice_set/)
   assert.equal(resolveAiToolDestination({ name: '题库生成' }), '/subpackage_ai/questionBankGenerate/questionBankGenerate')
   assert.equal(resolveAiToolDestination({ name: '思维导图' }), '/subpackage_ai/mindmapGenerate/mindmapGenerate')

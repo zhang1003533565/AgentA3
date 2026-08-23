@@ -95,6 +95,7 @@ DIAGRAM_AGENT_SPECS = {
 
 AGENT_ORDER = [
     "leader_agent",
+    "tool_intent_router_agent",
     "profile_summary_agent",
     "vision_agent",
     "architecture_prompt_agent",
@@ -107,6 +108,8 @@ AGENT_ORDER = [
     *MEETING_AGENT_SPECS.keys(),
     *PPT_AGENT_SPECS.keys(),
     *LEARNING_WORKFLOW_AGENT_SPECS.keys(),
+    "python_coding_tutor_agent",
+    "python_problem_generator_agent",
 ]
 
 LEARNING_WORKFLOW_INTERNAL_AGENTS = frozenset(LEARNING_WORKFLOW_AGENT_SPECS)
@@ -127,10 +130,12 @@ INTERNAL_VISUAL_AGENTS = frozenset({
     "ppt_image_agent",
 })
 FILE_EXPORT_INTERNAL_AGENTS = frozenset({"file_content_planner_agent"})
+INTERNAL_ONLY_AGENT_NAMES = frozenset({"tool_intent_router_agent"})
 LEADER_CALLABLE_AGENT_ORDER = tuple(
     agent_name
     for agent_name in AGENT_ORDER
     if agent_name != "leader_agent"
+    and agent_name not in INTERNAL_ONLY_AGENT_NAMES
     and agent_name not in LEARNING_WORKFLOW_INTERNAL_AGENTS
     and agent_name not in DIAGRAM_SOURCE_AGENTS
     and agent_name not in INTERNAL_VISUAL_AGENTS
@@ -338,6 +343,25 @@ AGENT_PROFILES: Dict[str, Dict[str, Any]] = {
         "exampleInput": "把刚才关于 Python 发展历史的内容整理成 Word 文档",
         "requiredModelModalities": TEXT_MODEL_MODALITY,
     },
+    "tool_intent_router_agent": {
+        "role": "工具意图识别智能体",
+        "purpose": "在 Leader 路由前强制提取用户意图、关键词、实体、约束和查询变体；不由 Leader 作为业务智能体路由，但允许后台单独测试和绑定模型。",
+        "inputs": ["user_query", "enabled_tools"],
+        "outputs": ["intent", "keywords", "entities", "constraints", "query_variants"],
+        "skills": ["intent extraction", "keyword extraction", "entity extraction", "query rewriting"],
+        "intent": "tool_intent_routing",
+        "needRetrieval": False,
+        "executionMode": "internal_tool",
+        "executionModeLabel": "生产环境由 tool_intent_router 强制自动调用；后台可单独测试",
+        "defaultRagStrategy": "",
+        "supportedRagStrategies": [],
+        "aliases": ["tool_intent_router", "tool_intent_router_agent", "工具意图识别", "意图识别智能体"],
+        "exampleInput": "从用户问题中提取意图、关键词、实体、约束和最多三个查询变体",
+        "requiredModelModalities": TEXT_MODEL_MODALITY,
+        "internalOnly": True,
+        "mandatory": True,
+        "toolName": "tool_intent_router",
+    },
     "vision_agent": {
         "role": "图片识别智能体",
         "purpose": "使用视觉理解模型识别聊天中上传的图片，结合用户问题描述画面、读取可见文字、分析图表或界面，并明确不确定内容。",
@@ -442,6 +466,53 @@ AGENT_PROFILES: Dict[str, Dict[str, Any]] = {
         "aliases": ["image", "image_agent", "图片智能体", "配图智能体", "文生图", "批量文生图"],
         "exampleInput": "为操作系统进程调度知识点生成 4 张课堂教学配图，风格为扁平教学插画，尺寸 1024x1024",
         "requiredModelModalities": IMAGE_MODEL_MODALITY,
+    },
+    "python_coding_tutor_agent": {
+        "role": "Python 编程辅导智能体",
+        "purpose": "参照 LeetCode AI 助手，为在线刷题用户提供分级提示、思路讲解、代码解释与报错分析；辅助而非代劳。",
+        "inputs": ["questionType", "problem", "userCode", "judgeResult", "followUp", "history"],
+        "outputs": ["markdown"],
+        "skills": ["code tutoring", "progressive hints", "debug guidance", "code explanation", "anti-cheating guidance"],
+        "intent": "python_coding_tutor",
+        "needRetrieval": False,
+        "executionMode": "direct_agent",
+        "executionModeLabel": "直接生成编程辅导回答",
+        "defaultRagStrategy": "",
+        "supportedRagStrategies": [],
+        "aliases": [
+            "python_coding_tutor",
+            "python_coding_tutor_agent",
+            "编程辅导",
+            "编程辅导智能体",
+            "AI编程助手",
+            "代码解释",
+            "给我提示",
+            "报错分析",
+        ],
+        "exampleInput": "帮我分析这段两数之和的代码为什么超时",
+        "requiredModelModalities": TEXT_MODEL_MODALITY,
+    },
+    "python_problem_generator_agent": {
+        "role": "Python 刷题题目生成器",
+        "purpose": "按主题/难度/数量生成可直接入库的 Python 刷题题目（对齐 python_problem 表结构，含判题用例与多解标准答案）。",
+        "inputs": ["topic", "difficulty", "count"],
+        "outputs": ["python_problem_set_json"],
+        "skills": ["problem generation", "testcase authoring", "python", "multi-solution authoring"],
+        "intent": "python_problem_generation",
+        "needRetrieval": False,
+        "executionMode": "direct_agent",
+        "executionModeLabel": "直接生成 Python 刷题题目",
+        "defaultRagStrategy": "",
+        "supportedRagStrategies": [],
+        "aliases": [
+            "python_problem_generator",
+            "python_problem_generator_agent",
+            "生成Python题目",
+            "AI生成题目",
+            "刷题题目生成",
+        ],
+        "exampleInput": "数组 + 双指针，中等难度，生成 2 道",
+        "requiredModelModalities": TEXT_MODEL_MODALITY,
     },
 }
 
@@ -563,7 +634,11 @@ def normalize_agent_name(agent_name: Optional[str]) -> Optional[str]:
 
 def normalize_leader_request_agent(agent_name: Optional[str]) -> Optional[str]:
     normalized = normalize_agent_name(agent_name)
-    if normalized == "leader_agent" or normalized in LEADER_CALLABLE_AGENT_ORDER:
+    if (
+        normalized == "leader_agent"
+        or normalized in LEADER_CALLABLE_AGENT_ORDER
+        or normalized in INTERNAL_ONLY_AGENT_NAMES
+    ):
         return normalized
     return None
 
@@ -591,6 +666,9 @@ def _build_agent(agent_name: str, include_documents: bool) -> Dict[str, Any]:
         "needRetrieval": profile["needRetrieval"],
         "executionMode": profile["executionMode"],
         "executionModeLabel": profile["executionModeLabel"],
+        "internalOnly": bool(profile.get("internalOnly", False)),
+        "mandatory": bool(profile.get("mandatory", False)),
+        "toolName": profile.get("toolName"),
         "defaultRagStrategy": profile["defaultRagStrategy"],
         "supportedRagStrategies": profile["supportedRagStrategies"],
         "requiredModelModalities": profile.get("requiredModelModalities", TEXT_MODEL_MODALITY),

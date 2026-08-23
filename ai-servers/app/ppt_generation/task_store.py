@@ -71,6 +71,25 @@ class PptTaskStore:
             value = self._fallback.get(task_id)
             return copy.deepcopy(value) if value is not None else None
 
+    def list_tasks(self) -> list[Dict[str, Any]]:
+        """Return persisted task snapshots for startup recovery."""
+        with self._lock:
+            values: Dict[str, Dict[str, Any]] = {
+                key: copy.deepcopy(value) for key, value in self._fallback.items()
+            }
+            if self._redis is not None:
+                for key in self._redis.scan_iter(match="ppt:task:*"):
+                    raw = self._redis.get(key)
+                    if not raw:
+                        continue
+                    try:
+                        value = json.loads(raw)
+                    except (TypeError, ValueError):
+                        continue
+                    if isinstance(value, dict) and value.get("taskId"):
+                        values[str(value["taskId"])] = copy.deepcopy(value)
+            return list(values.values())
+
     @staticmethod
     def _key(task_id: str) -> str:
         return f"ppt:task:{task_id}"

@@ -26,6 +26,10 @@
         <svg class="tab-ic" viewBox="0 0 24 24" fill="none" :stroke="tab==='arch'?'#fff':'#8B5CF6'" stroke-width="2"><rect x="4" y="4" width="16" height="5" rx="1"/><rect x="7" y="14" width="10" height="5" rx="1"/></svg>
         <text>架构图</text>
       </view>
+      <view class="tab" :class="{ on: tab === 'activity' }" @tap="setTab('activity')">
+        <svg class="tab-ic" viewBox="0 0 24 24" fill="none" :stroke="tab==='activity'?'#fff':'#123E6D'" stroke-width="2"><circle cx="6" cy="6" r="2.5"/><circle cx="18" cy="18" r="2.5"/><path d="M8 7.5h6a4 4 0 0 1 4 4v3"/></svg>
+        <text>活动图</text>
+      </view>
     </view>
 
     <view class="count-row"><text>全部记录（{{ list.length }}）</text><text class="sort">按修改时间 ▾</text></view>
@@ -52,8 +56,6 @@
       </view>
       <view class="nomore">没有更多了</view>
     </scroll-view>
-
-    <view class="fab" @tap="goCreate">＋</view>
 
     <!-- 详情弹层 -->
     <view v-if="sheet" class="mask" @tap="closeSheet">
@@ -116,11 +118,13 @@ const typeMeta = {
   mindmap: { label: '思维导图', color: '#4D6BFE', bg: '#EEF0FF' },
   flow: { label: '流程图', color: '#10B981', bg: '#ECFDF5' },
   arch: { label: '架构图', color: '#8B5CF6', bg: '#F5F3FF' }
+  , activity: { label: 'Activity', color: '#123E6D', bg: '#EEF4FC' }
 }
 const GEN_PATH = {
   mindmap: '/subpackage_ai/mindmapGenerate/mindmapGenerate',
   flow: '/subpackage_ai/flowchartGenerate/flowchartGenerate',
-  arch: '/subpackage_ai/architectureGenerate/architectureGenerate'
+  arch: '/subpackage_ai/architectureGenerate/architectureGenerate',
+  activity: '/subpackage_ai/activityGenerate/activityGenerate'
 }
 const VIEW_PATH = {
   mindmap: '/subpackage_ai/mindmapViewer/mindmapViewer',
@@ -133,7 +137,7 @@ const keyword = ref('')
 const searchOn = ref(false)
 const sheet = ref(null)
 const sheetExpanded = ref(false)
-const all = ref({ mindmap: [], flow: [], arch: [] })
+const all = ref({ mindmap: [], flow: [], arch: [], activity: [] })
 const exporting = ref(false)
 const deleting = ref(false)
 const CARD_DESC_LIMIT = 34
@@ -151,7 +155,11 @@ const DETAIL_HANDLERS = {
 const DELETE_HANDLERS = {
   mindmap: deleteMindmapHistory,
   flow: deleteFlowchartHistory,
-  arch: deleteArchitectureHistory
+  arch: deleteArchitectureHistory,
+  activity: async (id) => {
+    const records = uni.getStorageSync('aiActivityHistory') || []
+    uni.setStorageSync('aiActivityHistory', records.filter(item => String(item.id) !== String(id)))
+  }
 }
 
 function fmt(t) {
@@ -297,6 +305,7 @@ async function load() {
   try { const d = await getMindmapHistory(); all.value.mindmap = norm(Array.isArray(d) ? d : d?.records, 'mindmap') } catch (e) { all.value.mindmap = [] }
   try { const d = await getFlowchartHistory(); all.value.flow = norm(Array.isArray(d) ? d : d?.records, 'flow') } catch (e) { all.value.flow = [] }
   try { const d = await getArchitectureHistory(); all.value.arch = norm(d?.records, 'arch') } catch (e) { all.value.arch = [] }
+  try { all.value.activity = norm(uni.getStorageSync('aiActivityHistory') || [], 'activity') } catch (e) { all.value.activity = [] }
 }
 
 const list = computed(() => {
@@ -317,6 +326,7 @@ function initTab(options = {}) {
   if (value === 'arch' || value === 'architecture') tab.value = 'arch'
   if (value === 'flow' || value === 'flowchart') tab.value = 'flow'
   if (value === 'mindmap' || value === 'mind_map') tab.value = 'mindmap'
+  if (value === 'activity' || value === 'activity_diagram') tab.value = 'activity'
 }
 function applyFilter() { /* computed 自动过滤 */ }
 function toggleSearch() { searchOn.value = !searchOn.value; if (!searchOn.value) keyword.value = '' }
@@ -644,9 +654,9 @@ onShow(() => { load() })
 .search-bar { display: flex; align-items: center; padding: 16rpx 32rpx; background: #F5F6FA; }
 .search-input { flex: 1; height: 72rpx; background: #fff; border-radius: 16rpx; padding: 0 24rpx; font-size: 26rpx; box-shadow: 0 2rpx 8rpx rgba(0, 0, 0, 0.04); }
 
-.tabs { display: flex; gap: 20rpx; margin: 16rpx 24rpx 8rpx; padding: 12rpx; background: #fff; border-radius: 24rpx; box-shadow: 0 4rpx 16rpx rgba(0, 0, 0, 0.03); }
-.tab { flex: 1; display: flex; align-items: center; justify-content: center; gap: 14rpx; height: 88rpx; border-radius: 24rpx; background: #F5F6FA; font-size: 28rpx; font-weight: 600; color: #333; }
-.tab-ic { width: 34rpx; height: 34rpx; }
+.tabs { display: flex; gap: 8rpx; margin: 16rpx 16rpx 8rpx; padding: 8rpx; background: #fff; border-radius: 24rpx; box-shadow: 0 4rpx 16rpx rgba(0, 0, 0, 0.03); }
+.tab { flex: 1; min-width: 0; display: flex; align-items: center; justify-content: center; gap: 6rpx; height: 80rpx; padding: 0 4rpx; border-radius: 20rpx; background: #F5F6FA; font-size: 24rpx; font-weight: 600; color: #333; white-space: nowrap; }
+.tab-ic { width: 28rpx; height: 28rpx; flex-shrink: 0; }
 .tab.on { background: #16181D; color: #fff; }
 
 .count-row { display: flex; align-items: center; justify-content: space-between; padding: 24rpx 40rpx 16rpx; font-size: 26rpx; color: #666; }
@@ -665,7 +675,6 @@ onShow(() => { load() })
 .card-time svg { width: 26rpx; height: 26rpx; stroke: #a3a7b8; fill: none; stroke-width: 2; }
 .card-more { position: absolute; right: 24rpx; top: 28rpx; color: #333; font-size: 32rpx; }
 .nomore { text-align: center; font-size: 24rpx; color: #a3a7b8; padding: 20rpx 0; }
-.fab { position: fixed; right: 40rpx; bottom: 52rpx; width: 108rpx; height: 108rpx; border-radius: 50%; background: #16181D; color: #fff; font-size: 52rpx; display: flex; align-items: center; justify-content: center; box-shadow: 0 16rpx 40rpx rgba(0,0,0,.25); z-index: 60; }
 
 .mask { position: fixed; inset: 0; background: rgba(0,0,0,.35); display: flex; align-items: flex-end; z-index: 100; }
 .sheet { width: 100%; background: #fff; border-radius: 48rpx 48rpx 0 0; padding: 24rpx 40rpx calc(40rpx + env(safe-area-inset-bottom)); max-height: 78%; overflow-y: auto; }

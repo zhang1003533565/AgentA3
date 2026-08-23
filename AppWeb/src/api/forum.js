@@ -172,6 +172,7 @@ export const getReportList = (params = {}) =>
       size: params.pageSize ?? params.size ?? 10,
       status: params.status,
       targetType: params.targetType,
+      keyword: params.keyword,
     },
   })
 
@@ -186,6 +187,12 @@ export const handleReport = (id, data) =>
     url: `/api/forum/reports/${id}/handle`,
     method: 'put',
     data,
+  })
+
+export const reopenReport = (id) =>
+  request({
+    url: `/api/forum/reports/${id}/reopen`,
+    method: 'put',
   })
 
 export const getReportStatistics = () =>

@@ -22,12 +22,11 @@ RESOURCE_AGENT_BY_TYPE = {
     "mind_map": "diagram_mind_map_agent",
     "practice_set": "python_practice_set_agent",
     "code_lab": "python_code_lab_agent",
-    "presentation": "ppt_outline_agent",
     "extended_reading": "extension_reading_agent",
 }
 RESOURCE_TYPE_ORDER = tuple(RESOURCE_AGENT_BY_TYPE)
 MANDATORY_RESOURCE_TYPES = frozenset({"knowledge_note", "practice_set", "code_lab"})
-MIN_PASSED_RESOURCES = 5
+MIN_PASSED_RESOURCES = 4
 MAX_PARALLELISM = 3
 
 
@@ -494,7 +493,7 @@ def validate_package_threshold(
         )
     if len(passed_types) < MIN_PASSED_RESOURCES:
         raise LearningWorkflowError(
-            f"学习资源包至少 5 类资源审核通过，当前仅 {len(passed_types)} 类"
+            f"学习资源包至少 {MIN_PASSED_RESOURCES} 类资源审核通过，当前仅 {len(passed_types)} 类"
         )
     return passed
 
@@ -559,13 +558,6 @@ def _resource_payload(resource_type: str, payload: Mapping[str, Any], content: s
             "kind": "code_lab",
             "codeLab": structured or {"markdown": content},
         }
-    if resource_type == "presentation":
-        outline = structured.pop("outline", content)
-        return {
-            "kind": "presentation",
-            "outline": outline,
-            "metadata": structured,
-        }
     if resource_type == "extended_reading":
         return {
             "kind": "extended_reading",
@@ -580,7 +572,9 @@ def _validate_requested_resource_types(requested_resource_types: Sequence[str]) 
     if unknown:
         raise LearningWorkflowError(f"不支持的资源类型：{', '.join(unknown)}")
     if len(requested) < MIN_PASSED_RESOURCES:
-        raise LearningWorkflowError("requestedResourceTypes 至少 5 类")
+        raise LearningWorkflowError(
+            f"requestedResourceTypes 至少 {MIN_PASSED_RESOURCES} 类"
+        )
     missing = sorted(MANDATORY_RESOURCE_TYPES - set(requested))
     if missing:
         raise LearningWorkflowError(

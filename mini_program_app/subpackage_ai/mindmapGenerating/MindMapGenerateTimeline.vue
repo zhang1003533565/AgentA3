@@ -1055,4 +1055,8 @@ function linesOf(step) {
   color: #7C5FE0;
   font-weight: 600;
 }
-</style>
+/* 与创作页保持同一套画布、卡片和紫色状态语言 */
+.timeline-card { border: 1rpx solid #E8EAF0; border-radius: 24rpx; box-shadow: 0 8rpx 24rpx rgba(24, 32, 51, 0.04); }
+.timeline-row--highlight .timeline-card { border-color: #9B83E8; box-shadow: 0 8rpx 26rpx rgba(124, 95, 224, 0.14); animation: none; }
+.rail-dot--active { background: #7653D6; box-shadow: 0 0 0 6rpx rgba(118, 83, 214, 0.14); animation: none; }
+.card-icon-box--active, .card-icon-box--done { background: #7653D6; box-shadow: none; }

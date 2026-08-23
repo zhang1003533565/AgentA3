@@ -20,11 +20,20 @@ public class MeetingParticipant {
     @Column(nullable = false, length = 80, columnDefinition = "VARCHAR(80) NOT NULL COMMENT '成员名称'")
     private String name;
 
+    @Column(name = "user_id", columnDefinition = "BIGINT COMMENT '关联用户ID，未注册/未登录时为空'")
+    private Long userId;
+
     @Column(name = "sort_order", columnDefinition = "INT DEFAULT 0 COMMENT '排序'")
     private Integer sortOrder = 0;
 
+    @Column(nullable = false, columnDefinition = "TINYINT(1) DEFAULT 1 COMMENT '是否在线'")
+    private Boolean online = true;
+
     @Column(name = "create_time", columnDefinition = "DATETIME COMMENT '创建时间'")
     private LocalDateTime createTime;
+
+    @Column(name = "leave_time", columnDefinition = "DATETIME COMMENT '离开时间'")
+    private LocalDateTime leaveTime;
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "meeting_session_id", insertable = false, updatable = false)
@@ -35,6 +44,9 @@ public class MeetingParticipant {
         createTime = LocalDateTime.now();
         if (sortOrder == null) {
             sortOrder = 0;
+        }
+        if (online == null) {
+            online = true;
         }
     }
 }

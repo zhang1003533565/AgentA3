@@ -4,19 +4,14 @@
       title="AI 思维导图"
       :showBack="true"
       :border="false"
-    >
-      <template #right>
-        <view class="nav-history-action" @tap="openHistory">
-          <image class="nav-history-icon" src="/static/icons/diagram/history.svg" mode="aspectFit" />
-        </view>
-      </template>
-    </nav-bar>
+    />
 
     <scroll-view class="content" scroll-y :show-scrollbar="false">
       <view class="content-inner">
         <view class="section-card input-card">
           <view class="card-head">
             <view class="card-head__title">
+              <view class="inline-history-action" @tap="openHistory"><text>历史记录</text></view>
               <view class="title-dot"></view>
               <text>输入内容</text>
             </view>
@@ -1282,4 +1277,51 @@ onShow(() => {
 .generate-btn--disabled .generate-icon {
   opacity: 0.76;
 }
+/* 统一思维导图创作页的视觉层级 */
+.page { background: #F6F7FB; color: #172033; }
+.content-inner { padding-top: 28rpx; }
+.section-card { border: 1rpx solid #E8EAF0; border-radius: 28rpx; box-shadow: 0 8rpx 28rpx rgba(24, 32, 51, 0.035); }
+.section-card + .section-card { margin-top: 24rpx; }
+.prompt-input { min-height: 220rpx; padding: 24rpx; border: 1rpx solid #E5E7EF; border-radius: 20rpx; background: #FAFBFD; color: #172033; box-sizing: border-box; }
+.prompt-input:focus { border-color: #8B6DE8; background: #FFFFFF; }
+.choice-card { border-color: #E5E7EF; border-radius: 18rpx; background: #FAFBFD; }
+.choice-card--active { border-color: #8B6DE8; background: #F4F0FF; box-shadow: 0 4rpx 14rpx rgba(124, 77, 232, 0.08); }
+.bottom-bar { padding-top: 16rpx; background: rgba(246, 247, 251, 0.94); }
+.generate-btn { height: 88rpx; border-radius: 22rpx; background: #7653D6; box-shadow: 0 8rpx 20rpx rgba(118, 83, 214, 0.18); }
+/* 架构图页面统一视觉基准 */
+.page { background: #F6F7FB; color: #172033; }
+.section-card { border-color: #E6E8F1; border-radius: 22rpx; box-shadow: 0 10rpx 28rpx rgba(20, 28, 48, 0.045); }
+.title-dot { border-color: #E5F0FA; background: #123E6D; }
+.prompt-input { border-color: #DBE1ED; }
+.import-trigger :deep(.ifb-btn) { border-color: #E5EDF8; background: #EEF4FC; box-shadow: 0 4rpx 12rpx rgba(18, 62, 109, 0.06); }
+.import-trigger :deep(.ifb-text) { color: #123E6D; }
+.choice-card--active { border-color: #123E6D; background: #F3F7FC; box-shadow: none; }
+.settings-card, .recent-card { background: #FFFFFF; }
+.field-label, .settings-title__main, .recent-name { color: #182033; }
+.settings-title__icon, .recent-head__icon { opacity: 1; }
+.generate-btn { background: linear-gradient(180deg, #1D5D91 0%, #123E6D 100%); border-radius: 13rpx; box-shadow: 0 10rpx 22rpx rgba(18, 62, 109, 0.18); }
+.content-inner { padding: 20rpx 24rpx calc(168rpx + env(safe-area-inset-bottom)); }
+.section-card { padding: 24rpx; margin-bottom: 18rpx; }
+.section-card + .section-card { margin-top: 0; }
+.input-card { padding: 26rpx 30rpx 28rpx; }
+.card-head__title, .settings-title__main, .recent-head { color: #172033; font-size: 27rpx; font-weight: 800; }
+.prompt-input { height: 188rpx; min-height: 188rpx; padding: 20rpx 22rpx; border-radius: 13rpx; background: #FFFFFF; font-size: 25rpx; line-height: 1.62; }
+.choice-card { border: 1rpx solid #DBE1ED; border-radius: 13rpx; background: #FFFFFF; }
+.choice-card--active { border-color: #123E6D; background: #F3F7FC; }
+.choice-card__title { color: #182033; }
+.choice-card--active .choice-card__title { color: #123E6D; }
+.settings-card, .recent-card { box-shadow: 0 10rpx 28rpx rgba(20, 28, 48, 0.045); }
+.title-dot { border-color: #E5F0FA; background: #123E6D; }
+.import-trigger :deep(.ifb-btn) { background: #EEF4FC; }
+.import-trigger :deep(.ifb-text) { color: #123E6D; }
+.file-summary { border-color: rgba(18, 62, 109, 0.12); background: #F7FAFE; }
+.file-summary__label, .settings-title__main { color: #123E6D; }
+.settings-title__icon { filter: grayscale(1) sepia(0.25) saturate(2) hue-rotate(175deg) brightness(.7); }
+.choice-card--active { border-color: #123E6D; background: #F3F7FC; color: #123E6D; box-shadow: none; }
+.choice-card--active .choice-card__desc { color: #4D78A8; }
+.recent-node-icon { background: #EEF4FC; color: #123E6D; }
+.recent-node-icon--1, .recent-node-icon--2 { background: #EEF4FC; color: #123E6D; }
+.recent-head__icon { background: #EEF4FC; }
+.recent-head__icon image { filter: grayscale(1) sepia(.35) saturate(2) hue-rotate(175deg) brightness(.65); }
+.inline-history-action { min-width: 112rpx; height: 42rpx; padding: 0 12rpx; display: inline-flex; align-items: center; justify-content: center; margin-right: 10rpx; color: #123E6D; background: #EEF4FC; border: 1rpx solid #C9D9EC; border-radius: 14rpx; box-sizing: border-box; font-size: 23rpx; font-weight: 700; white-space: nowrap; }
 </style>

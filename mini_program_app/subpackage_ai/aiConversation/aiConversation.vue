@@ -368,7 +368,7 @@ const AGENT_LABELS = {
   ppt_structure_agent: 'PPT 结构智能体',
   ppt_review_agent: 'PPT 审查智能体',
   ppt_image_agent: 'PPT 图片智能体',
-  ppt_to_docx_agent: 'PPT 转 DOCX 智能体',
+  ppt_to_docx_agent: 'PPT 转 Word 智能体',
   meeting_summary_agent: '会议总结智能体'
 }
 const TOOL_LABELS = {

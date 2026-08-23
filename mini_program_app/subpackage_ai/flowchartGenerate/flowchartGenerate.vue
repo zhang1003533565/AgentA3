@@ -1,18 +1,13 @@
 <template>
   <view class="page">
-    <nav-bar title="AI 流程图" :showBack="true" :border="false">
-      <template #right>
-        <view class="nav-history-action" @tap="openHistory">
-          <image class="nav-history-icon" src="/static/icons/diagram/history.svg" mode="aspectFit" />
-        </view>
-      </template>
-    </nav-bar>
+    <nav-bar title="AI 流程图" :showBack="true" :border="false" />
 
     <scroll-view class="content" scroll-y :show-scrollbar="false">
       <view class="content-inner">
         <view class="input-card">
           <view class="input-head">
-            <view class="input-title">
+          <view class="input-title">
+              <view class="inline-history-action" @tap="openHistory"><text>历史记录</text></view>
               <view class="title-dot"></view>
               <text>描述您的流程需求</text>
             </view>
@@ -1238,4 +1233,20 @@ onShow(() => {
   margin-right: 13rpx;
 }
 
+/* 与架构图页面统一视觉基准 */
+.page { background: #F6F7FB; color: #172033; }
+.input-card, .file-status-card, .settings-panel, .recent-card { border-color: #E6E8F1; border-radius: 22rpx; box-shadow: 0 10rpx 28rpx rgba(20, 28, 48, 0.045); }
+.input-title { color: #172033; }
+.title-dot { border-color: #E5F0FA; background: #123E6D; }
+.char-count { color: #53627A; }
+.prompt-input { border-color: #DBE1ED; color: #33445F; }
+.prompt-placeholder { color: #8A98AD; }
+.import-trigger :deep(.ifb-btn) { border-color: #E5EDF8; background: #EEF4FC; box-shadow: 0 4rpx 12rpx rgba(18, 62, 109, 0.06); }
+.import-trigger :deep(.ifb-text) { color: #123E6D; }
+.section-icon { opacity: 1; }
+.scene-chip--active, .segmented-item--active { border-color: #123E6D; background: #F3F7FC; color: #123E6D; box-shadow: none; }
+.recent-flow-icon, .recent-flow-icon--1, .recent-flow-icon--2 { background: #123E6D; }
+.recent-flow-icon image, .recent-flow-icon--1 image, .recent-flow-icon--2 image { filter: none; }
+.generate-btn { background: linear-gradient(180deg, #1D5D91 0%, #123E6D 100%); border-radius: 13rpx; box-shadow: 0 10rpx 22rpx rgba(18, 62, 109, 0.18); }
+.inline-history-action { min-width: 112rpx; height: 42rpx; padding: 0 12rpx; display: inline-flex; align-items: center; justify-content: center; margin-right: 10rpx; color: #123E6D; background: #EEF4FC; border: 1rpx solid #C9D9EC; border-radius: 14rpx; box-sizing: border-box; font-size: 23rpx; font-weight: 700; white-space: nowrap; }
 </style>
