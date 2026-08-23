@@ -34,6 +34,7 @@ export const portalGroups = [
       { path: '/facility/teaching', label: '教学楼设置', icon: 'bank', pageKey: 'facility-teaching' },
       { path: '/facility/dormitory', label: '宿舍设置', icon: 'home', pageKey: 'facility-dormitory' },
       { path: '/facility/marker', label: '标点管理', icon: 'pushpin', pageKey: 'facility-marker' },
+     { path: '/facility/public', label: '公共设施设置', icon: 'appstore' },
       { path: '/facility/analytics', label: '设施统计', icon: 'bar-chart', pageKey: 'facility-analytics' },
       { path: '/facility/nav-analytics', label: '导航统计', icon: 'line-chart', pageKey: 'map-analytics' },
     ],
