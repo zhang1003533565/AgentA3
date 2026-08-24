@@ -23,9 +23,6 @@ logger = logging.getLogger("multi_agents.runtime")
 
 # 同一套阿里云百炼凭据下的免费文本模型故障切换顺序。
 FREE_TEXT_MODEL_FALLBACK_CHAIN = (
-    "qwen3.7-max-2026-06-08",
-    "qwen3.7-max-2026-05-17",
-    "qwen3.7-max-preview",
     "kimi-k3",
     "deepseek-v4-flash-0731",
     "glm-5.2",
@@ -33,6 +30,8 @@ FREE_TEXT_MODEL_FALLBACK_CHAIN = (
     "deepseek-v4-pro-0813",
     "qwen3.5-ocr",
     "qwen3.7-plus-2026-05-26",
+    "qwen3.8-2.4t-a95b",
+    "qwen3.8-max",
 )
 
 # 500 不能单独说明是模型额度问题：本地依赖缺失、配置错误也会返回 500。
@@ -63,7 +62,7 @@ LLM_SAME_MODEL_RETRIES = max(0, min(1, int(os.getenv("LLM_SAME_MODEL_RETRIES") o
 LLM_EMPTY_RESPONSE_RETRIES = max(0, min(1, int(os.getenv("LLM_EMPTY_RESPONSE_RETRIES") or 0)))
 LLM_MODEL_FALLBACK_MAX_ATTEMPTS = max(
     1,
-    min(len(FREE_TEXT_MODEL_FALLBACK_CHAIN), int(os.getenv("LLM_MODEL_FALLBACK_MAX_ATTEMPTS") or 2)),
+    min(len(FREE_TEXT_MODEL_FALLBACK_CHAIN), int(os.getenv("LLM_MODEL_FALLBACK_MAX_ATTEMPTS") or len(FREE_TEXT_MODEL_FALLBACK_CHAIN))),
 )
 
 

@@ -10,13 +10,28 @@ from app.model_providers.runtime_config import (
 from app.multi_agents import runtime
 
 
-def _active_config(model="qwen3.7-max-2026-06-08"):
+def _active_config(model="kimi-k3"):
     return LlmRuntimeConfig(
         provider="aliyun",
         base_url="https://llm.test/v1",
         api_key="test-key",
         model=model,
     )
+
+
+def test_bailian_free_model_fallback_order_is_explicit():
+    assert runtime.FREE_TEXT_MODEL_FALLBACK_CHAIN == (
+        "kimi-k3",
+        "deepseek-v4-flash-0731",
+        "glm-5.2",
+        "kimi-k2.7-code",
+        "deepseek-v4-pro-0813",
+        "qwen3.5-ocr",
+        "qwen3.7-plus-2026-05-26",
+        "qwen3.8-2.4t-a95b",
+        "qwen3.8-max",
+    )
+    assert runtime.LLM_MODEL_FALLBACK_MAX_ATTEMPTS == len(runtime.FREE_TEXT_MODEL_FALLBACK_CHAIN)
 
 
 def test_empty_response_fails_over_without_duplicate_same_model_call(monkeypatch):
@@ -37,7 +52,7 @@ def test_empty_response_fails_over_without_duplicate_same_model_call(monkeypatch
     finally:
         reset_active_llm_config(token)
 
-    assert calls == ["qwen3.7-max-2026-06-08", "qwen3.7-max-2026-05-17"]
+    assert calls == ["kimi-k3", "deepseek-v4-flash-0731"]
 
 
 def test_empty_response_does_not_walk_entire_fallback_chain(monkeypatch):
@@ -48,7 +63,7 @@ def test_empty_response_does_not_walk_entire_fallback_chain(monkeypatch):
             del kwargs
             model = runtime.get_active_llm_config().model
             calls.append(model)
-            return "valid" if model == "qwen3.7-max-2026-05-17" else ""
+            return "valid" if model == "deepseek-v4-flash-0731" else ""
 
     monkeypatch.setattr(runtime, "get_chat_model_provider", lambda: Provider())
     monkeypatch.setattr(runtime, "LLM_EMPTY_RESPONSE_RETRIES", 0)
@@ -59,7 +74,7 @@ def test_empty_response_does_not_walk_entire_fallback_chain(monkeypatch):
     finally:
         reset_active_llm_config(token)
 
-    assert calls == ["qwen3.7-max-2026-06-08", "qwen3.7-max-2026-05-17"]
+    assert calls == ["kimi-k3", "deepseek-v4-flash-0731"]
 
 
 def test_empty_response_retry_can_be_enabled_explicitly(monkeypatch):
@@ -79,7 +94,7 @@ def test_empty_response_retry_can_be_enabled_explicitly(monkeypatch):
     finally:
         reset_active_llm_config(token)
 
-    assert calls == ["qwen3.7-max-2026-06-08", "qwen3.7-max-2026-06-08"]
+    assert calls == ["kimi-k3", "kimi-k3"]
 
 
 def test_transient_502_retries_same_model_before_fallback(monkeypatch):
@@ -102,7 +117,7 @@ def test_transient_502_retries_same_model_before_fallback(monkeypatch):
     finally:
         reset_active_llm_config(token)
 
-    assert calls == ["qwen3.7-max-2026-06-08", "qwen3.7-max-2026-06-08"]
+    assert calls == ["kimi-k3", "kimi-k3"]
 
 
 def test_configured_cross_provider_fallback_uses_deepseek_after_opencode_failure(monkeypatch):

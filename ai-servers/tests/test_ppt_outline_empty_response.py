@@ -162,8 +162,8 @@ def test_model_quota_failure_switches_to_next_free_model(monkeypatch):
     try:
         answer = runtime.complete_agent("ppt_outline_agent", "主题：数据结构", [])
         assert answer == "可用模型返回内容"
-        assert calls == ["qwen3.7-max-2026-06-08"]
-        assert get_active_llm_config().model == "qwen3.7-max-2026-06-08"
+        assert calls == ["kimi-k3"]
+        assert get_active_llm_config().model == "kimi-k3"
     finally:
         reset_active_llm_config(token)
 
