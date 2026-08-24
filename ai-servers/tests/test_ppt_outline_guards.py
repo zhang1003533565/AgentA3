@@ -28,6 +28,7 @@ from app.ppt_generation.service import (
     _outline_topic_guidance,
     _is_outline_transport_error,
     _sanitize_content_payload,
+    _ensure_outline_item_structure,
 )
 from app.ppt_generation.template_catalog import EmbeddedTemplateCatalog
 from app.ppt_generation.template_model import parse_slide_layout
@@ -493,6 +494,19 @@ def test_structured_outline_preserves_page_nodes_and_rich_fields():
     ]
     assert items[0]["displaySuggestion"] == "先建立直观认识，再落到概念关系"
     assert items[0]["assetSuggestion"] == "概念关系图"
+
+
+def test_outline_structure_fills_nonsemantic_hints_when_model_omits_them():
+    item = _ensure_outline_item_structure({
+        "title": "核心问题",
+        "keyPoints": ["明确问题边界", "说明影响因素", "给出判断依据"],
+        "nodes": [{"title": "问题边界", "content": "先界定需要解决的范围。"}],
+    })
+
+    assert item["objective"]
+    assert item["type"] == "内容页"
+    assert item["displaySuggestion"]
+    assert item["assetSuggestion"]
 
 
 def test_rebuilt_outline_keeps_nodes_in_markdown_and_items():

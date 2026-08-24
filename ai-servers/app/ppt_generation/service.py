@@ -913,18 +913,14 @@ class PptGenerationService:
             # 资料放 user_input 而非 evidence：normalize_evidence 会把
             # evidence content 截断到 1200 字符，导致大纲只能看到资料开头。
             "material": material,
-            "detail_level": "deep",
+            # 大纲阶段只负责语义规划；详细正文和版式由后续智能体完成。
+            # 保留参数名兼容旧运行时，但不再把 deep 作为额外的隐式扩写指令。
+            "detail_level": "balanced",
             "planning_requirements": {
-                "internal_planning": "先完成主题拆解、受众适配、叙事顺序和页间递进，再只输出最终大纲，不输出思考过程。",
                 "topic_first": "先判断主题要解决的问题、受众要获得的结论或行动，再决定章节和页面；不要把所有主题套入同一套课程知识结构。",
-                "narrative_selection": "根据主题语义选择最合适的叙事：决策/就业类优先选项-差异-能力-路径-行动，项目/方案类优先问题-方案-证据-计划，知识讲解类才使用概念-结构-方法-应用；其他主题先自行判断，不得机械套用。",
                 "semantic_coverage": "每一页都必须推进主题的核心问题；主题中的关键对象、选择、关系、路径或行动不能被泛化成‘核心概念’‘知识结构’等空标题。",
                 "hierarchy": "大纲层级只表达内容关系：章节是主要叙事阶段，小节是阶段内的子主题，知识点是单一概念/方法/案例。页面节点是本页正文的信息单元，不是额外章节，也不用于迎合模板。",
-                "format_boundary": "先完成内容逻辑，再把内容序列化为固定字段；页面节点、展示建议和素材建议只服务于后续内容生成，不得改变主题叙事，不得把 layoutId、版式名称、区域位置或颜色写进核心内容。",
-                "key_points_per_page": "3-5 条，必须是可直接转成页面正文的具体信息，不写空泛方向。",
-                "nodes_per_page": "2-4 个页面节点；每个节点包含节点标题和面向观众的具体说明。",
-                "storyline": "叙事阶段由主题类型决定；只覆盖与主题直接相关的背景、问题、事实、选择、方法、应用、总结或下一步，不强行补齐不适用的阶段。",
-                "page_roles": "每页只承担一个核心结论，明确与前后页的关系；封面和目录不得吞掉正文内容。",
+                "format_boundary": "先完成内容逻辑，再序列化为固定字段；展示建议和素材建议只提供简短承载提示，不得写入模板名、版式、坐标、颜色或组件，也不得改变主题叙事。",
             },
             "topic_interpretation": _outline_topic_guidance(topic, audience=str(request.get("audience") or "通用受众"), source_mode=source_mode),
         }
@@ -3029,6 +3025,14 @@ def _ensure_outline_item_structure(item: Mapping[str, Any]) -> Dict[str, Any]:
                     "content": (content or node_title)[:400],
                 })
     normalized["nodes"] = nodes[:6] or _outline_nodes_from_points(normalized["keyPoints"])
+    if not str(normalized.get("objective") or normalized.get("本页目标") or "").strip():
+        normalized["objective"] = f"明确“{page_title or '本页'}”需要传达的核心信息。"
+    if not str(normalized.get("type") or normalized.get("页面类型") or "").strip():
+        normalized["type"] = "内容页"
+    # 这两项是后续布局的轻量提示，不应因为模型漏填而触发整份大纲失败。
+    # 具体版式仍由布局智能体和模板能力决定，不在这里固化模板指令。
+    normalized.setdefault("displaySuggestion", "突出本页核心信息，控制文字密度。")
+    normalized.setdefault("assetSuggestion", "按内容需要使用图示、图表或简洁配图。")
     hierarchy_type = normalized.get("type") if str(normalized.get("type") or "").strip() in {
         "章节", "小节", "节点", "知识点"
     } else None
@@ -3271,7 +3275,8 @@ def _resolve_outline_topic(
 def _normalize_outline_topic_items(items: List[Dict[str, Any]], topic: str) -> List[Dict[str, Any]]:
     """清理模型偶发保留的路由默认标题，确保用户主题贯穿可编辑大纲。"""
     if not items or _is_generic_outline_topic(topic):
-        return _normalize_flat_outline_levels(items)
+        return _normalize_flat_outline_levels([_ensure_outline_item_structure(item) for item in items])
+    items = [_ensure_outline_item_structure(item) for item in items]
     generic_prefixes = tuple(PPT_OUTLINE_GENERIC_TOPICS)
     for index, item in enumerate(items):
         title = str(item.get("title") or "").strip()
