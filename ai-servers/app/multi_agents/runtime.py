@@ -23,7 +23,6 @@ logger = logging.getLogger("multi_agents.runtime")
 
 # 同一套阿里云百炼凭据下的免费文本模型故障切换顺序。
 FREE_TEXT_MODEL_FALLBACK_CHAIN = (
-    "kimi-k3",
     "deepseek-v4-flash-0731",
     "glm-5.2",
     "kimi-k2.7-code",
@@ -32,6 +31,8 @@ FREE_TEXT_MODEL_FALLBACK_CHAIN = (
     "qwen3.7-plus-2026-05-26",
     "qwen3.8-2.4t-a95b",
     "qwen3.8-max",
+    # Kimi K3 仅保留为最后兜底：max 推理档位延迟高，不应阻塞正常大纲生成。
+    "kimi-k3",
 )
 
 # 500 不能单独说明是模型额度问题：本地依赖缺失、配置错误也会返回 500。

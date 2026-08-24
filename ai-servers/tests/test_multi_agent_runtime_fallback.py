@@ -10,7 +10,7 @@ from app.model_providers.runtime_config import (
 from app.multi_agents import runtime
 
 
-def _active_config(model="kimi-k3"):
+def _active_config(model="deepseek-v4-flash-0731"):
     return LlmRuntimeConfig(
         provider="aliyun",
         base_url="https://llm.test/v1",
@@ -21,7 +21,6 @@ def _active_config(model="kimi-k3"):
 
 def test_bailian_free_model_fallback_order_is_explicit():
     assert runtime.FREE_TEXT_MODEL_FALLBACK_CHAIN == (
-        "kimi-k3",
         "deepseek-v4-flash-0731",
         "glm-5.2",
         "kimi-k2.7-code",
@@ -30,6 +29,7 @@ def test_bailian_free_model_fallback_order_is_explicit():
         "qwen3.7-plus-2026-05-26",
         "qwen3.8-2.4t-a95b",
         "qwen3.8-max",
+        "kimi-k3",
     )
     assert runtime.LLM_MODEL_FALLBACK_MAX_ATTEMPTS == len(runtime.FREE_TEXT_MODEL_FALLBACK_CHAIN)
 
@@ -52,7 +52,7 @@ def test_empty_response_fails_over_without_duplicate_same_model_call(monkeypatch
     finally:
         reset_active_llm_config(token)
 
-    assert calls == ["kimi-k3", "deepseek-v4-flash-0731"]
+    assert calls == ["deepseek-v4-flash-0731", "glm-5.2"]
 
 
 def test_empty_response_does_not_walk_entire_fallback_chain(monkeypatch):
@@ -74,7 +74,7 @@ def test_empty_response_does_not_walk_entire_fallback_chain(monkeypatch):
     finally:
         reset_active_llm_config(token)
 
-    assert calls == ["kimi-k3", "deepseek-v4-flash-0731"]
+    assert calls == ["deepseek-v4-flash-0731"]
 
 
 def test_empty_response_retry_can_be_enabled_explicitly(monkeypatch):
@@ -94,7 +94,7 @@ def test_empty_response_retry_can_be_enabled_explicitly(monkeypatch):
     finally:
         reset_active_llm_config(token)
 
-    assert calls == ["kimi-k3", "kimi-k3"]
+    assert calls == ["deepseek-v4-flash-0731", "deepseek-v4-flash-0731"]
 
 
 def test_transient_502_retries_same_model_before_fallback(monkeypatch):
@@ -117,7 +117,7 @@ def test_transient_502_retries_same_model_before_fallback(monkeypatch):
     finally:
         reset_active_llm_config(token)
 
-    assert calls == ["kimi-k3", "kimi-k3"]
+    assert calls == ["deepseek-v4-flash-0731", "deepseek-v4-flash-0731"]
 
 
 def test_configured_cross_provider_fallback_uses_deepseek_after_opencode_failure(monkeypatch):

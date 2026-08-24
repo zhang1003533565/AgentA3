@@ -27,6 +27,6 @@ class AiModelPolicyTest {
 
     @Test
     void keepsExistingQwenDefaultPriority() {
-        assertEquals("qwen3.7-max-2026-06-08", AiModelPolicy.defaultTextModel());
+        assertEquals("deepseek-v4-flash-0731", AiModelPolicy.defaultTextModel());
     }
 }

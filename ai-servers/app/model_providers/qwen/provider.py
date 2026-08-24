@@ -34,7 +34,6 @@ QWEN_PROVIDER_ALIASES = {
 }
 
 QWEN_MODEL_FALLBACKS = (
-    "kimi-k3",
     "deepseek-v4-flash-0731",
     "glm-5.2",
     "kimi-k2.7-code",
@@ -43,6 +42,8 @@ QWEN_MODEL_FALLBACKS = (
     "qwen3.7-plus-2026-05-26",
     "qwen3.8-2.4t-a95b",
     "qwen3.8-max",
+    # Kimi K3 仅作为最后一道兜底，避免其 max 推理延迟拖慢主链路。
+    "kimi-k3",
 )
 
 _FALLBACK_STATUS_CODES = {400, 401, 403, 404, 408, 409, 429, 500, 502, 503, 504}
