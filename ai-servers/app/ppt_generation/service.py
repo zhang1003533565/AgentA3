@@ -913,15 +913,16 @@ class PptGenerationService:
             # 资料放 user_input 而非 evidence：normalize_evidence 会把
             # evidence content 截断到 1200 字符，导致大纲只能看到资料开头。
             "material": material,
-            # 大纲阶段只负责语义规划；详细正文和版式由后续智能体完成。
-            # 保留参数名兼容旧运行时，但不再把 deep 作为额外的隐式扩写指令。
-            "detail_level": "balanced",
+            "detail_level": "deep",
             "planning_requirements": {
-                "topic_first": "先判断主题要解决的问题、受众要获得的结论或行动，再决定章节和页面；不要把所有主题套入同一套课程知识结构。",
-                "semantic_coverage": "每一页都必须推进主题的核心问题；主题中的关键对象、选择、关系、路径或行动不能被泛化成‘核心概念’‘知识结构’等空标题。",
-                "hierarchy": "大纲层级只表达内容关系：章节是主要叙事阶段，小节是阶段内的子主题，知识点是单一概念/方法/案例。页面节点是本页正文的信息单元，不是额外章节，也不用于迎合模板。",
-                "format_boundary": "先完成内容逻辑，再序列化为固定字段；展示建议和素材建议只提供简短承载提示，不得写入模板名、版式、坐标、颜色或组件，也不得改变主题叙事。",
+                "internal_planning": "先完成主题拆解、受众适配、叙事顺序和页间递进，再只输出最终大纲，不输出思考过程。",
+                "key_points_per_page": "3-5 条，必须是可直接转成页面正文的具体信息，不写空泛方向。",
+                "nodes_per_page": "2-4 个页面节点；每个节点包含节点标题和面向观众的具体说明。",
+                "storyline": "叙事阶段由主题类型决定；只覆盖与主题直接相关的背景、问题、事实、选择、方法、应用、总结或下一步，不强行补齐不适用的阶段。",
+                "page_roles": "每页只承担一个核心结论，明确与前后页的关系；封面和目录不得吞掉正文内容。",
             },
+            # 只保留主题路由这一项语义增强；不把模板字段、布局或生产指令
+            # 继续塞进大纲提示词，避免主题规划与模板生成互相约束。
             "topic_interpretation": _outline_topic_guidance(topic, audience=str(request.get("audience") or "通用受众"), source_mode=source_mode),
         }
         report_progress(
@@ -1030,10 +1031,11 @@ class PptGenerationService:
                     "正在检查大纲质量",
                     f"正在检查页数、内容覆盖和结构完整性（当前 {len(items)} 页）",
                 )
-                # 主题模式只要已经返回至少两页可解析内容，就不再因为页数
+                # 主题模式只要已经返回至少一页可解析内容，就不再因为页数
                 # 短缺而重新请求模型。后面用主题语义骨架补齐缺页，避免一次
-                # 可用的 3/5 页结果被第二次不稳定请求拖入连接错误和兜底链。
-                if topic_only and len(items) >= 2 and len(items) < min_acceptable:
+                # 可用的 1/5 或 3/5 页结果被第二次不稳定请求拖入连接错误和兜底链。
+                # 真正的空响应会在模型调用异常分支中直接进入恢复链。
+                if topic_only and items and len(items) < min_acceptable:
                     topic_page_completion = True
                     logger.info(
                         "PPT outline accepted usable topic outline pages=%d/%d; completing missing pages locally",

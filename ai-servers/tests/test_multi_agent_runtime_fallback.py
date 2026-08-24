@@ -1,3 +1,5 @@
+import pytest
+
 from fastapi import HTTPException
 
 from app.model_providers.runtime_config import (
@@ -92,7 +94,7 @@ def test_transient_502_retries_same_model_before_fallback(monkeypatch):
             return "valid"
 
     monkeypatch.setattr(runtime, "get_chat_model_provider", lambda: Provider())
-    monkeypatch.setattr(runtime, "LLM_PPT_OUTLINE_SAME_MODEL_RETRIES", 1)
+    monkeypatch.setattr(runtime, "LLM_SAME_MODEL_RETRIES", 1)
     monkeypatch.setattr(runtime, "LLM_MODEL_FALLBACK_MAX_ATTEMPTS", 2)
     token = set_active_llm_config(_active_config())
     try:
@@ -120,7 +122,7 @@ def test_configured_cross_provider_fallback_uses_deepseek_after_opencode_failure
     monkeypatch.setenv("LLM_FALLBACK_API_KEY", "fallback-key")
     monkeypatch.setenv("LLM_FALLBACK_MODEL", "deepseek-v4-flash")
     monkeypatch.setattr(runtime, "get_chat_model_provider", lambda: Provider())
-    monkeypatch.setattr(runtime, "LLM_PPT_OUTLINE_SAME_MODEL_RETRIES", 1)
+    monkeypatch.setattr(runtime, "LLM_SAME_MODEL_RETRIES", 1)
     token = set_active_llm_config(LlmRuntimeConfig(
         provider="opencode",
         base_url="https://opencode.ai/zen/go/v1",
@@ -140,7 +142,7 @@ def test_configured_cross_provider_fallback_uses_deepseek_after_opencode_failure
     ]
 
 
-def test_outline_empty_http_error_retries_same_model_before_fallback(monkeypatch):
+def test_outline_empty_http_error_fails_over_without_same_model_retry(monkeypatch):
     calls = []
 
     class Provider:
@@ -148,12 +150,16 @@ def test_outline_empty_http_error_retries_same_model_before_fallback(monkeypatch
             del kwargs
             config = runtime.get_active_llm_config()
             calls.append((config.provider, config.model))
-            if len(calls) == 1:
+            if config.provider == "opencode":
                 raise HTTPException(status_code=502, detail="ppt_outline_agent LLM 返回内容为空，已禁止本地模板兜底")
             return "valid outline"
 
+    monkeypatch.setenv("LLM_FALLBACK_PROVIDER", "deepseek")
+    monkeypatch.setenv("LLM_FALLBACK_BASE_URL", "https://api.deepseek.com")
+    monkeypatch.setenv("LLM_FALLBACK_API_KEY", "fallback-key")
+    monkeypatch.setenv("LLM_FALLBACK_MODEL", "deepseek-v4-flash")
     monkeypatch.setattr(runtime, "get_chat_model_provider", lambda: Provider())
-    monkeypatch.setattr(runtime, "LLM_PPT_OUTLINE_EMPTY_RESPONSE_RETRIES", 1)
+    monkeypatch.setattr(runtime, "LLM_EMPTY_RESPONSE_RETRIES", 0)
     token = set_active_llm_config(LlmRuntimeConfig(
         provider="opencode",
         base_url="https://opencode.test/v1",
@@ -165,7 +171,4 @@ def test_outline_empty_http_error_retries_same_model_before_fallback(monkeypatch
     finally:
         reset_active_llm_config(token)
 
-    assert calls == [
-        ("opencode", "deepseek-v4-flash"),
-        ("opencode", "deepseek-v4-flash"),
-    ]
+    assert calls == [("opencode", "deepseek-v4-flash"), ("deepseek", "deepseek-v4-flash")]

@@ -61,14 +61,6 @@ LLM_SAME_MODEL_RETRIES = max(0, min(1, int(os.getenv("LLM_SAME_MODEL_RETRIES") o
 # knob remains available for providers where an empty response is known to be
 # transient.
 LLM_EMPTY_RESPONSE_RETRIES = max(0, min(1, int(os.getenv("LLM_EMPTY_RESPONSE_RETRIES") or 0)))
-# PPT 大纲是一次性、强结构输出：一次短暂空响应不应立刻切换模型。
-# 只对大纲单独允许一次同模型重试，避免影响内容批次的整体耗时。
-LLM_PPT_OUTLINE_EMPTY_RESPONSE_RETRIES = max(
-    0, min(1, int(os.getenv("LLM_PPT_OUTLINE_EMPTY_RESPONSE_RETRIES") or 1))
-)
-LLM_PPT_OUTLINE_SAME_MODEL_RETRIES = max(
-    0, min(1, int(os.getenv("LLM_PPT_OUTLINE_SAME_MODEL_RETRIES") or 1))
-)
 LLM_MODEL_FALLBACK_MAX_ATTEMPTS = max(
     1,
     min(len(FREE_TEXT_MODEL_FALLBACK_CHAIN), int(os.getenv("LLM_MODEL_FALLBACK_MAX_ATTEMPTS") or 2)),
@@ -176,7 +168,7 @@ def _is_transient_model_retry_error(error: BaseException) -> bool:
 
 
 def _is_empty_model_response_error(error: BaseException) -> bool:
-    """识别大纲智能体把空模型响应包装成 502 的情况。"""
+    """Empty model output should fail over, not repeat the same 502."""
     message = str(error or "").lower()
     return (
         "llm 返回内容为空" in message
@@ -261,23 +253,15 @@ def _complete_with_model_fallback(
         candidates.append(configured_fallback)
     # 大纲即使没有配置跨 provider 兜底，也要经过一次同模型恢复窗口；
     # 不能因为候选列表只有主模型就跳过空响应/瞬时错误重试。
-    if len(candidates) == 1 and agent_name != "ppt_outline_agent":
+    if len(candidates) == 1:
         return _complete_with_provider(
             get_chat_model_provider(), system_prompt, user_prompt, reasoning_effort
         )
     # Give outline generation one bounded recovery window on the primary model
     # before allowing a cross-provider switch. Other agents keep their existing
     # retry policy so content generation latency is unchanged.
-    transient_retries = (
-        LLM_PPT_OUTLINE_SAME_MODEL_RETRIES
-        if agent_name == "ppt_outline_agent"
-        else (LLM_SAME_MODEL_RETRIES if strict_ppt_recovery else 0)
-    )
-    empty_response_retries = (
-        LLM_PPT_OUTLINE_EMPTY_RESPONSE_RETRIES
-        if agent_name == "ppt_outline_agent"
-        else (LLM_EMPTY_RESPONSE_RETRIES if strict_ppt_recovery else 0)
-    )
+    transient_retries = LLM_SAME_MODEL_RETRIES if strict_ppt_recovery else 0
+    empty_response_retries = LLM_EMPTY_RESPONSE_RETRIES if strict_ppt_recovery else 0
     for index, candidate in enumerate(candidates):
         model = candidate.model
         # 成功后保留当前 ContextVar 中的候选模型，使同一个 PPT 任务的后续
@@ -322,19 +306,13 @@ def _complete_with_model_fallback(
                 )
                 if not can_fallback:
                     raise
-                retry_transient = (
+                if (
                     same_model_attempt < transient_retries
                     and _is_transient_model_retry_error(error)
-                )
-                retry_empty = (
-                    same_model_attempt < empty_response_retries
-                    and _is_empty_model_response_error(error)
-                )
-                if same_model_attempt < max(transient_retries, empty_response_retries) and (retry_transient or retry_empty):
-                    retry_reason = "empty response" if retry_empty else "transient error"
+                    and not _is_empty_model_response_error(error)
+                ):
                     logger.warning(
-                        "retrying same model after %s agent=%s model=%s retry=%s error=%s",
-                        retry_reason,
+                        "retrying same model after transient error agent=%s model=%s retry=%s error=%s",
                         agent_name,
                         model,
                         same_model_attempt + 1,

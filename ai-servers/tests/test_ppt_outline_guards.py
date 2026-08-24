@@ -385,8 +385,8 @@ def test_outline_prompt_separates_topic_logic_from_ppt_format(monkeypatch):
     prompt = calls[0]
     assert "topic_interpretation" in prompt
     assert "岗位" in prompt["topic_interpretation"]["recommended_narrative"]
-    assert "format_boundary" in prompt["planning_requirements"]
-    assert "不要把所有主题套入同一套课程知识结构" in prompt["planning_requirements"]["topic_first"]
+    assert "storyline" in prompt["planning_requirements"]
+    assert "方向" in prompt["topic_interpretation"]["recommended_narrative"]
 
 
 def test_outline_timeout_errors_from_http_clients_are_recoverable_transport_failures():
@@ -562,7 +562,10 @@ def test_rebuilt_outline_keeps_nodes_in_markdown_and_items():
 def test_topic_only_single_page_is_recovered_to_editable_scaffold(monkeypatch):
     from app.ppt_generation import service as svc
 
+    calls = []
+
     def fake_run_specialist_agent(agent, prompt, evidence):
+        calls.append(prompt)
         return SINGLE_PAGE_MARKDOWN
 
     monkeypatch.setattr(svc, "run_specialist_agent", fake_run_specialist_agent)
@@ -576,7 +579,8 @@ def test_topic_only_single_page_is_recovered_to_editable_scaffold(monkeypatch):
     )
 
     assert len(result["items"]) == 5
-    assert result["generationMode"] == "topic_recovery"
+    assert len(calls) == 1
+    assert result["generationMode"] == "ai"
     assert result["items"][0]["title"] == "大学高等数学教育学PPT"
     assert result["items"][-1]["type"] == "总结页"
 
