@@ -639,15 +639,19 @@ class PptGenerationService:
             slide = copy.deepcopy(raw_slide) if isinstance(raw_slide, Mapping) else {}
             layout_id = str(slide.get("templateLayoutId") or slide.get("layout") or "")
             layout = layouts_by_id.get(layout_id) or {}
+            layout_locked = bool(slide.get("layoutLocked"))
             enforced = self._enforce_slide_contract(
                 slide,
                 template_id,
                 layout_id,
                 layout,
-                llm_config,
+                # The editor preview deliberately uses deterministic fitting
+                # only. A locked page must produce the same layout decision at
+                # final generation instead of letting a repair LLM rewrite it.
+                None if layout_locked else llm_config,
                 index,
             )
-            recovered = self._try_overflow_layout_fallback(
+            recovered = None if layout_locked else self._try_overflow_layout_fallback(
                 enforced,
                 template_id,
                 layout_id,

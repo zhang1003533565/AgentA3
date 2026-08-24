@@ -405,6 +405,7 @@
           >
             <text>{{ index + 1 }}</text>
             <text>{{ slide.title || '未命名页面' }}</text>
+            <text v-if="slide.layoutLocked" class="slide-tab__lock">已锁定</text>
           </view>
         </view>
       </scroll-view>
@@ -441,12 +442,20 @@
           </view>
         </view>
 
-        <view class="slide-layout-lock-row">
-          <view>
-            <text>当前版式</text>
-            <text>{{ selectedTemplateName }} / {{ activeSlideLayoutLabel }}</text>
+        <view class="slide-layout-lock-card" :class="{ 'slide-layout-lock-card--locked': activeSlide.layoutLocked }">
+          <view class="slide-layout-lock-card__icon" :class="{ 'slide-layout-lock-card__icon--locked': activeSlide.layoutLocked }">
+            <text>{{ activeSlide.layoutLocked ? '✓' : '锁' }}</text>
           </view>
-          <text>锁定</text>
+          <view class="slide-layout-lock-card__copy">
+            <text class="slide-layout-lock-card__title">{{ activeSlide.layoutLocked ? '当前页面已锁定' : '锁定当前页面' }}</text>
+            <text class="slide-layout-lock-card__desc">
+              {{ activeSlide.layoutLocked ? '生成时保留当前预览版式，仍可修改下方文字' : '生成时保留当前预览版式，不自动更换布局' }}
+            </text>
+            <text class="slide-layout-lock-card__layout">{{ selectedTemplateName }} · {{ activeSlideLayoutLabel }}</text>
+          </view>
+          <button class="slide-layout-lock-card__action" :class="{ 'slide-layout-lock-card__action--locked': activeSlide.layoutLocked }" @tap="toggleActiveSlideLock">
+            {{ activeSlide.layoutLocked ? '解除锁定' : '锁定页面' }}
+          </button>
         </view>
 
         <view class="edit-field">
@@ -2404,6 +2413,7 @@ export default {
         },
         slides: this.slides.map(slide => ({
           ...slide,
+          layoutLocked: Boolean(slide.layoutLocked),
           content: String(slide.content || '').split(/\r?\n/).map(line => line.trim()).filter(Boolean)
         })),
         sharedPrompt: this.sharedPrompt,
@@ -2421,6 +2431,7 @@ export default {
           ...source,
           id: source.id || `slide-${index + 1}`,
           title: String(source.title || `第 ${index + 1} 页`),
+          layoutLocked: Boolean(source.layoutLocked),
           content: Array.isArray(source.content)
             ? source.content.map(item => String(item || '').trim()).filter(Boolean).join('\n')
             : String(source.content || ''),
@@ -2976,6 +2987,17 @@ export default {
       if (!Number.isInteger(nextIndex) || nextIndex < 0 || nextIndex >= this.slides.length) return
       this.activeSlideIndex = nextIndex
       this.refreshEditorPreview(nextIndex)
+    },
+    toggleActiveSlideLock() {
+      const slide = this.activeSlide
+      if (!slide) return
+      slide.layoutLocked = !slide.layoutLocked
+      this.markEditorDirty()
+      this.persistDraft()
+      uni.showToast({
+        title: slide.layoutLocked ? '已锁定当前页面版式' : '已解除当前页面锁定',
+        icon: 'none'
+      })
     },
     onEditorContentInput() {
       this.markEditorDirty()
@@ -3853,13 +3875,18 @@ export default {
 .visual-mode-row .switch-row__title{color:#343d4f;font-size:23rpx}
 .visual-mode-segmented{margin-top:14rpx}
 .visual-mode-row .switch-row__desc{margin-top:10rpx;color:#939bad;font-size:18rpx;line-height:1.5}
-.slide-layout-lock-row{margin-top:20rpx;padding:18rpx;border:1px solid #dfe7ef;border-radius:16rpx;background:#fff}
-.slide-layout-lock-row{display:flex;align-items:center;justify-content:space-between;gap:18rpx}
-.slide-layout-lock-row text{display:block}
-.slide-layout-lock-row view text:last-child{margin-top:5rpx;color:#718094;font-size:18rpx}
-.slide-layout-lock-row>text{flex:none;color:#314b63;font-size:22rpx;font-weight:800}
-.slide-layout-lock-row{margin-top:18rpx;background:#f8fafc}
-.slide-layout-lock-row view text:first-child{color:#26384a;font-size:22rpx;font-weight:700}
+.slide-layout-lock-card{display:flex;align-items:center;gap:16rpx;margin-top:18rpx;padding:18rpx;border:1px solid #e0e7ef;border-radius:18rpx;background:linear-gradient(135deg,#f8fafc,#fff);box-shadow:0 8rpx 20rpx rgba(44,67,91,.05)}
+.slide-layout-lock-card--locked{border-color:#b8cde0;background:linear-gradient(135deg,#f1f7fb,#fff)}
+.slide-layout-lock-card__icon{display:flex;width:52rpx;height:52rpx;flex:none;align-items:center;justify-content:center;border-radius:15rpx;background:#e8eef4;color:#58718a;font-size:22rpx;font-weight:800}
+.slide-layout-lock-card__icon--locked{background:#5c7b98;color:#fff}
+.slide-layout-lock-card__copy{min-width:0;flex:1}
+.slide-layout-lock-card__title,.slide-layout-lock-card__desc,.slide-layout-lock-card__layout{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.slide-layout-lock-card__title{color:#263c51;font-size:22rpx;font-weight:800}
+.slide-layout-lock-card__desc{margin-top:5rpx;color:#77889a;font-size:18rpx}
+.slide-layout-lock-card__layout{margin-top:6rpx;color:#9aa8b5;font-size:17rpx}
+.slide-layout-lock-card__action{height:58rpx;flex:none;margin:0;padding:0 17rpx;border:1px solid #9fb6ca;border-radius:12rpx;background:#fff;color:#4e718f;font-size:19rpx;font-weight:700;line-height:56rpx}
+.slide-layout-lock-card__action--locked{border-color:#5c7b98;background:#5c7b98;color:#fff}
+.slide-layout-lock-card__action::after{border:0}
 .flow-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:22rpx}
 .flow-heading{padding:18rpx 4rpx 10rpx}
 .flow-heading__copy{min-width:0;flex:1}
@@ -3903,6 +3930,7 @@ export default {
 .slide-tab{display:flex;width:128rpx;height:76rpx;padding:10rpx 12rpx;justify-content:center;flex-direction:column;border:1px solid #e0e4ed;border-radius:12rpx;background:#fafbfe;box-sizing:border-box}
 .slide-tab text{display:block;overflow:hidden;color:#929bad;font-size:16rpx;text-overflow:ellipsis;white-space:nowrap}
 .slide-tab text:last-child{margin-top:5rpx;color:#4c5669;font-size:18rpx}
+.slide-tab__lock{margin-top:4rpx;color:#557793!important;font-size:15rpx!important;font-weight:700}
 .slide-tab--active{border-color:#586af3;background:#f2f3ff}
 .slide-tab--active text{color:#5263eb}
 .slide-editor__preview{position:relative;display:flex;min-height:270rpx;overflow:hidden;padding:32rpx;justify-content:center;flex-direction:column;border-left:7rpx solid #5265f5;border-radius:16rpx;background:#f6f8ff;box-sizing:border-box}

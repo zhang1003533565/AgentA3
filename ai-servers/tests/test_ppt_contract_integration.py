@@ -599,3 +599,47 @@ def test_overflow_page_recovers_with_same_template_fallback(catalog):
         error == "TEXT_OVERFLOW"
         for error in enforced["_qa"].get("validationErrors") or []
     )
+
+
+def test_locked_page_keeps_preview_layout_and_skips_final_layout_fallback(catalog, monkeypatch):
+    """锁定页必须沿用预览版式，不能被最终质量恢复改成另一种布局。"""
+    service = PptGenerationService()
+    layout = catalog.get_layout("general", "title_intro")
+    slide = {
+        "index": 1,
+        "title": "锁定页面",
+        "content": ["保留当前预览中的版式和几何结构"],
+        "templateLayoutId": "title_intro",
+        "layout": "title_intro",
+        "layoutLocked": True,
+    }
+    slide["ui"] = _fill_layout_with_slide_text(layout, slide, slide)
+    enforced_configs = []
+
+    def fake_enforce(item, template_id, layout_id, layout_json, llm_config, slide_index):
+        del template_id, layout_id, layout_json, slide_index
+        enforced_configs.append(llm_config)
+        item["_qa"] = {
+            "finalStatus": "clean",
+            "validationErrors": [],
+            "validationWarnings": [],
+            "repairCount": 0,
+            "repairHistory": [],
+        }
+        return item
+
+    def fail_layout_fallback(*args, **kwargs):
+        raise AssertionError("锁定页面不应触发布局替换")
+
+    monkeypatch.setattr(service, "_enforce_slide_contract", fake_enforce)
+    monkeypatch.setattr(service, "_try_overflow_layout_fallback", fail_layout_fallback)
+
+    final_slides, qa, _report, errors = service._prepare_final_slides(
+        [slide], "general", object(), "ppt_task_locked_layout"
+    )
+
+    assert not errors
+    assert qa["status"] == "pass"
+    assert final_slides[0]["layoutLocked"] is True
+    assert final_slides[0]["templateLayoutId"] == "title_intro"
+    assert enforced_configs == [None]
