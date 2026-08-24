@@ -92,7 +92,7 @@ def test_transient_502_retries_same_model_before_fallback(monkeypatch):
             return "valid"
 
     monkeypatch.setattr(runtime, "get_chat_model_provider", lambda: Provider())
-    monkeypatch.setattr(runtime, "LLM_SAME_MODEL_RETRIES", 1)
+    monkeypatch.setattr(runtime, "LLM_PPT_OUTLINE_SAME_MODEL_RETRIES", 1)
     monkeypatch.setattr(runtime, "LLM_MODEL_FALLBACK_MAX_ATTEMPTS", 2)
     token = set_active_llm_config(_active_config())
     try:
@@ -120,7 +120,7 @@ def test_configured_cross_provider_fallback_uses_deepseek_after_opencode_failure
     monkeypatch.setenv("LLM_FALLBACK_API_KEY", "fallback-key")
     monkeypatch.setenv("LLM_FALLBACK_MODEL", "deepseek-v4-flash")
     monkeypatch.setattr(runtime, "get_chat_model_provider", lambda: Provider())
-    monkeypatch.setattr(runtime, "LLM_SAME_MODEL_RETRIES", 1)
+    monkeypatch.setattr(runtime, "LLM_PPT_OUTLINE_SAME_MODEL_RETRIES", 1)
     token = set_active_llm_config(LlmRuntimeConfig(
         provider="opencode",
         base_url="https://opencode.ai/zen/go/v1",
@@ -135,5 +135,37 @@ def test_configured_cross_provider_fallback_uses_deepseek_after_opencode_failure
     assert result == "valid from deepseek"
     assert calls == [
         ("opencode", "ox-alpha-free"),
+        ("opencode", "ox-alpha-free"),
         ("deepseek", "deepseek-v4-flash"),
+    ]
+
+
+def test_outline_empty_http_error_retries_same_model_before_fallback(monkeypatch):
+    calls = []
+
+    class Provider:
+        def complete(self, **kwargs):
+            del kwargs
+            config = runtime.get_active_llm_config()
+            calls.append((config.provider, config.model))
+            if len(calls) == 1:
+                raise HTTPException(status_code=502, detail="ppt_outline_agent LLM 返回内容为空，已禁止本地模板兜底")
+            return "valid outline"
+
+    monkeypatch.setattr(runtime, "get_chat_model_provider", lambda: Provider())
+    monkeypatch.setattr(runtime, "LLM_PPT_OUTLINE_EMPTY_RESPONSE_RETRIES", 1)
+    token = set_active_llm_config(LlmRuntimeConfig(
+        provider="opencode",
+        base_url="https://opencode.test/v1",
+        api_key="test-key",
+        model="deepseek-v4-flash",
+    ))
+    try:
+        assert runtime._complete_with_model_fallback("ppt_outline_agent", "system", "user", "low") == "valid outline"
+    finally:
+        reset_active_llm_config(token)
+
+    assert calls == [
+        ("opencode", "deepseek-v4-flash"),
+        ("opencode", "deepseek-v4-flash"),
     ]
