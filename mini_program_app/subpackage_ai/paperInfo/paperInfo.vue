@@ -1,6 +1,7 @@
 <template>
   <view class="page">
     <nav-bar title="试卷基本信息" :showBack="true" placeholder />
+    <view class="steps"><view class="step active"><text class="step-no">1</text><text>试卷信息与选题</text></view><view class="step"><text class="step-no">2</text><text>页面格式</text></view><view class="step"><text class="step-no">3</text><text>预览与确认</text></view></view>
     <view class="form">
       <view class="field"><text>试卷名称</text><input v-model="form.name" placeholder="例如：Python期末试卷" maxlength="60" /></view>
       <view class="field">
@@ -112,7 +113,8 @@ export default {
             }
             uni.showToast({ title: `${label}已新增`, icon: 'success' })
           } catch (error) {
-            uni.showToast({ title: error?.msg || error?.message || `新增${label}失败`, icon: 'none' })
+            const errorMessage = error?.message || error?.msg || error?.data?.message || error?.data?.msg || `新增${label}失败，请稍后重试`
+            uni.showToast({ title: errorMessage, icon: 'none' })
           }
         }
       })
@@ -158,5 +160,5 @@ export default {
 </script>
 
 <style scoped lang="scss">
-.page{min-height:100vh;background:#f5f8fc}.form{padding:24rpx}.field{background:#fff;border-radius:18rpx;padding:22rpx 24rpx;margin-bottom:16rpx}.field>text{display:block;font-size:25rpx;color:#33415a;margin-bottom:14rpx}.field input,.field textarea{width:100%;font-size:28rpx;color:#27364d}.field textarea{height:130rpx}.picker{font-size:28rpx;color:#27364d;display:flex;justify-content:space-between}.create-link,.manage-link{display:inline-block!important;margin:18rpx 18rpx 0 0!important;color:#4d78e8!important;font-size:24rpx!important}.manage-link{color:#65738d!important}.primary{margin-top:40rpx;background:#4d78e8;color:#fff;border-radius:50rpx;font-size:29rpx}.manager-mask{position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:20;display:flex;align-items:flex-end}.manager-panel{background:#fff;border-radius:24rpx 24rpx 0 0;width:100%;max-height:70vh;padding:24rpx}.manager-title,.manager-row{display:flex;justify-content:space-between;align-items:center;padding:18rpx 8rpx;border-bottom:1rpx solid #edf0f5}.manager-title{font-size:30rpx;font-weight:600}.system-tag{color:#9aa5b8}.delete-link{color:#e45d65}
+.page{min-height:100vh;background:#f5f7fa}.steps{display:flex;align-items:center;padding:24rpx 20rpx;background:#fff;border-bottom:1rpx solid #e2e7ed}.step{flex:1;display:flex;flex-direction:column;align-items:center;gap:8rpx;color:#98a2b3;font-size:20rpx;text-align:center}.step-no{width:42rpx;height:42rpx;line-height:42rpx;text-align:center;border-radius:50%;background:#eef1f4;color:#697586;font-size:22rpx}.step.active{color:#1e5fae;font-weight:600}.step.active .step-no{background:#1e6bb8;color:#fff}.form{padding:24rpx}.field{background:#fff;border:1rpx solid #e4e8ed;border-radius:10rpx;padding:22rpx 24rpx;margin-bottom:16rpx;box-shadow:0 4rpx 16rpx rgba(16,24,40,.035)}.field>text{display:block;font-size:25rpx;color:#344054;margin-bottom:14rpx}.field input,.field textarea{width:100%;font-size:28rpx;color:#1d2939}.field textarea{height:130rpx}.picker{font-size:28rpx;color:#27364d;display:flex;justify-content:space-between}.create-link,.manage-link{display:inline-block!important;margin:18rpx 18rpx 0 0!important;color:#1e6bb8!important;font-size:24rpx!important}.manage-link{color:#667085!important}.primary{margin-top:40rpx;background:#1e6bb8;color:#fff;border-radius:8rpx;font-size:29rpx}.manager-mask{position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:20;display:flex;align-items:flex-end}.manager-panel{background:#fff;border-radius:18rpx 18rpx 0 0;width:100%;max-height:70vh;padding:24rpx}.manager-title,.manager-row{display:flex;justify-content:space-between;align-items:center;padding:18rpx 8rpx;border-bottom:1rpx solid #edf0f5}.manager-title{font-size:30rpx;font-weight:600}.system-tag{color:#9aa5b8}.delete-link{color:#e45d65}
 </style>
