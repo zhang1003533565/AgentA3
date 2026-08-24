@@ -11,7 +11,7 @@ PPT engine carries the seven upstream template resource packages under
 `app/ppt_generation/assets/templates`, renders their JSON layouts in-process,
 and adapts the upstream content-only, layout-selection, schema-fit, and
 anti-fabrication prompt rules for AgentA3's PPT agents. Authorization, task
-ownership, source parsing, and PPTX/PDF export remain AgentA3 implementations.
+ownership, source parsing, and PPTX export remain AgentA3 implementations.
 
 The upstream LICENSE and NOTICE are retained in this directory. Local changes
 must continue to preserve those notices and must not move Presenton account,

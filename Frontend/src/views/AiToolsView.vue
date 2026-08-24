@@ -100,12 +100,14 @@ const categories = [
   { key: 'diagram', label: '图表设计', icon: 'campus', color: '#18a37d' },
   { key: 'learning', label: '学习测评', icon: 'book', color: '#f59e0b' },
   { key: 'campus', label: '校园求职', icon: 'briefcase', color: '#1768e6' },
+  { key: 'convert', label: '格式转换', icon: 'convert', color: '#315f8c' },
 ]
 
 const baseTools = [
   { name: '校园 AI 助手', desc: '多资源上传、识图与校园智能问答', category: ['hot', 'campus'], artSet: 'service', art: 0, route: '/ai', accent: '#1768e6' },
   { name: '智能写作', desc: '生成校园常用文稿并支持润色', category: ['hot', 'creation'], artSet: 'core', art: 0, route: '/ai-studio/writing', accent: '#4077de' },
   { name: 'AI 文生图', desc: '根据文字描述生成图片', category: ['hot', 'creation'], artSet: 'core', art: 1, route: '/ai-studio/image', accent: '#7546d9' },
+  { name: 'AI伪原创', desc: '图片内容创作与水印处理', category: ['hot', 'creation'], artSet: 'core', art: 5, route: '/ai-original', accent: '#8b63e8' },
   { name: '试卷生成', desc: '生成结构化练习与标准试卷', category: ['hot', 'learning'], artSet: 'core', art: 2, route: '/ai-studio/exam', accent: '#ff3943' },
   { name: 'PPT 生成', desc: '生成演示大纲与文稿资源', category: ['hot', 'creation', 'learning'], artSet: 'core', art: 3, route: '/ai-studio/presentation', accent: '#ff9900' },
   { name: '思维导图', desc: '梳理主题与课程知识结构', category: ['hot', 'diagram', 'learning'], artSet: 'core', art: 4, route: '/ai-studio/mind_map', accent: '#7546d9' },
@@ -114,6 +116,12 @@ const baseTools = [
   { name: '知识图谱', desc: '查看课程知识关系与学习路径', category: ['diagram', 'learning'], artSet: 'core', art: 4, route: '/learning/knowledge-graph', accent: '#18a37d' },
   { name: '校园地图', desc: '查询校园地点、设施和导航', category: ['campus'], artSet: 'service', art: 1, route: '/map', accent: '#56aa1b' },
   { name: 'AI 简历', desc: '智能创建、解析与优化简历', category: ['hot', 'campus'], artSet: 'service', art: 2, route: '/resume', accent: '#1768e6' },
+  { name: 'PDF → Word', desc: 'PDF 转 Word 文档', category: ['convert'], artSet: 'core', art: 0, route: '/convert?type=pdf_to_docx', accent: '#5C7A99' },
+  { name: 'PPT → Word', desc: 'PPT 转 Word 文档', category: ['convert'], artSet: 'core', art: 1, route: '/convert?type=ppt_to_docx', accent: '#6B9B7A' },
+  { name: 'Word → PDF', desc: 'Word 转 PDF 文档', category: ['convert'], artSet: 'core', art: 2, route: '/convert?type=docx_to_pdf', accent: '#B89B7A' },
+  { name: 'PDF → PPT', desc: 'PDF 转 PPT 演示文稿', category: ['convert'], artSet: 'core', art: 3, route: '/convert?type=pdf_to_ppt', accent: '#8B7AB8' },
+  { name: 'PPT → PDF', desc: 'PPT 转 PDF 文档', category: ['convert'], artSet: 'core', art: 4, route: '/convert?type=ppt_to_pdf', accent: '#7A9BB8' },
+  { name: 'Word → PPT', desc: 'Word 转 PPT 演示文稿', category: ['convert'], artSet: 'core', art: 5, route: '/convert?type=docx_to_ppt', accent: '#A67B7B' },
 ]
 
 const displayedTools = computed(() => {
@@ -352,6 +360,7 @@ onBeforeUnmount(() => {
             <svg v-else-if="category.icon === 'book'" viewBox="0 0 24 24"><path d="M3 5.5A3.5 3.5 0 0 1 6.5 2H11v17H6.5A3.5 3.5 0 0 0 3 22V5.5Zm18 0A3.5 3.5 0 0 0 17.5 2H13v17h4.5A3.5 3.5 0 0 1 21 22V5.5Z" /></svg>
             <svg v-else-if="category.icon === 'campus'" viewBox="0 0 24 24"><path d="M3 21V9l5-3v15m8 0V6l5 3v12M8 9h8M6 12h1m-1 3h1m-1 3h1m10-6h1m-1 3h1m-1 3h1M10 13h4v8h-4z" /></svg>
             <svg v-else-if="category.icon === 'briefcase'" viewBox="0 0 24 24"><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M3 9h18v11H3zM3 13c5 2 13 2 18 0M10 13h4" /></svg>
+            <svg v-else-if="category.icon === 'convert'" viewBox="0 0 24 24"><path d="M4 8h13m-3-3 3 3-3 3M20 16H7m3 3-3-3 3-3" /></svg>
             <svg v-else viewBox="0 0 24 24"><path d="m13 2-8 12h6l-1 8 9-13h-6z" /></svg>
           </span>
           <strong>{{ category.label }}</strong>
@@ -860,7 +869,7 @@ svg {
   position: relative;
   z-index: 16;
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
+  grid-template-columns: repeat(6, 1fr);
   width: min(1080px, calc(100% - 56px));
   min-height: 72px;
   margin: -32px auto 0;

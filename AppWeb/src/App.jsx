@@ -31,12 +31,19 @@ import WorkspacePage from './pages/workspace/WorkspacePage'
 import StallManage from './pages/StallManage/StallManage'
 import StallIndoorManage from './pages/StallManage/StallIndoorManage'
 import MarkerManage from './pages/facility/MarkerManage/MarkerManage'
+
+import PublicFacilityManage from './pages/facility/PublicFacilityManage/PublicFacilityManage'
+
+import FacilityAnalyticsDetail from './pages/facility/AnalyticsDetail/FacilityAnalyticsDetail'
+
 import FacilityPlaceManage from './pages/facility/FacilityPlaceManage/FacilityPlaceManage'
 import TeachingBuildingManage from './pages/facility/TeachingBuildingManage/TeachingBuildingManage'
 import CampusCourseManage from './pages/learning/CampusCourseManage'
+import CareerNebulaManage from './pages/careerNebula/CareerNebulaManage'
 import DiscountActivityManage from './pages/discount/ActivityManage'
 import DiscountMerchantManage from './pages/discount/MerchantManage'
 import DiscountCategoryManage from './pages/discount/CategoryManage'
+import PythonProblemManage from './pages/learning/PythonProblemManage'
 import './App.css'
 
 // 论坛独立页面路径集合（不走 WorkspacePage）
@@ -73,6 +80,7 @@ function App() {
           <Route path="/facility/teaching/:buildingId/floors/:floorId" element={<TeachingBuildingManage />} />
           <Route path="/facility/dormitory" element={<FacilityPlaceManage sceneType="DORMITORY" />} />
           <Route path="/facility/canteen/:canteenId/stalls" element={<StallManage />} />
+          <Route path="/facility/analytics/:id" element={<FacilityAnalyticsDetail />} />
           <Route path="/facility/canteen/:canteenId/stalls/indoor" element={<StallIndoorManage />} />
           <Route path="/facility/canteen/:canteenId/stalls/:stallId/dishes" element={<StallManage />} />
           <Route path="/activity/manage" element={<ActivityManage />} />
@@ -107,10 +115,13 @@ function App() {
           <Route path="/admin/paragraph/:knowledgeId/:documentId" element={<ParagraphManage />} />
           <Route path="/ai/profile-rules" element={<ProfileRules />} />
           <Route path="/facility/marker" element={<MarkerManage />} />
+          <Route path="/facility/public" element={<PublicFacilityManage />} />
           <Route path="/learning/courses" element={<CampusCourseManage />} />
+          <Route path="/career/nebula" element={<CareerNebulaManage />} />
           <Route path="/discount/merchant" element={<DiscountMerchantManage />} />
           <Route path="/discount/activity" element={<DiscountActivityManage />} />
           <Route path="/discount/category" element={<DiscountCategoryManage />} />
+          <Route path="/learning/python-problems" element={<PythonProblemManage />} />
           {workspaceRoutes}
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />

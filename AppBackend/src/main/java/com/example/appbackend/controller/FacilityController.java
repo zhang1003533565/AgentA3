@@ -48,6 +48,10 @@ public class FacilityController {
     public Result<java.util.List<FacilityTypeItem>> updateFacilityTypes(
             @RequestBody java.util.List<FacilityTypeItem> types,
             HttpServletRequest httpRequest) {
+        String role = (String) httpRequest.getAttribute("role");
+        if (role == null || !ROLE_ADMIN.equals(role)) {
+            throw new BusinessException(Result.FORBIDDEN_CODE, "无权限操作");
+        }
         checkAdminRole(httpRequest);
         facilityTypeService.saveTypes(types);
         return Result.success("设施类型已更新", facilityTypeService.listTypes());

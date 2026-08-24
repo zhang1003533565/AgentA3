@@ -34,6 +34,7 @@ export const portalGroups = [
       { path: '/facility/teaching', label: '教学楼设置', icon: 'bank', pageKey: 'facility-teaching' },
       { path: '/facility/dormitory', label: '宿舍设置', icon: 'home', pageKey: 'facility-dormitory' },
       { path: '/facility/marker', label: '标点管理', icon: 'pushpin', pageKey: 'facility-marker' },
+     { path: '/facility/public', label: '公共设施设置', icon: 'appstore' },
       { path: '/facility/analytics', label: '设施统计', icon: 'bar-chart', pageKey: 'facility-analytics' },
       { path: '/facility/nav-analytics', label: '导航统计', icon: 'line-chart', pageKey: 'map-analytics' },
     ],
@@ -64,6 +65,7 @@ export const portalGroups = [
     label: '课程学习',
     items: [
       { path: '/learning/courses', label: '校园课程管理', icon: 'book' },
+      { path: '/learning/python-problems', label: 'Python 题库管理', icon: 'appstore' },
     ],
   },
   {
@@ -88,6 +90,11 @@ export const portalGroups = [
       { path: '/admin/knowledge-chat', label: '知识库聊天', icon: 'message' },
       { path: '/ai/profile-rules', label: '画像规则', icon: 'pie-chart' },
     ],
+  },
+  {
+    label: '岗位星图',
+    path: '/career/nebula',
+    items: [],
   },
 ]
 
@@ -541,6 +548,25 @@ export const getNavMetaByPath = (path) => {
   }
 }
 
+// 下钻页面的面包屑规则：带 path 的父级可点击返回（match 支持正则匹配动态路由）
+const drilldownBreadcrumbs = [
+  {
+    match: /^\/facility\/canteen\/[^/]+\/stalls$/,
+    items: ['校园设施', { label: '食堂管理', path: '/facility/canteen' }, '档口管理'],
+  },
+  {
+    match: /^\/facility\/restaurant$/,
+    items: ['校园设施', { label: '食堂管理', path: '/facility/canteen' }, '档口管理'],
+  },
+  {
+    match: /^\/facility\/stall-dish$/,
+    items: ['校园设施', { label: '食堂管理', path: '/facility/canteen' }, '档口菜品管理'],
+  },
+  {
+    match: /^\/facility\/analytics\/[^/]+$/,
+    items: ['校园设施', { label: '设施统计', path: '/facility/analytics' }, '图文详情'],
+  },
+]
 const normalizePortalPath = (path) => {
   const normalized = String(path || '').split(/[?#]/, 1)[0].replace(/\/+$/, '')
   return normalized || '/'
@@ -548,6 +574,8 @@ const normalizePortalPath = (path) => {
 
 export const getBreadcrumbByPath = (path) => {
   const normalizedPath = normalizePortalPath(path)
+  const drilldown = drilldownBreadcrumbs.find((rule) => rule.match.test(normalizedPath))
+  if (drilldown) return drilldown.items
 
   for (const section of navigationSections) {
     const item = section.items.find((navItem) => normalizePortalPath(navItem.path) === normalizedPath)

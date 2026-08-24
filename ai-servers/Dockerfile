@@ -13,8 +13,8 @@ WORKDIR /app
 RUN groupadd --system app \
     && useradd --system --gid app --create-home app
 
-RUN apt-get update \
-    && apt-get install --no-install-recommends --yes libreoffice-impress fonts-noto-cjk nodejs npm chromium unzip \
+RUN apt-get -o Acquire::Retries=5 update \
+    && apt-get -o Acquire::Retries=5 install --no-install-recommends --yes libreoffice-impress fonts-noto-cjk nodejs npm chromium unzip \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt ./requirements.txt
