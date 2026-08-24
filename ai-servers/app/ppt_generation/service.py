@@ -944,6 +944,7 @@ class PptGenerationService:
             items: List[Dict[str, Any]] = []
             min_acceptable = min_pages
             attempt = 0
+            topic_page_completion = False
             while True:
                 report_progress(
                     "model_generation",
@@ -1029,7 +1030,18 @@ class PptGenerationService:
                     "正在检查大纲质量",
                     f"正在检查页数、内容覆盖和结构完整性（当前 {len(items)} 页）",
                 )
-                # 页数不足才重生成整份大纲；内容稀疏改为后面的定向页面修复，
+                # 主题模式只要已经返回至少两页可解析内容，就不再因为页数
+                # 短缺而重新请求模型。后面用主题语义骨架补齐缺页，避免一次
+                # 可用的 3/5 页结果被第二次不稳定请求拖入连接错误和兜底链。
+                if topic_only and len(items) >= 2 and len(items) < min_acceptable:
+                    topic_page_completion = True
+                    logger.info(
+                        "PPT outline accepted usable topic outline pages=%d/%d; completing missing pages locally",
+                        len(items),
+                        min_acceptable,
+                    )
+                    break
+                # 其他模式仍保留页数质量重试；内容稀疏改为后面的定向页面修复，
                 # 避免一页缺两个要点时再次等待整份大纲。
                 if len(items) >= min_acceptable or attempt >= PPT_OUTLINE_MAX_RETRIES:
                     break
@@ -1064,7 +1076,14 @@ class PptGenerationService:
                 if len(items) >= 2:
                     markdown = _outline_markdown_from_items(items, topic)
             if topic_only and len(items) < min_acceptable:
-                recovery_reason = recovery_reason or f"主题模式模型仅返回 {len(items)} 页，已按主题扩展为可编辑结构"
+                if topic_page_completion and not recovery_reason:
+                    logger.info(
+                        "PPT outline topic completion pages=%d/%d uses semantic scaffold without fallback",
+                        len(items),
+                        min_acceptable,
+                    )
+                else:
+                    recovery_reason = recovery_reason or f"主题模式模型仅返回 {len(items)} 页，已按主题扩展为可编辑结构"
                 items = _topic_outline_items(
                     topic,
                     min_acceptable,
@@ -1089,7 +1108,9 @@ class PptGenerationService:
                 )
                 if coverage_repaired:
                     markdown = _outline_markdown_from_items(items, topic)
-            if source_mode != "outline_grounded":
+            if source_mode != "outline_grounded" and not (
+                topic_only and topic_page_completion
+            ):
                 repaired_items, repaired = _repair_outline_sparse_pages(
                     items,
                     prompt_payload,
@@ -3470,7 +3491,9 @@ def _topic_outline_items(
         seed_points = [str(point).strip() for point in (seed.get("keyPoints") or []) if str(point).strip()]
         title = topic if index == 1 else str(seed.get("title") or fallback_title).strip()
         page_type = "封面页" if index == 1 else ("总结页" if index == len(scaffold) else str(seed.get("type") or fallback_type))
-        points = seed_points[:6] or fallback_points
+        # 本地补页必须提供可直接展开的内容密度；模型只返回一两个
+        # 要点时，不把稀疏 seed 原样带入新页面，避免再次调用修复模型。
+        points = seed_points[:6] if len(seed_points) >= 3 else fallback_points
         items.append(_ensure_outline_item_structure({
             "id": f"slide_{index}",
             "level": 1 if index == 1 or index == len(scaffold) else (

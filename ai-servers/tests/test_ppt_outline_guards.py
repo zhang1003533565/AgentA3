@@ -299,6 +299,33 @@ def test_topic_only_sparse_outline_retries_for_depth(monkeypatch):
     assert "页面节点" in calls[1]["correction"]
 
 
+def test_topic_only_usable_short_outline_is_completed_without_model_retry(monkeypatch):
+    from app.ppt_generation import service as svc
+
+    calls = []
+
+    def fake_run_specialist_agent(agent, prompt, evidence):
+        calls.append(json.loads(prompt))
+        return _full_markdown(3)
+
+    monkeypatch.setattr(svc, "run_specialist_agent", fake_run_specialist_agent)
+    result = PptGenerationService().generate_outline(
+        {
+            "topic": "计算机专业就业指导",
+            "sourceContent": "计算机专业就业指导",
+            "pageCount": 5,
+        },
+        None,
+    )
+
+    assert len(calls) == 1
+    assert len(result["items"]) == 5
+    assert result["generationMode"] == "ai"
+    titles = [item["title"] for item in result["items"]]
+    assert titles[0] == "计算机专业就业指导"
+    assert titles[-2:] == ["学习与项目准备路径", "求职行动与决策清单"]
+
+
 def test_explicit_non_outline_mode_allows_framework_expansion(monkeypatch):
     from app.ppt_generation import service as svc
 
