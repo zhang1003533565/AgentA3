@@ -902,7 +902,7 @@ async def run_rag_query_stream(
                     yield build_sse("generation_start", _build_generation_start_payload(request, plan))
                     generation_started = True
                 execution_started_at = time.perf_counter()
-                response = await asyncio.to_thread(_execute_leader_plan, request, authorization or "", profile_context, plan)
+                response = await asyncio.to_thread(_execute_leader_plan, request, authorization or "", profile_context, plan, callable_catalog)
                 execution_ms = _elapsed_ms(execution_started_at)
             else:
                 if _should_emit_generation_start(request, active_agent):
@@ -1498,7 +1498,7 @@ def _run_leader_orchestration(request: RagQueryRequest, authorization: str) -> R
         )
     plan_ms = _elapsed_ms(planning_started_at)
     execution_started_at = time.perf_counter()
-    response = _execute_leader_plan(request, authorization, profile_context, plan)
+    response = _execute_leader_plan(request, authorization, profile_context, plan, callable_catalog=callable_catalog)
     execution_ms = _elapsed_ms(execution_started_at)
     _set_response_route_mode(response, plan)
     return _merge_response_performance(
@@ -1847,27 +1847,45 @@ def _execute_leader_plan(
     authorization: str,
     profile_context: Optional[Dict[str, Any]],
     plan,
+    callable_catalog: Optional[Dict[str, Any]] = None,
 ) -> RagQueryResponse:
     if plan.action == "direct_answer":
-        return _run_leader_direct_answer(plan, profile_context=profile_context)
+        response = _run_leader_direct_answer(plan, profile_context=profile_context)
+        _inject_tool_selection_into_response(response, callable_catalog)
+        return response
     if plan.action == "call_tool":
         if not _is_tool_enabled(request, plan.tool_name):
             return _run_disabled_tool_response(request, plan.tool_name, leader_plan=plan)
         if plan.tool_name == TOOL_CAPABILITY_QUERY_NAME:
-            return _run_tool_capability_query(request, plan)
-        if plan.tool_name == "text_to_sql":
-            return _run_text_to_sql_tool(request, plan)
-        if plan.tool_name in SERVICE_TOOL_NAMES:
-            return _run_service_tool(request, authorization, plan)
-        if plan.tool_name == "generated_export_tools":
-            return _run_generated_export_tool(request, plan)
-        if plan.tool_name == IMAGE_RECOGNITION_TOOL_NAME:
-            return _run_image_recognition_tool(request, plan)
-        if plan.tool_name in VISUAL_GENERATION_TOOL_NAMES:
-            return _run_visual_generation_tool(request, plan)
-        raise HTTPException(status_code=502, detail=f"Leader 选择了未注册工具：{plan.tool_name or '空'}，已停止执行。")
+            response = _run_tool_capability_query(request, plan)
+        elif plan.tool_name == "text_to_sql":
+            response = _run_text_to_sql_tool(request, plan)
+        elif plan.tool_name in SERVICE_TOOL_NAMES:
+            response = _run_service_tool(request, authorization, plan)
+        elif plan.tool_name == "generated_export_tools":
+            response = _run_generated_export_tool(request, plan)
+        elif plan.tool_name == IMAGE_RECOGNITION_TOOL_NAME:
+            response = _run_image_recognition_tool(request, plan)
+        elif plan.tool_name in VISUAL_GENERATION_TOOL_NAMES:
+            response = _run_visual_generation_tool(request, plan)
+        else:
+            raise HTTPException(status_code=502, detail=f"Leader 选择了未注册工具：{plan.tool_name or '空'}，已停止执行。")
+        _inject_tool_selection_into_response(response, callable_catalog)
+        return response
 
     raise HTTPException(status_code=502, detail=f"Leader 只允许直接回答或调用系统工具，已拒绝动作：{plan.action}")
+
+
+def _inject_tool_selection_into_response(response: RagQueryResponse, callable_catalog: Optional[Dict[str, Any]]) -> None:
+    """Inject toolSelection (candidate tools with scores) into response metadata for monitoring."""
+    if not callable_catalog or not isinstance(callable_catalog, dict):
+        return
+    tool_selection = callable_catalog.get("toolSelection")
+    if not isinstance(tool_selection, dict):
+        return
+    if response.metadata is None:
+        response.metadata = {}
+    response.metadata["toolSelection"] = tool_selection
 
 
 def _should_emit_generation_start(request: RagQueryRequest, agent_name: Optional[str], plan=None) -> bool:
@@ -2057,6 +2075,7 @@ def _build_leader_callable_catalog(request: Optional[RagQueryRequest] = None) ->
         "candidateCount": len(available_tools),
         "topK": len(available_tools),
     }
+    all_tool_scores: List[Dict[str, Any]] = []
     if request is not None:
         intent_result = tool_intent_router_agent.extract(getattr(request, "input", ""))
         metadata = request.metadata if isinstance(request.metadata, dict) else {}
@@ -2089,6 +2108,12 @@ def _build_leader_callable_catalog(request: Optional[RagQueryRequest] = None) ->
             retrieval_profiles=metadata.get("toolRetrievalProfiles") if isinstance(metadata.get("toolRetrievalProfiles"), dict) else {},
             top_k=3,
         )
+        # 全量打分：给所有已启用工具打分（含 0 分），供监控页面展示完整快照
+        all_tool_scores = tool_index.score_all_tools(
+            getattr(request, "input", ""),
+            available_tools,
+            retrieval_profiles=metadata.get("toolRetrievalProfiles") if isinstance(metadata.get("toolRetrievalProfiles"), dict) else {},
+        )
     is_capability_inquiry = selection.get("intent") == "capability_inquiry"
     # 能力询问由系统固定工具路由，不把工具本身或业务工具清单发送给 Leader。
     # 普通问题仍只保留索引后的少量候选工具。
@@ -2102,7 +2127,9 @@ def _build_leader_callable_catalog(request: Optional[RagQueryRequest] = None) ->
             "entities": selection.get("entities") or {},
             "constraints": selection.get("constraints") or [],
             "queryVariants": selection.get("queryVariants") or [],
+            "candidateTools": tools,
             "candidateCount": len(tools),
+            "allToolScores": all_tool_scores,
             "fixedRoute": TOOL_CAPABILITY_QUERY_NAME if is_capability_inquiry else "",
         },
         "summary": {

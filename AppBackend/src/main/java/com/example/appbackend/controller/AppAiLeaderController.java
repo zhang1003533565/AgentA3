@@ -10,11 +10,13 @@ import com.example.appbackend.dto.UserProfileDTO;
 import com.example.appbackend.entity.AiLeaderGeneratedExport;
 import com.example.appbackend.entity.AiLeaderMessage;
 import com.example.appbackend.entity.AiLeaderSession;
+import com.example.appbackend.entity.AiToolCallRecord;
 import com.example.appbackend.entity.Result;
 import com.example.appbackend.exception.BusinessException;
 import com.example.appbackend.repository.AiLeaderGeneratedExportRepository;
 import com.example.appbackend.repository.AiLeaderMessageRepository;
 import com.example.appbackend.repository.AiLeaderSessionRepository;
+import com.example.appbackend.repository.AiToolCallRecordRepository;
 import com.example.appbackend.service.UserProfileService;
 import com.example.appbackend.service.impl.AssistantEnvelopeService;
 import com.example.appbackend.service.impl.PythonAiProxyService;
@@ -76,6 +78,7 @@ public class AppAiLeaderController {
     private final AiLeaderSessionRepository sessionRepository;
     private final AiLeaderMessageRepository messageRepository;
     private final AiLeaderGeneratedExportRepository exportRepository;
+    private final AiToolCallRecordRepository toolCallRecordRepository;
     private final UserProfileService userProfileService;
     private final ObjectMapper objectMapper;
     private final AssistantEnvelopeService assistantEnvelopeService;
@@ -84,6 +87,7 @@ public class AppAiLeaderController {
                                  AiLeaderSessionRepository sessionRepository,
                                  AiLeaderMessageRepository messageRepository,
                                  AiLeaderGeneratedExportRepository exportRepository,
+                                 AiToolCallRecordRepository toolCallRecordRepository,
                                  UserProfileService userProfileService,
                                  ObjectMapper objectMapper,
                                  AssistantEnvelopeService assistantEnvelopeService) {
@@ -91,6 +95,7 @@ public class AppAiLeaderController {
         this.sessionRepository = sessionRepository;
         this.messageRepository = messageRepository;
         this.exportRepository = exportRepository;
+        this.toolCallRecordRepository = toolCallRecordRepository;
         this.userProfileService = userProfileService;
         this.objectMapper = objectMapper;
         this.assistantEnvelopeService = assistantEnvelopeService;
@@ -111,7 +116,8 @@ public class AppAiLeaderController {
         LlmChatResponse response = toChatResponse(session, ragResult);
         AssistantEnvelopeService.PreparedEnvelope envelope = assistantEnvelopeService.prepareLiveResponse(
                 response, mapValue(ragResult), request.getInput());
-        saveAssistantMessage(userId, session, response, envelope);
+        AiLeaderMessage savedMessage = saveAssistantMessage(userId, session, response, envelope);
+        saveToolCallRecordIfNeeded(userId, session, savedMessage, ragResult, request.getInput());
         refreshSession(session, response.getAnswer());
         captureLeaderProfileEvidence(userId, session, request, response);
         return Result.success(response);
@@ -196,12 +202,16 @@ public class AppAiLeaderController {
                 AssistantEnvelopeService.PreparedEnvelope envelope = assistantEnvelopeService.prepareLiveResponse(
                         response, mapValue(eventPayload), request.getInput(), Set.copyOf(internalCapabilities));
                 AiLeaderMessage existing = visibleGenerationMessage.get();
+                AiLeaderMessage savedMessage;
                 if (existing == null) {
-                    AiLeaderMessage saved = saveAssistantMessage(userId, session, response, envelope);
-                    visibleGenerationMessage.set(saved);
+                    savedMessage = saveAssistantMessage(userId, session, response, envelope);
+                    visibleGenerationMessage.set(savedMessage);
                 } else {
                     updateAssistantMessage(userId, session, existing, response, envelope);
+                    savedMessage = existing;
                 }
+                // 保存工具调用打分记录（流式接口）
+                saveToolCallRecordIfNeeded(userId, session, savedMessage, eventPayload, request.getInput());
                 completed.set(true);
                 assistantEnvelopeService.overwriteSsePayload(eventPayload, response);
                 refreshSession(session, response.getAnswer());
@@ -887,5 +897,48 @@ public class AppAiLeaderController {
             }
         }
         return truncate(input.trim().replaceAll("\\s+", " "), 40);
+    }
+
+    private void saveToolCallRecordIfNeeded(Long userId, AiLeaderSession session,
+                                            AiLeaderMessage savedMessage, Object ragResult, String userInput) {
+        try {
+            log.info("[ToolMonitor] saveToolCallRecordIfNeeded called, userId={}, sessionId={}", 
+                    userId, session == null ? null : session.getSessionId());
+            Map<String, Object> result = ragResult instanceof Map<?, ?> map ? (Map<String, Object>) map : Map.of();
+            log.info("[ToolMonitor] ragResult type: {}, keys: {}", 
+                    ragResult == null ? "null" : ragResult.getClass().getSimpleName(),
+                    result.keySet());
+            // 流式接口用 retrievalMeta，非流式接口用 metadata
+            Object metadataValue = result.containsKey("metadata") ? result.get("metadata") : result.get("retrievalMeta");
+            Map<String, Object> metadata = mapValue(metadataValue);
+            log.info("[ToolMonitor] metadata keys: {}", metadata.keySet());
+            String leaderAction = stringValue(metadata.get("leaderAction"));
+            log.info("[ToolMonitor] leaderAction: {}", leaderAction);
+            boolean toolCalled = "call_tool".equals(leaderAction);
+            Map<String, Object> toolSelection = mapValue(metadata.get("toolSelection"));
+            log.info("[ToolMonitor] toolSelection: {}", toolSelection);
+            // 优先读取全量打分数据，回退到候选工具列表
+            List<Map<String, Object>> allToolScores = traceAsMaps(toolSelection.get("allToolScores"));
+            List<Map<String, Object>> candidateTools = !allToolScores.isEmpty() 
+                    ? allToolScores 
+                    : traceAsMaps(toolSelection.get("candidateTools"));
+            log.info("[ToolMonitor] allToolScores count: {}, candidateTools count: {}", allToolScores.size(), candidateTools.size());
+            String candidateToolsJson = candidateTools.isEmpty() ? "[]" : objectMapper.writeValueAsString(candidateTools);
+            AiToolCallRecord record = new AiToolCallRecord();
+            record.setUserId(userId);
+            record.setLeaderSessionId(session == null ? null : session.getId());
+            record.setMessageId(savedMessage == null ? null : savedMessage.getId());
+            record.setToolName(stringValue(metadata.get("toolName")));
+            record.setToolDisplayName(stringValue(metadata.get("toolDisplayName")));
+            record.setUserInput(truncate(stringValue(userInput), 500));
+            record.setIntent(stringValue(toolSelection.get("intent")));
+            record.setToolCalled(toolCalled);
+            record.setCandidateToolsJson(candidateToolsJson);
+            toolCallRecordRepository.save(record);
+            log.info("[ToolMonitor] record saved, id={}, toolCalled={}", record.getId(), toolCalled);
+        } catch (Exception error) {
+            log.warn("[ToolMonitor] tool call record save failed userId={} sessionId={}: {}",
+                    userId, session == null ? null : session.getSessionId(), error.getMessage(), error);
+        }
     }
 }
