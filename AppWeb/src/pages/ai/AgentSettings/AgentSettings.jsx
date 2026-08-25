@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Alert, Button, Card, Drawer, Empty, Input, Segmented, Select, Space, Switch, Table, Tabs, Tag, Typography, Upload, message } from 'antd'
+import { Alert, Button, Card, Drawer, Empty, Input, Modal, Segmented, Select, Space, Switch, Table, Tabs, Tag, Typography, Upload, message } from 'antd'
 import { CheckCircleOutlined, ExclamationCircleOutlined, PlusOutlined, ReloadOutlined, RobotOutlined, SaveOutlined, SettingOutlined } from '@ant-design/icons'
 import { getRagAgents, runRagQuery } from '../../../api/rag'
 import { getSystemConfigList, upsertSystemConfig } from '../../../api/systemConfig'
@@ -239,6 +239,7 @@ function AgentSettings() {
   const [activeTab, setActiveTab] = useState('overview')
   const [leaderObjectType, setLeaderObjectType] = useState('all')
   const [leaderToolFilter, setLeaderToolFilter] = useState('all')
+  const [selectedToolKeys, setSelectedToolKeys] = useState([])
   const [runtimeAgentFilter, setRuntimeAgentFilter] = useState('all')
   const [toolTestName, setToolTestName] = useState('')
   const [toolTestInput, setToolTestInput] = useState('')
@@ -385,8 +386,10 @@ function AgentSettings() {
         item.name === toolName ? { ...item, enabled } : item
       )))
       message.success(enabled ? '工具已开启，Leader 可调用' : '工具已关闭，Leader 不会调用')
+      return true
     } catch (error) {
       message.error(error.message || '工具开关保存失败')
+      return false
     } finally {
       setSavingKey('')
     }
@@ -418,6 +421,55 @@ function AgentSettings() {
       setSavingKey('')
     }
   }, [draftToolBindings])
+
+  const buildToolImpactText = useCallback((record) => {
+    const lines = []
+    if (record.name === 'generated_export_tools') {
+      lines.push('这是内容整理总开关，关闭后 Leader 不会调用导出整理能力，自动附件整理也会停止。')
+    }
+    if (record.boundAgent) {
+      const boundAgent = agents.find((item) => item.name === record.boundAgent)
+      lines.push(`绑定智能体：${boundAgent?.role || record.boundAgent}，其启用状态会影响本工具可用性。`)
+    }
+    if (record.trigger) {
+      lines.push(`触发条件：${record.trigger}`)
+    }
+    return lines.join('\n')
+  }, [agents])
+
+  const handleToolToggleChange = useCallback((record, checked) => {
+    if (checked) {
+      saveToolEnabled(record.name, true)
+      return
+    }
+    Modal.confirm({
+      title: '确认关闭工具',
+      content: buildToolImpactText(record) || '关闭后 Leader 将不再调用该工具。',
+      okText: '确认关闭',
+      cancelText: '取消',
+      onOk: () => saveToolEnabled(record.name, false),
+    })
+  }, [saveToolEnabled, buildToolImpactText])
+
+  const bulkSetToolsEnabled = useCallback(async (enabled) => {
+    const names = [...selectedToolKeys]
+    if (!names.length) return
+    Modal.confirm({
+      title: enabled ? '批量开启工具' : '批量关闭工具',
+      content: `将对选中的 ${names.length} 个工具执行${enabled ? '开启' : '关闭'}。`,
+      okText: '确认',
+      cancelText: '取消',
+      onOk: async () => {
+        let failed = 0
+        for (const name of names) {
+          const ok = await saveToolEnabled(name, enabled)
+          if (!ok) failed += 1
+        }
+        message.success(failed ? `已${enabled ? '开启' : '关闭'} ${names.length - failed}/${names.length} 个工具，${failed} 个失败` : `已${enabled ? '开启' : '关闭'} ${names.length} 个工具`)
+        setSelectedToolKeys([])
+      },
+    })
+  }, [selectedToolKeys, saveToolEnabled])
 
   const saveToolRetrievalProfile = useCallback(async (tool) => {
     const text = draftToolRetrievalProfiles[tool.name] || retrievalProfileText(tool, tool.retrievalProfile)
@@ -889,7 +941,7 @@ function AgentSettings() {
     {
       title: '开关',
       dataIndex: 'enabled',
-      width: 100,
+      width: 80,
       render: (value, record) => (
         <Switch
           checked={record.configurable === false || value !== false}
@@ -897,31 +949,31 @@ function AgentSettings() {
           loading={savingKey === `tool:${record.name}`}
           checkedChildren="开"
           unCheckedChildren="关"
-          onChange={(checked) => saveToolEnabled(record.name, checked)}
+          onChange={(checked) => handleToolToggleChange(record, checked)}
         />
       ),
     },
     {
       title: '工具',
       dataIndex: 'name',
-      width: 300,
+      width: 170,
       render: (value, record) => (
         <Space direction="vertical" size={4}>
-          <Tag color={record.category === 'campus_service' ? 'green' : 'cyan'}>{getToolDisplayName(record)}</Tag>
-          <Text type="secondary">{getToolCategoryLabel(record.category)}</Text>
+          <Tag color={record.category === 'campus_service' ? 'green' : 'cyan'}>{record.zhName || getToolDisplayName(record)}</Tag>
+          <Text type="secondary" style={{ fontSize: 12 }}>{record.name}</Text>
         </Space>
       ),
     },
     {
       title: '输出',
       dataIndex: 'outputs',
-      width: 190,
+      width: 130,
       render: renderOutputs,
     },
     {
       title: '绑定智能体',
       dataIndex: 'boundAgent',
-      width: 330,
+      width: 270,
       render: (value, record) => {
         const current = draftToolBindings[record.name] !== undefined ? draftToolBindings[record.name] : (value || '')
         const saved = toolBindings[record.name] !== undefined ? toolBindings[record.name] : (value || '')
@@ -949,7 +1001,7 @@ function AgentSettings() {
                   </div>
                 )}
                 popupMatchSelectWidth={false}
-                style={{ width: 200 }}
+                style={{ width: 175 }}
                 onChange={(selected) => setDraftToolBindings((prev) => ({ ...prev, [record.name]: selected || '' }))}
               />
               <Button
@@ -969,20 +1021,20 @@ function AgentSettings() {
       },
     },
     {
-      title: '触发条件',
-      dataIndex: 'trigger',
-      width: 320,
-      ellipsis: true,
-    },
-    {
       title: '说明',
       dataIndex: 'purpose',
-      ellipsis: true,
+      width: 170,
+      ellipsis: { showTitle: false },
+      render: (value, record) => (
+        <span title={`${value || ''}${record.trigger ? `\n触发：${record.trigger}` : ''}`}>
+          {value || '-'}
+        </span>
+      ),
     },
     {
       title: '检索说明（可编辑）',
       dataIndex: 'retrievalProfile',
-      width: 180,
+      width: 220,
       render: (value, record) => {
         return (
           <Button icon={<SettingOutlined />} onClick={() => openRetrievalDrawer(record)}>
@@ -991,7 +1043,7 @@ function AgentSettings() {
         )
       },
     },
-  ], [openRetrievalDrawer, saveToolEnabled, saveToolBinding, savingKey, agents, toolBindingOptions, draftToolBindings, toolBindings])
+  ], [openRetrievalDrawer, handleToolToggleChange, saveToolBinding, savingKey, agents, toolBindingOptions, draftToolBindings, toolBindings])
 
   const questionAgentOptions = useMemo(() => agents.map((agent) => ({
     value: agent.name,
@@ -1250,15 +1302,26 @@ function AgentSettings() {
                       onChange={setLeaderToolFilter}
                     />
                   </div>
+                  {selectedToolKeys.length > 0 && (
+                    <Space style={{ marginBottom: 8 }} size={8}>
+                      <Text type="secondary">已选 {selectedToolKeys.length} 项</Text>
+                      <Button size="small" onClick={() => bulkSetToolsEnabled(true)}>批量开启</Button>
+                      <Button size="small" danger onClick={() => bulkSetToolsEnabled(false)}>批量关闭</Button>
+                      <Button size="small" type="text" onClick={() => setSelectedToolKeys([])}>取消选择</Button>
+                    </Space>
+                  )}
                   <Table
                     className="agent-settings-clean-table"
                     rowKey="name"
                     loading={loading}
                     columns={leaderToolColumns}
                     dataSource={filteredLeaderTools}
-                    pagination={false}
+                    rowSelection={{
+                      selectedRowKeys: selectedToolKeys,
+                      onChange: setSelectedToolKeys,
+                    }}
+                    pagination={{ pageSize: 8 }}
                     size="middle"
-                    scroll={{ x: 1080 }}
                   />
                 </div>
               ),
@@ -1496,9 +1559,8 @@ function AgentSettings() {
                       { title: '可识别链接', dataIndex: 'canDetect', width: 120, render: (value) => <Tag color={value ? 'green' : 'default'}>{value ? '是' : '否'}</Tag> },
                       { title: '可导出', dataIndex: 'canExport', width: 100, render: (value) => <Tag color={value ? 'green' : 'default'}>{value ? '是' : '否'}</Tag> },
                       { title: '对应工具', dataIndex: 'tool', width: 220, render: (value) => <Text code>{value || '-'}</Text> },
-                      { title: '说明', dataIndex: 'description' },
+                      { title: '说明', dataIndex: 'description', width: 320, ellipsis: true },
                     ]}
-                    scroll={{ x: 1100 }}
                   />
                 </div>
               ),
