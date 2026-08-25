@@ -29,6 +29,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Base64;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Queue;
@@ -55,6 +56,8 @@ public class MeetingAsrWebSocketHandler extends TextWebSocketHandler {
     private final HttpClient httpClient;
     private final Map<String, AsrBridge> bridges = new ConcurrentHashMap<>();
     private final Map<String, java.util.Set<WebSocketSession>> meetingSessions = new ConcurrentHashMap<>();
+    /** 会议级 Agent 1 实时摘要缓存：meetingSessionId → 已完成的摘要列表，供中途入会成员获取历史总结 */
+    private final Map<String, List<Map<String, Object>>> meetingSummaryCache = new ConcurrentHashMap<>();
     private static final int AUDIO_FRAME_SIZE = 1280;
     private static final int AUDIO_FRAME_INTERVAL_MS = 40;
 
@@ -97,7 +100,61 @@ public class MeetingAsrWebSocketHandler extends TextWebSocketHandler {
         } else {
             System.out.println("[ASR-Connect] meetingSessionId empty, not joined to any group");
         }
+        // 新连接建立后，如果有历史 AI 实时摘要则主动推送给该客户端，支持中途入会查看完整历史总结
+        sendAiSummaryHistory(session, meetingSessionId);
         bridge.connect();
+    }
+
+    /**
+     * 向新连接的客户端推送该会议已有的 Agent 1 实时摘要历史。
+     * 中途加入的成员可通过此机制获取从会议开始到当前时刻已产生的全部 AI 实时总结。
+     */
+    private void sendAiSummaryHistory(WebSocketSession session, String meetingSessionId) {
+        if (!StringUtils.hasText(meetingSessionId)) return;
+        List<Map<String, Object>> history = meetingSummaryCache.get(meetingSessionId);
+        if (history == null || history.isEmpty()) return;
+        Map<String, Object> msg = new HashMap<>();
+        msg.put("type", "ai_summary_history");
+        msg.put("items", new ArrayList<>(history));
+        sendToSession(session, msg);
+        System.out.println("[AI-Summary-History] sent " + history.size() + " items to session=" + session.getId() + " meeting=" + meetingSessionId);
+    }
+
+    /**
+     * 处理客户端上报的 Agent 1 实时摘要完成消息。
+     * 将摘要存入会议级缓存并广播给该会议所有其他在线客户端。
+     */
+    private void handleAiSummaryMessage(WebSocketSession session, JsonNode node) {
+        String meetingSessionId = meetingSessionId(session);
+        if (!StringUtils.hasText(meetingSessionId)) return;
+        String id = node.path("id").asText("");
+        String text = node.path("text").asText("");
+        String time = node.path("time").asText("");
+        if (!StringUtils.hasText(id) || !StringUtils.hasText(text)) return;
+        // 存入会议级缓存，去重防止同一条摘要重复存储
+        List<Map<String, Object>> cache = meetingSummaryCache.computeIfAbsent(meetingSessionId, k -> new ArrayList<>());
+        synchronized (cache) {
+            boolean exists = cache.stream().anyMatch(item -> id.equals(item.get("id")));
+            if (!exists) {
+                Map<String, Object> item = new HashMap<>();
+                item.put("id", id);
+                item.put("text", text);
+                item.put("time", time);
+                cache.add(item);
+                // 限制缓存大小，防止超长会议内存溢出
+                if (cache.size() > 50) {
+                    cache.subList(0, cache.size() - 50).clear();
+                }
+            }
+        }
+        // 广播给该会议所有在线客户端（含发送者，由前端负责去重）
+        Map<String, Object> broadcast = new HashMap<>();
+        broadcast.put("type", "ai_summary");
+        broadcast.put("id", id);
+        broadcast.put("text", text);
+        broadcast.put("time", time);
+        broadcastToMeeting(session, broadcast);
+        System.out.println("[AI-Summary-Broadcast] id=" + id + " meeting=" + meetingSessionId + " cacheSize=" + cache.size());
     }
 
     @Override
@@ -129,6 +186,17 @@ public class MeetingAsrWebSocketHandler extends TextWebSocketHandler {
                             "speaker", node.path("speaker").asText(speakerName(session)),
                             "text", node.path("text").asText("")
                     ));
+                }
+            } catch (Exception ignored) {
+            }
+            return;
+        }
+        // AI 实时摘要完成消息：客户端完成 Agent 1 摘要生成后上报，由后端存储并广播给会议所有成员
+        if (payload.contains("\"type\":\"ai_summary\"") && !payload.contains("\"type\":\"ai_summary_history\"")) {
+            try {
+                JsonNode node = objectMapper.readTree(payload);
+                if ("ai_summary".equals(node.path("type").asText())) {
+                    handleAiSummaryMessage(session, node);
                 }
             } catch (Exception ignored) {
             }
