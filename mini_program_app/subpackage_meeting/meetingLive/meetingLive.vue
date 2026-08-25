@@ -14,13 +14,37 @@
 
 		<!-- 中间主区域：参会画面居中（核心视觉） -->
 		<view class="main-view-area">
+			<!-- AI 实时摘要画布：开关打开后显示在成员画布上方，成员自然向下压缩，其余元素（弹幕/字幕/底部导航）原位保留；用 v-show 纯隐藏，保留已生成摘要数据与滚动位置 -->
+			<view v-show="agentEnabled" class="ai-summary-canvas">
+				<view class="ai-summary-canvas-head">
+					<text class="ai-summary-canvas-title">AI 实时摘要</text>
+					<text class="ai-summary-canvas-status" :class="{ 'ai-summary-canvas-status--live': aiSummaryRunning }">{{ aiSummaryStatusText }}</text>
+				</view>
+				<scroll-view class="ai-summary-canvas-scroll" scroll-y>
+					<view v-if="aiSummaryItems.length === 0" class="ai-summary-canvas-empty">{{ livePanelEmptyText }}</view>
+					<view v-else class="ai-summary-canvas-list">
+						<view v-for="item in aiSummaryItems" :key="item.id" class="ai-summary-canvas-item">
+							<view class="ai-summary-canvas-meta">
+								<text>会议重点</text>
+								<text>{{ item.time }}</text>
+							</view>
+							<text class="ai-summary-canvas-text">{{ item.text }}</text>
+						</view>
+					</view>
+				</scroll-view>
+			</view>
 			<view class="member-slider" @touchstart="handleSwipeStart" @touchend="handleSwipeEnd" @mousedown="handleSwipeStart" @mouseup="handleSwipeEnd">
 				<!-- 顶部弹幕滚动层：扣字消息从右向左飘过，不阻挡成员滑动 -->
 				<view class="danmaku-layer">
 					<text v-for="item in danmakuItems" :key="item.id" class="danmaku-item">{{ item.text }}</text>
 				</view>
 				<view class="member-pages" :style="{ transform: 'translateX(-' + memberPageIndex * 100 + '%)' }">
-					<view v-for="(page, pageIndex) in pagedMembers" :key="pageIndex" class="member-grid">
+					<view
+						v-for="(page, pageIndex) in pagedMembers"
+						:key="pageIndex"
+						class="member-grid"
+						:class="{ 'member-grid--compact': agentEnabled }"
+					>
 						<view
 							v-for="member in page"
 							:key="member.name"
@@ -181,7 +205,7 @@
 				<view v-else-if="agentEnabled" class="ai-summary-stream">
 					<view v-for="item in aiSummaryItems" :key="item.id" class="ai-summary-card">
 						<view class="ai-summary-meta">
-							<text>AI 总结</text>
+							<text>会议重点</text>
 							<text>{{ item.time }}</text>
 						</view>
 						<text class="ai-summary-text">{{ item.text }}</text>
@@ -209,10 +233,22 @@
 			<view class="sheet-title-row">
 				<text class="sheet-close" @click="closeSubtitlePanel">×</text>
 			</view>
-			<scroll-view class="subtitle-record-scroll" scroll-y>
+			<scroll-view
+				class="subtitle-record-scroll"
+				scroll-y
+				:scroll-into-view="subtitleRecordIntoView"
+				lower-threshold="60"
+				@scroll="handleSubtitleRecordScroll"
+				@scrolltolower="handleSubtitleRecordScrollToLower"
+			>
 				<view v-if="subtitleRecords.length === 0" class="subtitle-record-empty">暂无字幕记录</view>
 				<view v-else class="subtitle-record-list">
-					<view v-for="(item, index) in subtitleRecords" :key="index" class="subtitle-record-item">
+					<view
+						v-for="(item, index) in subtitleRecords"
+						:key="index"
+						:id="'subtitle-record-item-' + index"
+						class="subtitle-record-item"
+					>
 						<view class="subtitle-record-avatar">{{ (item.speaker || '').slice(0,1) }}</view>
 						<view class="subtitle-record-main">
 							<view class="subtitle-record-meta">
@@ -375,6 +411,9 @@ export default {
 			isHost: false,
 			hostName: '',
 			subtitleRecords: [],
+			subtitleRecordIntoView: '',
+			subtitleRecordAtBottom: true,
+			subtitleRecordScrollTopValue: 0,
 			chatDraft: '',
 			danmakuItems: [],
 			danmakuSeq: 0,
@@ -394,7 +433,7 @@ export default {
 		if (options?.shareScreen === '1') this.shareScreenOpen = true
 
 		this.initCurrentMember()
-		this.restoreDanmakuRecords()
+		this.restoreSubtitleRecords()
 		this.startTimer()
 		this.loadMeeting()
 		this.initAsr()
@@ -421,23 +460,24 @@ export default {
 		visibleMembers() {
 			return this.members
 		},
-		// 成员分页：每页 2列×3行 共6人，左右滑动翻页
+		// 成员分页：AI 摘要画布展开时每页 2人（一行两列），收起时每页 2列×3行 共6人，左右滑动翻页
 		pagedMembers() {
 			const pages = []
 			const list = this.visibleMembers
-			for (let i = 0; i < list.length; i += 6) {
-				pages.push(list.slice(i, i + 6))
+			const pageSize = this.agentEnabled ? 2 : 6
+			for (let i = 0; i < list.length; i += pageSize) {
+				pages.push(list.slice(i, i + pageSize))
 			}
 			return pages.length ? pages : [[]]
 		},
 		livePanelTitle() {
-			return this.agentEnabled ? 'AI 实时总结流' : '语音识别弹幕'
+			return this.agentEnabled ? 'AI 实时摘要' : '语音识别弹幕'
 		},
 		livePanelStatus() {
 			return this.agentEnabled ? this.aiSummaryStatusText : this.asrStatusText
 		},
 		livePanelEmptyText() {
-			return this.agentEnabled ? '开启后会根据实时识别内容生成滚动会议总结' : '识别到发言后，会在这里显示每位成员说的话'
+			return this.agentEnabled ? '开启后会根据实时转写内容，持续提炼当前会议讨论的核心重点' : '识别到发言后，会在这里显示每位成员说的话'
 		},
 		subtitleLines() {
 			return this.asrItems.filter(item => item.isFinal).slice(-3)
@@ -447,6 +487,15 @@ export default {
 		},
 		transferableMembers() {
 			return this.members.filter(m => !m.isSelf)
+		}
+	},
+	watch: {
+		'subtitleRecords.length'() {
+			if (this.subtitlePanelVisible && this.subtitleRecordAtBottom) {
+				this.$nextTick(() => {
+					this.scrollSubtitleRecordToBottom()
+				})
+			}
 		}
 	},
 	methods: {
@@ -462,9 +511,30 @@ export default {
 		openSubtitlePanel() {
 			this.closePanel()
 			this.subtitlePanelVisible = true
+			this.subtitleRecordAtBottom = true
+			this.$nextTick(() => {
+				this.scrollSubtitleRecordToBottom()
+			})
 		},
 		closeSubtitlePanel() {
 			this.subtitlePanelVisible = false
+		},
+		scrollSubtitleRecordToBottom() {
+			if (!this.subtitleRecords.length) return
+			this.subtitleRecordIntoView = ''
+			this.$nextTick(() => {
+				this.subtitleRecordIntoView = 'subtitle-record-item-' + (this.subtitleRecords.length - 1)
+			})
+		},
+		handleSubtitleRecordScroll(e) {
+			const scrollTop = e?.detail?.scrollTop || 0
+			if (scrollTop < this.subtitleRecordScrollTopValue - 10) {
+				this.subtitleRecordAtBottom = false
+			}
+			this.subtitleRecordScrollTopValue = scrollTop
+		},
+		handleSubtitleRecordScrollToLower() {
+			this.subtitleRecordAtBottom = true
 		},
 		startTimer() {
 			this.stopTimer()
@@ -520,11 +590,16 @@ export default {
 			this.members = currentName ? toMeetingMembers([currentName], currentName) : []
 		},
 		toggleMute() {
+			// 关麦时不断开 ASR Socket，只停止录音（但仍能接收广播）
 			this.muted = !this.muted
 			if (this.muted) {
+				// 停止录音但不关闭 socket，仍然能收其他客户端的识别广播
 				this.stopAsrRecording()
+				this.asrStatusText = '已静音'
 			} else {
+				// 开麦时启动录音并继续监听广播
 				this.startAsr()
+				this.asrStatusText = '已解除静音'
 			}
 			uni.showToast({ title: this.muted ? '已静音' : '已解除静音', icon: 'none' })
 		},
@@ -563,20 +638,28 @@ export default {
 			this.asrManualClosing = false
 			this.asrLastError = ''
 			const url = this.buildAsrSocketUrl(token)
+			console.log('[ASR-Socket] connecting', url)
 			this.asrSocket = uni.connectSocket({ url, complete: () => {} })
 			this.asrSocket.onOpen(() => {
+				console.log('[ASR-Socket] opened')
 				this.asrSocketReady = true
 				this.asrReconnectAttempts = 0
 				this.asrStatusText = this.muted ? '已静音' : '识别服务连接中'
 			})
-			this.asrSocket.onMessage((event) => this.handleAsrMessage(event.data))
+			this.asrSocket.onMessage((event) => {
+				console.log('[ASR-Socket] message', event.data?.slice(0, 200))
+				this.handleAsrMessage(event.data)
+			})
 			this.asrSocket.onError((error) => {
+				console.log('[ASR-Socket] error', error)
 				this.asrLastError = error?.errMsg || '识别连接异常'
 				this.asrStatusText = this.asrLastError
 				this.asrSocketReady = false
 			})
 			this.asrSocket.onClose(() => {
-				const shouldReconnect = !this.asrManualClosing && !this.muted && !!this.sessionId
+				console.log('[ASR-Socket] closed')
+				// 关播/会议结束时才不再重连，平时断线都要自动重连以维持广播通道
+				const shouldReconnect = !this.asrManualClosing && !!this.sessionId
 				this.asrSocketReady = false
 				this.asrServiceReady = false
 				this.asrSocket = null
@@ -600,7 +683,10 @@ export default {
 				this.openAsrSocket()
 				return
 			}
-			if (this.asrSocketReady && this.asrServiceReady) this.startAsrRecording()
+			// socket 已存在且 ready，直接启动录音（如果之前是静音状态）
+			if (this.asrSocketReady && this.asrServiceReady && !this.muted) {
+				this.startAsrRecording()
+			}
 		},
 		startAsrRecording() {
 			if (this.asrRecording || !this.asrSocketReady || !this.asrServiceReady || !this.asrSocket) return
@@ -770,7 +856,8 @@ export default {
 			return buffer
 		},
 		stopAsrRecording() {
-			this.asrManualClosing = true
+			// 关麦时停止录音和当前音频流，但保持 ASR WebSocket 连接以接收广播
+			this.asrManualClosing = false
 			this.clearAsrReconnectTimer()
 			if (this.asrRecorder && this.asrRecording) {
 				try {
@@ -829,7 +916,7 @@ export default {
 			this.asrReconnectAttempts += 1
 			const delay = Math.min(1000 * this.asrReconnectAttempts, 3000)
 			this.asrReconnectTimer = setTimeout(() => {
-				this.asrStatusText = `正在重连识别(${this.asrReconnectAttempts}/3)`
+				this.asrStatusText = `正在重连识别 (${this.asrReconnectAttempts}/3)`
 				this.openAsrSocket()
 			}, delay)
 		},
@@ -893,6 +980,7 @@ export default {
 			if (!payload) return
 			if (payload.type === 'asr_ready') {
 				this.asrServiceReady = true
+				// 关麦时也显示连接成功，但不启动录音
 				this.asrStatusText = this.muted ? '已静音' : (this.asrRecording ? '正在识别' : '识别已连接')
 				if (!this.muted) this.startAsrRecording()
 				return
@@ -911,6 +999,7 @@ export default {
 					isFinal: !!payload.isFinal,
 					isSelf: this.isSelfSpeaker(payload)
 				}
+				console.log('[ASR-Receive]', item.speaker, item.isFinal ? 'final' : 'partial', item.text)
 				this.upsertAsrItem(item)
 				if (item.isFinal) {
 					this.appendTranscriptLine(item)
@@ -937,19 +1026,20 @@ export default {
 					text,
 					time,
 					isSelf: false,
-					isDanmaku: true
+					isDanmaku: true,
+					timestamp: Date.now()
 				})
 				if (this.subtitleRecords.length > 200) {
 					this.subtitleRecords = this.subtitleRecords.slice(-200)
 				}
-				this.persistDanmakuRecords()
+				this.persistSubtitleRecords()
 			}
 		},
 		isSelfSpeaker(payload) {
 			const user = getUserInfo()
 			const currentId = user?.id || user?.userId || ''
 			const currentName = getCurrentDisplayName()
-			if (currentId && payload.speakerUserId && String(currentId) === String(currentId)) {
+			if (currentId && payload.speakerUserId && String(currentId) === String(payload.speakerUserId)) {
 				return true
 			}
 			return !!currentName && payload.speaker === currentName
@@ -986,13 +1076,16 @@ export default {
 				speaker: item.speaker || '参会成员',
 				text,
 				time,
-				isSelf: item.isSelf
+				isSelf: item.isSelf,
+				timestamp: Date.now()
 			})
 			if (this.subtitleRecords.length > 200) {
 				this.subtitleRecords = this.subtitleRecords.slice(-200)
 			}
+			this.persistSubtitleRecords()
 			if (this.agentEnabled) {
-				this.scheduleAiSummary()
+				// 每次 final 转写新增后，延迟 3 秒触发实时重点提炼，防抖避免每句话都调用 LLM
+				this.scheduleAiSummary(3000)
 			}
 		},
 		toggleAgentSummary(event) {
@@ -1000,13 +1093,14 @@ export default {
 		},
 		setAgentSummary(enabled, shouldClosePanel = false) {
 			this.agentEnabled = !!enabled
+			this.memberPageIndex = 0
 			if (shouldClosePanel) this.closePanel()
 			if (this.agentEnabled) {
-				this.aiSummaryStatusText = this.hasSummarySourceText() ? '准备总结' : '等待发言'
+				this.aiSummaryStatusText = this.hasSummarySourceText() ? '准备提炼重点' : '等待发言'
 				this.scheduleAiSummary(0)
 			} else {
 				this.clearAiSummaryTimer()
-				this.aiSummaryStatusText = '等待发言'
+				this.aiSummaryStatusText = '已关闭'
 			}
 		},
 		scheduleAiSummary(delay = 0) {
@@ -1042,10 +1136,10 @@ export default {
 			}
 			this.aiSummaryRunning = true
 			this.aiSummaryPending = false
-			this.aiSummaryStatusText = '智能体总结中'
+			this.aiSummaryStatusText = '正在提炼会议重点'
 			this.lastSummaryInput = content
 			this.lastSummaryErrorInput = ''
-			const streamItem = this.createAiSummaryItem('正在生成总结...')
+			const streamItem = this.createAiSummaryItem('正在提炼会议重点...')
 			let streamText = ''
 			let streamError = ''
 			try {
@@ -1074,10 +1168,10 @@ export default {
 					throw new Error(streamError)
 				}
 				if (streamText.trim()) {
-					this.aiSummaryStatusText = '总结已更新'
+					this.aiSummaryStatusText = '重点已更新'
 				} else {
 					this.aiSummaryStatusText = '智能体未返回内容'
-					this.updateAiSummaryItem(streamItem.id, '已尝试调用会议总结智能体，但本次没有返回可用总结。请继续发言后我会再次尝试。')
+					this.updateAiSummaryItem(streamItem.id, '已尝试提炼会议重点，但本次没有返回可用内容。请继续发言后我会再次尝试。')
 				}
 			} catch (error) {
 				this.aiSummaryStatusText = '智能体暂不可用'
@@ -1097,15 +1191,28 @@ export default {
 			}
 		},
 		buildSummaryInput() {
-			const liveLines = this.asrItems
-				.filter(item => !item.isFinal)
-				.filter(item => item.text && item.text.trim())
-				.map(item => `${item.speaker}：${item.text.trim()}`)
-			const transcript = [...this.meetingTranscriptLines, ...liveLines].slice(-40).join('\n')
+			// 只使用 isFinal 的转写记录（已确认说完的内容）作为会中实时重点的数据源
+			const transcript = this.meetingTranscriptLines.slice(-40).join('\n')
 			if (!transcript.trim()) return ''
 			const input = [
 				`会议主题：${this.title}`,
-				'请根据以下实时转写生成一段不超过120字的阶段性会议总结，包含已讨论内容、最新进展和待跟进事项；不要输出未在转写中出现的事实。',
+				'你是会中实时重点智能体，请根据下方实时转写内容，提炼当前会议讨论的核心重点。',
+				'',
+				'输出要求：',
+				'- 不要逐句重复字幕，要进行压缩和提炼',
+				'- 只输出转写中真实出现的信息，不要臆造结论',
+				'- 按以下三个板块输出（如某板块无内容则省略该板块）：',
+				'',
+				'**会议重点**',
+				'• 当前正在讨论的核心问题',
+				'• 重要观点、关键事实、重要数据',
+				'',
+				'**讨论进展**',
+				'• 当前讨论了什么、已形成哪些共识、哪些问题尚未解决',
+				'',
+				'**重要事项**',
+				'• 重要决定、需要后续确认的问题、明确提出的关键待办',
+				'',
 				'实时转写：',
 				transcript
 			].join('\n')
@@ -1175,12 +1282,13 @@ export default {
 				text,
 				time,
 				isSelf: true,
-				isDanmaku: true
+				isDanmaku: true,
+				timestamp: Date.now()
 			})
 			if (this.subtitleRecords.length > 200) {
 				this.subtitleRecords = this.subtitleRecords.slice(-200)
 			}
-			this.persistDanmakuRecords()
+			this.persistSubtitleRecords()
 			this.chatDraft = ''
 			// 跨账号广播：通过 ASR WebSocket 将弹幕转发给会议其他在线成员
 			this.sendDanmakuViaSocket(speaker, text)
@@ -1192,21 +1300,25 @@ export default {
 				this.asrSocket.send({ data: JSON.stringify({ type: 'danmaku', speaker, text }) })
 			} catch (error) {}
 		},
-		// 弹幕记录本地持久化：按会议 sessionId 存储，托管/离开页面后再次进入可恢复
-		persistDanmakuRecords() {
+		// 字幕记录本地持久化：按会议 sessionId 存储，托管/离开页面后再次进入可恢复
+		persistSubtitleRecords() {
 			if (!this.sessionId) return
-			const list = this.subtitleRecords.filter(item => item.isDanmaku)
 			try {
-				uni.setStorageSync(`meeting_danmaku_${this.sessionId}`, list)
+				uni.setStorageSync(`meeting_danmaku_${this.sessionId}`, this.subtitleRecords.slice(-200))
 			} catch (error) {}
 		},
-		// 进入会议时恢复该会议的历史弹幕记录（语音字幕仍由识别实时产生）
-		restoreDanmakuRecords() {
+		// 进入会议时恢复该会议的历史字幕记录（包含弹幕与 ASR 语音字幕）
+		restoreSubtitleRecords() {
 			if (!this.sessionId) return
 			try {
 				const list = uni.getStorageSync(`meeting_danmaku_${this.sessionId}`)
 				if (Array.isArray(list) && list.length > 0) {
-					this.subtitleRecords = list.filter(item => item && item.isDanmaku)
+					const validList = list.filter(item => item && (item.text || item.speaker))
+					validList.forEach(item => {
+						if (!item.timestamp) item.timestamp = 0
+					})
+					validList.sort((a, b) => a.timestamp - b.timestamp)
+					this.subtitleRecords = validList.slice(-200)
 				}
 			} catch (error) {}
 		},
@@ -1369,11 +1481,13 @@ export default {
 
 <style lang="scss" scoped>
 .live-page {
+	height: 100vh;
 	min-height: 100vh;
 	background: #ffffff;
 	color: #151f25;
 	display: flex;
 	flex-direction: column;
+	overflow: hidden;
 }
 .status-bar { height: var(--status-bar-height); min-height: 42rpx; }
 
@@ -1399,11 +1513,88 @@ export default {
 /* 中间主画面区域 */
 .main-view-area {
 	flex: 1;
+	min-height: 0;
 	display: flex;
 	flex-direction: column;
 	justify-content: center;
 	padding: 40rpx 40rpx 24rpx;
 	box-sizing: border-box;
+	overflow: hidden;
+}
+/* AI 实时摘要画布（位于成员画布上方，成员自然向下压缩，其余元素原位保留） */
+.ai-summary-canvas {
+	flex: 2;
+	min-height: 0;
+	margin-bottom: 12rpx;
+	border-radius: 24rpx;
+	background: #ffffff;
+	border: 2rpx solid #f0f0f0;
+	box-shadow: 0 8rpx 24rpx rgba(31,42,48,.04);
+	overflow: hidden;
+	display: flex;
+	flex-direction: column;
+}
+.ai-summary-canvas-head {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	padding: 20rpx 24rpx 12rpx;
+}
+.ai-summary-canvas-title {
+	color: #151f25;
+	font-size: 28rpx;
+	font-weight: 900;
+}
+.ai-summary-canvas-status {
+	padding: 4rpx 16rpx;
+	border-radius: 999rpx;
+	background: #e9e9e9;
+	color: #666;
+	font-size: 20rpx;
+}
+.ai-summary-canvas-status--live {
+	background: rgba(134, 201, 168, .14);
+	color: #86C9A8;
+}
+.ai-summary-canvas-scroll {
+	flex: 1;
+	min-height: 0;
+}
+.ai-summary-canvas-empty {
+	flex: 1;
+	min-height: 0;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	color: #999;
+	font-size: 23rpx;
+}
+.ai-summary-canvas-list {
+	display: flex;
+	flex-direction: column;
+	gap: 16rpx;
+	padding: 0 24rpx 24rpx;
+}
+.ai-summary-canvas-item {
+	padding: 18rpx 20rpx;
+	border-radius: 22rpx;
+	background: rgba(134, 201, 168, .08);
+	border: 1rpx solid rgba(134, 201, 168, .16);
+}
+.ai-summary-canvas-meta {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	margin-bottom: 10rpx;
+	color: #86C9A8;
+	font-size: 20rpx;
+	font-weight: 900;
+}
+.ai-summary-canvas-text {
+	color: #151f25;
+	font-size: 24rpx;
+	line-height: 1.55;
+	white-space: pre-wrap;
 }
 .member-slider {
 	position: relative;
@@ -1454,6 +1645,10 @@ export default {
 	gap: 24rpx;
 	padding: 0 30rpx;
 	box-sizing: border-box;
+}
+.member-grid--compact {
+	grid-template-rows: 1fr;
+	align-content: stretch;
 }
 .member-card {
 	position: relative;
@@ -1665,6 +1860,7 @@ export default {
 }
 .subtitle-record-scroll {
 	flex: 1;
+	min-height: 0;
 }
 .subtitle-record-empty {
 	margin-top: 128rpx;

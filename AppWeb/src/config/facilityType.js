@@ -1,12 +1,21 @@
 /** 本地兜底字典；运行时优先使用 GET /api/v1/facility/types */
 export const FACILITY_TYPE_OTHER = 5
+export const REMOVED_DEFAULT_FACILITY_TYPE_LABELS = new Set([
+  '食堂',
+  '球类场地',
+  '水上及特殊场地',
+  '田径及综合场地',
+  '其他',
+  '教学楼',
+  '宿舍',
+])
 
 export const DEFAULT_FACILITY_TYPES = [
-  { value: 1, label: '食堂' },
-  { value: 2, label: '运动场' },
-  { value: FACILITY_TYPE_OTHER, label: '其他' },
-  { value: 6, label: '教学楼' },
-  { value: 7, label: '宿舍' },
+  { value: 1, label: '食堂', color: '#ff6b6b' },
+  { value: 2, label: '运动场', color: '#1dd1a1' },
+  { value: FACILITY_TYPE_OTHER, label: '其他', color: '#feca57' },
+  { value: 6, label: '教学楼', color: '#3b82f6' },
+  { value: 7, label: '宿舍', color: '#a55eea' },
 ]
 
 export const FACILITY_TYPE_OPTIONS = toFacilityTypeOptions(DEFAULT_FACILITY_TYPES)
@@ -15,7 +24,7 @@ export function toFacilityTypeOptions(types) {
   const list = Array.isArray(types) && types.length ? types : DEFAULT_FACILITY_TYPES
   const options = []
   const values = new Set()
-  list.forEach(({ value, label }) => {
+  list.forEach(({ value, label, color }) => {
     const numericValue = Number(value)
     const normalizedValue = [2, 3, 4].includes(numericValue)
       ? 2
@@ -27,9 +36,14 @@ export function toFacilityTypeOptions(types) {
       label: Number(normalizedValue) === 2
         ? '运动场'
         : Number(normalizedValue) === FACILITY_TYPE_OTHER ? '其他' : label,
+      color: color || '#3b82f6',
     })
   })
   return options
+}
+
+export function toVisibleFacilityTypeOptions(types) {
+  return toFacilityTypeOptions(types).filter((item) => !REMOVED_DEFAULT_FACILITY_TYPE_LABELS.has(item.label))
 }
 
 export function createFacilityTypeLabelGetter(types) {

@@ -29,6 +29,7 @@
 <script>
 	import NavBar from '@/components/nav-bar/nav-bar.vue'
 	import { getForumMessageUnread } from '@/api/forum.js'
+	import { markAppMessagesReadByCategory } from '@/api/message.js'
 	import { markForumCategoryRead, isForumCategoryRead } from '@/utils/storage.js'
 	export default {
 		components: { NavBar },
@@ -68,9 +69,10 @@
 				} catch (error) {
 					stats = { comment: 0, like: 0, system: 0 }
 				}
-				// 已读状态覆盖未读数
+				// 点赞未读数来自后端真实未读消息（已读后归零，新点赞重新出现红点）
 				this.unreadStats = {
-					like: isForumCategoryRead('like') ? 0 : stats.like,
+					like: stats.like,
+					// 评论/系统通知暂无后端消息记录，沿用本地已读标记兼容
 					comment: isForumCategoryRead('comment') ? 0 : stats.comment,
 					system: isForumCategoryRead('system') ? 0 : stats.system
 				}
@@ -79,6 +81,10 @@
 				// 点击即标记该分类已读：立即持久化并清零本地计数，返回后不再显示红点
 				markForumCategoryRead(section.key)
 				this.unreadStats[section.key] = 0
+				// 点赞消息基于后端 app_message：同步标记后端已读，保证返回后红点不再出现
+				if (section.key === 'like') {
+					markAppMessagesReadByCategory({ moduleType: 'FORUM', eventTypes: ['POST_LIKE'] }).catch(() => {})
+				}
 				// 每个板块跳转到独立的分类消息列表页
 				uni.navigateTo({
 					url: `/subpackage_message/messageCategory/messageCategory?type=${section.key}`

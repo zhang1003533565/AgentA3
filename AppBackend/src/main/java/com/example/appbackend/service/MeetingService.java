@@ -42,4 +42,6 @@ public interface MeetingService {
     List<MeetingDTO.CommentItem> listComments(Long userId, String sessionId);
 
     MeetingDTO.CommentItem addComment(Long userId, String sessionId, MeetingDTO.CommentRequest request);
+
+    MeetingDTO.AIMinutesResult aiMinutesAnalysis(Long userId, String sessionId, String authorization);
 }

@@ -1,0 +1,38 @@
+.ai-conversation-page { display: grid; grid-template-columns: 270px minmax(0, 1fr); min-height: calc(100vh - 100px); background: #f8fafc; }
+.ai-conversation-history { padding: 20px 14px; border-right: 1px solid #e5e7eb; background: #fff; }
+.ai-conversation-history-head, .ai-conversation-header, .ai-conversation-title { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.ai-conversation-history-head h3, .ai-conversation-header h3 { margin: 2px 0 4px; }
+.ai-conversation-kicker { color: #5b7fa5; font-size: 11px; font-weight: 700; letter-spacing: .08em; }
+.ai-conversation-history-title { display: flex; gap: 7px; align-items: center; margin: 24px 4px 10px; color: #64748b; font-size: 12px; font-weight: 600; }
+.ai-conversation-session-list .ant-list-item { padding: 10px 9px; border: 0; border-radius: 7px; cursor: pointer; }
+.ai-conversation-session-list .ant-list-item:hover, .ai-conversation-session-list .ant-list-item.is-active { background: #eef5fb; }
+.ai-conversation-session-item { display: flex; min-width: 0; width: 100%; flex-direction: column; gap: 3px; }
+.ai-conversation-session-item strong { overflow: hidden; color: #334155; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
+.ai-conversation-main { display: flex; min-width: 0; flex-direction: column; }
+.ai-conversation-header { padding: 18px 24px; border-bottom: 1px solid #e5e7eb; background: #fff; }
+.ai-conversation-title { justify-content: flex-start; }
+.ai-conversation-avatar { display: grid; width: 38px; height: 38px; place-items: center; border-radius: 10px; color: #3975a4; background: #edf5fc; }
+.ai-conversation-messages { display: flex; flex: 1; min-height: 360px; max-height: calc(100vh - 275px); flex-direction: column; gap: 18px; overflow-y: auto; padding: 28px clamp(18px, 5vw, 70px); }
+.ai-conversation-message { display: flex; max-width: 82%; flex-direction: column; gap: 5px; }
+.ai-conversation-message--user { align-self: flex-end; align-items: flex-end; }
+.ai-conversation-message--assistant { align-self: flex-start; }
+.ai-conversation-message-label { color: #64748b; font-size: 12px; }
+.ai-conversation-bubble { padding: 12px 15px; border: 1px solid #e2e8f0; border-radius: 12px; color: #334155; background: #fff; line-height: 1.7; white-space: pre-wrap; }
+.ai-conversation-steps { display: flex; margin-bottom: 10px; flex-direction: column; gap: 5px; color: #64748b; font-size: 12px; line-height: 1.5; }
+.ai-conversation-step { display: flex; align-items: center; gap: 7px; }
+.ai-conversation-step-dot { width: 6px; height: 6px; flex: 0 0 6px; border-radius: 50%; background: #77a5c9; }
+.ai-conversation-message--assistant .ai-conversation-step:last-child .ai-conversation-step-dot { background: #2f80b7; box-shadow: 0 0 0 3px #e5f2fb; }
+.ai-conversation-message--user .ai-conversation-bubble { border-color: #d7e9f7; color: #234a69; background: #edf6fc; }
+.ai-conversation-loading { color: #64748b; }
+.ai-conversation-meta { font-size: 11px; }
+.ai-conversation-empty { display: flex; flex: 1; flex-direction: column; align-items: center; justify-content: center; color: #94a3b8; }
+.ai-conversation-empty > .anticon { margin-bottom: 10px; color: #8fb2cf; font-size: 34px; }
+.ai-conversation-empty h4 { margin: 0 0 4px; }
+.ai-conversation-composer { padding: 14px clamp(18px, 5vw, 70px) 20px; border-top: 1px solid #e5e7eb; background: #fff; }
+.ai-conversation-input-row { display: flex; align-items: flex-end; gap: 10px; margin-top: 10px; }
+.ai-conversation-input-row .ant-input { resize: none; }
+.ai-conversation-selected-files { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.ai-conversation-attachments { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 9px; }
+.ai-conversation-attachment { display: inline-flex; align-items: center; gap: 6px; max-width: 260px; padding: 6px 9px; border: 1px solid #dbe7f0; border-radius: 7px; color: #47657e; background: #f7fbfe; font-size: 12px; }
+.ai-conversation-attachment span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (max-width: 800px) { .ai-conversation-page { grid-template-columns: 1fr; } .ai-conversation-history { display: none; } .ai-conversation-messages { max-height: none; } }

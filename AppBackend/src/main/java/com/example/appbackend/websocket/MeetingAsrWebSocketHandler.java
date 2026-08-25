@@ -76,8 +76,26 @@ public class MeetingAsrWebSocketHandler extends TextWebSocketHandler {
         AsrBridge bridge = new AsrBridge(session);
         bridges.put(session.getId(), bridge);
         String meetingSessionId = meetingSessionId(session);
+        if (!StringUtils.hasText(meetingSessionId)) {
+            // 兜底：从 URI 路径提取会议 sessionId，避免 handshake attributes 丢失导致无法分组
+            meetingSessionId = resolveSessionIdFromUri(session.getUri());
+            if (StringUtils.hasText(meetingSessionId)) {
+                session.getAttributes().put("sessionId", meetingSessionId);
+            }
+        }
+        System.out.println("[ASR-Connect] session=" + session.getId()
+                + " meetingSessionId=" + meetingSessionId
+                + " uri=" + session.getUri() + " attrs=" + session.getAttributes());
         if (StringUtils.hasText(meetingSessionId)) {
-            meetingSessions.computeIfAbsent(meetingSessionId, key -> ConcurrentHashMap.newKeySet()).add(session);
+            java.util.Set<WebSocketSession> sessions = meetingSessions.computeIfAbsent(meetingSessionId, key -> ConcurrentHashMap.newKeySet());
+            boolean added = sessions.add(session);
+            System.out.println("[ASR-Connect] joined " + meetingSessionId
+                    + " online=" + sessions.size() + " added=" + added);
+            if (!added) {
+                System.out.println("[ASR-Connect] WARNING: session already in group!");
+            }
+        } else {
+            System.out.println("[ASR-Connect] meetingSessionId empty, not joined to any group");
         }
         bridge.connect();
     }
@@ -116,8 +134,13 @@ public class MeetingAsrWebSocketHandler extends TextWebSocketHandler {
             }
             return;
         }
-        if (payload.contains("\"stop\"") || payload.contains("\"is_speaking\":false")) {
-            bridge.finish();
+        // 显式控制消息：只接受{"stop":true}，不再匹配 is_speaking=false 以防误伤
+        try {
+            JsonNode node = objectMapper.readTree(payload);
+            if (node.has("stop") && node.get("stop").asBoolean()) {
+                bridge.stopAudioStream("client_stop");
+            }
+        } catch (Exception ignored) {
         }
     }
 
@@ -151,6 +174,23 @@ public class MeetingAsrWebSocketHandler extends TextWebSocketHandler {
     private String meetingSessionId(WebSocketSession session) {
         Object sessionId = session.getAttributes().get("sessionId");
         return sessionId instanceof String value ? value : "";
+    }
+
+    private String resolveSessionIdFromUri(java.net.URI uri) {
+        if (uri == null) {
+            return "";
+        }
+        String path = uri.getPath();
+        if (!StringUtils.hasText(path)) {
+            return "";
+        }
+        String marker = "/api/meetings/";
+        int start = path.indexOf(marker);
+        int end = path.indexOf("/asr/stream");
+        if (start < 0 || end <= start) {
+            return "";
+        }
+        return path.substring(start + marker.length(), end);
     }
 
     private String speakerName(WebSocketSession session) {
@@ -188,11 +228,13 @@ public class MeetingAsrWebSocketHandler extends TextWebSocketHandler {
 
     private void broadcastToMeeting(WebSocketSession sourceSession, Map<String, Object> payload) {
         String meetingSessionId = meetingSessionId(sourceSession);
+        System.out.println("[ASR-Broadcast] type=" + payload.get("type") + " meeting=" + meetingSessionId);
         if (!StringUtils.hasText(meetingSessionId)) {
             sendToSession(sourceSession, payload);
             return;
         }
         java.util.Set<WebSocketSession> sessions = meetingSessions.get(meetingSessionId);
+        System.out.println("[ASR-Broadcast] 在线数=" + (sessions == null ? 0 : sessions.size()));
         if (sessions == null || sessions.isEmpty()) {
             sendToSession(sourceSession, payload);
             return;
@@ -202,13 +244,15 @@ public class MeetingAsrWebSocketHandler extends TextWebSocketHandler {
 
     private void sendToSession(WebSocketSession session, Map<String, Object> payload) {
         if (session == null || !session.isOpen()) {
+            System.out.println("[ASR-Send] 跳过: session=" + (session == null ? "null" : "closed") + " type=" + payload.get("type"));
             return;
         }
         try {
             synchronized (session) {
                 session.sendMessage(new TextMessage(objectMapper.writeValueAsString(payload)));
             }
-        } catch (Exception ignored) {
+        } catch (Exception e) {
+            System.out.println("[ASR-Send] 发送失败 type=" + payload.get("type") + " 异常=" + e);
         }
     }
 
@@ -285,30 +329,38 @@ public class MeetingAsrWebSocketHandler extends TextWebSocketHandler {
 
     private class AsrBridge {
         private final WebSocketSession clientSession;
-        private final String requestUuid = UUID.randomUUID().toString().replace("-", "");
         private final Queue<ByteBuffer> audioFrames = new ConcurrentLinkedQueue<>();
         private final StringBuilder partialText = new StringBuilder();
         private final TreeMap<Integer, String> finalSegments = new TreeMap<>();
         private final ScheduledExecutorService audioSender = Executors.newSingleThreadScheduledExecutor();
         private byte[] pendingAudio = new byte[0];
         private int fallbackSegmentId = 0;
-        private volatile WebSocket xfyunSocket;
+        private WebSocket xfyunSocket;
         private volatile boolean xfyunOpen = false;
+        private volatile boolean xfyunConnecting = false;
         private volatile boolean saved = false;
         private volatile boolean audioSenderStarted = false;
+        private volatile boolean audioStreamStopped = false;
+        private volatile boolean bridgeClosed = false;
         private volatile String serviceSessionId;
+        private String requestUuid = newRequestUuid();
 
         AsrBridge(WebSocketSession clientSession) {
             this.clientSession = clientSession;
         }
 
         void connect() {
+            if (bridgeClosed || xfyunOpen || xfyunConnecting) {
+                return;
+            }
+            xfyunConnecting = true;
             try {
                 httpClient.newWebSocketBuilder()
                         .connectTimeout(Duration.ofSeconds(5))
                         .buildAsync(URI.create(buildXfyunUri(requestUuid)), new XfyunListener(this))
                         .orTimeout(8, TimeUnit.SECONDS)
                         .whenComplete((socket, error) -> {
+                            xfyunConnecting = false;
                             if (error != null) {
                                 // 讯飞连接失败仅通知字幕不可用，不关闭 WebSocket，保留弹幕等轻量消息通道
                                 sendClient(Map.of("type", "asr_error", "message", "讯飞实时转写连接失败: " + error.getMessage()));
@@ -316,19 +368,26 @@ public class MeetingAsrWebSocketHandler extends TextWebSocketHandler {
                             }
                             xfyunSocket = socket;
                             xfyunOpen = true;
+                            audioStreamStopped = false;
                             startAudioSender();
                             sendClient(Map.of("type", "asr_ready"));
                         });
             } catch (Exception e) {
+                xfyunConnecting = false;
                 // 讯飞启动失败仅通知字幕不可用，不关闭 WebSocket，保留弹幕等轻量消息通道
                 sendClient(Map.of("type", "asr_error", "message", "讯飞实时转写启动失败: " + e.getMessage()));
             }
         }
 
+        private String newRequestUuid() {
+            return UUID.randomUUID().toString().replace("-", "");
+        }
+
         synchronized void sendAudio(ByteBuffer payload) {
-            if (payload == null || !payload.hasRemaining()) {
+            if (payload == null || !payload.hasRemaining() || bridgeClosed) {
                 return;
             }
+            ensureAudioStreamReady();
             byte[] incoming = new byte[payload.remaining()];
             payload.get(incoming);
             byte[] merged = new byte[pendingAudio.length + incoming.length];
@@ -344,20 +403,49 @@ public class MeetingAsrWebSocketHandler extends TextWebSocketHandler {
         }
 
         void finish() {
-            drainQueuedAudio();
-            close("client_stop");
+            stopAudioStream("client_stop");
             closeClient(CloseStatus.NORMAL);
         }
 
-        void close(String reason) {
+        synchronized void stopAudioStream(String reason) {
+            if (bridgeClosed || audioStreamStopped) {
+                return;
+            }
             drainQueuedAudio();
             sendEndFrame();
             saveTranscript();
             WebSocket socket = xfyunSocket;
+            xfyunOpen = false;
+            xfyunConnecting = false;
+            xfyunSocket = null;
+            audioStreamStopped = true;
             if (socket != null) {
                 socket.sendClose(WebSocket.NORMAL_CLOSURE, reason);
             }
+        }
+
+        void close(String reason) {
+            stopAudioStream(reason);
+            bridgeClosed = true;
             audioSender.shutdownNow();
+        }
+
+        private synchronized void ensureAudioStreamReady() {
+            if (xfyunOpen || xfyunConnecting) {
+                return;
+            }
+            if (audioStreamStopped || xfyunSocket == null) {
+                requestUuid = newRequestUuid();
+                serviceSessionId = null;
+                saved = false;
+                fallbackSegmentId = 0;
+                partialText.setLength(0);
+                finalSegments.clear();
+                pendingAudio = new byte[0];
+                audioFrames.clear();
+                audioStreamStopped = false;
+                connect();
+            }
         }
 
         void onXfyunText(String payload) {
@@ -550,8 +638,18 @@ public class MeetingAsrWebSocketHandler extends TextWebSocketHandler {
             ));
         }
 
+        void onXfyunClosed(WebSocket socket) {
+            if (xfyunSocket == socket) {
+                xfyunOpen = false;
+                xfyunConnecting = false;
+                xfyunSocket = null;
+            }
+            saveTranscript();
+        }
+
         private void sendClient(Map<String, Object> payload) {
             Object type = payload.get("type");
+            System.out.println("[ASR-SendClient] type=" + type + " speaker=" + speakerName(clientSession));
             if ("asr_result".equals(type) || "asr_saved".equals(type)) {
                 broadcastToMeeting(clientSession, payload);
                 return;
@@ -595,7 +693,7 @@ public class MeetingAsrWebSocketHandler extends TextWebSocketHandler {
 
         @Override
         public CompletionStage<?> onClose(WebSocket webSocket, int statusCode, String reason) {
-            bridge.saveTranscript();
+            bridge.onXfyunClosed(webSocket);
             return WebSocket.Listener.super.onClose(webSocket, statusCode, reason);
         }
 

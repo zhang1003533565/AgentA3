@@ -8,7 +8,7 @@ import { getToken } from '@/utils/storage.js'
  * @param {string} convertType 转换类型：pdf_to_docx / ppt_to_docx
  * @returns {Promise<Object>} 任务对象 { taskId, status, progress, message }
  */
-export function createTask(file, convertType) {
+export function createTask(file, convertType, convertMode = 'image') {
   const token = getToken()
   const filePath = typeof file === 'string'
     ? file
@@ -27,6 +27,7 @@ export function createTask(file, convertType) {
         const formData = new FormData()
         formData.append('file', blob, fileName)
         formData.append('convertType', convertType)
+        formData.append('convertMode', convertMode)
         return fetch(`${BASE_URL}/api/ai/convert/tasks`, {
           method: 'POST',
           headers: token ? { Authorization: `Bearer ${token}` } : {},
@@ -46,7 +47,7 @@ export function createTask(file, convertType) {
       url: `${BASE_URL}/api/ai/convert/tasks`,
       filePath,
       name: 'file',
-      formData: { convertType },
+      formData: { convertType, convertMode },
       header: token ? { Authorization: `Bearer ${token}` } : {},
       success: (response) => {
         try {
@@ -119,6 +120,21 @@ export function deleteConvertTasks(taskIds) {
 export function downloadResult(taskId) {
   const token = getToken()
   if (!token) return Promise.reject(new Error('登录状态已失效'))
+  // #ifdef H5
+  return fetch(`${BASE_URL}/api/ai/convert/tasks/${encodeURIComponent(taskId)}/download`, {
+    method: 'GET',
+    headers: { Authorization: `Bearer ${token}` }
+  })
+    .then((response) => {
+      if (!response.ok) {
+        throw new Error(`文件下载失败: ${response.status || 'unknown'}`)
+      }
+      return response.blob()
+    })
+    .then((blob) => URL.createObjectURL(blob))
+  // #endif
+
+  // #ifndef H5
   return new Promise((resolve, reject) => {
     uni.downloadFile({
       url: `${BASE_URL}/api/ai/convert/tasks/${encodeURIComponent(taskId)}/download`,
@@ -134,4 +150,5 @@ export function downloadResult(taskId) {
       fail: reject
     })
   })
+  // #endif
 }

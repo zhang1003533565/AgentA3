@@ -41,3 +41,18 @@ Thumbs.db
 logs/
 AppBackend/logs/
 .reasonix/
+.downloads/
+.codex-*.log
+
+# AI 渲染测试产物与扫描历史
+test-render-output/
+.mimosa/
+.tmp-ppt-*
+.tmp-audit-*/
+.tmp-chrome-cdp/
+ai-servers/.tmp-ppt-*/
+data/ppt-quality-qa/
+ai-servers/data/ppt-quality-qa/
+
+# Workspace outputs (agent scratch)
+output/

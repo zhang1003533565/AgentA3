@@ -13,15 +13,14 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.util.Map;
 import java.util.List;
-import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 
 @Service
 public class AiPptServiceImpl implements AiPptService {
-    private static final long SSE_TIMEOUT_MILLIS = 10 * 60 * 1000L;
+    // Python tasks have a bounded 15-minute deadline; leave a small transport
+    // margin so the stream closes after the task reaches a terminal state.
+    private static final long SSE_TIMEOUT_MILLIS = 20 * 60 * 1000L;
     private static final long OPTIONS_CACHE_TTL_SECONDS = 24 * 60 * 60L;
-    private static final Set<String> SUPPORTED_SCENES = Set.of("review");
-
     private final PythonAiProxyService pythonAiProxyService;
     private final ObjectMapper objectMapper;
 
@@ -38,22 +37,15 @@ public class AiPptServiceImpl implements AiPptService {
                     pythonAiProxyService.getPptOptions(authorization),
                     AiPptDTO.OptionsResponse.class
             );
-            if (dynamic.getScenes() != null && !dynamic.getScenes().isEmpty()) {
+            if (dynamic.getTemplates() != null && !dynamic.getTemplates().isEmpty()) {
+                dynamic.setTemplateCatalogAvailable(true);
                 return dynamic;
             }
         } catch (RuntimeException ignored) {
             // Keep the entry page usable while the built-in Presenton template
             // catalog is temporarily unavailable; generation still requires it.
         }
-        AiPptDTO.SceneOption review = new AiPptDTO.SceneOption();
-        review.setValue("review");
-        review.setLabel("复习资料");
-        review.setDescription("将学习资料整理成结构清晰的复习 PPT");
-        review.setEnabled(true);
-        review.setDefaultOption(true);
-
         AiPptDTO.OptionsResponse response = new AiPptDTO.OptionsResponse();
-        response.setScenes(List.of(review));
         AiPptDTO.TemplateOption general = new AiPptDTO.TemplateOption();
         general.setId("general");
         general.setName("简约通用");
@@ -64,6 +56,7 @@ public class AiPptServiceImpl implements AiPptService {
         response.setEngine("presenton-embedded");
         response.setEnhancedEngineAvailable(true);
         response.setEditorEnabled(false);
+        response.setTemplateCatalogAvailable(false);
         response.setCacheTtlSeconds(OPTIONS_CACHE_TTL_SECONDS);
         return response;
     }
@@ -80,7 +73,7 @@ public class AiPptServiceImpl implements AiPptService {
         String filename = StringUtils.cleanPath(
                 StringUtils.hasText(file.getOriginalFilename()) ? file.getOriginalFilename() : "material"
         );
-        if (filename.contains("..") || !filename.matches("(?i).+\\.(txt|pdf|doc|docx|ppt|pptx|xls|xlsx)$")) {
+        if (filename.contains("..") || !filename.matches("(?i).+\\.(txt|doc|docx|ppt|pptx|xls|xlsx)$")) {
             throw new BusinessException(Result.ERROR_CODE, "不支持的 PPT 资料文件格式");
         }
         return pythonAiProxyService.uploadPptSourceFile(file, authorization);
@@ -92,18 +85,37 @@ public class AiPptServiceImpl implements AiPptService {
         if (!StringUtils.hasText(request.getSourceContent()) && !StringUtils.hasText(request.getSourceFileId())) {
             throw new BusinessException(Result.ERROR_CODE, "PPT 资料内容和资料文件不能同时为空");
         }
-        String scene = StringUtils.hasText(request.getScene()) ? request.getScene().trim() : "review";
-        if (!SUPPORTED_SCENES.contains(scene)) {
-            throw new BusinessException(Result.ERROR_CODE, "不支持的 PPT 学习场景: " + scene);
-        }
-        request.setScene(scene);
         return pythonAiProxyService.generatePptOutline(objectMapper.convertValue(request, Map.class), authorization);
+    }
+
+    @Override
+    public Object createOutlineTask(Long userId, AiPptDTO.OutlineRequest request, String authorization) {
+        requireUser(userId);
+        if (!StringUtils.hasText(request.getSourceContent()) && !StringUtils.hasText(request.getSourceFileId())) {
+            throw new BusinessException(Result.ERROR_CODE, "PPT 资料内容和资料文件不能同时为空");
+        }
+        return pythonAiProxyService.createPptOutlineTask(
+                objectMapper.convertValue(request, Map.class), authorization);
     }
 
     @Override
     public Object generateSlides(Long userId, AiPptDTO.SlidesRequest request, String authorization) {
         requireUser(userId);
         return pythonAiProxyService.generatePptSlides(objectMapper.convertValue(request, Map.class), authorization);
+    }
+
+    @Override
+    public Object renderPreview(Long userId, AiPptDTO.PreviewRequest request, String authorization) {
+        requireUser(userId);
+        return pythonAiProxyService.renderPptPreview(
+                objectMapper.convertValue(request, Map.class), authorization);
+    }
+
+    @Override
+    public Object createSlidesTask(Long userId, AiPptDTO.SlidesRequest request, String authorization) {
+        requireUser(userId);
+        return pythonAiProxyService.createPptSlidesTask(
+                objectMapper.convertValue(request, Map.class), authorization);
     }
 
     @Override
@@ -150,18 +162,28 @@ public class AiPptServiceImpl implements AiPptService {
         SseEmitter emitter = new SseEmitter(SSE_TIMEOUT_MILLIS);
         CompletableFuture.runAsync(() -> {
             String previousMarker = "";
+            long lastHeartbeatMillis = System.currentTimeMillis();
             try {
                 while (true) {
                     Object value = getTask(userId, taskId, authorization);
                     Map<?, ?> task = value instanceof Map<?, ?> map ? map : Map.of("status", "unknown");
                     String status = String.valueOf(task.containsKey("status") ? task.get("status") : "unknown");
                     String stage = String.valueOf(task.containsKey("stage") ? task.get("stage") : "message");
-                    String marker = status + ":" + task.get("progress") + ":" + stage;
+                    String marker = status + ":" + task.get("progress") + ":" + stage
+                            + ":" + task.get("currentSlide")
+                            + ":" + task.get("completedSlides")
+                            + ":" + task.get("remainingSlides")
+                            + ":" + task.get("processingSlides");
                     if (!marker.equals(previousMarker)) {
                         emitter.send(SseEmitter.event().name(safeEventName(stage)).data(task, MediaType.APPLICATION_JSON));
                         previousMarker = marker;
+                        lastHeartbeatMillis = System.currentTimeMillis();
+                    } else if (System.currentTimeMillis() - lastHeartbeatMillis >= 15_000L) {
+                        emitter.send(SseEmitter.event().comment("keepalive"));
+                        lastHeartbeatMillis = System.currentTimeMillis();
                     }
-                    if ("completed".equals(status) || "failed".equals(status) || "cancelled".equals(status)) {
+                    if ("completed".equals(status) || "failed".equals(status)
+                            || "cancelled".equals(status) || "timed_out".equals(status)) {
                         emitter.complete();
                         return;
                     }
@@ -181,8 +203,8 @@ public class AiPptServiceImpl implements AiPptService {
     public PythonAiProxyService.GeneratedExportResponse downloadFile(
             Long userId, String taskId, String format, String authorization) {
         requireTask(userId, taskId);
-        if (!"pptx".equals(format) && !"pdf".equals(format)) {
-            throw new BusinessException(Result.ERROR_CODE, "仅支持下载 pptx 或 pdf");
+        if (!"pptx".equals(format)) {
+            throw new BusinessException(Result.ERROR_CODE, "PPT 生成任务仅支持下载 PPTX");
         }
         return pythonAiProxyService.downloadPptTaskArtifact(
                 taskId.trim() + "/files/" + format, authorization);
@@ -207,6 +229,19 @@ public class AiPptServiceImpl implements AiPptService {
             throw new BusinessException(Result.ERROR_CODE, "PPT 模板编号无效");
         }
         return pythonAiProxyService.downloadPptTemplateThumbnail(templateId, authorization);
+    }
+
+    @Override
+    public PythonAiProxyService.GeneratedExportResponse downloadTemplateLayoutPreview(
+            Long userId, String templateId, Integer slideIndex, String authorization) {
+        requireUser(userId);
+        if (!StringUtils.hasText(templateId) || !templateId.matches("[A-Za-z0-9._-]{1,120}")) {
+            throw new BusinessException(Result.ERROR_CODE, "PPT 模板编号无效");
+        }
+        if (slideIndex == null || slideIndex < 1) {
+            throw new BusinessException(Result.ERROR_CODE, "版式页码必须大于 0");
+        }
+        return pythonAiProxyService.downloadPptTemplateLayoutPreview(templateId, slideIndex, authorization);
     }
 
     private void requireTask(Long userId, String taskId) {

@@ -115,6 +115,36 @@
   object-fit: contain;
 }
 
+.floor-plan-markers {
+  position: relative;
+  width: 100%;
+}
+
+.floor-plan-markers .floor-plan-preview {
+  width: 100%;
+  max-height: 360px;
+  margin-top: 16px;
+  object-fit: contain;
+}
+
+.floor-plan-marker {
+  position: absolute;
+  z-index: 10;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #f5222d;
+  border: 2px solid #fff;
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.35);
+  cursor: pointer;
+  transform: translate(-50%, -50%);
+  transition: transform 0.15s ease;
+}
+
+.floor-plan-marker:hover {
+  transform: translate(-50%, -50%) scale(1.3);
+}
+
 .plan-delete-button {
   margin-top: 16px;
 }
@@ -336,6 +366,13 @@
 .facility-canteen-summary-row strong {
   color: #0f172a;
   font-weight: 700;
+}
+
+.facility-canteen-summary-row .facility-card-ellipsis {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .facility-canteen-location {
@@ -664,4 +701,20 @@
   .facility-canteen-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+}
+
+.facility-floor-actions {
+  gap: 12px;
+  padding: 4px 32px 20px;
+}
+
+.facility-floor-actions > .ant-btn {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.facility-floor-actions > .facility-canteen-more {
+  flex: 0 0 40px;
+  width: 40px;
+  min-width: 40px;
 }

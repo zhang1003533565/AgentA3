@@ -170,15 +170,29 @@ function NavBar({ mobileOpen, onClose }) {
       <nav className="navbar-nav">
         {navigationSections.map((section) => (
           <section key={section.label} className="navbar-section">
-            <button
-              type="button"
-              className="navbar-section-toggle"
-              onClick={() => toggleSection(section.label)}
-            >
-              <h4>{section.label}</h4>
-              <span>{openSections[section.label] ? <MinusOutlined /> : <PlusOutlined />}</span>
-            </button>
-            <div className={`navbar-links ${openSections[section.label] ? 'expanded' : 'collapsed'}`}>
+            {section.path ? (
+              <button
+                type="button"
+                className={`navbar-section-direct ${location.pathname.startsWith(section.path) ? 'active' : ''}`}
+                onClick={() => {
+                  navigate(section.path)
+                  onClose?.()
+                }}
+              >
+                {section.icon ? <span>{iconMap[section.icon] || <SettingOutlined />}</span> : null}
+                <h4>{section.label}</h4>
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="navbar-section-toggle"
+                onClick={() => toggleSection(section.label)}
+              >
+                <h4>{section.label}</h4>
+                <span>{openSections[section.label] ? <MinusOutlined /> : <PlusOutlined />}</span>
+              </button>
+            )}
+            {!section.path && <div className={`navbar-links ${openSections[section.label] ? 'expanded' : 'collapsed'}`}>
               {section.items.filter((item) => !item.hidden).map((item) => {
                 const active = location.pathname === item.path ||
                   (!item.exact && location.pathname.startsWith(`${item.path}/`)) ||
@@ -198,7 +212,7 @@ function NavBar({ mobileOpen, onClose }) {
                   </button>
                 )
               })}
-            </div>
+            </div>}
           </section>
         ))}
       </nav>

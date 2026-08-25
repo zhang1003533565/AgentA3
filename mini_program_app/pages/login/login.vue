@@ -220,6 +220,17 @@
 				>
 					{{ loading ? (isLogin ? '登录中...' : '注册中...') : (isLogin ? '登录' : '注册') }}
 				</button>
+
+				<!-- #ifdef H5 -->
+				<button
+					v-if="isLogin"
+					class="dev-skip-btn"
+					:disabled="loading"
+					@click="enterWithDefaultAccount"
+				>
+					默认账号进入（开发）
+				</button>
+				<!-- #endif -->
 			</view>
 		</view>
 	</view>
@@ -228,7 +239,20 @@
 <script>
 import { login as apiLogin, register as apiRegister } from '../../api/user.js'
 import { getToken, setToken, setUserInfo } from '../../utils/storage.js'
-import { refreshMessageState, startMessageSync } from '../../utils/messageStore.js'
+
+const DEFAULT_DEV_USER = {
+	id: 4,
+	userId: 4,
+	username: 'zzs',
+	role: 'STUDENT',
+	phone: '13800000000',
+	realName: 'A3演示学生',
+	college: '',
+	major: '',
+	className: '',
+	personalNumber: 'A3DEMO001',
+	studentId: 'A3DEMO001'
+}
 
 export default {
 	data() {
@@ -239,8 +263,8 @@ export default {
 			showConfirmPassword: false,
 			rememberMe: false,
 			formData: {
-				username: '',
-				password: '',
+				username: 'zzs',
+				password: 'admin123',
 				confirmPassword: '',
 				email: '',
 				phone: ''
@@ -249,7 +273,7 @@ export default {
 	},
 	onLoad() {
 		if (getToken()) {
-			uni.switchTab({
+			uni.reLaunch({
 				url: '/pages/index/index'
 			})
 		}
@@ -261,8 +285,8 @@ export default {
 		},
 		resetForm() {
 			this.formData = {
-				username: '',
-				password: '',
+				username: this.isLogin ? 'zzs' : '',
+				password: this.isLogin ? 'admin123' : '',
 				confirmPassword: '',
 				email: '',
 				phone: ''
@@ -301,6 +325,16 @@ export default {
 			}
 			return true
 		},
+		enterWithDefaultAccount() {
+			setToken('dev-local-skip-token')
+			setUserInfo({ ...DEFAULT_DEV_USER })
+			uni.showToast({ title: '已用默认账号进入', icon: 'none' })
+			setTimeout(() => {
+				uni.reLaunch({
+					url: '/pages/index/index'
+				})
+			}, 300)
+		},
 		async handleSubmit() {
 			if (!this.validateForm()) return
 
@@ -330,8 +364,6 @@ export default {
 					personalNumber: result.data.personalNumber,
 					studentId: result.data.personalNumber
 				})
-				startMessageSync()
-				refreshMessageState('login')
 
 				uni.showToast({
 					title: this.isLogin ? '登录成功' : '注册成功',
@@ -345,6 +377,12 @@ export default {
 				}, 1500)
 			} catch (error) {
 				console.error('请求错误:', error)
+				// #ifdef H5
+				if (this.isLogin) {
+					uni.showToast({ title: '后端未就绪，已用默认账号进入', icon: 'none' })
+					this.enterWithDefaultAccount()
+				}
+				// #endif
 			} finally {
 				this.loading = false
 			}
@@ -619,6 +657,21 @@ export default {
 
 	.primary-btn[disabled] {
 		opacity: 0.7;
+	}
+
+	.dev-skip-btn {
+		margin-top: 20rpx;
+		width: 100%;
+		height: 80rpx;
+		line-height: 80rpx;
+		border-radius: 24rpx;
+		background: #ffffff;
+		color: #5C7A99;
+		font-size: 26rpx;
+		font-weight: 500;
+		border-width: 2rpx;
+		border-style: solid;
+		border-color: #c5d0db;
 	}
 
 	/* 悬浮助手按钮 */

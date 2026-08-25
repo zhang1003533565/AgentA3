@@ -23,6 +23,8 @@ public interface AppMessageRepository extends JpaRepository<AppMessage, Long> {
 
     long countByUserIdAndModuleTypeAndIsReadFalse(Long userId, String moduleType);
 
+    long countByUserIdAndModuleTypeAndEventTypeAndIsReadFalse(Long userId, String moduleType, String eventType);
+
     @Modifying
     @Query("UPDATE AppMessage am SET am.isRead = true, am.readTime = CURRENT_TIMESTAMP " +
             "WHERE am.userId = :userId AND am.isRead = false")

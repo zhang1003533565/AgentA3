@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>PPT 大纲编辑页简化设计</title>
+  <style>
+    *{box-sizing:border-box}
+    body{margin:0;background:#eef2f7;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#07152a}
+    .phone{width:390px;min-height:844px;margin:24px auto;background:#f5f7fb;border:1px solid #d8e1ed}
+    .top{height:86px;display:flex;align-items:center;justify-content:center;background:#e4f2ff;font-size:20px;font-weight:800}
+    .page{padding:16px 16px 88px}
+    .step{height:108px;border:1px solid #dfe7ef;border-radius:14px;background:#fff;margin-bottom:16px}
+    .panel{padding:16px;border-radius:16px;background:#fff;box-shadow:0 10px 28px rgba(30,45,70,.05)}
+    .toolbar{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;padding-bottom:14px;border-bottom:1px solid #edf1f6}
+    .title{font-size:22px;font-weight:850}
+    .desc{margin-top:5px;color:#758196;font-size:13px}
+    .toolbar-actions{display:flex;align-items:center;gap:8px}
+    .count{padding:6px 9px;border-radius:999px;background:#eef1ff;color:#5062e9;font-size:12px;font-weight:800}
+    .history{height:34px;padding:0 12px;border:1px solid #d7def4;border-radius:10px;background:#fff;color:#5062e9;font-size:13px;font-weight:700}
+    .name{display:flex;align-items:center;gap:8px;margin-top:14px;padding:8px;border:1px solid #dfe6ef;border-radius:12px;background:#f9fbfe}
+    .name span{display:flex;height:34px;align-items:center;padding:0 10px;border-radius:9px;background:#eef2f7;color:#44556b;font-size:13px;font-weight:750}
+    .name div{min-width:0;flex:1;height:34px;padding:0 4px;color:#07152a;font-size:15px;line-height:34px}
+    .list{margin-top:14px}
+    .item{padding:12px;border:1px solid #e1e7f0;border-radius:13px;background:#fbfcff}
+    .item+.item{margin-top:10px}
+    .item-head{display:flex;align-items:center;gap:10px}
+    .order{display:flex;width:28px;height:28px;align-items:center;justify-content:center;border-radius:9px;background:#eef0ff;color:#5062e8;font-size:13px;font-weight:800}
+    .input{min-width:0;flex:1;height:38px;padding:0 10px;border:1px solid #dfe5ee;border-radius:10px;background:#fff;font-size:15px;line-height:38px}
+    .meta{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:10px;padding-left:38px}
+    .level{display:flex;align-items:center;gap:5px;padding:5px 10px;border-radius:999px;background:#eef2f7;color:#526176;font-size:12px;font-weight:750}
+    .level i{display:block;width:5px;height:5px;margin-top:-2px;border-right:1px solid #526176;border-bottom:1px solid #526176;transform:rotate(45deg)}
+    .actions{display:flex;align-items:center;gap:14px;color:#6573e8;font-size:12px;font-weight:700}
+    .actions span:last-child{color:#9aa3b3}
+    .add{height:42px;margin-top:12px;border:1px dashed #bfcae8;border-radius:11px;background:#f9faff;color:#5264eb;text-align:center;line-height:42px;font-size:14px;font-weight:750}
+    .tip{display:flex;justify-content:space-between;margin-top:10px;color:#929bad;font-size:12px}
+    .bottom{position:fixed;left:50%;bottom:24px;width:358px;transform:translateX(-50%);display:grid;grid-template-columns:1fr 1fr 1.35fr;gap:8px;padding:12px;border-radius:14px;background:#fff;box-shadow:0 -8px 28px rgba(27,39,60,.08)}
+    .bottom button{height:42px;border:1px solid #dfe3ec;border-radius:10px;background:#fff;color:#5265ed;font-weight:750}
+    .bottom button:last-child{border-color:#5265ed;background:#5265ed;color:#fff}
+  </style>
+</head>
+<body>
+  <main class="phone">
+    <div class="top">个性化资源包</div>
+    <section class="page">
+      <div class="step"></div>
+      <section class="panel">
+        <div class="toolbar">
+          <div>
+            <div class="title">PPT 大纲</div>
+            <div class="desc">确认页面顺序和标题，生成时会写入已选模板</div>
+          </div>
+          <div class="toolbar-actions">
+            <div class="count">9 页</div>
+            <button class="history">记录</button>
+          </div>
+        </div>
+        <div class="name"><span>名称</span><div>PPT生成大纲</div></div>
+        <div class="list">
+          <div class="item">
+            <div class="item-head"><div class="order">1</div><div class="input">离散数学实验二：集合运算与操作</div></div>
+            <div class="meta"><div class="level">章节 <i></i></div><div class="actions"><span>下移</span><span>删除</span></div></div>
+          </div>
+          <div class="item">
+            <div class="item-head"><div class="order">2</div><div class="input">目录</div></div>
+            <div class="meta"><div class="level">小节 <i></i></div><div class="actions"><span>上移</span><span>下移</span><span>删除</span></div></div>
+          </div>
+          <div class="item">
+            <div class="item-head"><div class="order">3</div><div class="input">实验背景与目的</div></div>
+            <div class="meta"><div class="level">章节 <i></i></div><div class="actions"><span>上移</span><span>下移</span><span>删除</span></div></div>
+          </div>
+        </div>
+        <div class="add">+ 添加页面</div>
+        <div class="tip"><span>大纲可保存到记录</span><span>已保存 20:10</span></div>
+      </section>
+    </section>
+    <div class="bottom"><button>上一步</button><button>保存</button><button>下一步</button></div>
+  </main>
+</body>
+</html>

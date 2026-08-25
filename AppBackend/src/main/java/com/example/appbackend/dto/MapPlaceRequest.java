@@ -11,6 +11,8 @@ public class MapPlaceRequest {
     private String placeType;
     private String name;
     private String description;
+    private String usagePurpose;
+    private String usageStatus;
     private String status;
     private BigDecimal longitude;
     private BigDecimal latitude;

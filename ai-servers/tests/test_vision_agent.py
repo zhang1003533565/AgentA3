@@ -19,8 +19,9 @@ class VisionAgentTest(unittest.TestCase):
 
         callable_catalog = self.rag_routes._build_leader_callable_catalog()
         tools = {item["name"]: item for item in callable_catalog["tools"]}
-        self.assertEqual("vision_agent", tools["recognize_image_tool"]["boundAgent"])
-        self.assertNotIn("vision_agent", {item["name"] for item in callable_catalog["agents"]})
+        self.assertNotIn("boundAgent", tools["recognize_image_tool"])
+        self.assertIn("purpose", tools["recognize_image_tool"])
+        self.assertNotIn("vision_agent", {item["name"] for item in tools.values()})
 
     def test_only_image_attachments_trigger_recognition_plan(self):
         image_request = RagQueryRequest(
@@ -88,14 +89,12 @@ class VisionAgentTest(unittest.TestCase):
         self.assertEqual("vision_agent", run_agent.call_args.args[1])
 
     def test_tool_is_unavailable_without_vision_model_binding(self):
-        request = SimpleNamespace(metadata={
-            "agentToggles": {"vision_agent": True},
-            "toolToggles": {"recognize_image_tool": True},
-            "agentModelConfigs": {},
-        })
+        request = SimpleNamespace(
+            input="请识别图片",
+            metadata={"toolToggles": {"recognize_image_tool": False}},
+        )
         catalog = self.rag_routes._build_leader_callable_catalog(request)
-        tool = next(item for item in catalog["tools"] if item["name"] == "recognize_image_tool")
-        self.assertFalse(tool["enabled"])
+        self.assertNotIn("recognize_image_tool", {item["name"] for item in catalog["tools"]})
 
 
 if __name__ == "__main__":

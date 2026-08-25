@@ -112,7 +112,7 @@ class PythonAiProxyServiceTest {
         Assertions.assertEquals("1001", userIdRef.get());
         Assertions.assertEquals("https://llm.test/v1", aiBaseUrlRef.get());
         Assertions.assertEquals("test-ai-key", aiApiKeyRef.get());
-        Assertions.assertEquals("test-model", aiModelRef.get());
+        Assertions.assertEquals("qwen3.8-27b", aiModelRef.get());
 
         ObjectMapper mapper = new ObjectMapper();
         JsonNode reqJson = mapper.readTree(requestBodyRef.get());
@@ -172,7 +172,7 @@ class PythonAiProxyServiceTest {
         Assertions.assertEquals("Bearer " + token, authRef.get());
         Assertions.assertEquals("1003", userIdRef.get());
         Assertions.assertEquals("test-internal-token", internalTokenRef.get());
-        Assertions.assertEquals("test-model", aiModelRef.get());
+        Assertions.assertEquals("qwen3.8-27b", aiModelRef.get());
 
         ObjectMapper mapper = new ObjectMapper();
         JsonNode reqJson = mapper.readTree(requestBodyRef.get());
@@ -476,7 +476,7 @@ class PythonAiProxyServiceTest {
             TimeUnit.MILLISECONDS.sleep(25);
         }
         Assertions.assertEquals("test-internal-token", internalToken.get());
-        Assertions.assertEquals("test-model", model.get());
+        Assertions.assertEquals("qwen3.8-27b", model.get());
         JsonNode body = new ObjectMapper().readTree(requestBody.get());
         Assertions.assertEquals("列表切片", body.path("input").asText());
         Assertions.assertTrue(body.path("llmModel").isMissingNode());
@@ -653,13 +653,53 @@ class PythonAiProxyServiceTest {
         Assertions.assertEquals("测试架构图", ((Map<?, ?>) response).get("title"));
         Assertions.assertEquals("Bearer " + token, authRef.get());
         Assertions.assertEquals("3001", userIdRef.get());
-        Assertions.assertEquals("deepseek", providerRef.get());
+        Assertions.assertEquals("qwen", providerRef.get());
         Assertions.assertEquals("https://llm.test/v1", baseUrlRef.get());
         Assertions.assertEquals("test-ai-key", apiKeyRef.get());
-        Assertions.assertEquals("test-model", modelRef.get());
+        Assertions.assertEquals("qwen3.8-27b", modelRef.get());
 
         JsonNode request = new ObjectMapper().readTree(requestBodyRef.get());
         Assertions.assertEquals("校园二手交易系统架构图", request.path("description").asText());
+    }
+
+    @Test
+    void generatePptOutline_shouldReuseTestedTextModelWhenAgentBindingMissing() throws Exception {
+        AtomicReference<String> providerRef = new AtomicReference<>();
+        AtomicReference<String> baseUrlRef = new AtomicReference<>();
+        AtomicReference<String> apiKeyRef = new AtomicReference<>();
+        AtomicReference<String> modelRef = new AtomicReference<>();
+        AtomicReference<String> requestBodyRef = new AtomicReference<>();
+
+        server = HttpServer.create(new InetSocketAddress(0), 0);
+        server.createContext("/internal/rag/ppt-generation/outlines", exchange -> {
+            providerRef.set(exchange.getRequestHeaders().getFirst("X-AI-Provider"));
+            baseUrlRef.set(exchange.getRequestHeaders().getFirst("X-AI-Base-Url"));
+            apiKeyRef.set(exchange.getRequestHeaders().getFirst("X-AI-Api-Key"));
+            modelRef.set(exchange.getRequestHeaders().getFirst("X-AI-Model"));
+            requestBodyRef.set(readBody(exchange));
+            writeJson(exchange, 200, "{\"title\":\"数据结构复习\",\"items\":[]}");
+        });
+        server.start();
+
+        SystemConfigService systemConfigService = new NoAgentBindingSystemConfigService();
+        Object response = newService(
+                server.getAddress().getPort(),
+                systemConfigService,
+                newSystemConfigRepository(systemConfigService)
+        ).generatePptOutline(
+                Map.of("sourceName", "material.txt", "sourceContent", "栈与队列"),
+                "Bearer " + buildJwtToken(3002L)
+        );
+
+        Assertions.assertInstanceOf(Map.class, response);
+        Assertions.assertEquals("qwen", providerRef.get());
+        Assertions.assertEquals("https://llm.test/v1", baseUrlRef.get());
+        Assertions.assertEquals("test-ai-key", apiKeyRef.get());
+        Assertions.assertEquals("qwen3.8-27b", modelRef.get());
+
+        JsonNode request = new ObjectMapper().readTree(requestBodyRef.get());
+        Assertions.assertEquals("material.txt", request.path("sourceName").asText());
+        Assertions.assertEquals("栈与队列", request.path("sourceContent").asText());
     }
 
     @Test
@@ -898,7 +938,7 @@ class PythonAiProxyServiceTest {
                 return "ai.service.text";
             }
             if ("ai.service.text.provider".equals(key)) {
-                return "deepseek";
+                return "qwen";
             }
             if ("ai.service.text.base-url".equals(key)) {
                 return "https://llm.test/v1";
@@ -907,11 +947,11 @@ class PythonAiProxyServiceTest {
                 return "test-ai-key";
             }
             if ("ai.service.text.model".equals(key)) {
-                return "test-model";
+                return "qwen-plus";
             }
             if ("ai.service.text.tested-fingerprint".equals(key)) {
                 return QuestionGenerationServiceImpl.fingerprint(
-                        "deepseek", "https://llm.test/v1", "test-ai-key", "test-model"
+                        "qwen", "https://llm.test/v1", "test-ai-key", "qwen-plus"
                 );
             }
             if ("ai.service.embedding.qwen.provider".equals(key)) {

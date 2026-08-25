@@ -192,4 +192,39 @@ public class MeetingDTO {
         private String content;
         private LocalDateTime createTime;
     }
+
+    @Data
+    @Schema(description = "AI 会议纪要结果")
+    public static class AIMinutesResult {
+        @Schema(description = "会议总结")
+        private String summary;
+
+        @Schema(description = "关键决策列表")
+        private List<String> decisions = new ArrayList<>();
+
+        @Schema(description = "任务分工列表")
+        private List<TaskItem> tasks = new ArrayList<>();
+
+        @Schema(description = "待办事项列表")
+        private List<String> todos = new ArrayList<>();
+
+        @Schema(description = "待确认事项列表")
+        private List<String> pendingItems = new ArrayList<>();
+    }
+
+    @Data
+    @Schema(description = "任务项")
+    public static class TaskItem {
+        @Schema(description = "任务描述")
+        private String task;
+
+        @Schema(description = "负责人")
+        private String assignee;
+
+        @Schema(description = "截止时间")
+        private String deadline;
+
+        @Schema(description = "状态")
+        private String status;
+    }
 }

@@ -37,9 +37,15 @@ public class AiServiceImpl implements AiService {
     @Override
     public AiWriteDTO.WriteResponse write(AiWriteDTO.WriteRequest request) {
         String configPrefix = resolveTextConfigPrefix(request);
+        String provider = requireAiConfig(configPrefix, "provider", "模型服务商");
         String apiKey = requireAiConfig(configPrefix, "api-key", "AI Key");
         String baseUrl = trimTrailingSlash(requireAiConfig(configPrefix, "base-url", "AI 服务地址"));
-        String model = requireAiConfig(configPrefix, "model", "AI 模型 ID");
+        String configuredModel = requireAiConfig(configPrefix, "model", "AI 模型 ID");
+        String model = AiModelPolicy.effectiveFreeTextModel(provider, configuredModel);
+        if (!StringUtils.hasText(model)) {
+            throw new BusinessException(400,
+                    "当前文本模型不在免费额度清单内，请改用 " + AiModelPolicy.defaultTextModel());
+        }
         String prompt = buildPrompt(request);
 
         Map<String, Object> message = new HashMap<>();
@@ -104,11 +110,13 @@ public class AiServiceImpl implements AiService {
             String provider = fields.getOrDefault("provider", "");
             String baseUrl = fields.getOrDefault("base-url", "");
             String apiKey = fields.getOrDefault("api-key", "");
-            String model = fields.getOrDefault("model", "");
+            String configuredModel = fields.getOrDefault("model", "");
+            String model = AiModelPolicy.effectiveFreeTextModel(provider, configuredModel);
             String testedFingerprint = fields.getOrDefault("tested-fingerprint", "");
             boolean tested = StringUtils.hasText(testedFingerprint);
             if (!StringUtils.hasText(provider) || !StringUtils.hasText(baseUrl)
-                    || !StringUtils.hasText(apiKey) || !StringUtils.hasText(model) || !tested) {
+                    || !StringUtils.hasText(apiKey) || !StringUtils.hasText(model)
+                    || !tested || !AiModelPolicy.isFreeTextModel(model)) {
                 return;
             }
             String providerName = providerDisplayName(provider, prefix, model);
@@ -212,10 +220,11 @@ public class AiServiceImpl implements AiService {
                 .filter(config -> config.getConfigKey() != null && config.getConfigKey().endsWith(".model"))
                 .map(config -> removeSuffix(config.getConfigKey(), ".model"))
                 .filter(this::hasCompleteConfig)
+                .filter(this::isFreeTextConfig)
                 .filter(prefix -> !testedOnly || StringUtils.hasText(systemConfigService.getValue(prefix + ".tested-fingerprint", "")))
                 .filter(prefix -> textConfigMatches(prefix, requested))
                 .distinct()
-                .sorted()
+                .sorted(Comparator.comparingInt(this::textConfigPriority).thenComparing(String::toString))
                 .findFirst()
                 .orElse("");
     }
@@ -233,7 +242,8 @@ public class AiServiceImpl implements AiService {
                 .filter(config -> StringUtils.hasText(config.getConfigValue()))
                 .map(config -> removeSuffix(config.getConfigKey(), ".tested-fingerprint"))
                 .filter(this::hasCompleteConfig)
-                .sorted()
+                .filter(this::isFreeTextConfig)
+                .sorted(Comparator.comparingInt(this::textConfigPriority).thenComparing(String::toString))
                 .findFirst()
                 .orElse("");
     }
@@ -244,10 +254,25 @@ public class AiServiceImpl implements AiService {
                 .filter(config -> config.getConfigKey() != null && config.getConfigKey().endsWith(".model"))
                 .map(config -> removeSuffix(config.getConfigKey(), ".model"))
                 .filter(this::hasCompleteConfig)
+                .filter(this::isFreeTextConfig)
                 .distinct()
-                .sorted()
+                .sorted(Comparator.comparingInt(this::textConfigPriority).thenComparing(String::toString))
                 .findFirst()
                 .orElse("");
+    }
+
+    private boolean isFreeTextConfig(String configPrefix) {
+        return StringUtils.hasText(AiModelPolicy.effectiveFreeTextModel(
+                systemConfigService.getValue(configPrefix + ".provider", ""),
+                systemConfigService.getValue(configPrefix + ".model", "")
+        ));
+    }
+
+    private int textConfigPriority(String configPrefix) {
+        return AiModelPolicy.priority(AiModelPolicy.effectiveFreeTextModel(
+                systemConfigService.getValue(configPrefix + ".provider", ""),
+                systemConfigService.getValue(configPrefix + ".model", "")
+        ));
     }
 
     private boolean hasCompleteConfig(String configPrefix) {

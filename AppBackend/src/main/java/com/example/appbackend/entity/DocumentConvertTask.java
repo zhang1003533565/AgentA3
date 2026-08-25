@@ -39,6 +39,9 @@ public class DocumentConvertTask {
     @Column(name = "convert_type", nullable = false, length = 32)
     private String convertType;
 
+    @Column(name = "convert_mode", length = 32)
+    private String convertMode;
+
     @Column(nullable = false, length = 16)
     private String status;
 
@@ -92,5 +95,6 @@ public class DocumentConvertTask {
         if (createTime == null) createTime = LocalDateTime.now();
         if (status == null) status = STATUS_QUEUED;
         if (progress == null) progress = 0;
+        if (convertMode == null) convertMode = "image";
     }
 }
