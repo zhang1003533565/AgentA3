@@ -51,6 +51,7 @@ public class UploadController {
         UPLOAD_FOLDER_PREFIXES.put("ai-resources", "smart-campus/ai-resources");
         UPLOAD_FOLDER_PREFIXES.put("canteen-stalls", "smart-campus/canteen-stalls");
         UPLOAD_FOLDER_PREFIXES.put("dishes", "smart-campus/dishes");
+        UPLOAD_FOLDER_PREFIXES.put("public-facilities", "smart-campus/public-facilities");
     }
 
     private final COSClient cosClient;

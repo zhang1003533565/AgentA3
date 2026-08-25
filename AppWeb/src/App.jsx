@@ -31,7 +31,11 @@ import WorkspacePage from './pages/workspace/WorkspacePage'
 import StallManage from './pages/StallManage/StallManage'
 import StallIndoorManage from './pages/StallManage/StallIndoorManage'
 import MarkerManage from './pages/facility/MarkerManage/MarkerManage'
+
+import PublicFacilityManage from './pages/facility/PublicFacilityManage/PublicFacilityManage'
+
 import FacilityAnalyticsDetail from './pages/facility/AnalyticsDetail/FacilityAnalyticsDetail'
+
 import FacilityPlaceManage from './pages/facility/FacilityPlaceManage/FacilityPlaceManage'
 import TeachingBuildingManage from './pages/facility/TeachingBuildingManage/TeachingBuildingManage'
 import CampusCourseManage from './pages/learning/CampusCourseManage'
@@ -111,6 +115,7 @@ function App() {
           <Route path="/admin/paragraph/:knowledgeId/:documentId" element={<ParagraphManage />} />
           <Route path="/ai/profile-rules" element={<ProfileRules />} />
           <Route path="/facility/marker" element={<MarkerManage />} />
+          <Route path="/facility/public" element={<PublicFacilityManage />} />
           <Route path="/learning/courses" element={<CampusCourseManage />} />
           <Route path="/career/nebula" element={<CareerNebulaManage />} />
           <Route path="/discount/merchant" element={<DiscountMerchantManage />} />
