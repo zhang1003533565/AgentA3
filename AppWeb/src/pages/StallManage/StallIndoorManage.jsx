@@ -2,8 +2,10 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   AimOutlined,
   ArrowLeftOutlined,
+  BankOutlined,
   DeleteOutlined,
   EnvironmentOutlined,
+  HomeOutlined,
   PushpinOutlined,
   ShopOutlined,
 } from '@ant-design/icons'
@@ -25,8 +27,47 @@ const getRows = (response) => {
   return []
 }
 
-export default function StallIndoorManage() {
-  const { canteenId } = useParams()
+const INDOOR_CONFIG = {
+  CANTEEN: {
+    paramName: 'canteenId',
+    childTypes: ['CANTEEN_STALL'],
+    itemLabel: '档口',
+    returnLabel: '返回档口列表',
+    returnPath: (id) => `/facility/canteen/${id}/stalls`,
+    managerLabel: '楼层与菜系',
+    icon: ShopOutlined,
+  },
+  TEACHING: {
+    paramName: 'buildingId',
+    childTypes: ['CLASSROOM', 'LABORATORY', 'OFFICE'],
+    itemLabel: '教室',
+    returnLabel: '返回楼层列表',
+    returnPath: (id) => `/facility/teaching/${id}/rooms`,
+    managerLabel: '楼层与教室',
+    icon: BankOutlined,
+  },
+  DORMITORY: {
+    paramName: 'buildingId',
+    childTypes: [
+      'DORMITORY_ROOM',
+      'UNDERGRADUATE_DORM',
+      'POSTGRADUATE_DORM',
+      'DOCTORAL_DORM',
+      'FACULTY_DORM',
+    ],
+    itemLabel: '房间',
+    returnLabel: '返回楼层列表',
+    returnPath: (id) => `/facility/dormitory/${id}/rooms`,
+    managerLabel: '楼层与房间',
+    icon: HomeOutlined,
+  },
+}
+
+export default function StallIndoorManage({ sceneType = 'CANTEEN' }) {
+  const params = useParams()
+  const config = INDOOR_CONFIG[sceneType] || INDOOR_CONFIG.CANTEEN
+  const rootPlaceId = params[config.paramName]
+  const RootIcon = config.icon
   const navigate = useNavigate()
   const [canteen, setCanteen] = useState(null)
   const [floors, setFloors] = useState([])
@@ -52,8 +93,8 @@ export default function StallIndoorManage() {
     setLoading(true)
     try {
       const [canteenResponse, floorResponse] = await Promise.all([
-        getMapPlaceDetail(canteenId),
-        getMapPlaceList({ sceneType: 'CANTEEN', parentId: canteenId }),
+        getMapPlaceDetail(rootPlaceId),
+        getMapPlaceList({ sceneType, parentId: rootPlaceId }),
       ])
       const floorRows = getRows(floorResponse)
         .filter((item) => item.placeType === 'FLOOR')
@@ -68,7 +109,7 @@ export default function StallIndoorManage() {
     } finally {
       setLoading(false)
     }
-  }, [canteenId])
+  }, [rootPlaceId, sceneType])
 
   const loadFloor = useCallback(async () => {
     if (!selectedFloorId) {
@@ -82,11 +123,11 @@ export default function StallIndoorManage() {
     try {
       const [planResponse, stallResponse] = await Promise.all([
         getFloorPlan(selectedFloorId),
-        getMapPlaceList({ sceneType: 'CANTEEN', parentId: selectedFloorId }),
+        getMapPlaceList({ sceneType, parentId: selectedFloorId }),
       ])
       const nextPlan = planResponse.data || null
       const stallRows = getRows(stallResponse)
-        .filter((item) => item.placeType === 'CANTEEN_STALL')
+        .filter((item) => config.childTypes.includes(item.placeType))
         .sort((left, right) => (left.sortOrder || 0) - (right.sortOrder || 0))
       const positionResponse = nextPlan
         ? await getFloorPlanPositions(nextPlan.id)
@@ -103,7 +144,7 @@ export default function StallIndoorManage() {
     } finally {
       setLoading(false)
     }
-  }, [selectedFloorId])
+  }, [config, sceneType, selectedFloorId])
 
   useEffect(() => {
     loadBase()
@@ -142,7 +183,7 @@ export default function StallIndoorManage() {
     if (!current) return
     await deleteIndoorPosition(current.id)
     setPositions((previous) => previous.filter((item) => item.id !== current.id))
-    message.success('档口楼层位置已删除')
+    message.success(`${config.itemLabel}楼层位置已删除`)
   }
 
   const selectedFloor = floors.find((floor) => String(floor.id) === String(selectedFloorId))
@@ -182,9 +223,9 @@ export default function StallIndoorManage() {
                 type="link"
                 icon={<ArrowLeftOutlined />}
                 className="stall-section-back"
-                onClick={() => navigate(`/facility/canteen/${canteenId}/stalls`)}
+                onClick={() => navigate(config.returnPath(rootPlaceId))}
               >
-                返回档口列表
+                {config.returnLabel}
               </Button>
               {canteen && (
                 <div className="canteen-info-bar">
@@ -195,14 +236,14 @@ export default function StallIndoorManage() {
                       className="canteen-info-avatar"
                     />
                   ) : (
-                    <div className="canteen-info-avatar placeholder"><ShopOutlined /></div>
+                    <div className="canteen-info-avatar placeholder"><RootIcon /></div>
                   )}
                   <div className="canteen-info-text">
                     <h2>{canteen.name}</h2>
                   </div>
                 </div>
               )}
-              <p className="indoor-subtitle">点击平面图即可为当前选中档口设置室内坐标。</p>
+              <p className="indoor-subtitle">点击平面图即可为当前选中{config.itemLabel}设置室内坐标。</p>
             </div>
             <div className="stall-section-tools">
               <Select
@@ -219,7 +260,7 @@ export default function StallIndoorManage() {
                 </span>
               )}
               {positionByPlaceId.has(String(activeStallId)) && (
-                <Popconfirm title="确定删除当前档口的楼层位置吗？" onConfirm={removeActivePosition}>
+                <Popconfirm title={`确定删除当前${config.itemLabel}的楼层位置吗？`} onConfirm={removeActivePosition}>
                   <Button danger icon={<DeleteOutlined />}>删除定位</Button>
                 </Popconfirm>
               )}
@@ -230,7 +271,7 @@ export default function StallIndoorManage() {
 
           {!floorPlan?.imageUrl ? (
             <Empty
-              description="该楼层还没有平面图，请先在“楼层与菜系”中上传"
+              description={`该楼层还没有平面图，请先在“${config.managerLabel}”中上传`}
               className="stall-indoor-empty"
             />
           ) : (
@@ -260,7 +301,7 @@ export default function StallIndoorManage() {
                 )}
               </div>
               <p className="stall-indoor-caption">
-                共 <b>{stalls.length}</b> 个档口，已定位 <b>{positions.length}</b> 个
+                共 <b>{stalls.length}</b> 个{config.itemLabel}，已定位 <b>{positions.length}</b> 个
               </p>
             </div>
           )}

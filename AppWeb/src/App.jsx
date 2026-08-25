@@ -53,6 +53,16 @@ const FACILITY_PLACE_PATHS = new Set(['/facility/sports', '/facility/teaching', 
 const DISCOUNT_PATHS = new Set(['/discount/merchant', '/discount/activity', '/discount/category'])
 const SECONDHAND_INDEPENDENT_PATHS = new Set(['/market/report'])
 
+function FacilityFloorList({ sceneType }) {
+  const { buildingId } = useParams()
+  return (
+    <FacilityPlaceManage
+      sceneType={sceneType}
+      managementRootPlaceId={buildingId}
+    />
+  )
+}
+
 function DormitoryFloorManage() {
   const { dormitoryId } = useParams()
   return <FacilityPlaceManage sceneType="DORMITORY" rootPlaceId={dormitoryId} />
@@ -86,10 +96,14 @@ function App() {
           <Route path="/home" element={<Home />} />
           <Route path="/facility/canteen" element={<FacilityPlaceManage sceneType="CANTEEN" />} />
           <Route path="/facility/sports" element={<FacilityPlaceManage sceneType="SPORTS" />} />
-          <Route path="/facility/teaching" element={<TeachingBuildingManage />} />
+          <Route path="/facility/teaching" element={<FacilityPlaceManage sceneType="TEACHING" />} />
+          <Route path="/facility/teaching/:buildingId/rooms" element={<FacilityFloorList sceneType="TEACHING" />} />
+          <Route path="/facility/teaching/:buildingId/rooms/indoor" element={<StallIndoorManage sceneType="TEACHING" />} />
+          <Route path="/facility/dormitory" element={<FacilityPlaceManage sceneType="DORMITORY" />} />
+          <Route path="/facility/dormitory/:buildingId/rooms" element={<FacilityFloorList sceneType="DORMITORY" />} />
+          <Route path="/facility/dormitory/:buildingId/rooms/indoor" element={<StallIndoorManage sceneType="DORMITORY" />} />
           <Route path="/facility/teaching/:buildingId" element={<TeachingBuildingManage />} />
           <Route path="/facility/teaching/:buildingId/floors/:floorId" element={<TeachingBuildingManage />} />
-          <Route path="/facility/dormitory" element={<FacilityPlaceManage sceneType="DORMITORY" />} />
           <Route path="/facility/dormitory/:dormitoryId" element={<DormitoryFloorManage />} />
           <Route path="/facility/dormitory/:dormitoryId/floors/:floorId" element={<DormitoryFloorFacilityManage />} />
           <Route path="/facility/canteen/:canteenId/stalls" element={<StallManage />} />
