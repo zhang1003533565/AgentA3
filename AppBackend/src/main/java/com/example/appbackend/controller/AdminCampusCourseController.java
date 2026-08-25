@@ -161,6 +161,7 @@ public class AdminCampusCourseController {
 
             Map<String, Object> result = new java.util.HashMap<>();
             result.put("chapterTitle", aiResponse.getOrDefault("chapterTitle", "AI 生成章节"));
+            result.put("estimatedMinutes", aiResponse.getOrDefault("estimated_minutes", 0));
             result.put("sections", sections);
 
             return Result.success("章节已生成", result);

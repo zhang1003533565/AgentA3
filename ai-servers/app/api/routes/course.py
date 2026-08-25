@@ -22,6 +22,7 @@ class CourseSection(BaseModel):
 
 class CourseGenerateResponse(BaseModel):
     chapterTitle: str
+    estimated_minutes: int = Field(default=0, ge=0)
     sections: list[CourseSection]
 
 
@@ -45,8 +46,17 @@ def _clean_llm_json_text(raw_content: str) -> str:
 
 
 def _fallback_course_generation(prompt: str) -> dict[str, Any]:
+    estimated_minutes = 0
+    match = re.search(r"(\d+)\s*分钟", str(prompt or ""), flags=re.IGNORECASE)
+    if match:
+        try:
+            estimated_minutes = int(match.group(1))
+        except ValueError:
+            estimated_minutes = 0
+
     return {
         "chapterTitle": "第一章：Python基础入门",
+        "estimated_minutes": estimated_minutes,
         "sections": [
             {
                 "title": "1.1 变量与数据类型",
@@ -86,9 +96,12 @@ async def _generate_course_json(
                 "role": "system",
                 "content": (
                     "你是一个只能输出 JSON 的机器。禁止输出 Markdown 代码块、反引号或任何解释性文字。"
-                    "必须严格输出包含 chapterTitle 和 sections 数组的纯 JSON，且必须且只能生成 1 个章节。"
-                    "不能输出多个章节，也不能输出额外字段、说明文字、代码块或注释。"
-                    "必须且只能输出如下结构：{\"chapterTitle\":\"字符串\",\"sections\":[{\"title\":\"字符串\",\"content\":\"字符串\"}]}"
+                    "必须严格输出一个纯 JSON 对象，并且包含 chapterTitle、estimated_minutes 和 sections 字段。"
+                    "estimated_minutes 必须是数字类型的整数，单位是分钟。"
+                    "如果用户要求中明确包含类似“60分钟”“30分钟”“时长45分钟”等描述，必须按要求解析并输出对应的分钟数。"
+                    "如果用户没有指定任何学习时长，必须输出 0。"
+                    "只能生成 1 个章节。不能输出多个章节，也不能输出额外字段、说明文字、代码块或注释。"
+                    "必须且只能输出如下结构：{\"chapterTitle\":\"字符串\",\"estimated_minutes\":60,\"sections\":[{\"title\":\"字符串\",\"content\":\"字符串\"}]}"
                     "注意：只能返回一个章节对象，不能生成多个章节。"
                 ),
             },
@@ -97,8 +110,9 @@ async def _generate_course_json(
                 "content": (
                     "根据以下教学要求生成课程章节内容：\n"
                     f"{prompt}\n\n"
-                    "请返回纯 JSON，且只包含 chapterTitle 与 sections。"
-                    "chapterTitle 是章节标题，sections 必须是长度为 1 的数组，数组元素只有一个 section，且 section 必须包含 title 和 content。"
+                    "请返回纯 JSON，且必须包含 chapterTitle、estimated_minutes 和 sections。"
+                    "chapterTitle 是章节标题。estimated_minutes 是一个整数分钟数：如果用户要求中出现类似‘60分钟、30分钟、时长45分钟、预习时间都为60分钟’等描述，就输出对应数字；如果没有任何分钟要求，就输出 0。"
+                    "sections 必须是长度为 1 的数组，数组元素只有一个 section，且 section 必须包含 title 和 content。"
                     "必须且只能生成 1 个章节，不能输出多个章节，也不能输出任何解释性文字。"
                 ),
             },
@@ -143,6 +157,14 @@ async def _generate_course_json(
             return _fallback_course_generation(prompt)
 
         chapter_title = str(article.get("chapterTitle") or "课程章节").strip()
+        estimated_minutes_raw = article.get("estimated_minutes", article.get("estimatedMinutes", 0))
+        try:
+            estimated_minutes = int(estimated_minutes_raw)
+        except (TypeError, ValueError):
+            estimated_minutes = 0
+        if estimated_minutes < 0:
+            estimated_minutes = 0
+
         sections = article.get("sections") or []
         if not isinstance(sections, list):
             logger.error(
@@ -168,6 +190,7 @@ async def _generate_course_json(
         # 严格保持单章节返回格式，每次请求只返回一个章节对象
         return {
             "chapterTitle": chapter_title,
+            "estimated_minutes": estimated_minutes,
             "sections": sanitized_sections[:1],
         }
 
