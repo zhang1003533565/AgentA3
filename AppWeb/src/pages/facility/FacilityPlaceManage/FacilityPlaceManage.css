@@ -11,6 +11,20 @@
   margin-bottom: 20px;
 }
 
+.facility-place-toolbar > :first-child {
+  flex: 0 0 auto;
+}
+
+.facility-place-toolbar > .ant-space {
+  min-width: 0;
+  flex: 1 1 auto;
+  justify-content: flex-end;
+}
+
+.facility-place-toolbar > .ant-space .ant-input-search {
+  width: min(300px, 100%);
+}
+
 .facility-place-toolbar h1 {
   margin: 0 0 6px;
   color: #172033;
@@ -664,6 +678,10 @@
   .facility-place-toolbar {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .facility-place-toolbar > .ant-space {
+    justify-content: flex-start;
   }
 
   .facility-canteen-overview-page .facility-place-toolbar {

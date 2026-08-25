@@ -57,7 +57,7 @@ function FacilityFloorList({ sceneType }) {
   return (
     <FacilityPlaceManage
       sceneType={sceneType}
-      rootPlaceId={buildingId}
+      managementRootPlaceId={buildingId}
     />
   )
 }

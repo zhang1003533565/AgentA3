@@ -227,7 +227,12 @@ function CanteenCarousel({ images = [], alt = '食堂' }) {
   )
 }
 
-export default function FacilityPlaceManage({ sceneType, rootPlaceId = null, floorId = null }) {
+export default function FacilityPlaceManage({
+  sceneType,
+  rootPlaceId = null,
+  managementRootPlaceId = null,
+  floorId = null,
+}) {
   const config = SCENE_CONFIG[sceneType]
   const navigate = useNavigate()
   const [form] = Form.useForm()
@@ -290,7 +295,8 @@ export default function FacilityPlaceManage({ sceneType, rootPlaceId = null, flo
         setTree(children)
         return
       }
-      if (rootPlaceId) {
+      if (rootPlaceId || managementRootPlaceId) {
+        const activeRootPlaceId = rootPlaceId || managementRootPlaceId
         const loadChildren = async (parentId) => {
           const response = await getMapPlaceList({ sceneType, parentId })
           const children = Array.isArray(response.data) ? response.data : []
@@ -304,8 +310,8 @@ export default function FacilityPlaceManage({ sceneType, rootPlaceId = null, flo
           )
         }
         const [rootResponse, children] = await Promise.all([
-          getMapPlaceDetail(rootPlaceId),
-          loadChildren(rootPlaceId),
+          getMapPlaceDetail(activeRootPlaceId),
+          loadChildren(activeRootPlaceId),
         ])
         setRootPlace(rootResponse.data || null)
         setTree(children)
@@ -323,7 +329,7 @@ export default function FacilityPlaceManage({ sceneType, rootPlaceId = null, flo
     } finally {
       setLoading(false)
     }
-  }, [config.rootTypes, floorId, rootPlaceId, sceneType])
+  }, [config.rootTypes, floorId, managementRootPlaceId, rootPlaceId, sceneType])
 
   useEffect(() => {
     loadTree()
@@ -868,6 +874,10 @@ export default function FacilityPlaceManage({ sceneType, rootPlaceId = null, flo
               onClick={() => {
                 if (floorId) {
                   navigate(`/facility/dormitory/${rootPlaceId}`)
+                  return
+                }
+                if (managementRootPlaceId) {
+                  navigate(`/facility/${sceneType === 'TEACHING' ? 'teaching' : 'dormitory'}`)
                   return
                 }
                 if (!rootPlaceId) {
