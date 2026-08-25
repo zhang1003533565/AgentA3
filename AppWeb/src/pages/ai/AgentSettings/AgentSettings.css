@@ -337,3 +337,9 @@
   line-height: 1.4;
   color: #8c8c8c;
 }
+
+.agent-settings-tool-purpose {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
