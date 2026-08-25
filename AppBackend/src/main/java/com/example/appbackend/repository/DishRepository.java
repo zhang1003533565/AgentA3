@@ -21,6 +21,8 @@ public interface DishRepository extends JpaRepository<Dish, Long> {
 
     List<Dish> findByStallPlaceId(Long stallPlaceId);
 
+    void deleteByStallPlaceId(Long stallPlaceId);
+
     /**
      * 根据菜品分类查询
      */

@@ -115,6 +115,7 @@ export default function StallManage() {
   const [categoryKind, setCategoryKind] = useState('floor')
   const [editingCategory, setEditingCategory] = useState(null)
   const [floorPlanOpen, setFloorPlanOpen] = useState(false)
+  const [returnToCategoryManagerAfterPlan, setReturnToCategoryManagerAfterPlan] = useState(false)
   const [floorPlanFloor, setFloorPlanFloor] = useState(null)
   const [floorPlan, setFloorPlan] = useState(null)
   const stallImage = Form.useWatch('imageUrl', stallForm)
@@ -275,6 +276,9 @@ export default function StallManage() {
     )
 
   const openFloorPlan = async (floor) => {
+    const shouldReturnToCategoryManager = categoryManagerOpen
+    setReturnToCategoryManagerAfterPlan(shouldReturnToCategoryManager)
+    if (shouldReturnToCategoryManager) setCategoryManagerOpen(false)
     setFloorPlanFloor(floor)
     floorPlanForm.resetFields()
     setSaving(true)
@@ -283,6 +287,10 @@ export default function StallManage() {
       setFloorPlan(response.data || null)
       floorPlanForm.setFieldValue('imageUrl', response.data?.imageUrl || '')
       setFloorPlanOpen(true)
+    } catch (error) {
+      if (shouldReturnToCategoryManager) setCategoryManagerOpen(true)
+      setReturnToCategoryManagerAfterPlan(false)
+      if (!error?.showMessage) message.error(error?.message || '平面图加载失败')
     } finally {
       setSaving(false)
     }
@@ -530,7 +538,7 @@ export default function StallManage() {
           </Button>
           <Popconfirm
             title="确定删除该档口吗？"
-            description="请先确认该档口下没有需要保留的菜品。"
+            description="删除后，该档口下的全部菜品及相关评价也会一并永久删除。"
             onConfirm={() => removeStall(record)}
           >
             <Button size="small" danger icon={<DeleteOutlined />}>删除</Button>
@@ -790,7 +798,7 @@ export default function StallManage() {
                 </Button>
                 <Popconfirm
                   title="确定删除该档口吗？"
-                  description="请先确认该档口下没有需要保留的菜品。"
+                  description="删除后，该档口下的全部菜品及相关评价也会一并永久删除。"
                   onConfirm={() => removeStall(record)}
                 >
                   <Button danger icon={<DeleteOutlined />}>删除</Button>
@@ -1137,10 +1145,16 @@ export default function StallManage() {
       <Modal
         title={`楼层平面图 · ${floorPlanFloor?.name || ''}`}
         open={floorPlanOpen}
+        centered
+        zIndex={1400}
         confirmLoading={saving || floorPlanUploading}
         okButtonProps={{ disabled: floorPlanUploading }}
         onCancel={() => setFloorPlanOpen(false)}
         onOk={submitFloorPlan}
+        afterClose={() => {
+          if (returnToCategoryManagerAfterPlan) setCategoryManagerOpen(true)
+          setReturnToCategoryManagerAfterPlan(false)
+        }}
         forceRender
       >
         <Form form={floorPlanForm} layout="vertical">

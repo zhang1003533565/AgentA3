@@ -14,12 +14,15 @@ import {
   Space,
   Switch,
   Table,
+  Tabs,
   Tag,
   Upload,
   message,
 } from 'antd'
 import {
+  AimOutlined,
   ApartmentOutlined,
+  CheckCircleOutlined,
   DeleteOutlined,
   EditOutlined,
   EllipsisOutlined,
@@ -87,6 +90,10 @@ const TYPE_LABELS = {
   LABORATORY: '实验室',
   OFFICE: '办公室',
   DORMITORY_ROOM: '宿舍房间',
+  UNDERGRADUATE_DORM: '本科生',
+  POSTGRADUATE_DORM: '研究生',
+  DOCTORAL_DORM: '博士生',
+  FACULTY_DORM: '教师',
   RUNNING_TRACK: '跑道',
   FOOTBALL_FIELD: '足球场',
   BASKETBALL_COURT: '篮球场',
@@ -116,7 +123,7 @@ const CHILD_TYPES = {
 const FLOOR_CHILD_TYPES = {
   CANTEEN: ['CANTEEN_STALL', 'DINING_AREA'],
   TEACHING: ['CLASSROOM', 'LABORATORY', 'OFFICE'],
-  DORMITORY: ['DORMITORY_ROOM'],
+  DORMITORY: ['UNDERGRADUATE_DORM', 'POSTGRADUATE_DORM', 'DOCTORAL_DORM', 'FACULTY_DORM'],
 }
 
 const STATUS_OPTIONS = [
@@ -206,12 +213,15 @@ export default function FacilityPlaceManage({ sceneType, rootPlaceId = null }) {
   const [fileList, setFileList] = useState([])
   const [previewImageUid, setPreviewImageUid] = useState(null)
   const [planOpen, setPlanOpen] = useState(false)
+  const [returnToRoomManagerAfterPlan, setReturnToRoomManagerAfterPlan] = useState(false)
   const [planFloor, setPlanFloor] = useState(null)
   const [plan, setPlan] = useState(null)
   const [positionOpen, setPositionOpen] = useState(false)
   const [positionPlace, setPositionPlace] = useState(null)
   const [positionPlan, setPositionPlan] = useState(null)
   const [keyword, setKeyword] = useState('')
+  const [managementFloorFilter, setManagementFloorFilter] = useState('ALL')
+  const [roomManagerOpen, setRoomManagerOpen] = useState(false)
   const [rootPlace, setRootPlace] = useState(null)
   const [statusFilter, setStatusFilter] = useState('ALL')
   const planImageUrl = Form.useWatch('imageUrl', planForm)
@@ -265,6 +275,30 @@ export default function FacilityPlaceManage({ sceneType, rootPlaceId = null }) {
   useEffect(() => {
     loadTree()
   }, [loadTree])
+
+  const enterFacilityManagement = async (place) => {
+    if (!place || sceneType === 'SPORTS') return
+    setLoading(true)
+    try {
+      const loadChildren = async (parentId) => {
+        const response = await getMapPlaceList({ sceneType, parentId })
+        const children = Array.isArray(response.data) ? response.data : []
+        return Promise.all(children.map(async (child) => ({
+          ...child,
+          children: getAllowedChildTypes(sceneType, child).length
+            ? await loadChildren(child.id)
+            : [],
+        })))
+      }
+      const children = await loadChildren(place.id)
+      setRootPlace(place)
+      setTree(children)
+    } catch (error) {
+      message.error(error?.message || '下级设施加载失败')
+    } finally {
+      setLoading(false)
+    }
+  }
 
   const filteredTree = useMemo(() => {
     const query = keyword.trim().toLowerCase()
@@ -355,7 +389,7 @@ export default function FacilityPlaceManage({ sceneType, rootPlaceId = null }) {
     setSaving(true)
     try {
       const payload = {
-        parentId: editing ? (editing.parentId ?? null) : (parent?.id ?? null),
+        parentId: values.parentId ?? (editing ? (editing.parentId ?? null) : (parent?.id ?? null)),
         sceneType,
         placeType: values.placeType || editing?.placeType || getAllowedChildTypes(sceneType, parent)[0],
         name: values.name,
@@ -384,7 +418,8 @@ export default function FacilityPlaceManage({ sceneType, rootPlaceId = null }) {
       }
       message.success(editing ? '点位已更新' : '点位已创建')
       setEditorOpen(false)
-      await loadTree()
+      if (rootPlace && !rootPlaceId) await enterFacilityManagement(rootPlace)
+      else await loadTree()
     } finally {
       setSaving(false)
     }
@@ -393,13 +428,14 @@ export default function FacilityPlaceManage({ sceneType, rootPlaceId = null }) {
   const removePlace = async (record) => {
     await deleteMapPlace(record.id)
     message.success('点位已删除')
-    await loadTree()
+    if (rootPlace && !rootPlaceId) await enterFacilityManagement(rootPlace)
+    else await loadTree()
   }
 
   const confirmRemovePlace = (record) => {
     Modal.confirm({
       title: `确定删除“${record.name}”吗？`,
-      content: '存在下级点位时不能删除。',
+      content: `仅可删除没有下级点位的设施；如存在楼层、${sceneType === 'TEACHING' ? '教室' : '房间'}或档口，请先处理下级点位。`,
       okText: '删除',
       cancelText: '取消',
       okButtonProps: { danger: true },
@@ -455,6 +491,9 @@ export default function FacilityPlaceManage({ sceneType, rootPlaceId = null }) {
   }
 
   const openPlan = async (floor) => {
+    const shouldReturnToRoomManager = roomManagerOpen
+    setReturnToRoomManagerAfterPlan(shouldReturnToRoomManager)
+    if (shouldReturnToRoomManager) setRoomManagerOpen(false)
     setPlanFloor(floor)
     setSaving(true)
     try {
@@ -462,6 +501,10 @@ export default function FacilityPlaceManage({ sceneType, rootPlaceId = null }) {
       setPlan(response.data || null)
       planForm.setFieldsValue({ imageUrl: response.data?.imageUrl || '' })
       setPlanOpen(true)
+    } catch (error) {
+      if (shouldReturnToRoomManager) setRoomManagerOpen(true)
+      setReturnToRoomManagerAfterPlan(false)
+      if (!error?.showMessage) message.error(error?.message || '平面图加载失败')
     } finally {
       setSaving(false)
     }
@@ -621,9 +664,18 @@ export default function FacilityPlaceManage({ sceneType, rootPlaceId = null }) {
 
   if (!config) return <Empty description="未知设施场景" />
 
-  const pageTitle = rootPlace ? `${rootPlace.name} · 档口管理` : config.title
+  const roomEntityLabel = sceneType === 'TEACHING' ? '教室' : '房间'
+  const roomManagerLabel = sceneType === 'TEACHING' ? '楼层与教室' : '楼层与房间'
+  const roomLocatorLabel = sceneType === 'TEACHING' ? '楼层教室定位' : '楼层房间定位'
+  const pageTitle = rootPlace
+    ? `${rootPlace.name} · ${sceneType === 'CANTEEN' ? '档口管理' : sceneType === 'SPORTS' ? '平面图管理' : roomManagerLabel}`
+    : config.title
   const pageDescription = rootPlace
-    ? '进入食堂后单独加载并管理楼层、档口和就餐区域。'
+    ? sceneType === 'CANTEEN'
+      ? '进入食堂后单独加载并管理楼层、档口和就餐区域。'
+      : sceneType === 'TEACHING'
+        ? '按楼层管理教室、实验室和办公室。'
+        : '按楼层管理宿舍房间。'
     : sceneType === 'CANTEEN'
       ? ''
       : config.description
@@ -632,8 +684,57 @@ export default function FacilityPlaceManage({ sceneType, rootPlaceId = null }) {
     ? '新增楼层'
     : sceneType === 'CANTEEN'
       ? '新增食堂'
-      : '新增顶级设施'
-  const isCanteenOverview = sceneType === 'CANTEEN' && !rootPlaceId
+      : sceneType === 'SPORTS'
+        ? '新增运动场'
+        : sceneType === 'TEACHING'
+          ? '新增教学楼'
+          : sceneType === 'DORMITORY'
+            ? '新增宿舍楼'
+            : '新增设施'
+  const isCanteenOverview = !rootPlaceId && !rootPlace
+  const isRoomManagement = Boolean(rootPlace) && ['TEACHING', 'DORMITORY'].includes(sceneType)
+  const managementFloors = isRoomManagement
+    ? filteredTree.filter((item) => item.placeType === 'FLOOR')
+    : []
+  const selectedManagementFloor = managementFloors.find(
+    (item) => String(item.id) === String(managementFloorFilter),
+  )
+  const roomCreateParent = selectedManagementFloor || managementFloors[0]
+  const managementRooms = managementFloors.flatMap((floor) =>
+    (floor.children || []).map((room) => ({ ...room, floorName: floor.name, floorId: floor.id })))
+    .filter((room) => managementFloorFilter === 'ALL'
+      || String(room.floorId) === String(managementFloorFilter))
+  const roomTypeLabel = sceneType === 'TEACHING' ? '教室' : '宿舍房间'
+  const facilityListLabel = {
+    CANTEEN: '食堂列表',
+    SPORTS: '运动场列表',
+    TEACHING: '教学楼列表',
+    DORMITORY: '宿舍楼列表',
+  }[sceneType] || '设施列表'
+  const isRoomEditor = isRoomManagement && (
+    parent?.placeType === 'FLOOR'
+    || [
+      'CLASSROOM',
+      'LABORATORY',
+      'OFFICE',
+      'DORMITORY_ROOM',
+      'UNDERGRADUATE_DORM',
+      'POSTGRADUATE_DORM',
+      'DOCTORAL_DORM',
+      'FACULTY_DORM',
+    ].includes(editing?.placeType)
+  )
+  const isBuildingFloorEditor = isRoomManagement && (
+    ['TEACHING_BUILDING', 'DORMITORY_BUILDING'].includes(parent?.placeType)
+    || editing?.placeType === 'FLOOR'
+  )
+  const editorTitle = isRoomEditor
+    ? (editing ? `编辑${roomEntityLabel}` : `新增${roomEntityLabel}`)
+    : editing
+      ? '编辑点位'
+      : parent
+        ? `在“${parent.name}”下新增`
+        : createLabel
   const canteenCounts = {
     ALL: tree.length,
     ENABLED: tree.filter((item) => item.status === 'ENABLED').length,
@@ -648,24 +749,65 @@ export default function FacilityPlaceManage({ sceneType, rootPlaceId = null }) {
             <Button
               type="link"
               className="facility-place-back"
-              onClick={() => navigate('/facility/canteen')}
+              onClick={() => {
+                if (!rootPlaceId) {
+                  setRootPlace(null)
+                  setManagementFloorFilter('ALL')
+                  loadTree()
+                  return
+                }
+                navigate({
+                  CANTEEN: '/facility/canteen',
+                  SPORTS: '/facility/sports',
+                  TEACHING: '/facility/teaching',
+                  DORMITORY: '/facility/dormitory',
+                }[sceneType] || '/facility/canteen')
+              }}
             >
-              ← 返回食堂列表
+              ← 返回{facilityListLabel}
             </Button>
           ) : null}
-          {!isCanteenOverview ? <h1>{pageTitle}</h1> : null}
-          {pageDescription ? <p>{pageDescription}</p> : null}
+          {!isCanteenOverview && !isRoomManagement ? <h1>{pageTitle}</h1> : null}
+          {pageDescription && !isRoomManagement ? <p>{pageDescription}</p> : null}
         </div>
-        <Space>
+        <Space wrap>
+          {isRoomManagement ? (
+            <Button
+              icon={<AimOutlined />}
+              onClick={() => navigate(`/facility/${sceneType === 'TEACHING' ? 'teaching' : 'dormitory'}/${rootPlace.id}/rooms/indoor`)}
+            >
+              {roomLocatorLabel}
+            </Button>
+          ) : null}
+          {isRoomManagement ? (
+            <Button onClick={() => setRoomManagerOpen(true)}>{roomManagerLabel}</Button>
+          ) : null}
+          {isRoomManagement ? (
+            <Select
+              value={managementFloorFilter}
+              onChange={setManagementFloorFilter}
+              style={{ width: 150 }}
+              options={[
+                { value: 'ALL', label: '全部楼层' },
+                ...managementFloors.map((floor) => ({ value: floor.id, label: floor.name })),
+              ]}
+            />
+          ) : null}
           <Input.Search
             allowClear
             placeholder="搜索点位"
             value={keyword}
             onChange={(event) => setKeyword(event.target.value)}
           />
-          <Button type="primary" icon={<PlusOutlined />} onClick={() => openCreate(createParent)}>
-            {createLabel}
-          </Button>
+          {!isRoomManagement ? (
+            <Button
+              type="primary"
+              icon={<PlusOutlined />}
+              onClick={() => openCreate(createParent)}
+            >
+              {createLabel}
+            </Button>
+          ) : null}
         </Space>
       </div>
 
@@ -692,6 +834,13 @@ export default function FacilityPlaceManage({ sceneType, rootPlaceId = null }) {
             <div className="facility-canteen-grid">
               {filteredTree.map((canteen) => {
                 const hasLocation = canteen.longitude != null && canteen.latitude != null
+                const childCount = canteen.children?.length ?? 0
+                const childLabel = sceneType === 'CANTEEN'
+                  ? '个档口'
+                  : sceneType === 'SPORTS' ? '个场地' : '个楼层'
+                const overviewActionLabel = sceneType === 'CANTEEN'
+                  ? '进入档口管理'
+                  : sceneType === 'SPORTS' ? '进入平面图管理' : `进入${roomManagerLabel}`
                 return (
                   <Card
                     key={canteen.id}
@@ -711,7 +860,7 @@ export default function FacilityPlaceManage({ sceneType, rootPlaceId = null }) {
                     <div className="facility-canteen-card-info">
                       <div className="facility-canteen-summary-row">
                         <ShopOutlined />
-                        <span><strong>{canteen.stallCount ?? 0}</strong> 个档口</span>
+                        <span><strong>{sceneType === 'CANTEEN' ? (canteen.stallCount ?? 0) : childCount}</strong> {childLabel}</span>
                       </div>
                       <div className="facility-canteen-summary-row">
                         <EnvironmentOutlined />
@@ -722,9 +871,13 @@ export default function FacilityPlaceManage({ sceneType, rootPlaceId = null }) {
                       <Button
                         type="primary"
                         icon={<ShopOutlined />}
-                        onClick={() => navigate(`/facility/canteen/${canteen.id}/stalls`)}
+                        onClick={() => sceneType === 'CANTEEN'
+                          ? navigate(`/facility/canteen/${canteen.id}/stalls`)
+                          : sceneType === 'SPORTS'
+                            ? navigate(`/facility/marker?mapPlaceId=${canteen.id}`)
+                            : enterFacilityManagement(canteen)}
                       >
-                        进入档口管理
+                        {overviewActionLabel}
                       </Button>
                       <Dropdown
                         trigger={['click']}
@@ -732,9 +885,9 @@ export default function FacilityPlaceManage({ sceneType, rootPlaceId = null }) {
                         menu={{
                           items: [
                             { key: 'location', icon: <EnvironmentOutlined />, label: '位置管理' },
-                            { key: 'edit', icon: <EditOutlined />, label: '编辑食堂' },
+                            { key: 'edit', icon: <EditOutlined />, label: `编辑${config.title.replace('管理', '')}` },
                             { type: 'divider' },
-                            { key: 'delete', icon: <DeleteOutlined />, label: '删除食堂', danger: true },
+                            { key: 'delete', icon: <DeleteOutlined />, label: `删除${config.title.replace('管理', '')}`, danger: true },
                           ],
                           onClick: ({ key }) => {
                             if (key === 'location') navigate(`/facility/marker?mapPlaceId=${canteen.id}`)
@@ -760,6 +913,46 @@ export default function FacilityPlaceManage({ sceneType, rootPlaceId = null }) {
             </Card>
           )}
         </>
+      ) : isRoomManagement ? (
+        <Card className="facility-place-card facility-room-management-card" styles={{ body: { padding: 24 } }}>
+          <div className="facility-room-management-summary">
+            <span><strong>{managementFloors.length}</strong> 个楼层</span>
+            <span><strong>{managementRooms.length}</strong> 个{roomTypeLabel}</span>
+          </div>
+          {managementRooms.length ? (
+            <div className="facility-room-grid">
+              {managementRooms.map((room) => (
+                <Card key={room.id} className="facility-room-card" styles={{ body: { padding: 0 } }}>
+                  <div className="facility-room-card-cover">
+                    <CanteenCarousel images={room.images || []} />
+                    <div className="facility-canteen-image-shade" />
+                    <div className="facility-canteen-heading">
+                      <h2>{room.name}</h2>
+                      <Tag color={room.status === 'ENABLED' ? 'success' : 'default'}>
+                        {room.status === 'ENABLED' ? '启用' : '停用'}
+                      </Tag>
+                    </div>
+                  </div>
+                  <div className="facility-room-card-info">
+                    <div><ApartmentOutlined /><span>所在楼层：{room.floorName}</span></div>
+                    <div>
+                      <CheckCircleOutlined />
+                      <span>启用状态：{room.status === 'ENABLED' ? '启用' : '停用'}</span>
+                    </div>
+                  </div>
+                  <div className="facility-room-card-actions">
+                    <Button type="primary" onClick={() => openEdit(room)}>编辑{roomEntityLabel}</Button>
+                    <Popconfirm title={`确定删除“${room.name}”吗？`} onConfirm={() => removePlace(room)}>
+                      <Button danger icon={<DeleteOutlined />}>删除</Button>
+                    </Popconfirm>
+                  </div>
+                </Card>
+              ))}
+            </div>
+          ) : (
+            <Empty description={managementFloors.length ? `该楼层暂无${roomTypeLabel}` : '请先新增楼层'} />
+          )}
+        </Card>
       ) : (
         <Card className="facility-place-card">
           <Table
@@ -768,38 +961,210 @@ export default function FacilityPlaceManage({ sceneType, rootPlaceId = null }) {
             dataSource={filteredTree}
             loading={loading}
             pagination={false}
-            expandable={rootPlaceId ? { defaultExpandAllRows: true } : undefined}
-            locale={{ emptyText: rootPlaceId ? '该食堂暂无楼层或档口' : '暂无设施点位' }}
+            expandable={rootPlaceId || rootPlace ? { defaultExpandAllRows: true } : undefined}
+            locale={{ emptyText: rootPlace ? `暂无楼层或下级${roomEntityLabel}` : '暂无设施点位' }}
             scroll={{ x: 1080 }}
           />
         </Card>
       )}
 
       <SidePanel
-        title={editing ? '编辑点位' : parent ? `在“${parent.name}”下新增` : '新增顶级设施'}
-        open={editorOpen}
-        onClose={() => setEditorOpen(false)}
+        title={`${rootPlace?.name || ''} · ${roomManagerLabel}`}
+        open={roomManagerOpen}
+        onClose={() => setRoomManagerOpen(false)}
         destroyOnHidden
-        footer={(
-          <>
-            <Button onClick={() => setEditorOpen(false)}>取消</Button>
-            <Button type="primary" loading={saving} onClick={savePlace}>保存</Button>
-          </>
-        )}
       >
+        <div className="facility-room-manager-tip">
+          楼层作为建筑的下级层级，{sceneType === 'TEACHING' ? '教室、实验室和办公室' : '宿舍房间'}归属到具体楼层。
+        </div>
+        <Tabs
+          items={[
+            {
+              key: 'floor',
+              label: `楼层点位（${managementFloors.length}）`,
+              children: (
+                <div className="facility-room-manager-section">
+                  <div className="facility-room-manager-toolbar">
+                    <p>维护建筑楼层，并为每个楼层配置平面图。</p>
+                    <Button type="primary" icon={<PlusOutlined />} onClick={() => openCreate(rootPlace)}>
+                      新增楼层
+                    </Button>
+                  </div>
+                  <Table
+                    rowKey="id"
+                    size="small"
+                    pagination={false}
+                    dataSource={managementFloors}
+                    locale={{ emptyText: '暂未配置楼层' }}
+                    columns={[
+                      { title: '楼层名称', dataIndex: 'name' },
+                      { title: '排序', dataIndex: 'sortOrder', width: 80 },
+                      {
+                        title: '状态',
+                        dataIndex: 'status',
+                        width: 90,
+                        render: (value) => <Tag color={value === 'ENABLED' ? 'success' : 'default'}>{value === 'ENABLED' ? '启用' : '停用'}</Tag>,
+                      },
+                      {
+                        title: '操作',
+                        key: 'actions',
+                        width: 240,
+                        render: (_, floor) => (
+                          <Space size="small">
+                            <Button size="small" onClick={() => openPlan(floor)}>平面图</Button>
+                            <Button size="small" onClick={() => openEdit(floor)}>编辑</Button>
+                            <Popconfirm title={`确定删除“${floor.name}”吗？`} onConfirm={() => removePlace(floor)}>
+                              <Button size="small" danger>删除</Button>
+                            </Popconfirm>
+                          </Space>
+                        ),
+                      },
+                    ]}
+                  />
+                </div>
+              ),
+            },
+            {
+              key: 'room',
+              label: `${roomTypeLabel}（${managementRooms.length}）`,
+              children: (
+                <div className="facility-room-manager-section">
+                  <div className="facility-room-manager-toolbar">
+                    <Select
+                      value={managementFloorFilter}
+                      onChange={setManagementFloorFilter}
+                      style={{ width: 160 }}
+                      options={[
+                        { value: 'ALL', label: '全部楼层' },
+                        ...managementFloors.map((floor) => ({ value: floor.id, label: floor.name })),
+                      ]}
+                    />
+                    <Button type="primary" icon={<PlusOutlined />} disabled={!roomCreateParent} onClick={() => openCreate(roomCreateParent)}>
+                      新增{roomEntityLabel}
+                    </Button>
+                  </div>
+                  <Table
+                    rowKey="id"
+                    size="small"
+                    pagination={false}
+                    dataSource={managementRooms}
+                    locale={{ emptyText: managementFloors.length ? `暂无${roomTypeLabel}` : '请先新增楼层' }}
+                    columns={[
+                      { title: `${roomEntityLabel}名称`, dataIndex: 'name' },
+                      { title: '所在楼层', dataIndex: 'floorName', width: 140 },
+                      {
+                        title: '类型',
+                        dataIndex: 'placeType',
+                        width: 140,
+                        render: (value) => TYPE_LABELS[value] || value,
+                      },
+                      {
+                        title: '状态',
+                        dataIndex: 'status',
+                        width: 90,
+                        render: (value) => <Tag color={value === 'ENABLED' ? 'success' : 'default'}>{value === 'ENABLED' ? '启用' : '停用'}</Tag>,
+                      },
+                      {
+                        title: '操作',
+                        key: 'actions',
+                        width: 150,
+                        render: (_, room) => (
+                          <Space size="small">
+                            <Button size="small" onClick={() => openEdit(room)}>编辑</Button>
+                            <Popconfirm title={`确定删除“${room.name}”吗？`} onConfirm={() => removePlace(room)}>
+                              <Button size="small" danger>删除</Button>
+                            </Popconfirm>
+                          </Space>
+                        ),
+                      },
+                    ]}
+                  />
+                </div>
+              ),
+            },
+          ]}
+        />
+      </SidePanel>
+
+      {isBuildingFloorEditor ? (
+        <Modal
+          className="facility-floor-editor-modal"
+          title={editing ? '编辑楼层点位' : '新增楼层点位'}
+          open={editorOpen}
+          width={720}
+          okText="确定"
+          cancelText="取消"
+          confirmLoading={saving}
+          onOk={savePlace}
+          onCancel={() => setEditorOpen(false)}
+          destroyOnHidden
+          forceRender
+        >
+          <Form form={form} layout="vertical">
+            <Form.Item
+              name="name"
+              label="楼层名称"
+              rules={[{ required: true, message: '请输入楼层名称' }]}
+            >
+              <Input placeholder="例如：1F、地下层" />
+            </Form.Item>
+            <div className="place-form-grid">
+              <Form.Item name="status" label="状态" rules={[{ required: true, message: '请选择状态' }]}>
+                <Select options={STATUS_OPTIONS} />
+              </Form.Item>
+              <Form.Item name="sortOrder" label="排序">
+                <InputNumber min={0} style={{ width: '100%' }} />
+              </Form.Item>
+            </div>
+          </Form>
+        </Modal>
+      ) : (
+        <SidePanel
+          title={editorTitle}
+          open={editorOpen}
+          onClose={() => setEditorOpen(false)}
+          destroyOnHidden
+          footer={(
+            <>
+              <Button onClick={() => setEditorOpen(false)}>取消</Button>
+              <Button type="primary" loading={saving} onClick={savePlace}>保存</Button>
+            </>
+          )}
+        >
         <Form form={form} layout="vertical">
+          {isRoomEditor ? (
+            <Form.Item name="name" label="点位名称" rules={[{ required: true, message: '请输入点位名称' }]}>
+              <Input />
+            </Form.Item>
+          ) : null}
           {isCanteenOverview ? (
             <Form.Item name="name" label="点位名称" rules={[{ required: true, message: '请输入点位名称' }]}>
               <Input />
             </Form.Item>
           ) : (
             <div className="place-form-grid">
-              <Form.Item name="name" label="点位名称" rules={[{ required: true, message: '请输入点位名称' }]}>
-                <Input />
-              </Form.Item>
+              {isRoomEditor ? (
+                <Form.Item
+                  name="parentId"
+                  label="所在楼层"
+                  rules={[{ required: true, message: '请选择所在楼层' }]}
+                >
+                  <Select
+                    placeholder="请选择已创建的楼层"
+                    options={managementFloors.map((floor) => ({
+                      value: floor.id,
+                      label: floor.name,
+                    }))}
+                  />
+                </Form.Item>
+              ) : (
+                <Form.Item name="name" label="点位名称" rules={[{ required: true, message: '请输入点位名称' }]}>
+                  <Input />
+                </Form.Item>
+              )}
               <Form.Item name="placeType" label="点位类型" rules={[{ required: true }]}>
                 <Select
-                  disabled={Boolean(editing)}
+                  disabled={Boolean(editing) && !isRoomEditor}
                   options={getAllowedChildTypes(sceneType, parent).map((value) => ({
                     value,
                     label: TYPE_LABELS[value] || value,
@@ -824,17 +1189,19 @@ export default function FacilityPlaceManage({ sceneType, rootPlaceId = null }) {
               <Form.Item name="locationDesc" label="位置说明">
                 <Input placeholder="例如：东区体育馆北侧" />
               </Form.Item>
-              <div className="place-form-grid">
-                <Form.Item name="longitude" label="经度">
-                  <InputNumber min={-180} max={180} precision={7} style={{ width: '100%' }} />
-                </Form.Item>
-                <Form.Item name="latitude" label="纬度">
-                  <InputNumber min={-90} max={90} precision={7} style={{ width: '100%' }} />
-                </Form.Item>
-                <Form.Item name="mapVisible" label="室外地图显示" valuePropName="checked">
-                  <Switch />
-                </Form.Item>
-              </div>
+              {!['TEACHING', 'DORMITORY'].includes(sceneType) ? (
+                <div className="place-form-grid">
+                  <Form.Item name="longitude" label="经度">
+                    <InputNumber min={-180} max={180} precision={7} style={{ width: '100%' }} />
+                  </Form.Item>
+                  <Form.Item name="latitude" label="纬度">
+                    <InputNumber min={-90} max={90} precision={7} style={{ width: '100%' }} />
+                  </Form.Item>
+                  <Form.Item name="mapVisible" label="室外地图显示" valuePropName="checked">
+                    <Switch />
+                  </Form.Item>
+                </div>
+              ) : null}
             </>
           ) : null}
           <Form.Item label="图片">
@@ -883,7 +1250,7 @@ export default function FacilityPlaceManage({ sceneType, rootPlaceId = null }) {
               <p>保存后，食堂卡片会按照当前预览位置裁切图片；原图文件不会被修改。</p>
             </div>
           ) : null}
-          {!isCanteenOverview ? (
+          {!isCanteenOverview && !['TEACHING', 'DORMITORY'].includes(sceneType) ? (
             <>
               <div className="place-form-grid">
                 <Form.Item name="geometryType" label="户外围栏类型">
@@ -903,14 +1270,21 @@ export default function FacilityPlaceManage({ sceneType, rootPlaceId = null }) {
             </>
           ) : null}
         </Form>
-      </SidePanel>
+        </SidePanel>
+      )}
 
       <Modal
         title={`楼层平面图 · ${planFloor?.name || ''}`}
         open={planOpen}
+        centered
+        zIndex={1400}
         confirmLoading={saving}
         onCancel={() => setPlanOpen(false)}
         onOk={submitPlan}
+        afterClose={() => {
+          if (returnToRoomManagerAfterPlan) setRoomManagerOpen(true)
+          setReturnToRoomManagerAfterPlan(false)
+        }}
         forceRender
       >
         <Form form={planForm} layout="vertical">

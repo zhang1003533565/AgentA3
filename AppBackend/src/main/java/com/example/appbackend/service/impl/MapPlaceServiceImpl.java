@@ -30,7 +30,8 @@ public class MapPlaceServiceImpl implements MapPlaceService {
             Map.entry("DORMITORY_BUILDING", Set.of("FLOOR")),
             Map.entry("FLOOR", Set.of(
                     "CANTEEN_STALL", "DINING_AREA", "CLASSROOM", "LABORATORY",
-                    "OFFICE", "DORMITORY_ROOM"
+                    "OFFICE", "DORMITORY_ROOM", "UNDERGRADUATE_DORM",
+                    "POSTGRADUATE_DORM", "DOCTORAL_DORM", "FACULTY_DORM"
             )),
             Map.entry("SPORTS_GROUND", Set.of(
                     "RUNNING_TRACK", "FOOTBALL_FIELD", "BASKETBALL_COURT",
@@ -50,7 +51,10 @@ public class MapPlaceServiceImpl implements MapPlaceService {
     private static final Map<String, Set<String>> FLOOR_CHILDREN_BY_SCENE = Map.of(
             "CANTEEN", Set.of("CANTEEN_STALL", "DINING_AREA"),
             "TEACHING", Set.of("CLASSROOM", "LABORATORY", "OFFICE"),
-            "DORMITORY", Set.of("DORMITORY_ROOM")
+            "DORMITORY", Set.of(
+                    "DORMITORY_ROOM", "UNDERGRADUATE_DORM", "POSTGRADUATE_DORM",
+                    "DOCTORAL_DORM", "FACULTY_DORM"
+            )
     );
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
@@ -59,19 +63,28 @@ public class MapPlaceServiceImpl implements MapPlaceService {
     private final MapPlaceFenceRepository fenceRepository;
     private final MapFloorPlanRepository floorPlanRepository;
     private final MapPlaceIndoorPositionRepository positionRepository;
+    private final DishRepository dishRepository;
+    private final DishReviewRepository dishReviewRepository;
+    private final DishCuisineRepository dishCuisineRepository;
 
     public MapPlaceServiceImpl(
             MapPlaceRepository placeRepository,
             MapPlaceImageRepository imageRepository,
             MapPlaceFenceRepository fenceRepository,
             MapFloorPlanRepository floorPlanRepository,
-            MapPlaceIndoorPositionRepository positionRepository
+            MapPlaceIndoorPositionRepository positionRepository,
+            DishRepository dishRepository,
+            DishReviewRepository dishReviewRepository,
+            DishCuisineRepository dishCuisineRepository
     ) {
         this.placeRepository = placeRepository;
         this.imageRepository = imageRepository;
         this.fenceRepository = fenceRepository;
         this.floorPlanRepository = floorPlanRepository;
         this.positionRepository = positionRepository;
+        this.dishRepository = dishRepository;
+        this.dishReviewRepository = dishReviewRepository;
+        this.dishCuisineRepository = dishCuisineRepository;
     }
 
     @Override
@@ -164,11 +177,21 @@ public class MapPlaceServiceImpl implements MapPlaceService {
         if (placeRepository.existsByParentId(id)) {
             throw new BusinessException(400, "该点位存在下级，请先删除或移动下级点位");
         }
-        imageRepository.deleteByPlaceId(id);
-        fenceRepository.deleteByPlaceId(id);
-        positionRepository.deleteByPlaceId(id);
+        if ("CANTEEN_STALL".equals(place.getPlaceType())) {
+            List<Dish> dishes = dishRepository.findByStallPlaceId(place.getId());
+            if (!dishes.isEmpty()) {
+                dishReviewRepository.deleteByDishIdIn(dishes.stream().map(Dish::getId).toList());
+                dishRepository.deleteByStallPlaceId(place.getId());
+            }
+        }
+        if ("CANTEEN".equals(place.getPlaceType())) {
+            dishCuisineRepository.deleteByCanteenPlaceId(place.getId());
+        }
+        imageRepository.deleteByPlaceId(place.getId());
+        fenceRepository.deleteByPlaceId(place.getId());
+        positionRepository.deleteByPlaceId(place.getId());
         if ("FLOOR".equals(place.getPlaceType())) {
-            floorPlanRepository.findByFloorPlaceId(id).ifPresent(plan -> {
+            floorPlanRepository.findByFloorPlaceId(place.getId()).ifPresent(plan -> {
                 positionRepository.deleteByFloorPlanId(plan.getId());
                 floorPlanRepository.delete(plan);
             });
