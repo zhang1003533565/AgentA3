@@ -206,11 +206,9 @@ function CampusCourseManage() {
   const [aiSending, setAiSending] = useState(false)
   const [aiGeneratedChapter, setAiGeneratedChapter] = useState(null)
   const [aiGeneratedChapters, setAiGeneratedChapters] = useState([])
-  const [aiPreviewModalOpen, setAiPreviewModalOpen] = useState(false)
   const [aiPreviewActiveKey, setAiPreviewActiveKey] = useState('')
   const [aiGenerateProgress, setAiGenerateProgress] = useState({ current: 0, total: 0, generating: false })
   const [aiSelectedChapterKeys, setAiSelectedChapterKeys] = useState([])
-  const [aiPreviewForm] = Form.useForm()
   const folderInputRef = useRef(null)
 
   const chineseNumberMap = {
@@ -379,13 +377,10 @@ function CampusCourseManage() {
     setAiSelectedChapterKeys([])
     setAiPreviewActiveKey('')
     setAiGenerateProgress({ current: 0, total: resolvedChapterNumbers.length, generating: false })
-    aiPreviewForm.resetFields()
-    setAiPreviewModalOpen(false)
     setAiHistory((prev) => [...prev, { role: 'user', content: trimmedValue }])
     setAiInput('')
 
     try {
-      setAiPreviewModalOpen(true)
       for (let i = 0; i < resolvedChapterNumbers.length; i += 1) {
         const targetChapter = resolvedChapterNumbers[i]
         const chapterPrompt = `请生成第 ${targetChapter} 章的内容`
@@ -463,8 +458,6 @@ function CampusCourseManage() {
       }
 
       message.success(`已导入 ${selectedChapters.length} 个 AI 生成章节`)
-      setAiPreviewModalOpen(false)
-      aiPreviewForm.resetFields()
       setAiGeneratedChapter(null)
       setAiGeneratedChapters([])
       setAiSelectedChapterKeys([])
@@ -1547,92 +1540,6 @@ function CampusCourseManage() {
         </Form>
       </Modal>
 
-      <Modal
-        title="AI 生成章节预览"
-        open={aiPreviewModalOpen}
-        getContainer={() => document.body}
-        destroyOnHidden
-        onCancel={() => {
-          setAiPreviewModalOpen(false)
-          aiPreviewForm.resetFields()
-          setAiGeneratedChapter(null)
-          setAiGeneratedChapters([])
-          setAiSelectedChapterKeys([])
-          setAiPreviewActiveKey('')
-          setAiGenerateProgress({ current: 0, total: 0, generating: false })
-        }}
-        onOk={handleConfirmImportAiChapter}
-        confirmLoading={submitting}
-        width={760}
-        okText="确认导入"
-        cancelText="取消"
-        okButtonProps={{
-          disabled: aiGenerateProgress.generating || !aiGeneratedChapters.length || !aiSelectedChapterKeys.length,
-        }}
-      >
-        {aiGenerateProgress.generating || aiGeneratedChapters.length ? (
-          <>
-            <div style={{ marginBottom: 16 }}>
-              <Typography.Text type="secondary">
-                {aiGenerateProgress.generating
-                  ? `正在生成第 ${aiGenerateProgress.current + 1}/${aiGenerateProgress.total} 章...`
-                  : `已生成 ${aiGeneratedChapters.length}/${aiGenerateProgress.total || aiGeneratedChapters.length} 章`}
-              </Typography.Text>
-            </div>
-
-            {aiGeneratedChapters.length ? (
-              <>
-                <Tabs
-                  activeKey={String(aiPreviewActiveKey || aiGeneratedChapters[0]?.id || '')}
-                  onChange={(value) => setAiPreviewActiveKey(value)}
-                  items={aiGeneratedChapters.map((chapter, index) => ({
-                    key: String(chapter.id),
-                    label: `${chapter.chapterTitle || `第 ${index + 1} 章`}`,
-                    children: (
-                      <div>
-                        <Typography.Title level={5} style={{ marginBottom: 12 }}>{chapter.chapterTitle || `第 ${index + 1} 章`}</Typography.Title>
-                        <List
-                          size="small"
-                          dataSource={chapter.sections || []}
-                          renderItem={(section, sectionIndex) => (
-                            <List.Item>
-                              <List.Item.Meta
-                                avatar={<span className="chapter-index">{sectionIndex + 1}</span>}
-                                title={section.title}
-                                description={section.content}
-                              />
-                            </List.Item>
-                          )}
-                        />
-                      </div>
-                    ),
-                  }))}
-                />
-
-                <div style={{ marginTop: 16 }}>
-                  <Typography.Text strong>请选择要导入的章节：</Typography.Text>
-                  <Checkbox.Group
-                    value={aiSelectedChapterKeys.map((value) => String(value))}
-                    onChange={(value) => setAiSelectedChapterKeys(value.map((item) => Number(item) || item))}
-                    style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 12 }}
-                  >
-                    {aiGeneratedChapters.map((chapter, index) => (
-                      <Checkbox key={chapter.id} value={String(chapter.id)}>
-                        {`${chapter.chapterTitle || `第 ${index + 1} 章`}`}
-                      </Checkbox>
-                    ))}
-                  </Checkbox.Group>
-                </div>
-              </>
-            ) : (
-              <div style={{ padding: '24px 0', textAlign: 'center' }}>
-                <Spin tip={aiGenerateProgress.generating ? `正在生成第 ${aiGenerateProgress.current + 1}/${aiGenerateProgress.total} 章...` : '正在生成章节中...'} />
-              </div>
-            )}
-          </>
-        ) : null}
-      </Modal>
-
       <Drawer
         title="AI 智能章节助手"
         placement="right"
@@ -1670,7 +1577,105 @@ function CampusCourseManage() {
             ) : (
               <Empty description="描述你的课程目标，我来生成章节提纲和内容" image={Empty.PRESENTED_IMAGE_SIMPLE} />
             )}
+
+            {(aiGenerateProgress.generating || aiGeneratedChapters.length) && (
+              <div
+                style={{
+                  border: '1px solid #f0f0f0',
+                  borderRadius: 12,
+                  background: '#fafafa',
+                  padding: 12,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 12,
+                  position: 'relative',
+                }}
+              >
+                <div>
+                  <Typography.Text type="secondary">
+                    {aiGenerateProgress.generating
+                      ? `正在生成第 ${aiGenerateProgress.current + 1}/${aiGenerateProgress.total} 章...`
+                      : `已生成 ${aiGeneratedChapters.length}/${aiGenerateProgress.total || aiGeneratedChapters.length} 章`}
+                  </Typography.Text>
+                </div>
+
+                {aiGeneratedChapters.length ? (
+                  <>
+                    <Tabs
+                      activeKey={String(aiPreviewActiveKey || aiGeneratedChapters[0]?.id || '')}
+                      onChange={(value) => setAiPreviewActiveKey(value)}
+                      items={aiGeneratedChapters.map((chapter, index) => ({
+                        key: String(chapter.id),
+                        label: `${chapter.chapterTitle || `第 ${index + 1} 章`}`,
+                        children: (
+                          <div>
+                            <Typography.Title level={5} style={{ marginBottom: 12 }}>{chapter.chapterTitle || `第 ${index + 1} 章`}</Typography.Title>
+                            <List
+                              size="small"
+                              dataSource={chapter.sections || []}
+                              renderItem={(section, sectionIndex) => (
+                                <List.Item>
+                                  <List.Item.Meta
+                                    avatar={<span className="chapter-index">{sectionIndex + 1}</span>}
+                                    title={section.title}
+                                    description={section.content}
+                                  />
+                                </List.Item>
+                              )}
+                            />
+                          </div>
+                        ),
+                      }))}
+                    />
+
+                    <div style={{ marginTop: 4 }}>
+                      <Typography.Text strong>请选择要导入的章节：</Typography.Text>
+                      <Checkbox.Group
+                        value={aiSelectedChapterKeys.map((value) => String(value))}
+                        onChange={(value) => setAiSelectedChapterKeys(value.map((item) => Number(item) || item))}
+                        style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 12 }}
+                      >
+                        {aiGeneratedChapters.map((chapter, index) => (
+                          <Checkbox key={chapter.id} value={String(chapter.id)}>
+                            {`${chapter.chapterTitle || `第 ${index + 1} 章`}`}
+                          </Checkbox>
+                        ))}
+                      </Checkbox.Group>
+                    </div>
+                  </>
+                ) : (
+                  <div style={{ padding: '24px 0', textAlign: 'center' }}>
+                    <Spin tip={aiGenerateProgress.generating ? `正在生成第 ${aiGenerateProgress.current + 1}/${aiGenerateProgress.total} 章...` : '正在生成章节中...'} />
+                  </div>
+                )}
+
+                {!aiGenerateProgress.generating && aiGeneratedChapters.length > 0 && (
+                  <div
+                    style={{
+                      position: 'sticky',
+                      bottom: 0,
+                      zIndex: 1,
+                      background: '#fafafa',
+                      paddingTop: 12,
+                      borderTop: '1px solid #f0f0f0',
+                      display: 'flex',
+                      justifyContent: 'flex-end',
+                    }}
+                  >
+                    <Button
+                      type="primary"
+                      onClick={handleConfirmImportAiChapter}
+                      loading={submitting}
+                      disabled={aiGenerateProgress.generating || !aiGeneratedChapters.length || !aiSelectedChapterKeys.length}
+                    >
+                      确认导入
+                    </Button>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
+
           <div style={{ borderTop: '1px solid #f0f0f0', paddingTop: 12, display: 'flex', flexDirection: 'column', gap: 12 }}>
             <Input.TextArea
               value={aiInput}
