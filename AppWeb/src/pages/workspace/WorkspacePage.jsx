@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { Button, Card, Drawer, Empty, Form, Image, Input, InputNumber, Modal, Popconfirm, Select, Space, Table, Tabs, Tag, Upload, message } from 'antd'
-import { SearchOutlined, UploadOutlined } from '@ant-design/icons'
+import { Button, Card, Checkbox, Drawer, Empty, Form, Image, Input, InputNumber, Modal, Popconfirm, Select, Space, Table, Tabs, Tag, Upload, message } from 'antd'
+import { DeleteOutlined, EnvironmentOutlined, ExclamationCircleOutlined, FileTextOutlined, LeftOutlined, PlusOutlined, RightOutlined, SearchOutlined, UploadOutlined } from '@ant-design/icons'
+import SidePanel from '../../components/SidePanel/SidePanel'
+import FacilityAnalyticsForm from '../../components/FacilityAnalyticsForm/FacilityAnalyticsForm'
 import * as echarts from 'echarts'
 import { createActivity, deleteActivity, getActivityList, publishActivity, updateActivity } from '../../api/activity'
 import { createCategory, getCategoryList, updateCategory } from '../../api/category'
 import { getDiscountActivityList } from '../../api/discount'
-import { createFacility, deleteFacility, getFacilityList, getFacilityTypes, updateFacility } from '../../api/facility'
+import { createFacility, deleteFacility, getFacilityDetail, getFacilityList, getFacilityTypes, updateFacility, updateFacilityTypes } from '../../api/facility'
 import { createDish, createStall, deleteDish, deleteStall, getCanteenStallList, getDishList, updateDish, updateStall } from '../../api/dish'
 import { adminDeleteComment, createTopic, deleteTopic, getCommentList, getPostList, getTopicList, updateTopic } from '../../api/forum'
 import { deleteMarker, getFacilityHeat, getMarkerList, getNavigationStatistics } from '../../api/map'
@@ -43,6 +45,7 @@ import {
   FACILITY_TYPE_OPTIONS as DEFAULT_FACILITY_TYPE_OPTIONS,
   createFacilityTypeLabelGetter,
   toFacilityTypeOptions,
+  toVisibleFacilityTypeOptions,
 } from '../../config/facilityType'
 import { getWorkspacePage } from '../../data/portalData'
 import './WorkspacePage.css'
@@ -154,12 +157,38 @@ const roundCoordinate = (value) => {
 }
 
 const parseFacilityImages = (images) => {
-  if (Array.isArray(images)) return images.filter(Boolean)
+  if (Array.isArray(images)) {
+    return images
+      .map((item) => (typeof item === 'string' ? item : item?.url))
+      .filter(Boolean)
+  }
   if (!images) return []
   if (typeof images === 'string') {
     try {
       const parsed = JSON.parse(images)
-      return Array.isArray(parsed) ? parsed.filter(Boolean) : []
+      return Array.isArray(parsed)
+        ? parsed.map((item) => (typeof item === 'string' ? item : item?.url)).filter(Boolean)
+        : []
+    } catch {
+      return []
+    }
+  }
+  return []
+}
+
+const parseFacilityImageItems = (images) => {
+  const normalizeItem = (item) => {
+    if (!item) return null
+    if (typeof item === 'string') return { url: item, position: '50% 50%' }
+    if (item.url) return { url: item.url, position: item.position || '50% 50%' }
+    return null
+  }
+  if (Array.isArray(images)) return images.map(normalizeItem).filter(Boolean)
+  if (!images) return []
+  if (typeof images === 'string') {
+    try {
+      const parsed = JSON.parse(images)
+      return Array.isArray(parsed) ? parsed.map(normalizeItem).filter(Boolean) : []
     } catch {
       return []
     }
@@ -185,7 +214,7 @@ const readFileAsDataUrl = (file) =>
 
 const loadImageElement = (src) =>
   new Promise((resolve, reject) => {
-    const img = new Image()
+    const img = new window.Image()
     img.onload = () => resolve(img)
     img.onerror = reject
     img.src = src
@@ -466,58 +495,20 @@ const loadWorkspaceData = async (pageKey, { current, pageSize, keyword, status, 
       return { rows: res.data || [], total: res.data?.length || 0 }
     }
     case 'facility-analytics': {
-      const [restaurantRes, sportsRes, teachingRes, dormitoryRes, heatRes] = await Promise.allSettled([
-        getFacilityList({ type: 1, page: 1, size: 100 }),
-        getFacilityList({ type: 2, page: 1, size: 100 }),
-        getFacilityList({ type: 3, page: 1, size: 100 }),
-        getFacilityList({ type: 4, page: 1, size: 100 }),
-        getFacilityHeat({ limit: 5 }),
-      ])
-
-      const getPageRecords = (result) => (
-        result.status === 'fulfilled'
-          ? (result.value.data?.records || [])
-          : []
-      )
-
-      const getPageTotal = (result) => (
-        result.status === 'fulfilled'
-          ? (result.value.data?.total || result.value.data?.records?.length || 0)
-          : 0
-      )
-
-      const getListData = (result) => (
-        result.status === 'fulfilled' && Array.isArray(result.value.data)
-          ? result.value.data
-          : []
-      )
-
-      const allFacilities = [
-        ...getPageRecords(restaurantRes),
-        ...getPageRecords(sportsRes),
-        ...getPageRecords(teachingRes),
-        ...getPageRecords(dormitoryRes),
-      ]
-
-      const countByStatus = (status) => allFacilities.filter((item) => item.status === status).length
-
-      const rows = [
-        { id: 'facility-total', label: '设施总数', value: String(allFacilities.length) },
-        { id: 'facility-restaurant', label: '餐厅数量', value: String(getPageTotal(restaurantRes)) },
-        { id: 'facility-sports', label: '运动场数量', value: String(getPageTotal(sportsRes)) },
-        { id: 'facility-teaching', label: '教学楼数量', value: String(getPageTotal(teachingRes)) },
-        { id: 'facility-dormitory', label: '宿舍数量', value: String(getPageTotal(dormitoryRes)) },
-        { id: 'facility-status-normal', label: '正常开放设施', value: String(countByStatus(1)) },
-        { id: 'facility-status-maintenance', label: '维护中设施', value: String(countByStatus(2)) },
-        { id: 'facility-status-closed', label: '关闭设施', value: String(countByStatus(3)) },
-        ...(getListData(heatRes).map((item, index) => ({
-          id: `facility-heat-${index}`,
-          label: `热度榜 ${index + 1} · ${item.markerName || item.facilityName || `设施 ${index + 1}`}`,
-          value: `访问 ${item.visitCount ?? item.viewCount ?? 0} / 导航 ${item.navigationCount ?? 0}`,
-        }))),
-      ]
-
-      return { rows, total: rows.length }
+      const res = await getFacilityList({
+        page: current,
+        size: pageSize,
+        name: keyword,
+        type: status === 'ALL' || status === '全部' ? undefined : status || undefined,
+      })
+      const records = Array.isArray(res.data?.records) ? res.data.records : []
+      return {
+        rows: records.map((item) => ({
+          ...item,
+          id: item.id ?? item.facilityId,
+        })),
+        total: res.data?.total || records.length || 0,
+      }
     }
     case 'facility-marker': {
       const res = await getMarkerList({ page: 1, size: 500, keyword })
@@ -642,6 +633,123 @@ const loadWorkspaceData = async (pageKey, { current, pageSize, keyword, status, 
   }
 }
 
+const statusMap = {
+  1: '正常开放',
+  2: '维护中',
+  3: '关闭',
+}
+
+const facilityTypeMap = {
+  1: '食堂',
+  2: '球类场地',
+  3: '水上及特殊场地',
+  4: '田径及综合场地',
+  5: '其他',
+  6: '教学楼',
+  7: '宿舍',
+}
+
+const FACILITY_ANALYTICS_DEFAULT_PAGE_SIZE = 4
+const FACILITY_ANALYTICS_CARD_MIN_WIDTH = 240
+const FACILITY_ANALYTICS_CARD_GAP = 14
+const FACILITY_TYPE_MAX_VALUE = 2147483647
+const FACILITY_TYPE_COLOR_OPTIONS = [
+  '#3b82f6',
+  '#14b8a6',
+  '#22c55e',
+  '#f97316',
+  '#f59e0b',
+  '#ef4444',
+  '#ec4899',
+  '#8b5cf6',
+  '#06b6d4',
+  '#64748b',
+]
+
+const getNextFacilityTypeValue = (types) => {
+  const usedValues = (Array.isArray(types) ? types : [])
+    .map((item) => Number(item?.value))
+    .filter((value) => Number.isInteger(value) && value > 0 && value < FACILITY_TYPE_MAX_VALUE)
+  const nextValue = (usedValues.length ? Math.max(...usedValues) : 0) + 1
+  if (nextValue <= FACILITY_TYPE_MAX_VALUE) return nextValue
+
+  const usedSet = new Set(usedValues)
+  for (let value = 1; value <= usedValues.length + 1; value += 1) {
+    if (!usedSet.has(value)) return value
+  }
+  return 1
+}
+
+const getFacilityAnalyticsPagerItems = (current, totalPages) => {
+  if (totalPages <= 4) {
+    return Array.from({ length: totalPages }, (_, index) => index + 1)
+  }
+
+  const pages = [1, 2]
+  if (current > 2 && current < totalPages) {
+    pages.push(current)
+  }
+  pages.push(totalPages)
+
+  const sortedPages = [...new Set(pages)].sort((left, right) => left - right)
+  return sortedPages.flatMap((pageNumber, index) => {
+    const previousPage = sortedPages[index - 1]
+    if (index > 0 && pageNumber - previousPage > 1) {
+      return [`ellipsis-${previousPage}-${pageNumber}`, pageNumber]
+    }
+    return [pageNumber]
+  })
+}
+
+function FacilityImageCarousel({ images, alt }) {
+  const [activeIndex, setActiveIndex] = useState(0)
+  const [isResetting, setIsResetting] = useState(false)
+  const slides = images.length > 1 ? [...images, images[0]] : images
+
+  useEffect(() => {
+    if (images.length <= 1) {
+      setActiveIndex(0)
+      setIsResetting(false)
+      return undefined
+    }
+    const timer = window.setInterval(() => {
+      setActiveIndex((prev) => prev + 1)
+    }, 3000)
+    return () => window.clearInterval(timer)
+  }, [images.length])
+
+  useEffect(() => {
+    if (images.length <= 1 || activeIndex !== images.length) return undefined
+    const resetTimer = window.setTimeout(() => {
+      setIsResetting(true)
+      setActiveIndex(0)
+      window.requestAnimationFrame(() => {
+        window.requestAnimationFrame(() => setIsResetting(false))
+      })
+    }, 460)
+    return () => window.clearTimeout(resetTimer)
+  }, [activeIndex, images.length])
+
+  return (
+    <div className={`workspace-facility-card__carousel${images.length === 1 ? ' is-single' : ''}`}>
+      <div
+        className={`workspace-facility-card__carousel-track${isResetting ? ' is-resetting' : ''}`}
+        style={{ transform: `translateX(-${activeIndex * 100}%)` }}
+      >
+        {slides.map((item, index) => (
+          <div key={`${item.url}-${index}`} className="workspace-facility-card__slide">
+            <img
+              className="workspace-facility-card__cover-img"
+              src={item.url}
+              alt={alt}
+              style={{ objectPosition: item.position || '50% 50%' }}
+            />
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
 function renderCell(value, type, row) {
   if (type === 'image') {
     if (!value) {
@@ -669,6 +777,27 @@ function renderCell(value, type, row) {
   }
 
   return value ?? '-'
+}
+
+function getFacilityAnalyticsTypeMeta(record, facilityTypeOptions) {
+  const typeValue = record?.facilityType ?? record?.type
+  const matchedType = toFacilityTypeOptions(facilityTypeOptions).find((item) => String(item.value) === String(typeValue))
+  const rawTypeName = record?.facilityTypeName
+  const fallbackLabel = rawTypeName && String(rawTypeName) !== String(typeValue)
+    ? rawTypeName
+    : (typeValue === undefined || typeValue === null || typeValue === '' ? '-' : String(typeValue))
+
+  return {
+    label: matchedType?.label || fallbackLabel,
+    color: matchedType?.color || record?.typeColor || '#3b82f6',
+  }
+}
+
+function getFacilityLocationName(record) {
+  const location = String(record?.location || '').trim()
+  if (!location) return '-'
+  if (/^-?\d+(?:\.\d+)?\s*[,，]\s*-?\d+(?:\.\d+)?$/.test(location)) return '-'
+  return location
 }
 
 function maskSecret(value) {
@@ -1104,13 +1233,32 @@ function WorkspacePage({ pageKey }) {
     pageSize: 10,
     total: 0,
   })
+  const [facilityAnalyticsPageSize, setFacilityAnalyticsPageSize] = useState(FACILITY_ANALYTICS_DEFAULT_PAGE_SIZE)
+  const facilityAnalyticsHostRef = useRef(null)
   const workspacePage = pagination.current
-  const workspacePageSize = pagination.pageSize
+  const workspacePageSize = pageKey === 'facility-analytics' ? facilityAnalyticsPageSize : pagination.pageSize
   const stallImagePreview = Form.useWatch('image', form)
   const dishImagePreview = Form.useWatch('imageUrl', form)
+  const [facilityImageList, setFacilityImageList] = useState([])
+  const [facilityImageUploading, setFacilityImageUploading] = useState(false)
   const [facilityTypeOptions, setFacilityTypeOptions] = useState(DEFAULT_FACILITY_TYPE_OPTIONS)
+  const [selectedFacilityIds, setSelectedFacilityIds] = useState([])
+  const [selectedFacilityMap, setSelectedFacilityMap] = useState({})
+  const [facilityTypeModalOpen, setFacilityTypeModalOpen] = useState(false)
+  const [facilityTypeDraft, setFacilityTypeDraft] = useState({ label: '', color: '#3b82f6' })
+  const [deleteTypeModalOpen, setDeleteTypeModalOpen] = useState(false)
+  const [deleteTypeValue, setDeleteTypeValue] = useState(undefined)
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false)
   const getFacilityTypeLabel = useMemo(
     () => createFacilityTypeLabelGetter(facilityTypeOptions),
+    [facilityTypeOptions],
+  )
+  const facilityTypeFilterOptions = useMemo(
+    () => [{ value: 'ALL', label: '全部类型' }, ...toVisibleFacilityTypeOptions(facilityTypeOptions)],
+    [facilityTypeOptions],
+  )
+  const facilityTypeSelectOptions = useMemo(
+    () => toVisibleFacilityTypeOptions(facilityTypeOptions),
     [facilityTypeOptions],
   )
   const markerRows = useMemo(() => (Array.isArray(rows) ? rows.map((item) => {
@@ -1159,11 +1307,50 @@ function WorkspacePage({ pageKey }) {
     setActiveSearchPoi(null)
     setMarkerSearchKeyword('')
     setMarkerSearchResults([])
+    setSelectedFacilityIds([])
+    setSelectedFacilityMap({})
+    setStatus(pageKey === 'facility-analytics' ? 'ALL' : '全部')
     setPagination((prev) => ({
       ...prev,
       current: 1,
+      pageSize: pageKey === 'facility-analytics' ? FACILITY_ANALYTICS_DEFAULT_PAGE_SIZE : 10,
       total: 0,
     }))
+  }, [pageKey])
+
+  useEffect(() => {
+    if (pageKey !== 'facility-analytics') return undefined
+
+    const updatePageSize = () => {
+      const width = facilityAnalyticsHostRef.current?.clientWidth || 0
+      if (!width) return
+
+      const nextPageSize = Math.max(
+        1,
+        Math.floor((width + FACILITY_ANALYTICS_CARD_GAP) / (FACILITY_ANALYTICS_CARD_MIN_WIDTH + FACILITY_ANALYTICS_CARD_GAP)),
+      )
+
+      setFacilityAnalyticsPageSize((prev) => {
+        if (prev === nextPageSize) return prev
+        setPagination((currentPagination) => ({
+          ...currentPagination,
+          current: 1,
+          pageSize: nextPageSize,
+        }))
+        return nextPageSize
+      })
+    }
+
+    updatePageSize()
+
+    if (typeof ResizeObserver === 'undefined' || !facilityAnalyticsHostRef.current) {
+      window.addEventListener('resize', updatePageSize)
+      return () => window.removeEventListener('resize', updatePageSize)
+    }
+
+    const observer = new ResizeObserver(updatePageSize)
+    observer.observe(facilityAnalyticsHostRef.current)
+    return () => observer.disconnect()
   }, [pageKey])
 
   useEffect(() => {
@@ -1388,6 +1575,96 @@ function WorkspacePage({ pageKey }) {
     setPagination((prev) => ({ ...prev, total: result.total }))
   }
 
+  const openFacilityAnalyticsDetail = async (record) => {
+    if (!record?.id) return
+    if (pageKey === 'facility-analytics') {
+      await openEditModal(record)
+    }
+  }
+
+  const openFacilityAnalyticsMap = async (record) => {
+    if (!record?.id) return
+    if (pageKey === 'facility-analytics') {
+      navigate(`/facility/marker?facilityId=${record.id}`)
+    }
+  }
+
+  const buildFacilityAnalyticsPayload = (values) => ({
+    facilityName: values.facilityName,
+    facilityType: Number(values.landscapeCategory),
+    description: values.description,
+    location: values.location,
+    images: values.images || JSON.stringify(facilityImageList),
+    status: 1,
+  })
+
+  const openFacilityAnalyticsFormMap = async () => {
+    if (pageKey !== 'facility-analytics') return
+    if (modalMode === 'edit' && editingRecord?.id) {
+      navigate(`/facility/marker?facilityId=${editingRecord.id}`)
+      return
+    }
+
+    try {
+      const values = await form.validateFields(['facilityName', 'landscapeCategory', 'description', 'images'])
+      setActionLoading(true)
+      const res = await createFacility(buildFacilityAnalyticsPayload(values))
+      const facilityId = res?.data?.id ?? res?.data?.facilityId ?? res?.id
+      if (!facilityId) {
+        message.warning('设施已创建，但没有获取到设施ID')
+        await refreshPageData()
+        return
+      }
+      setModalOpen(false)
+      form.resetFields()
+      setPagination((prev) => ({ ...prev, current: 1, pageSize: facilityAnalyticsPageSize }))
+      message.success('设施已创建，请标注位置')
+      navigate(`/facility/marker?facilityId=${facilityId}`)
+    } catch (error) {
+      if (!error?.errorFields) {
+        message.error(error?.message || '创建设施失败')
+      }
+    } finally {
+      setActionLoading(false)
+    }
+  }
+
+  const handleDeleteFacilityType = async () => {
+    if (!deleteTypeValue) {
+      message.warning('请先选择要删除的类型')
+      return
+    }
+    const usedRes = await getFacilityList({ type: deleteTypeValue, page: 1, size: 1 })
+    const usedTotal = Number(usedRes.data?.total || 0)
+    if (usedTotal > 0) {
+      const typeLabel = facilityTypeOptions.find((item) => String(item.value) === String(deleteTypeValue))?.label || '该类型'
+      message.warning(`${typeLabel} 已被设施使用，不能删除`)
+      return
+    }
+    const nextTypes = facilityTypeOptions.filter((item) => String(item.value) !== String(deleteTypeValue))
+    if (nextTypes.length === facilityTypeOptions.length) {
+      message.warning('当前类型不存在')
+      return
+    }
+    try {
+      await updateFacilityTypes(nextTypes)
+      setFacilityTypeOptions(nextTypes)
+      setStatus('ALL')
+      setDeleteTypeValue(undefined)
+      setDeleteTypeModalOpen(false)
+      setSelectedFacilityIds([])
+      setSelectedFacilityMap({})
+      setPagination((prev) => ({ ...prev, current: 1 }))
+      message.success('类型已删除')
+    } catch (error) {
+      message.error(error?.message || '删除类型失败')
+    }
+  }
+
+  const visibleFacilityRows = useMemo(() => (
+    pageKey === 'facility-analytics' ? rows : []
+  ), [pageKey, rows])
+
   const runAction = async (fn, successText) => {
     setActionLoading(true)
     try {
@@ -1401,6 +1678,47 @@ function WorkspacePage({ pageKey }) {
     } finally {
       setActionLoading(false)
     }
+  }
+
+  const handleFacilityImageUpload = async (file) => {
+    setFacilityImageUploading(true)
+    try {
+      const compressedFile = await compressMapBuildingImage(file)
+      const formData = new FormData()
+      formData.append('file', compressedFile)
+      const response = await fetch(getUploadUrl(MAP_BUILDING_UPLOAD_FOLDER), {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${localStorage.getItem('token') || ''}`,
+        },
+        body: formData,
+      })
+      const result = await response.json()
+      if (!response.ok || result?.code !== 200) {
+        throw new Error(result?.msg || '上传失败')
+      }
+      const imageUrl = result?.data?.url || ''
+      if (imageUrl) {
+        setFacilityImageList((prev) => {
+          const nextImage = pageKey === 'facility-analytics' ? { url: imageUrl, position: '50% 50%' } : imageUrl
+          const newList = [...prev, nextImage]
+          form.setFieldsValue({ images: JSON.stringify(newList) })
+          return newList
+        })
+      }
+      return false
+    } catch (error) {
+      message.error(error?.message || '图片上传失败')
+      return false
+    } finally {
+      setFacilityImageUploading(false)
+    }
+  }
+
+  const handleFacilityImageRemove = (index) => {
+    const newList = facilityImageList.filter((_, i) => i !== index)
+    setFacilityImageList(newList)
+    form.setFieldsValue({ images: JSON.stringify(newList) })
   }
 
   const openMeetingDetail = async (record) => {
@@ -1517,6 +1835,7 @@ function WorkspacePage({ pageKey }) {
     'facility-sports',
     'facility-teaching',
     'facility-dormitory',
+    'facility-analytics',
     'facility-stall-dish',
     'market-category',
     'discount-category',
@@ -1553,6 +1872,11 @@ function WorkspacePage({ pageKey }) {
   const openEditModal = async (record) => {
     setModalMode('edit')
     setEditingRecord(record)
+    if (['facility-sports', 'facility-teaching', 'facility-dormitory', 'facility-canteen', 'facility-analytics'].includes(pageKey)) {
+      setFacilityImageList(pageKey === 'facility-analytics' ? parseFacilityImageItems(record.images) : parseFacilityImages(record.images))
+    } else {
+      setFacilityImageList([])
+    }
     if (pageKey === 'activity-center') {
       const res = await getCategoryList()
       const data = Array.isArray(res.data) ? res.data : []
@@ -1621,6 +1945,15 @@ function WorkspacePage({ pageKey }) {
             location: record.location,
             longitude: record.longitude,
             latitude: record.latitude,
+            images: typeof record.images === 'string' ? record.images : JSON.stringify(record.images || []),
+          }
+        : {}),
+      ...(pageKey === 'facility-analytics'
+        ? {
+            facilityName: record.facilityName || record.markerName,
+            landscapeCategory: record.facilityType,
+            description: record.description,
+            location: record.location,
             images: typeof record.images === 'string' ? record.images : JSON.stringify(record.images || []),
           }
         : {}),
@@ -1742,6 +2075,10 @@ function WorkspacePage({ pageKey }) {
           create: () => createFacility({ ...values, facilityType: 1 }),
           edit: () => updateFacility(editingRecord.id, values),
         },
+        'facility-analytics': {
+          create: () => createFacility(buildFacilityAnalyticsPayload(values)),
+          edit: () => updateFacility(editingRecord.id, buildFacilityAnalyticsPayload(values)),
+        },
         'facility-restaurant': {
           create: () => createStall(values),
           edit: () => updateStall(editingRecord.id, values),
@@ -1848,6 +2185,9 @@ function WorkspacePage({ pageKey }) {
       const entry = actionMap[pageKey]
       if (!entry) return
       await runAction(modalMode === 'create' ? entry.create : entry.edit, modalMode === 'create' ? '创建成功' : '更新成功')
+      if (pageKey === 'facility-analytics' && modalMode === 'create') {
+        setPagination((prev) => ({ ...prev, current: 1, pageSize: facilityAnalyticsPageSize }))
+      }
       setModalOpen(false)
       form.resetFields()
     } catch (error) {
@@ -2028,6 +2368,17 @@ function WorkspacePage({ pageKey }) {
               ]} />
             </Form.Item>
           </>
+        )
+      case 'facility-analytics':
+        return (
+          <FacilityAnalyticsForm
+            imageList={facilityImageList}
+            imageUploading={facilityImageUploading}
+            onImageUpload={handleFacilityImageUpload}
+            onImageRemove={handleFacilityImageRemove}
+            landscapeCategoryOptions={facilityTypeSelectOptions}
+            onLocationPick={openFacilityAnalyticsFormMap}
+          />
         )
       case 'facility-sports':
       case 'facility-teaching':
@@ -3083,7 +3434,7 @@ function WorkspacePage({ pageKey }) {
     setMarkerDraft((prev) => ({
       ...prev,
       facilityName: prev.facilityName || poi.name || '',
-      location: prev.location || poi.address || '',
+      location: poi.name || poi.address || '',
       longitude,
       latitude,
       imageX: '',
@@ -3462,113 +3813,299 @@ function WorkspacePage({ pageKey }) {
   )
 
   const renderFacilityAnalyticsPanel = () => {
-    const metricMap = Object.fromEntries(rows.map((item) => [item.label, item.value]))
-    const categoryOption = {
-      tooltip: { trigger: 'item' },
-      series: [{
-        type: 'pie',
-        radius: ['42%', '70%'],
-        center: ['50%', '48%'],
-        label: { formatter: '{b}\n{c}' },
-        data: [
-          { name: '餐厅', value: Number(metricMap['餐厅数量'] || 0) },
-          { name: '运动场', value: Number(metricMap['运动场数量'] || 0) },
-          { name: '教学楼', value: Number(metricMap['教学楼数量'] || 0) },
-          { name: '宿舍', value: Number(metricMap['宿舍数量'] || 0) },
-        ],
-      }],
+    const allTypeOptions = [{ value: 'ALL', label: '全部类型' }, ...toFacilityTypeOptions(facilityTypeOptions)]
+    const deleteTypeOptions = allTypeOptions.filter((item) => item.value !== 'ALL')
+    const selectedIds = new Set(selectedFacilityIds)
+    const selectedRows = selectedFacilityIds
+      .map((id) => selectedFacilityMap[id])
+      .filter(Boolean)
+    const totalFacilityPages = Math.max(1, Math.ceil((pagination.total || 0) / facilityAnalyticsPageSize))
+    const facilityPagerItems = getFacilityAnalyticsPagerItems(pagination.current, totalFacilityPages)
+    const changeFacilityPage = (nextPage) => {
+      const safePage = Math.min(Math.max(nextPage, 1), totalFacilityPages)
+      setPagination((prev) => ({ ...prev, current: safePage, pageSize: facilityAnalyticsPageSize }))
     }
-
-    const statusOption = {
-      grid: { left: 16, right: 16, top: 16, bottom: 12, containLabel: true },
-      tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
-      xAxis: {
-        type: 'category',
-        data: ['正常开放', '维护中', '关闭'],
-        axisLine: { lineStyle: { color: '#cbd5e1' } },
-      },
-      yAxis: {
-        type: 'value',
-        splitLine: { lineStyle: { color: '#e2e8f0' } },
-      },
-      series: [{
-        type: 'bar',
-        barWidth: 38,
-        data: [
-          Number(metricMap['正常开放设施'] || 0),
-          Number(metricMap['维护中设施'] || 0),
-          Number(metricMap['关闭设施'] || 0),
-        ],
-        itemStyle: {
-          borderRadius: [8, 8, 0, 0],
-          color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-            { offset: 0, color: '#2563eb' },
-            { offset: 1, color: '#14b8a6' },
-          ]),
-        },
-      }],
-    }
-
-    const heatRows = rows.filter((item) => String(item?.label || '').startsWith('热度榜'))
-    const heatOption = {
-      grid: { left: 16, right: 16, top: 12, bottom: 12, containLabel: true },
-      tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
-      xAxis: {
-        type: 'value',
-        splitLine: { lineStyle: { color: '#e2e8f0' } },
-      },
-      yAxis: {
-        type: 'category',
-        data: heatRows.map((item) => item.label.replace(/^热度榜 \d+ · /, '')),
-        axisTick: { show: false },
-        axisLine: { show: false },
-      },
-      series: [{
-        type: 'bar',
-        barWidth: 18,
-        data: heatRows.map((item) => {
-          const match = String(item.value).match(/访问\s+(\d+)/)
-          return Number(match?.[1] || 0)
-        }),
-        itemStyle: {
-          borderRadius: [0, 8, 8, 0],
-          color: new echarts.graphic.LinearGradient(1, 0, 0, 0, [
-            { offset: 0, color: '#0f766e' },
-            { offset: 1, color: '#38bdf8' },
-          ]),
-        },
-      }],
-    }
-
-    const statCards = [
-      { label: '设施总数', value: metricMap['设施总数'] || '0' },
-      { label: '正常开放', value: metricMap['正常开放设施'] || '0' },
-      { label: '维护中', value: metricMap['维护中设施'] || '0' },
-      { label: '关闭设施', value: metricMap['关闭设施'] || '0' },
-    ]
 
     return (
-      <div className="workspace-analytics">
-        <div className="workspace-analytics__stats">
-          {statCards.map((item) => (
-            <Card key={item.label} className="workspace-analytics__stat-card">
-              <span>{item.label}</span>
-              <strong>{item.value}</strong>
-            </Card>
+      <div className="workspace-facility-analytics" ref={facilityAnalyticsHostRef}>
+        <Card className="workspace-table-card">
+          <div className="workspace-facility-analytics__toolbar">
+            <div className="workspace-facility-analytics__filters">
+              <Select
+                value={status}
+                options={allTypeOptions}
+                onChange={(value) => {
+                  setPagination((prev) => ({ ...prev, current: 1 }))
+                  setStatus(value)
+                  setSelectedFacilityIds([])
+                  setSelectedFacilityMap({})
+                }}
+              />
+              <Button
+                danger
+                icon={<DeleteOutlined />}
+                onClick={() => {
+                  setDeleteTypeValue(status === 'ALL' || status === '全部' ? undefined : status)
+                  setDeleteTypeModalOpen(true)
+                }}
+              >
+                删除类型
+              </Button>
+              <Button icon={<PlusOutlined />} onClick={() => setFacilityTypeModalOpen(true)}>新增类型</Button>
+              <Input
+                allowClear
+                prefix={<SearchOutlined />}
+                placeholder="搜索设施名称"
+                value={keyword}
+                onChange={(event) => {
+                  setPagination((prev) => ({ ...prev, current: 1 }))
+                  setKeyword(event.target.value)
+                }}
+              />
+            </div>
+            <div className="workspace-facility-analytics__actions">
+              <Button
+                className={`workspace-facility-analytics__bulk-delete${selectedFacilityIds.length ? ' is-active' : ''}`}
+                icon={<DeleteOutlined />}
+                disabled={!selectedFacilityIds.length}
+                onClick={() => setBulkDeleteOpen(true)}
+              >
+                批量删除
+              </Button>
+              <Button type="primary" icon={<PlusOutlined />} onClick={openCreateModal}>新增设施</Button>
+            </div>
+          </div>
+        </Card>
+
+        {visibleFacilityRows.length ? (
+          <div className="workspace-facility-analytics__grid">
+            {visibleFacilityRows.map((record) => {
+              const imageItems = parseFacilityImageItems(record.images)
+              const typeMeta = getFacilityAnalyticsTypeMeta(record, facilityTypeOptions)
+              return (
+                <div key={record.id} className="workspace-facility-card">
+                  <div className="workspace-facility-card__cover">
+                    {imageItems.length ? (
+                      <FacilityImageCarousel images={imageItems} alt={record.facilityName || record.markerName || '设施图片'} />
+                    ) : <div className="workspace-facility-card__cover-empty">暂无图片</div>}
+                  </div>
+                  <div className="workspace-facility-card__body">
+                    <div className="workspace-facility-card__info">
+                      <Checkbox
+                        checked={selectedIds.has(record.id)}
+                        onChange={(event) => {
+                          const recordId = record.id
+                          setSelectedFacilityIds((prev) => (
+                            event.target.checked
+                              ? [...new Set([...prev, recordId])]
+                              : prev.filter((id) => id !== recordId)
+                          ))
+                          setSelectedFacilityMap((prev) => {
+                            if (event.target.checked) {
+                              return { ...prev, [recordId]: record }
+                            }
+                            const next = { ...prev }
+                            delete next[recordId]
+                            return next
+                          })
+                        }}
+                      />
+                      <div className="workspace-facility-card__content">
+                        <div className="workspace-facility-card__head">
+                          <strong>{record.facilityName || record.markerName || '-'}</strong>
+                          <Tag color={typeMeta.color} className="workspace-facility-card__status">{typeMeta.label}</Tag>
+                        </div>
+                        <div className="workspace-facility-card__meta">
+                          <span>{getFacilityLocationName(record)}</span>
+                          <span>{record.description || '-'}</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="workspace-facility-card__footer">
+                    <Button icon={<FileTextOutlined />} onClick={() => openFacilityAnalyticsDetail(record)}>编辑信息</Button>
+                    <Button icon={<EnvironmentOutlined />} onClick={() => openFacilityAnalyticsMap(record)}>地图定位</Button>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        ) : (
+          <Card className="workspace-table-card" bodyStyle={{ padding: 0 }}>
+            <div className="workspace-facility-analytics__empty">
+              <Empty description="暂无设施数据" />
+            </div>
+          </Card>
+        )}
+
+        <div className="workspace-facility-analytics__pagination">
+          <Button
+            type="text"
+            icon={<LeftOutlined />}
+            disabled={pagination.current <= 1}
+            onClick={() => changeFacilityPage(pagination.current - 1)}
+          />
+          {facilityPagerItems.map((item) => (
+            typeof item === 'number' ? (
+              <button
+                key={item}
+                type="button"
+                className={item === pagination.current ? 'is-active' : ''}
+                onClick={() => changeFacilityPage(item)}
+              >
+                {item}
+              </button>
+            ) : (
+              <span key={item} className="workspace-facility-analytics__pagination-ellipsis">...</span>
+            )
           ))}
+          <Button
+            type="text"
+            icon={<RightOutlined />}
+            disabled={pagination.current >= totalFacilityPages}
+            onClick={() => changeFacilityPage(pagination.current + 1)}
+          />
         </div>
 
-        <div className="workspace-analytics__charts">
-          <Card className="workspace-table-card" title="设施类型分布">
-            <EChart option={categoryOption} height={320} />
-          </Card>
-          <Card className="workspace-table-card" title="设施状态分布">
-            <EChart option={statusOption} height={320} />
-          </Card>
-          <Card className="workspace-table-card workspace-analytics__wide" title="设施热度榜">
-            {heatRows.length ? <EChart option={heatOption} height={340} /> : <Empty description="暂无热度数据" />}
-          </Card>
-        </div>
+        <Modal
+          open={facilityTypeModalOpen}
+          title="新增类型"
+          onCancel={() => setFacilityTypeModalOpen(false)}
+          onOk={async () => {
+            const label = String(facilityTypeDraft.label || '').trim()
+            if (!label) {
+              message.warning('请输入类型名称')
+              return
+            }
+            const nextType = {
+              value: getNextFacilityTypeValue(facilityTypeOptions),
+              label,
+              color: facilityTypeDraft.color,
+            }
+            const nextTypes = [...facilityTypeOptions, nextType]
+            await updateFacilityTypes(nextTypes)
+            setFacilityTypeOptions(nextTypes)
+            setFacilityTypeModalOpen(false)
+            setFacilityTypeDraft({ label: '', color: '#3b82f6' })
+            message.success('类型已新增')
+          }}
+        >
+          <div className="workspace-facility-type-modal">
+            <label>
+              <span>类型名称</span>
+              <Input value={facilityTypeDraft.label} onChange={(event) => setFacilityTypeDraft((prev) => ({ ...prev, label: event.target.value }))} />
+            </label>
+            <div className="workspace-facility-type-modal__colors">
+              <span>颜色</span>
+              <div>
+                {FACILITY_TYPE_COLOR_OPTIONS.map((color) => (
+                  <button
+                    key={color}
+                    type="button"
+                    title={color}
+                    aria-label={color}
+                    className={facilityTypeDraft.color === color ? 'is-active' : ''}
+                    style={{ backgroundColor: color }}
+                    onClick={() => setFacilityTypeDraft((prev) => ({ ...prev, color }))}
+                  />
+                ))}
+              </div>
+            </div>
+          </div>
+        </Modal>
+
+        <Modal
+          open={deleteTypeModalOpen}
+          title="删除类型"
+          okText="删除"
+          cancelText="取消"
+          okButtonProps={{ danger: true }}
+          onCancel={() => {
+            setDeleteTypeModalOpen(false)
+            setDeleteTypeValue(undefined)
+          }}
+          onOk={handleDeleteFacilityType}
+        >
+          <div className="workspace-facility-type-modal">
+            <label>
+              <span>选择要删除的类型</span>
+              <Select
+                value={deleteTypeValue}
+                options={deleteTypeOptions}
+                placeholder="请选择类型"
+                onChange={setDeleteTypeValue}
+              />
+            </label>
+          </div>
+        </Modal>
+
+        <Modal
+          open={bulkDeleteOpen}
+          className="workspace-bulk-delete-dialog"
+          title={(
+            <span className="workspace-bulk-delete-modal__title">
+              <ExclamationCircleOutlined />
+              <span>确定删除选中的设施?</span>
+            </span>
+          )}
+          onCancel={() => setBulkDeleteOpen(false)}
+          closeIcon={<span className="workspace-bulk-delete-modal__close">×</span>}
+          width={560}
+          centered
+          footer={[
+            <Button key="cancel" onClick={() => setBulkDeleteOpen(false)}>取消</Button>,
+            <Button
+              key="ok"
+              type="primary"
+              danger
+              onClick={async () => {
+                for (const item of selectedRows) {
+                  await deleteFacility(item.id)
+                }
+                const remainingTotal = Math.max(0, (pagination.total || 0) - selectedRows.length)
+                const nextTotalPages = Math.max(1, Math.ceil(remainingTotal / facilityAnalyticsPageSize))
+                const nextPage = Math.min(pagination.current, nextTotalPages)
+                setSelectedFacilityIds([])
+                setSelectedFacilityMap({})
+                setBulkDeleteOpen(false)
+                setPagination((prev) => ({
+                  ...prev,
+                  current: nextPage,
+                  pageSize: facilityAnalyticsPageSize,
+                  total: remainingTotal,
+                }))
+                if (nextPage === pagination.current) {
+                  await refreshPageData()
+                }
+              }}
+            >
+              确定删除
+            </Button>,
+          ]}
+          destroyOnHidden
+          onOk={async () => {
+            return undefined
+          }}
+        >
+          <div className="workspace-bulk-delete-modal">
+            <p className="workspace-bulk-delete-modal__tip">您已选中以下设施进行批量删除：</p>
+            <div className="workspace-bulk-delete-modal__list">
+              {selectedRows.map((item) => (
+                <div key={item.id} className="workspace-bulk-delete-modal__item">
+                  {parseFacilityImages(item.images)[0] ? (
+                    <Image src={parseFacilityImages(item.images)[0]} preview={false} />
+                  ) : (
+                    <div className="workspace-bulk-delete-modal__thumb-empty" />
+                  )}
+                  <span>{item.facilityName || item.markerName || '-'}</span>
+                </div>
+              ))}
+            </div>
+            <div className="workspace-bulk-delete-modal__warning">
+              注意：此操作不可撤销，删除后设施信息将从系统中永久移除。
+            </div>
+          </div>
+        </Modal>
       </div>
     )
   }
@@ -4410,7 +4947,7 @@ function WorkspacePage({ pageKey }) {
                     </Button>
                   </>
                 ) : null}
-                {formEnabledPages.includes(pageKey) && !['system-config', 'voice-model-config'].includes(pageKey) ? (
+                {formEnabledPages.includes(pageKey) && !['system-config', 'voice-model-config', 'facility-sports', 'facility-teaching', 'facility-dormitory', 'facility-analytics'].includes(pageKey) ? (
                   <Button type="primary" onClick={openCreateModal}>
                     新增
                   </Button>
@@ -4457,8 +4994,8 @@ function WorkspacePage({ pageKey }) {
       <Modal
         open={modalOpen}
         title={modalMode === 'create'
-          ? `新增${pageKey === 'system-config' ? '模型配置' : page.title}`
-          : `编辑${pageKey === 'system-config' ? (editingRecord?.configKind === 'asr' ? '讯飞实时转写配置' : '模型配置') : pageKey === 'voice-model-config' ? '语音模型配置' : page.title}`}
+          ? `新增${pageKey === 'system-config' ? '模型配置' : pageKey === 'facility-analytics' ? '设施' : page.title}`
+          : `编辑${pageKey === 'system-config' ? (editingRecord?.configKind === 'asr' ? '讯飞实时转写配置' : '模型配置') : pageKey === 'voice-model-config' ? '语音模型配置' : pageKey === 'facility-analytics' ? '信息' : page.title}`}
         onCancel={() => setModalOpen(false)}
         onOk={submitModal}
         confirmLoading={actionLoading}

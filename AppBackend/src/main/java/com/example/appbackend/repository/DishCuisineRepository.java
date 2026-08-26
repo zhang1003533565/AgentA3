@@ -12,5 +12,7 @@ public interface DishCuisineRepository extends JpaRepository<DishCuisine, Long> 
 
     Optional<DishCuisine> findByCanteenPlaceIdAndCuisineName(Long canteenPlaceId, String cuisineName);
 
+    void deleteByCanteenPlaceId(Long canteenPlaceId);
+
     boolean existsByCanteenPlaceIdAndCuisineNameAndIdNot(Long canteenPlaceId, String cuisineName, Long id);
 }

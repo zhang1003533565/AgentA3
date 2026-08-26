@@ -1,4 +1,4 @@
-import { BrowserRouter as Router, Navigate, Route, Routes } from 'react-router-dom'
+import { BrowserRouter as Router, Navigate, Route, Routes, useParams } from 'react-router-dom'
 import Layout from './components/Layout/Layout'
 import { allNavItems } from './data/portalData'
 import ActivityDetail from './pages/activity/ActivityDetail/ActivityDetail'
@@ -16,6 +16,7 @@ import RagManage from './pages/ai/RagManage/RagManage'
 import AgentSettings from './pages/ai/AgentSettings/AgentSettings'
 import AgentCache from './pages/ai/AgentCache/AgentCache'
 import Observability from './pages/ai/Observability/Observability'
+import ToolMonitor from './pages/ai/ToolMonitor/ToolMonitor'
 import AiConversation from './pages/ai/AiConversation/AiConversation'
 import Login from './pages/Login/Login'
 import ReportManage from './pages/forum/ReportManage/ReportManage'
@@ -31,6 +32,11 @@ import WorkspacePage from './pages/workspace/WorkspacePage'
 import StallManage from './pages/StallManage/StallManage'
 import StallIndoorManage from './pages/StallManage/StallIndoorManage'
 import MarkerManage from './pages/facility/MarkerManage/MarkerManage'
+
+import PublicFacilityManage from './pages/facility/PublicFacilityManage/PublicFacilityManage'
+
+import FacilityAnalyticsDetail from './pages/facility/AnalyticsDetail/FacilityAnalyticsDetail'
+
 import FacilityPlaceManage from './pages/facility/FacilityPlaceManage/FacilityPlaceManage'
 import TeachingBuildingManage from './pages/facility/TeachingBuildingManage/TeachingBuildingManage'
 import CampusCourseManage from './pages/learning/CampusCourseManage'
@@ -46,6 +52,26 @@ const FORUM_INDEPENDENT_PATHS = new Set(['/forum/post', '/forum/comment', '/foru
 const FACILITY_PLACE_PATHS = new Set(['/facility/sports', '/facility/teaching', '/facility/dormitory'])
 const DISCOUNT_PATHS = new Set(['/discount/merchant', '/discount/activity', '/discount/category'])
 const SECONDHAND_INDEPENDENT_PATHS = new Set(['/market/report'])
+
+function FacilityFloorList({ sceneType }) {
+  const { buildingId } = useParams()
+  return (
+    <FacilityPlaceManage
+      sceneType={sceneType}
+      managementRootPlaceId={buildingId}
+    />
+  )
+}
+
+function DormitoryFloorManage() {
+  const { dormitoryId } = useParams()
+  return <FacilityPlaceManage sceneType="DORMITORY" rootPlaceId={dormitoryId} />
+}
+
+function DormitoryFloorFacilityManage() {
+  const { dormitoryId, floorId } = useParams()
+  return <FacilityPlaceManage sceneType="DORMITORY" rootPlaceId={dormitoryId} floorId={floorId} />
+}
 
 function App() {
   // 过滤掉论坛相关路由，避免与独立页面冲突
@@ -70,11 +96,18 @@ function App() {
           <Route path="/home" element={<Home />} />
           <Route path="/facility/canteen" element={<FacilityPlaceManage sceneType="CANTEEN" />} />
           <Route path="/facility/sports" element={<FacilityPlaceManage sceneType="SPORTS" />} />
-          <Route path="/facility/teaching" element={<TeachingBuildingManage />} />
+          <Route path="/facility/teaching" element={<FacilityPlaceManage sceneType="TEACHING" />} />
+          <Route path="/facility/teaching/:buildingId/rooms" element={<FacilityFloorList sceneType="TEACHING" />} />
+          <Route path="/facility/teaching/:buildingId/rooms/indoor" element={<StallIndoorManage sceneType="TEACHING" />} />
+          <Route path="/facility/dormitory" element={<FacilityPlaceManage sceneType="DORMITORY" />} />
+          <Route path="/facility/dormitory/:buildingId/rooms" element={<FacilityFloorList sceneType="DORMITORY" />} />
+          <Route path="/facility/dormitory/:buildingId/rooms/indoor" element={<StallIndoorManage sceneType="DORMITORY" />} />
           <Route path="/facility/teaching/:buildingId" element={<TeachingBuildingManage />} />
           <Route path="/facility/teaching/:buildingId/floors/:floorId" element={<TeachingBuildingManage />} />
-          <Route path="/facility/dormitory" element={<FacilityPlaceManage sceneType="DORMITORY" />} />
+          <Route path="/facility/dormitory/:dormitoryId" element={<DormitoryFloorManage />} />
+          <Route path="/facility/dormitory/:dormitoryId/floors/:floorId" element={<DormitoryFloorFacilityManage />} />
           <Route path="/facility/canteen/:canteenId/stalls" element={<StallManage />} />
+          <Route path="/facility/analytics/:id" element={<FacilityAnalyticsDetail />} />
           <Route path="/facility/canteen/:canteenId/stalls/indoor" element={<StallIndoorManage />} />
           <Route path="/facility/canteen/:canteenId/stalls/:stallId/dishes" element={<StallManage />} />
           <Route path="/activity/manage" element={<ActivityManage />} />
@@ -96,6 +129,7 @@ function App() {
           <Route path="/ai/rag/agents" element={<RagManage page="agents" />} />
           <Route path="/ai/agent-settings" element={<AgentSettings />} />
           <Route path="/ai/agent-cache" element={<AgentCache />} />
+          <Route path="/ai/tool-monitor" element={<ToolMonitor />} />
           <Route path="/ai/observability" element={<Observability />} />
           <Route path={QUESTION_BANK_ROUTES.questions} element={<QuestionBank />} />
           <Route path={QUESTION_BANK_ROUTES.generate} element={<QuestionBankGeneratePage />} />
@@ -109,6 +143,7 @@ function App() {
           <Route path="/admin/paragraph/:knowledgeId/:documentId" element={<ParagraphManage />} />
           <Route path="/ai/profile-rules" element={<ProfileRules />} />
           <Route path="/facility/marker" element={<MarkerManage />} />
+          <Route path="/facility/public" element={<PublicFacilityManage />} />
           <Route path="/learning/courses" element={<CampusCourseManage />} />
           <Route path="/career/nebula" element={<CareerNebulaManage />} />
           <Route path="/discount/merchant" element={<DiscountMerchantManage />} />
