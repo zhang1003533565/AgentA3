@@ -152,6 +152,8 @@ public class AiToolMonitorController {
                     "campus_service", "系统能力", "查询二手商品信息"),
             new ToolDefinition("generated_export_tools", "内容导出工具", "内容导出工具（generated_export_tools）",
                     "content_export", "内容整理", "将内容导出为 Markdown/Word/Excel/PPT 等格式"),
+            new ToolDefinition("text_to_file_tool", "文本转文件工具", "文本转文件工具（text_to_file_tool）",
+                    "content_export", "内容处理", "把用户提供的文本按原文导出为 Markdown/纯文本/Word/PPT/PDF 文件"),
             new ToolDefinition("markdown_export_tool", "Markdown 导出工具", "Markdown 导出工具（markdown_export_tool）",
                     "content_export", "内容整理", "导出为 Markdown 文件"),
             new ToolDefinition("docx_export_tool", "Word 导出工具", "Word 导出工具（docx_export_tool）",

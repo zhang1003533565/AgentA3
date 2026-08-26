@@ -89,6 +89,7 @@ _MIME_TYPES = {
     "zip": "application/zip",
     "md": "text/markdown",
     "mmd": "text/plain",
+    "txt": "text/plain",
     "py": "text/x-python",
 }
 
@@ -123,6 +124,7 @@ EXCEL_EXPORT_TOOL_NAME = "excel_export_tool"
 PPTX_EXPORT_TOOL_NAME = "pptx_export_tool"
 ARCHIVE_EXPORT_TOOL_NAME = "content_archive_tool"
 DIAGRAM_SOURCE_EXPORT_TOOL_NAME = "diagram_source_export_tool"
+TEXT_TO_FILE_TOOL_NAME = "text_to_file_tool"
 KNOWN_EXPORT_TOOL_NAMES = {
     GENERATED_EXPORT_TOOL_NAME,
     MARKDOWN_EXPORT_TOOL_NAME,
@@ -131,6 +133,7 @@ KNOWN_EXPORT_TOOL_NAMES = {
     PPTX_EXPORT_TOOL_NAME,
     ARCHIVE_EXPORT_TOOL_NAME,
     DIAGRAM_SOURCE_EXPORT_TOOL_NAME,
+    TEXT_TO_FILE_TOOL_NAME,
 }
 
 
@@ -763,6 +766,85 @@ def export_generated_answer(answer: str, answer_type: str, metadata: Optional[Di
     return GeneratedExportResult(diagnostics={"skipped": True, "reason": "not_exportable_answer_type"})
 
 
+def _normalize_text_file_format(file_format: Any) -> str:
+    value = str(file_format or "").strip().lower()
+    aliases = {
+        "word": "docx",
+        "markdown": "md",
+        "纯文本": "txt",
+        "ppt": "pptx",
+        "document": "",
+        "file": "",
+    }
+    return aliases.get(value, value)
+
+
+TEXT_TO_FILE_FORMAT_LABELS = {
+    "md": "Markdown",
+    "txt": "纯文本",
+    "docx": "Word 文档",
+}
+
+
+def export_text_to_file(
+    content: str,
+    file_format: Optional[str] = None,
+    metadata: Optional[Dict[str, Any]] = None,
+) -> GeneratedExportResult:
+    """Export user-provided text verbatim into a downloadable file.
+
+    Supported formats: md, txt and docx. The tool never reorganizes or
+    rewrites the source text. Other formats are rejected as unsupported.
+    """
+    cleanup_generated_exports()
+    metadata = metadata or {}
+    text = str(content or "")
+    if not text.strip():
+        return GeneratedExportResult(diagnostics={"skipped": True, "reason": "empty_answer"})
+    if not _is_export_tool_enabled(metadata, TEXT_TO_FILE_TOOL_NAME):
+        return GeneratedExportResult(diagnostics={
+            "skipped": True,
+            "reason": "tool_disabled",
+            "disabledTool": TEXT_TO_FILE_TOOL_NAME,
+        })
+    requested = _normalize_text_file_format(file_format)
+    title = _title_from_markdown(text) or _title_from_metadata(metadata, "文本文件")
+    slug = _slugify(title or "text-file")
+    if requested not in {"md", "txt", "docx"}:
+        return GeneratedExportResult(diagnostics={
+            "skipped": True,
+            "reason": "unsupported_format",
+            "requestedFormat": requested or "none",
+            "supportedFormats": ["md", "txt", "docx"],
+        })
+    paths: List[Path] = []
+    attachments: List[Dict[str, Any]] = []
+    if requested == "md":
+        paths.append(_write_text_file(slug, "md", text))
+    elif requested == "txt":
+        paths.append(_write_text_file(slug, "txt", text))
+    elif requested == "docx":
+        paths.append(_write_text_docx(slug, title, text))
+    for path in paths:
+        ext = path.suffix.lower().lstrip(".")
+        attachments.append(_attachment_for_file(
+            path,
+            TEXT_TO_FILE_TOOL_NAME,
+            TEXT_TO_FILE_FORMAT_LABELS.get(ext, ext.upper()),
+            title,
+        ))
+    return _finalize_export_batch(GeneratedExportResult(
+        attachments=attachments,
+        diagnostics={
+            "skipped": False,
+            "contentKind": "text_file",
+            "requestedFormat": requested,
+            "producedFormats": _formats_from_attachments(attachments),
+            "disabledTools": _disabled_export_tools(metadata),
+        },
+    ))
+
+
 def materialize_generated_image_answer(
     answer: str,
     *,
@@ -1049,6 +1131,19 @@ def _export_diagram_source(content: str, metadata: Dict[str, Any]) -> GeneratedE
 def _write_text_file(slug: str, ext: str, content: str) -> Path:
     path = _new_export_path(slug, ext)
     _atomic_write_payload(path, lambda temporary_path: temporary_path.write_text(content, encoding="utf-8"))
+    return path
+
+
+def _write_text_docx(slug: str, title: str, content: str) -> Path:
+    path = _new_export_path(slug, "docx")
+    doc = Document()
+    doc.add_heading(title or "文本文件", level=1)
+    for raw_line in str(content or "").splitlines():
+        line = raw_line.rstrip()
+        if not line.strip():
+            continue
+        doc.add_paragraph(line)
+    _atomic_write_payload(path, doc.save)
     return path
 
 
@@ -1925,6 +2020,7 @@ __all__ = [
     "GeneratedExportResult",
     "cleanup_generated_exports",
     "export_generated_answer",
+    "export_text_to_file",
     "materialize_generated_image_answer",
     "export_python_code_lab",
     "open_generated_export",
