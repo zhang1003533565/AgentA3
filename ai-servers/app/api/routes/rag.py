@@ -148,7 +148,23 @@ IMAGE_RECOGNITION_TOOL = {
     "outputs": ["image_analysis_text"],
     "status": "implemented",
     "configurable": True,
-    "boundAgent": IMAGE_RECOGNITION_AGENT_NAME,
+}
+
+# =========================
+# Meeting Task Management Tool
+# =========================
+MEETING_TASK_TOOL_NAME = "meeting_task_tool"
+MEETING_TASK_TOOL = {
+    "name": MEETING_TASK_TOOL_NAME,
+    "zhName": "个人任务管理工具",
+    "displayName": "个人任务管理工具（meeting_task_tool）",
+    "category": "meeting_service",
+    "purpose": "用于创建、查询、更新会议中的个人任务，并为后续会议汇报提供任务状态查询和更新能力。",
+    "trigger": "会后总结需要识别和记录个人任务时调用；任务负责人确认完成时需要更新状态时调用。",
+    "outputs": ["task", "task_list", "TASK"],
+    "status": "registered",
+    "configurable": True,
+    "invocation": "unwired",
 }
 
 
@@ -356,6 +372,7 @@ TOOL_CAPABILITY_QUERY = {
 LEADER_CALLABLE_TOOLS = [
     IMAGE_RECOGNITION_TOOL,
     *VISUAL_GENERATION_TOOLS,
+    MEETING_TASK_TOOL,
     {
         "name": "text_to_sql",
         "zhName": "结构化查询工具",

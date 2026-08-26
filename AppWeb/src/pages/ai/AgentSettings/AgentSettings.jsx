@@ -35,7 +35,7 @@ const TOOL_TEST_PROMPTS = {
   generate_mind_map_image_tool: '请生成一张“校园二手交易流程”思维导图图片，包含发布、沟通、线下交易三个分支。',
   generate_flowchart_image_tool: '请生成校园二手商品发布审核流程图图片。',
   generate_activity_image_tool: '请生成学生、管理员、平台三方参与的二手交易活动图图片。',
-  generate_architecture_image_tool: '请生成校园二手交易平台的前端、后端、MySQL、Redis系统架构图图片。',
+  generate_architecture_image_tool: '请生成校园二手交易平台的前端、后端、MySQL、Redis 系统架构图图片。',
   generate_knowledge_graph_image_tool: '请生成学生、商品、分类、订单之间关系的知识图谱图片。',
   generate_ppt_image_tool: '请生成一张智慧校园主题的 PPT 封面配图，16:9，蓝灰色，留出标题区域。',
   text_to_sql: '请统计当前系统中的二手商品数量，并返回查询结果。',
@@ -49,10 +49,11 @@ const TOOL_TEST_PROMPTS = {
   generated_export_tools: '请把以下内容整理为 Markdown 和 Word 文件并提供下载：校园二手交易应当当面验货、确认商品状态后再完成交易。',
   markdown_export_tool: '请把以下内容导出为 Markdown 文件：校园二手交易测试内容。',
   docx_export_tool: '请把以下内容导出为 Word 文档：校园二手交易测试内容。',
-  excel_export_tool: '请把以下清单导出为 Excel：商品A，分类教材；商品B，分类数码。',
+  excel_export_tool: '请把以下清单导出为 Excel：商品 A，分类教材；商品 B，分类数码。',
   pptx_export_tool: '请把以下内容生成并导出为 PPTX：校园二手交易平台介绍，包括发布、沟通、线下交易。',
   content_archive_tool: '请把以下内容分别导出为 Markdown 和 Word，并将所有附件打包成 ZIP：校园二手交易测试内容。',
   diagram_source_export_tool: '请生成校园二手交易流程的 Mermaid 流程图，并导出图表源码文件。',
+  meeting_task_tool: '测试个人任务管理工具的注册状态，返回工具定义信息。',
 }
 
 const getToolTestPrompt = (tool) => TOOL_TEST_PROMPTS[tool?.name]
@@ -103,6 +104,9 @@ const getToolCategoryLabel = (category) => {
     diagram_export: '图表导出',
     presentation_generation: 'PPT 生成',
     vision_understanding: '图片理解',
+    meeting_service: '会议服务',
+    visual_generation: '视觉生成',
+    capability_query: '能力查询',
   }
   return labels[category] || category || '-'
 }
