@@ -116,7 +116,7 @@ async function finish(force = false) {
   try {
     await saveChain
     await submitExam(attempt.value.id)
-    router.replace(`/mine/papers/results/${attempt.value.id}`)
+    router.replace({ name: 'exam-result', params: { attemptId: attempt.value.id }, query: route.query })
   } catch (cause) {
     error.value = cause.message
     submitting.value = false
@@ -126,7 +126,7 @@ async function loadAttempt() {
   try {
     attempt.value = await getExamAttempt(route.params.attemptId)
     if (attempt.value.status !== 'IN_PROGRESS') {
-      router.replace(`/mine/papers/results/${attempt.value.id}`)
+      router.replace({ name: 'exam-result', params: { attemptId: attempt.value.id }, query: route.query })
       return
     }
     const serverNow = new Date(attempt.value.serverNow).getTime()

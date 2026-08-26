@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { getCareerNebulaMap, saveCareerNebulaMap } from '../../api/careerNebula';
+import { getCampusCourse, getCampusCourses } from '../../api/campusCourse';
 import styles from './CareerNebulaManage.module.css';
 
 type NodeStatus = 'enabled' | 'disabled';
@@ -14,7 +15,10 @@ type CareerNode = {
   image?: string;
 };
 type LearningItem = { id: string; title: string; type: '知识' | '实践' | '考核' };
-type SkillNode = CareerNode & { careerId?: string; items: LearningItem[] };
+type SkillNode = CareerNode & { careerId?: string; items: LearningItem[]; weight: number; courseId?: number };
+type CourseOption = { id: number; name: string; chapterCount?: number; examCount?: number; publishStatus?: string };
+type CourseChapter = { id: number; title: string; summary?: string; estimatedMinutes?: number; required?: boolean };
+type CourseChapterPreview = { id: number; name: string; chapters: CourseChapter[] };
 type Edge = { id: string; source: string; target: string; type: '主线' | '支线' };
 type PersistedMap = { careers: CareerNode[]; skills: SkillNode[]; edges: Edge[] };
 
@@ -30,6 +34,10 @@ function normalizePersistedMap(value: unknown): PersistedMap | undefined {
     skills: candidate.skills.map((node) => ({
       ...node,
       items: Array.isArray(node.items) ? node.items : [],
+      weight:
+        Number.isInteger(node.weight) && node.weight >= 1 && node.weight <= 10
+          ? node.weight
+          : 5,
     })),
     edges: candidate.edges,
   };
@@ -138,6 +146,7 @@ const starterSkills: SkillNode[] = [
     y: 47,
     size: 76,
     status: 'enabled',
+    weight: 5,
     items: [
       { id: 'f1', title: '软件测试基本概念', type: '知识' },
       { id: 'f2', title: '测试用例设计实战', type: '实践' },
@@ -151,6 +160,7 @@ const starterSkills: SkillNode[] = [
     y: 25,
     size: 70,
     status: 'enabled',
+    weight: 5,
     items: [{ id: 'l1', title: 'Linux 常用命令', type: '知识' }],
   },
   {
@@ -161,6 +171,7 @@ const starterSkills: SkillNode[] = [
     y: 72,
     size: 70,
     status: 'enabled',
+    weight: 5,
     items: [{ id: 'd1', title: 'SQL 查询与数据校验', type: '实践' }],
   },
   {
@@ -171,6 +182,7 @@ const starterSkills: SkillNode[] = [
     y: 23,
     size: 72,
     status: 'enabled',
+    weight: 5,
     items: [{ id: 'w1', title: 'Web 测试检查清单', type: '知识' }],
   },
   {
@@ -181,6 +193,7 @@ const starterSkills: SkillNode[] = [
     y: 53,
     size: 82,
     status: 'enabled',
+    weight: 5,
     items: [
       { id: 'a1', title: 'HTTP 请求与响应', type: '知识' },
       { id: 'a2', title: 'Postman 环境与变量', type: '实践' },
@@ -195,6 +208,7 @@ const starterSkills: SkillNode[] = [
     y: 30,
     size: 76,
     status: 'disabled',
+    weight: 5,
     items: [{ id: 'au1', title: 'Pytest 自动化框架', type: '实践' }],
   },
   {
@@ -205,6 +219,7 @@ const starterSkills: SkillNode[] = [
     y: 70,
     size: 76,
     status: 'disabled',
+    weight: 5,
     items: [{ id: 'p1', title: 'JMeter 场景设计', type: '实践' }],
   },
   {
@@ -215,6 +230,7 @@ const starterSkills: SkillNode[] = [
     y: 50,
     size: 88,
     status: 'disabled',
+    weight: 5,
     items: [{ id: 'b1', title: '全链路质量守卫战', type: '考核' }],
   },
 ];
@@ -256,6 +272,8 @@ export default function CareerNebulaManage() {
   const [activeCareerId, setActiveCareerId] = useState('testing');
   const [selectedId, setSelectedId] = useState('testing');
   const [preview, setPreview] = useState(false);
+  const [catalogCollapsed, setCatalogCollapsed] = useState(false);
+  const [propertiesCollapsed, setPropertiesCollapsed] = useState(false);
   const [connectMode, setConnectMode] = useState(false);
   const [connectSource, setConnectSource] = useState<string>();
   const [editingItems, setEditingItems] = useState(false);
@@ -266,7 +284,11 @@ export default function CareerNebulaManage() {
   const [saveSucceeded, setSaveSucceeded] = useState(false);
   const [confirmReturn, setConfirmReturn] = useState(false);
   const [cropSource, setCropSource] = useState<string>();
-  const [imageUrl, setImageUrl] = useState('');
+  const [weightInput, setWeightInput] = useState('5');
+  const [courseOptions, setCourseOptions] = useState<CourseOption[]>([]);
+  const [chapterPreview, setChapterPreview] = useState<CourseChapterPreview>();
+  const [chapterPreviewLoading, setChapterPreviewLoading] = useState(false);
+  const [chapterPreviewError, setChapterPreviewError] = useState('');
   const canvasRef = useRef<HTMLDivElement>(null);
   const saveSuccessTimer = useRef<number | undefined>(undefined);
   const savedData = useRef<PersistedMap>({
@@ -288,12 +310,17 @@ export default function CareerNebulaManage() {
 
     async function loadCareerMap() {
       try {
-        const data = normalizePersistedMap(await getCareerNebulaMap());
+        const [mapResponse, courseResponse] = await Promise.all([
+          getCareerNebulaMap(),
+          getCampusCourses().catch(() => ({ data: [] })),
+        ]);
+        const data = normalizePersistedMap(mapResponse);
         if (!data) throw new Error('岗位星图数据结构不完整');
         if (cancelled) return;
         setCareers(data.careers);
         setSkills(data.skills);
         setEdges(data.edges);
+        setCourseOptions(Array.isArray(courseResponse.data) ? courseResponse.data : []);
         savedData.current = JSON.parse(JSON.stringify(data)) as PersistedMap;
         setNotice('已从智慧校园数据库加载');
       } catch {
@@ -326,8 +353,15 @@ export default function CareerNebulaManage() {
   const selected = useMemo(() => nodes.find((node) => node.id === selectedId), [nodes, selectedId]);
   const selectedSkill =
     level === 'skills' ? skills.find((node) => node.id === selectedId) : undefined;
+  const weightIsValid = /^(?:[1-9]|10)$/.test(weightInput);
+  const courseForSkill = (skill?: SkillNode) =>
+    skill?.courseId ? courseOptions.find((course) => course.id === skill.courseId) : undefined;
 
-  function updateSelected(patch: Partial<CareerNode>) {
+  useEffect(() => {
+    setWeightInput(String(selectedSkill?.weight ?? 5));
+  }, [selectedSkill?.id]);
+
+  function updateSelected(patch: Partial<CareerNode> & { weight?: number; courseId?: number }) {
     if (level === 'careers')
       setCareers((all) =>
         all.map((node) => (node.id === selectedId ? { ...node, ...patch } : node))
@@ -339,6 +373,24 @@ export default function CareerNebulaManage() {
     setNotice('有未保存的修改');
     setDirty(true);
     if (level === 'skills') setRouteDirty(true);
+  }
+  async function openChapterPreview() {
+    if (!selectedSkill?.courseId || chapterPreviewLoading) return;
+    setChapterPreviewLoading(true);
+    setChapterPreviewError('');
+    try {
+      const response = await getCampusCourse(selectedSkill.courseId);
+      const detail = response.data as CourseChapterPreview;
+      setChapterPreview({
+        id: detail.id,
+        name: detail.name,
+        chapters: Array.isArray(detail.chapters) ? detail.chapters : [],
+      });
+    } catch (error) {
+      setChapterPreviewError((error as { message?: string })?.message || '课程章节加载失败');
+    } finally {
+      setChapterPreviewLoading(false);
+    }
   }
   function addNode() {
     const id = crypto.randomUUID();
@@ -367,6 +419,7 @@ export default function CareerNebulaManage() {
           y: 50,
           size: 72,
           status: 'enabled',
+          weight: 5,
           items: [],
         },
       ]);
@@ -400,10 +453,21 @@ export default function CareerNebulaManage() {
     if (level === 'skills') setRouteDirty(true);
   }
   async function save(): Promise<boolean> {
-    const data = { careers, skills, edges };
+    if (level === 'skills' && selectedSkill && !weightIsValid) {
+      setNotice('进度权重必须填写 1 到 10 之间的整数');
+      return false;
+    }
+    const normalizedSkills = skills.map((skill) => {
+      const linkedCourse = courseForSkill(skill);
+      return linkedCourse && skill.name !== linkedCourse.name
+        ? { ...skill, name: linkedCourse.name }
+        : skill;
+    });
+    const data = { careers, skills: normalizedSkills, edges };
     setSaving(true);
     try {
       await saveCareerNebulaMap(data);
+      setSkills(normalizedSkills);
       localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
       savedData.current = JSON.parse(JSON.stringify(data)) as PersistedMap;
       setDirty(false);
@@ -439,14 +503,6 @@ export default function CareerNebulaManage() {
     const reader = new FileReader();
     reader.onload = () => setCropSource(String(reader.result));
     reader.readAsDataURL(file);
-  }
-  function chooseUrlImage() {
-    const value = imageUrl.trim();
-    if (!/^https?:\/\//i.test(value)) {
-      setNotice('请输入以 http:// 或 https:// 开头的图片地址');
-      return;
-    }
-    setCropSource(value);
   }
   function resizeNode(clientX: number, clientY: number) {
     const current = resizing.current;
@@ -578,9 +634,20 @@ export default function CareerNebulaManage() {
           </button>
         </div>
       </header>
-      <div className={`${styles.editor} ${preview ? styles.preview : ''}`}>
+      <div
+        className={`${styles.editor} ${preview ? styles.preview : ''} ${catalogCollapsed ? styles.catalogCollapsed : ''} ${propertiesCollapsed ? styles.propertiesCollapsed : ''}`}
+      >
         {!preview && (
-          <aside className={styles.catalog}>
+          <aside className={`${styles.catalog} ${catalogCollapsed ? styles.collapsedPanel : ''}`}>
+            <button
+              type="button"
+              className={`${styles.panelToggle} ${styles.catalogToggle}`}
+              aria-label={catalogCollapsed ? '展开节点目录' : '收起节点目录'}
+              title={catalogCollapsed ? '展开节点目录' : '收起节点目录'}
+              onClick={() => setCatalogCollapsed((value) => !value)}
+            >
+              {catalogCollapsed ? '›' : '‹'}
+            </button>
             <div className={styles.panelTitle}>
               节点目录 <small>{nodes.length} NODES</small>
             </div>
@@ -633,14 +700,39 @@ export default function CareerNebulaManage() {
             </div>
             {level === 'skills' && (
               <svg className={styles.edges} viewBox="0 0 100 100" preserveAspectRatio="none">
+                <defs>
+                  <marker
+                    id="admin-route-arrow-main"
+                    viewBox="0 0 10 10"
+                    refX="8"
+                    refY="5"
+                    markerWidth="5"
+                    markerHeight="5"
+                    orient="auto-start-reverse"
+                  >
+                    <path d="M 1 1 L 9 5 L 1 9 L 3.5 5 Z" />
+                  </marker>
+                  <marker
+                    id="admin-route-arrow-branch"
+                    viewBox="0 0 10 10"
+                    refX="8"
+                    refY="5"
+                    markerWidth="5"
+                    markerHeight="5"
+                    orient="auto-start-reverse"
+                  >
+                    <path d="M 1 1 L 9 5 L 1 9 L 3.5 5 Z" />
+                  </marker>
+                </defs>
                 {edges.map((edge) => {
                   const source = careerSkills.find((node) => node.id === edge.source);
                   const target = careerSkills.find((node) => node.id === edge.target);
                   if (!source || !target) return null;
                   if (preview && (source.status !== 'enabled' || target.status !== 'enabled'))
                     return null;
+                  const branch = edge.type !== '主线';
                   return (
-                    <g key={edge.id}>
+                    <g key={edge.id} className={branch ? styles.branchRoute : undefined}>
                       <line
                         className={styles.edgeHit}
                         x1={source.x}
@@ -649,7 +741,14 @@ export default function CareerNebulaManage() {
                         y2={target.y}
                       />
                       <line
-                        className={edge.type === '主线' ? styles.mainEdge : styles.branchEdge}
+                        className={styles.edgeGlow}
+                        x1={source.x}
+                        y1={source.y}
+                        x2={target.x}
+                        y2={target.y}
+                      />
+                      <line
+                        className={styles.edgeFlow}
                         x1={source.x}
                         y1={source.y}
                         x2={target.x}
@@ -764,7 +863,12 @@ export default function CareerNebulaManage() {
                     {(level === 'skills' || !preview) && (
                       <small>
                         {level === 'skills'
-                          ? `${skills.find((skillNode) => skillNode.id === node.id)?.items.length ?? 0} 项学习内容`
+                          ? (() => {
+                              const course = courseForSkill(
+                                skills.find((skillNode) => skillNode.id === node.id)
+                              );
+                              return course ? `${course.chapterCount ?? 0} 个课程章节` : '未关联课程';
+                            })()
                           : node.status === 'enabled'
                             ? '已启用'
                             : '已禁用'}
@@ -785,16 +889,35 @@ export default function CareerNebulaManage() {
           </div>
         </main>
         {!preview && (
-          <aside className={styles.properties}>
+          <aside className={`${styles.properties} ${propertiesCollapsed ? styles.collapsedPanel : ''}`}>
+            <button
+              type="button"
+              className={`${styles.panelToggle} ${styles.propertiesToggle}`}
+              aria-label={propertiesCollapsed ? '展开属性编辑' : '收起属性编辑'}
+              title={propertiesCollapsed ? '展开属性编辑' : '收起属性编辑'}
+              onClick={() => setPropertiesCollapsed((value) => !value)}
+            >
+              {propertiesCollapsed ? '‹' : '›'}
+            </button>
             <div className={styles.panelTitle}>
               属性编辑 <small>PROPERTIES</small>
             </div>
             {selected ? (
-              <div className={styles.form}>
+              <div
+                className={`${styles.form} ${
+                  level === 'careers' ? styles.careerForm : styles.skillForm
+                }`}
+              >
                 <label>
                   <span>{level === 'careers' ? '岗位名称' : '学习节点名称'}</span>
                   <input
                     value={selected.name}
+                    readOnly={level === 'skills' && Boolean(selectedSkill?.courseId)}
+                    title={
+                      level === 'skills' && selectedSkill?.courseId
+                        ? '星球名称由关联课程自动同步'
+                        : undefined
+                    }
                     onChange={(event) => updateSelected({ name: event.target.value })}
                   />
                 </label>
@@ -808,29 +931,18 @@ export default function CareerNebulaManage() {
                     }}
                   />
                 </label>
-                <label>
-                  <span>本地图片</span>
-                  <input
-                    type="file"
-                    accept="image/*"
-                    onChange={(event) => chooseLocalImage(event.target.files?.[0])}
-                  />
-                </label>
-                <label>
-                  <span>或者使用图片 URL</span>
-                  <div className={styles.urlInputRow}>
+                <div className={styles.formField}>
+                  <span className={styles.fieldLabel}>本地图片</span>
+                  <label className={styles.filePicker}>
+                    选择文件
                     <input
-                      type="url"
-                      placeholder="https://example.com/nebula.jpg"
-                      value={imageUrl}
-                      onChange={(event) => setImageUrl(event.target.value)}
+                      type="file"
+                      accept="image/*"
+                      onChange={(event) => chooseLocalImage(event.target.files?.[0])}
                     />
-                    <button type="button" onClick={chooseUrlImage}>
-                      载入
-                    </button>
-                  </div>
-                </label>
-                <label>
+                  </label>
+                </div>
+                <label className={styles.rangeField}>
                   <span>节点尺寸　{selected.size}px</span>
                   <input
                     type="range"
@@ -840,6 +952,69 @@ export default function CareerNebulaManage() {
                     onChange={(event) => updateSelected({ size: Number(event.target.value) })}
                   />
                 </label>
+                {level === 'skills' && (
+                  <label>
+                    <span>关联校园课程</span>
+                    <select
+                      value={selectedSkill?.courseId ?? ''}
+                      onChange={(event) => {
+                        const courseId = event.target.value
+                          ? Number(event.target.value)
+                          : undefined;
+                        const linkedCourse = courseOptions.find((course) => course.id === courseId);
+                        updateSelected({
+                          courseId,
+                          ...(linkedCourse ? { name: linkedCourse.name } : {}),
+                        });
+                      }}
+                    >
+                      <option value="" disabled hidden>请选择已发布课程</option>
+                      {courseOptions
+                        .filter((course) => String(course.publishStatus || '').toUpperCase() === 'PUBLISHED')
+                        .map((course) => (
+                          <option key={course.id} value={course.id}>
+                            {course.name}（{course.chapterCount ?? 0}章 · {course.examCount ?? 0}场考试）
+                          </option>
+                        ))}
+                    </select>
+                    <small className={styles.fieldHint}>课程将显示为当前星球，课程章节自动成为探索节点。</small>
+                    <button
+                      type="button"
+                      className={styles.chapterPreviewButton}
+                      disabled={!selectedSkill?.courseId || chapterPreviewLoading}
+                      onClick={openChapterPreview}
+                    >
+                      {chapterPreviewLoading ? '正在读取章节…' : '查看章节点'}
+                    </button>
+                    {chapterPreviewError && <small className={styles.fieldError}>{chapterPreviewError}</small>}
+                  </label>
+                )}
+                {level === 'skills' && (
+                  <label>
+                    <span>星球权重（1～10）</span>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      value={weightInput}
+                      aria-invalid={!weightIsValid}
+                      aria-describedby="weight-error"
+                      className={!weightIsValid ? styles.invalidInput : undefined}
+                      placeholder="请输入 1～10 的整数"
+                      onChange={(event) => {
+                        const value = event.target.value.trim();
+                        setWeightInput(value);
+                        if (/^(?:[1-9]|10)$/.test(value)) {
+                          updateSelected({ weight: Number(value) });
+                        }
+                      }}
+                    />
+                    {!weightIsValid && (
+                      <small id="weight-error" className={styles.fieldError}>
+                        权重只能填写 1 到 10 之间的整数
+                      </small>
+                    )}
+                  </label>
+                )}
                 <label>
                   <span>节点状态</span>
                   <select
@@ -857,9 +1032,7 @@ export default function CareerNebulaManage() {
                     编辑岗位学习路线 →
                   </button>
                 ) : (
-                  <button className={styles.routeButton} onClick={() => setEditingItems(true)}>
-                    编辑具体学习内容（{selectedSkill?.items.length ?? 0}）
-                  </button>
+                  <div className={styles.fieldHint}>具体学习内容由所关联课程的章节自动生成，无需在岗位星图重复维护。</div>
                 )}
                 <button className={styles.delete} onClick={deleteNode}>
                   删除当前节点
@@ -897,6 +1070,34 @@ export default function CareerNebulaManage() {
                 {saving ? '正在保存…' : '保存并返回'}
               </button>
             </div>
+          </section>
+        </div>
+      )}
+      {chapterPreview && (
+        <div className={styles.chapterPreviewBackdrop} onClick={() => setChapterPreview(undefined)}>
+          <section className={styles.chapterPreviewModal} onClick={(event) => event.stopPropagation()}>
+            <button className={styles.close} type="button" aria-label="关闭章节预览" onClick={() => setChapterPreview(undefined)}>×</button>
+            <small>COURSE CHAPTERS</small>
+            <h2>{chapterPreview.name} · 章节点</h2>
+            <p>以下内容来自校园课程，只读展示，不能在岗位星图中修改。</p>
+            {chapterPreview.chapters.length ? (
+              <div className={styles.chapterPreviewList}>
+                {chapterPreview.chapters.map((chapter, index) => (
+                  <article key={chapter.id}>
+                    <b>{String(index + 1).padStart(2, '0')}</b>
+                    <div>
+                      <strong>{chapter.title}</strong>
+                      <span>{chapter.summary || '暂无章节说明'}</span>
+                    </div>
+                    <em>{chapter.required === false ? '选修' : '必修'}</em>
+                    <small>{chapter.estimatedMinutes || 0} 分钟</small>
+                  </article>
+                ))}
+              </div>
+            ) : (
+              <div className={styles.chapterPreviewEmpty}>该课程暂未配置章节</div>
+            )}
+            <button className={styles.doneButton} type="button" onClick={() => setChapterPreview(undefined)}>关闭</button>
           </section>
         </div>
       )}
