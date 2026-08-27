@@ -53,6 +53,22 @@ public final class StudyGoalDTO {
         private Boolean isCompleted;
 
         private String description;
+
+        private List<AgentSubtask> subtasks = new ArrayList<>();
+    }
+
+    @Data
+    public static class AgentSubtask {
+        @JsonProperty("task_name")
+        private String taskName;
+
+        private String description;
+
+        @JsonProperty("estimated_days")
+        private Integer estimatedDays;
+
+        @JsonProperty("order_num")
+        private Integer orderNum;
     }
 
     /** 上传解析接口响应：拆解预览（未入库）。 */
@@ -105,6 +121,25 @@ public final class StudyGoalDTO {
         private Integer progressPercent;
 
         private String description;
+
+        private List<SubtaskInput> subtasks = new ArrayList<>();
+    }
+
+    @Data
+    public static class SubtaskInput {
+        private String taskName;
+
+        private String description;
+
+        private Integer estimatedDays;
+
+        private Integer orderNum;
+
+        private Integer progressPercent;
+
+        private Boolean isCompleted;
+
+        private String status;
     }
 
     /** 粘贴文本拆解请求。 */
@@ -215,6 +250,33 @@ public final class StudyGoalDTO {
         private Integer progressPercent;
 
         private String description;
+
+        private List<SubtaskView> subtasks = new ArrayList<>();
+    }
+
+    @Data
+    public static class SubtaskView {
+        private Long id;
+
+        private Long taskId;
+
+        private String taskName;
+
+        private String description;
+
+        private Integer estimatedDays;
+
+        private LocalDate plannedStartDate;
+
+        private LocalDate plannedEndDate;
+
+        private Integer progressPercent;
+
+        private String status;
+
+        private Boolean isCompleted;
+
+        private Integer orderNum;
     }
 
     /** 目标详情：目标信息 + 任务列表。 */

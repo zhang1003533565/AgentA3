@@ -36,3 +36,22 @@ CREATE TABLE IF NOT EXISTS study_task (
     KEY idx_study_task_goal_completed (goal_id, is_completed),
     CONSTRAINT fk_study_task_goal FOREIGN KEY (goal_id) REFERENCES study_goal (id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='学习任务表';
+
+CREATE TABLE IF NOT EXISTS study_subtask (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY COMMENT '主键ID',
+    task_id BIGINT NOT NULL COMMENT '关联的大类任务ID',
+    task_name VARCHAR(120) NOT NULL COMMENT '细分任务名称',
+    description TEXT NULL COMMENT '补充说明',
+    estimated_days INT NOT NULL DEFAULT 1 COMMENT '预计天数',
+    planned_start_date DATE NULL COMMENT '计划开始日期',
+    planned_end_date DATE NULL COMMENT '计划结束日期',
+    progress_percent INT NOT NULL DEFAULT 0 COMMENT '完成百分比 0-100',
+    status VARCHAR(20) NOT NULL DEFAULT 'pending' COMMENT '任务状态',
+    is_completed TINYINT(1) NOT NULL DEFAULT 0 COMMENT '是否完成',
+    order_num INT NOT NULL DEFAULT 0 COMMENT '排序序号，从1开始',
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    KEY idx_study_subtask_task (task_id),
+    KEY idx_study_subtask_task_order (task_id, order_num),
+    CONSTRAINT fk_study_subtask_task FOREIGN KEY (task_id) REFERENCES study_task (id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='学习任务细分项表';
