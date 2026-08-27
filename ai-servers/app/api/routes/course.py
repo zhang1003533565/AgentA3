@@ -6,13 +6,18 @@ from typing import Any, Optional
 
 import httpx
 from fastapi import APIRouter, Header, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import AliasChoices, BaseModel, Field
 
 from app.model_providers.runtime_config import build_llm_runtime_config
 
 
 class CourseGenerateRequest(BaseModel):
     prompt: str = Field(..., min_length=1, description="用户输入的课程生成要求")
+    estimated_minutes: int = Field(
+        default=0,
+        ge=0,
+        validation_alias=AliasChoices("estimated_minutes", "estimatedMinutes"),
+    )
 
 
 class CourseSection(BaseModel):
@@ -45,15 +50,7 @@ def _clean_llm_json_text(raw_content: str) -> str:
     return cleaned.strip("`\n\r \t")
 
 
-def _fallback_course_generation(prompt: str) -> dict[str, Any]:
-    estimated_minutes = 0
-    match = re.search(r"(\d+)\s*分钟", str(prompt or ""), flags=re.IGNORECASE)
-    if match:
-        try:
-            estimated_minutes = int(match.group(1))
-        except ValueError:
-            estimated_minutes = 0
-
+def _fallback_course_generation(prompt: str, estimated_minutes: int = 0) -> dict[str, Any]:
     return {
         "chapterTitle": "第一章：Python基础入门",
         "estimated_minutes": estimated_minutes,
@@ -68,6 +65,7 @@ def _fallback_course_generation(prompt: str) -> dict[str, Any]:
 
 async def _generate_course_json(
     prompt: str,
+    estimated_minutes: int = 0,
     provider: Optional[str] = None,
     base_url: Optional[str] = None,
     api_key: Optional[str] = None,
@@ -85,7 +83,9 @@ async def _generate_course_json(
         model=effective_model,
     )
     if runtime_config is None or not runtime_config.base_url or not runtime_config.api_key:
-        return _fallback_course_generation(prompt)
+        if effective_api_key:
+            raise HTTPException(status_code=502, detail="AI model runtime configuration is incomplete")
+        return _fallback_course_generation(prompt, estimated_minutes)
 
     payload = {
         "model": effective_model,
@@ -95,14 +95,15 @@ async def _generate_course_json(
             {
                 "role": "system",
                 "content": (
-                    "你是一个只能输出 JSON 的机器。禁止输出 Markdown 代码块、反引号或任何解释性文字。"
-                    "必须严格输出一个纯 JSON 对象，并且包含 chapterTitle、estimated_minutes 和 sections 字段。"
-                    "estimated_minutes 必须是数字类型的整数，单位是分钟。"
-                    "如果用户要求中明确包含类似“60分钟”“30分钟”“时长45分钟”等描述，必须按要求解析并输出对应的分钟数。"
-                    "如果用户没有指定任何学习时长，必须输出 0。"
-                    "只能生成 1 个章节。不能输出多个章节，也不能输出额外字段、说明文字、代码块或注释。"
-                    "必须且只能输出如下结构：{\"chapterTitle\":\"字符串\",\"estimated_minutes\":60,\"sections\":[{\"title\":\"字符串\",\"content\":\"字符串\"}]}"
-                    "注意：只能返回一个章节对象，不能生成多个章节。"
+                    "你是一名拥有丰富教学与科研经验的资深高校讲师。请把用户要求扩展为一章真正可供大学生学习的完整教材内容，"
+                    "讲解必须严谨、具体、循序渐进，不能敷衍，不能输出一两句的占位符。"
+                    "本章 content 的中文字数必须不少于 800 字，且必须包含：核心概念及定义、原理或推导、至少一个具体可运行的代码示例（适用时使用 Python 或用户指定语言）、"
+                    "代码逐段解释、至少两个真实应用场景、常见错误或易混淆点，以及至少 3 道课后思考题。"
+                    "代码示例必须有实际逻辑，严禁使用‘此处略’‘内容待补充’‘请自行实现’等占位表达。"
+                    "只能输出一个章节，并严格输出纯 JSON；禁止 Markdown 代码块、反引号、注释或任何 JSON 外的解释文字。"
+                    "JSON 必须包含 chapterTitle、estimated_minutes 和 sections 字段。estimated_minutes 必须是非负整数，单位为分钟；"
+                    "estimated_minutes 必须直接使用请求中的 estimated_minutes；如果请求没有传入该字段，必须为 0。"
+                    "sections 必须是数组，至少包含一个对象，每个对象只能包含 title 和 content 字段。"
                 ),
             },
             {
@@ -110,10 +111,7 @@ async def _generate_course_json(
                 "content": (
                     "根据以下教学要求生成课程章节内容：\n"
                     f"{prompt}\n\n"
-                    "请返回纯 JSON，且必须包含 chapterTitle、estimated_minutes 和 sections。"
-                    "chapterTitle 是章节标题。estimated_minutes 是一个整数分钟数：如果用户要求中出现类似‘60分钟、30分钟、时长45分钟、预习时间都为60分钟’等描述，就输出对应数字；如果没有任何分钟要求，就输出 0。"
-                    "sections 必须是长度为 1 的数组，数组元素只有一个 section，且 section 必须包含 title 和 content。"
-                    "必须且只能生成 1 个章节，不能输出多个章节，也不能输出任何解释性文字。"
+                    f"请按系统要求返回一个完整、详细、至少 800 字的章节 JSON。请求中的 estimated_minutes 为 {estimated_minutes}，请原值返回，不能省略。"
                 ),
             },
         ],
@@ -136,7 +134,7 @@ async def _generate_course_json(
         cleaned_content = _clean_llm_json_text(raw_content)
         if not cleaned_content:
             logger.error("AI response content is empty. Raw content: %s", raw_content)
-            return _fallback_course_generation(prompt)
+            raise HTTPException(status_code=502, detail="AI response content is empty")
 
         try:
             article = json.loads(cleaned_content)
@@ -146,7 +144,7 @@ async def _generate_course_json(
                 raw_content,
                 exc_info=True,
             )
-            return _fallback_course_generation(prompt)
+            raise HTTPException(status_code=502, detail="AI response is not valid JSON") from exc
 
         if not isinstance(article, dict):
             logger.error(
@@ -154,10 +152,10 @@ async def _generate_course_json(
                 type(article).__name__,
                 raw_content,
             )
-            return _fallback_course_generation(prompt)
+            raise HTTPException(status_code=502, detail="AI response is not a JSON object")
 
         chapter_title = str(article.get("chapterTitle") or "课程章节").strip()
-        estimated_minutes_raw = article.get("estimated_minutes", article.get("estimatedMinutes", 0))
+        estimated_minutes_raw = estimated_minutes
         try:
             estimated_minutes = int(estimated_minutes_raw)
         except (TypeError, ValueError):
@@ -172,7 +170,7 @@ async def _generate_course_json(
                 type(sections).__name__,
                 raw_content,
             )
-            return _fallback_course_generation(prompt)
+            raise HTTPException(status_code=502, detail="AI response field 'sections' is not an array")
 
         sanitized_sections = []
         for section in sections:
@@ -185,13 +183,18 @@ async def _generate_course_json(
 
         if not sanitized_sections:
             logger.error("AI response 'sections' is empty after parse. Raw content: %s", raw_content)
-            return _fallback_course_generation(prompt)
+            raise HTTPException(status_code=502, detail="AI response contains no usable sections")
+
+        content_length = sum(len(section["content"]) for section in sanitized_sections)
+        if content_length < 800:
+            logger.error("AI response content is too short: %s characters", content_length)
+            raise HTTPException(status_code=502, detail="AI response content must contain at least 800 characters")
 
         # 严格保持单章节返回格式，每次请求只返回一个章节对象
         return {
             "chapterTitle": chapter_title,
             "estimated_minutes": estimated_minutes,
-            "sections": sanitized_sections[:1],
+            "sections": sanitized_sections,
         }
 
 
@@ -210,18 +213,21 @@ async def generate_course(
     runtime_base_url = (x_ai_base_url or os.getenv("AI_BASE_URL", "")).strip()
     runtime_api_key = (x_ai_api_key or os.getenv("AI_API_KEY", "")).strip()
 
-    if not runtime_base_url or not runtime_api_key:
-        return CourseGenerateResponse(**_fallback_course_generation(prompt))
+    if not runtime_api_key:
+        return CourseGenerateResponse(**_fallback_course_generation(prompt, request.estimated_minutes))
 
     try:
         result = await _generate_course_json(
             prompt,
+            estimated_minutes=request.estimated_minutes,
             provider=x_ai_provider,
             base_url=x_ai_base_url,
             api_key=x_ai_api_key,
             model=x_ai_model,
         )
         return CourseGenerateResponse(**result)
+    except HTTPException:
+        raise
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"AI model request failed: {exc}") from exc
 

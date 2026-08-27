@@ -204,7 +204,6 @@ function CampusCourseManage() {
   const [aiInput, setAiInput] = useState('')
   const [aiHistory, setAiHistory] = useState([])
   const [aiSending, setAiSending] = useState(false)
-  const [aiGeneratedChapter, setAiGeneratedChapter] = useState(null)
   const [aiGeneratedChapters, setAiGeneratedChapters] = useState([])
   const [aiPreviewActiveKey, setAiPreviewActiveKey] = useState('')
   const [aiGenerateProgress, setAiGenerateProgress] = useState({ current: 0, total: 0, generating: false })
@@ -372,7 +371,6 @@ function CampusCourseManage() {
     const requestedEstimatedMinutes = extractEstimatedMinutes(trimmedValue)
 
     setAiSending(true)
-    setAiGeneratedChapter(null)
     setAiGeneratedChapters([])
     setAiSelectedChapterKeys([])
     setAiPreviewActiveKey('')
@@ -401,7 +399,6 @@ function CampusCourseManage() {
 
         const chapterData = buildAiGeneratedChapter(response?.data || response || {}, targetChapter, requestedEstimatedMinutes)
         setAiGeneratedChapters((prev) => [...prev, chapterData])
-        setAiGeneratedChapter(chapterData)
         setAiSelectedChapterKeys((prev) => (prev.includes(chapterData.id) ? prev : [...prev, chapterData.id]))
         setAiPreviewActiveKey(String(chapterData.id))
         setAiGenerateProgress({ current: i + 1, total: resolvedChapterNumbers.length, generating: i + 1 < resolvedChapterNumbers.length })
@@ -452,13 +449,12 @@ function CampusCourseManage() {
           summary: 'AI 自动生成章节',
           content: chapter.content || '',
           required: true,
-          estimatedMinutes: Number(chapter.estimatedMinutes || 0),
+          estimatedMinutes: chapter.estimatedMinutes ?? 0,
           sortOrder: (detail?.chapters?.length || 0) + index + 1,
         })
       }
 
       message.success(`已导入 ${selectedChapters.length} 个 AI 生成章节`)
-      setAiGeneratedChapter(null)
       setAiGeneratedChapters([])
       setAiSelectedChapterKeys([])
       setAiPreviewActiveKey('')
@@ -1026,25 +1022,6 @@ function CampusCourseManage() {
           <Button icon={<RobotOutlined />} onClick={() => setAiDrawerVisible(true)}>AI智能体生成内容</Button>
         </Space>
       </div>
-
-      {aiGeneratedChapter && (
-        <div style={{ marginBottom: 16, border: '1px solid #f0f0f0', borderRadius: 8, padding: 16, background: '#fafafa' }}>
-          <Typography.Title level={5} style={{ marginBottom: 12 }}>{aiGeneratedChapter.chapterTitle}</Typography.Title>
-          <List
-            size="small"
-            dataSource={aiGeneratedChapter.sections || []}
-            renderItem={(section, index) => (
-              <List.Item>
-                <List.Item.Meta
-                  avatar={<span className="chapter-index">{index + 1}</span>}
-                  title={section.title}
-                  description={section.content}
-                />
-              </List.Item>
-            )}
-          />
-        </div>
-      )}
 
       {detail?.chapters?.length ? (
         <List
