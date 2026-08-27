@@ -33,3 +33,9 @@ test('plan list actions use outlined surfaces instead of filled buttons', () => 
   assert.match(source, /\.plan-action--view\s*\{[\s\S]*?background:\s*#FFFFFF[\s\S]*?border:/)
   assert.match(source, /\.plan-action--delete\s*\{[\s\S]*?background:\s*#FFFFFF[\s\S]*?border:/)
 })
+
+test('history count reflects the server total and deletion refreshes the first page', () => {
+  assert.match(source, /const historyCount = computed\(\(\) => Math\.max\(0, total\.value - \(currentPlan\.value \? 1 : 0\)\)\)/)
+  assert.match(source, /class="history-count">\{\{ historyCount \}\}/)
+  assert.match(source, /deleteStudyGoal\(item\.id\)\.then\(\(\) => fetchPage\(1, false\)\)/)
+})

@@ -61,7 +61,7 @@
               <view class="history-sort">
                 <text>按开始时间</text>
                 <text class="history-sort-chevron">⌄</text>
-                <text class="history-count">{{ historyPlans.length }} 项</text>
+                <text class="history-count">{{ historyCount }} 项</text>
               </view>
             </view>
             <view class="section-card history-list">
@@ -145,6 +145,8 @@ const historyPlans = computed(() => {
   return summaries.value.filter((item) => item.id !== currentId)
 })
 
+const historyCount = computed(() => Math.max(0, total.value - (currentPlan.value ? 1 : 0)))
+
 function statusLabel(status) {
   return statusText(status)
 }
@@ -215,11 +217,7 @@ function confirmDelete(item) {
     success: (result) => {
       if (!result.confirm) return
       deletingId.value = item.id
-      deleteStudyGoal(item.id).then(() => {
-        summaries.value = summaries.value.filter((row) => row.id !== item.id)
-        total.value = Math.max(0, total.value - 1)
-        const fetched = (page.value - 1) * PAGE_SIZE + summaries.value.length
-        hasMore.value = fetched < total.value
+      deleteStudyGoal(item.id).then(() => fetchPage(1, false)).then(() => {
         uni.showToast({ title: '计划已删除', icon: 'success' })
       }).catch(() => {}).finally(() => {
         deletingId.value = null
