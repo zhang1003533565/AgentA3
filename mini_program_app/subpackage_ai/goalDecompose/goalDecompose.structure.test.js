@@ -103,3 +103,8 @@ test('execution hierarchy gives long task copy the available width beside contro
   assert.match(source, /\.study-plan-page \.task-group-title,[\s\S]*?\.study-plan-page \.task-group-meta\s*\{[\s\S]*?overflow-wrap:\s*anywhere/)
   assert.match(source, /\.study-plan-page \.task-body\s*\{[\s\S]*?flex:\s*1[\s\S]*?min-width:\s*0/)
 })
+
+test('execution page gives the scroll viewport an explicit flex height', () => {
+  assert.match(source, /<scroll-view class="content study-plan-content" scroll-y/)
+  assert.match(source, /\.study-plan-page \.study-plan-content\s*\{[\s\S]*?height:\s*0[\s\S]*?flex:\s*1[\s\S]*?min-height:\s*0/)
+})

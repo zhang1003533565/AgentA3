@@ -2929,6 +2929,14 @@ function priorityLevel(priority) {
   color: #397577;
 }
 
+/* 执行态长列表必须占满导航栏下的剩余视口，超出部分交给 scroll-view 滚动 */
+.study-plan-page .study-plan-content {
+  width: 100%;
+  height: 0;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
 .study-plan-page .preview-action-bar {
   position: sticky;
   bottom: 0;
