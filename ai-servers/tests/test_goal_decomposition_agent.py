@@ -15,6 +15,7 @@ from app.api.routes.goal import GoalDecomposeResponse, SubtaskPlan, TaskPlan
 from app.multi_agents.goal_decomposition_agent.agent import (
     build_user_prompt,
     parse_goal_payload,
+    validate_plan_quality,
 )
 from app.services.goal_ai_service import GoalDecompositionAIService
 
@@ -196,6 +197,86 @@ def test_nested_subtasks_are_capped_and_invalid_entries_are_dropped():
 def test_tasks_without_subtasks_remain_valid_for_compatibility():
     payload = parse_goal_payload('{"goal": {"title": "计划"}, "tasks": [{"task_name": "不可再拆动作"}]}')
     assert payload["tasks"][0]["subtasks"] == []
+
+
+def test_quality_rejects_multiday_parent_without_subtasks():
+    payload = parse_goal_payload(
+        _dumps({"goal": {"title": "计划"}, "tasks": [_task(estimated_days=7)]})
+    )
+
+    error = validate_plan_quality(payload, "text")
+
+    assert error is not None
+    assert "细分任务" in error
+
+
+def test_quality_accepts_one_day_atomic_task():
+    payload = parse_goal_payload(
+        _dumps({"goal": {"title": "计划"}, "tasks": [_task(estimated_days=1)]})
+    )
+
+    assert validate_plan_quality(payload, "csv") is None
+
+
+def test_quality_rejects_invalid_child_structure():
+    payload = parse_goal_payload(
+        _dumps(
+            {
+                "goal": {"title": "计划"},
+                "tasks": [
+                    _task(
+                        estimated_days=3,
+                        subtasks=[
+                            {"task_name": "完成练习", "estimated_days": 1},
+                            {"task_name": "完成练习", "estimated_days": 1},
+                        ],
+                    )
+                ],
+            }
+        )
+    )
+
+    error = validate_plan_quality(payload, "text")
+
+    assert error is not None
+    assert "完成标准" in error or "重复" in error or "天数" in error
+
+
+def test_ai_service_repairs_quality_once(clean_llm_env, monkeypatch):
+    clean_llm_env.setenv("LLM_PROVIDER", "opencode")
+    clean_llm_env.setenv("LLM_MODEL", "test-model")
+
+    class FakeProvider:
+        def __init__(self):
+            self.prompts = []
+
+        def complete(self, system_prompt, user_prompt):
+            self.prompts.append(user_prompt)
+            if len(self.prompts) == 1:
+                return _dumps({"goal": {"title": "计划"}, "tasks": [_task(estimated_days=7)]})
+            return _dumps(
+                {
+                    "goal": {"title": "计划"},
+                    "tasks": [
+                        _task(
+                            estimated_days=2,
+                            subtasks=[
+                                {"task_name": "阅读资料", "description": "写出三条要点", "estimated_days": 1},
+                                {"task_name": "完成练习", "description": "提交一份练习结果", "estimated_days": 1},
+                            ],
+                        )
+                    ],
+                }
+            )
+
+    provider = FakeProvider()
+    monkeypatch.setattr("app.services.goal_ai_service.get_chat_model_provider", lambda: provider)
+
+    result = GoalDecompositionAIService().decompose("text", "学习计划")
+
+    assert len(provider.prompts) == 2
+    assert "细分任务" in provider.prompts[1]
+    assert len(result["tasks"][0]["subtasks"]) == 2
 
 
 def test_empty_answer_is_rejected():

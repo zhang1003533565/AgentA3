@@ -14,6 +14,8 @@ import logging
 import os
 from typing import Any, Dict, Optional
 
+from fastapi import HTTPException
+
 from app.model_providers.factory import get_chat_model_provider
 from app.model_providers.runtime_config import (
     build_llm_runtime_config,
@@ -24,6 +26,7 @@ from app.multi_agents.goal_decomposition_agent.agent import (
     SYSTEM_PROMPT,
     build_user_prompt,
     parse_goal_payload,
+    validate_plan_quality,
 )
 
 logger = logging.getLogger(__name__)
@@ -79,11 +82,27 @@ class GoalDecompositionAIService:
                 system_prompt=SYSTEM_PROMPT,
                 user_prompt=user_prompt,
             )
+            result = parse_goal_payload(raw_answer)
+            quality_error = validate_plan_quality(result, source_type)
+            if quality_error:
+                repaired_answer = provider.complete(
+                    system_prompt=SYSTEM_PROMPT,
+                    user_prompt=(
+                        f"{user_prompt}\n\n"
+                        "上一次输出未达到学习计划质量要求，请只输出修正后的 JSON。"
+                        f"具体问题：{quality_error}\n"
+                        "请保留原始目标范围，补齐可执行细分任务、完成标准和一致的预计天数。"
+                    ),
+                )
+                result = parse_goal_payload(repaired_answer)
+                quality_error = validate_plan_quality(result, source_type)
+                if quality_error:
+                    raise HTTPException(status_code=502, detail=f"学习计划拆解质量不足：{quality_error}")
         finally:
             if token is not None:
                 reset_active_llm_config(token)
 
-        return parse_goal_payload(raw_answer)
+        return result
 
 
 goal_decomposition_ai_service = GoalDecompositionAIService()

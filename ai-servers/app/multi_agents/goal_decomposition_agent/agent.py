@@ -72,7 +72,7 @@ SYSTEM_PROMPT = """你是一名资深学习规划师，负责把用户上传的�
 - status：固定为 "pending"
 - is_completed：固定为 false
 - description：补充说明，可为空字符串
-- subtasks：把每个任务拆成 2~6 个可执行的叶子步骤；每个步骤应有明确动作和完成标准
+- subtasks：预计超过 1 天的父任务必须拆成 2~6 个可执行的叶子步骤；每个步骤应有明确动作和完成标准
 - subtasks[].task_name：具体到一次学习行动，不能只是重复父任务标题
 - subtasks[].description：完成标准或产出物，可为空字符串
 - subtasks[].estimated_days：正整数天数，所有细分任务天数之和应与父任务工作量相符
@@ -83,7 +83,9 @@ SYSTEM_PROMPT = """你是一名资深学习规划师，负责把用户上传的�
 2. 任务数量 3~30 个，按学习顺序排列；输入只有目标没有明细时自行规划合理的里程碑任务。
 3. 若输入是表格，逐行识别任务名称、阶段、天数、优先级、说明列；空值按默认规则补全。
 4. 不臆造用户未提及的目标之外的范围，不输出任务以外的任何字段。
-5. 对有足够内容的任务优先输出 2~6 个细分任务；若原始内容只有一个不可再拆的动作，可输出空数组，不要为了凑数编造步骤。
+5. 预计超过 1 天的父任务不得输出空数组；只有原始输入已经是明确的一天原子动作时才允许没有细分任务。
+6. 每个细分任务的 description 必须写清完成标准、练习结果或产出物；不能留空。
+7. 父任务 estimated_days 必须等于其细分任务 estimated_days 之和。
 """
 
 _SOURCE_TYPE_HINTS = {
@@ -153,6 +155,40 @@ def parse_goal_payload(raw: Any) -> Dict[str, Any]:
     for index, task in enumerate(tasks, start=1):
         task["order_num"] = index
     return {"goal": {"title": title[:GOAL_TITLE_MAX_LENGTH], "description": description}, "tasks": tasks}
+
+
+def validate_plan_quality(payload: Dict[str, Any], source_type: str = "text") -> str | None:
+    """校验拆解结果是否达到可执行任务树的最低质量。"""
+    tasks = payload.get("tasks") if isinstance(payload, dict) else None
+    if not isinstance(tasks, list) or not tasks:
+        return "没有可执行的父任务"
+
+    for task_index, task in enumerate(tasks, start=1):
+        parent_name = str(task.get("task_name") or "").strip()
+        parent_days = int(task.get("estimated_days") or MIN_ESTIMATED_DAYS)
+        subtasks = task.get("subtasks") if isinstance(task.get("subtasks"), list) else []
+        if parent_days > 1 and len(subtasks) < 2:
+            return f"第{task_index}个父任务“{parent_name}”预计{parent_days}天，必须拆成至少2个细分任务"
+        if not subtasks:
+            continue
+
+        child_names = set()
+        child_days = 0
+        for subtask_index, subtask in enumerate(subtasks, start=1):
+            child_name = str(subtask.get("task_name") or "").strip()
+            if child_name == parent_name:
+                return f"第{task_index}个父任务的第{subtask_index}个细分任务不能重复父任务名称"
+            name_key = child_name.casefold()
+            if name_key in child_names:
+                return f"第{task_index}个父任务存在重复的细分任务“{child_name}”"
+            child_names.add(name_key)
+            if not str(subtask.get("description") or "").strip():
+                return f"第{task_index}个父任务的细分任务“{child_name}”缺少完成标准"
+            child_days += int(subtask.get("estimated_days") or MIN_ESTIMATED_DAYS)
+
+        if child_days != parent_days:
+            return f"第{task_index}个父任务预计{parent_days}天，但细分任务合计{child_days}天"
+    return None
 
 
 def _normalize_subtasks(value: Any) -> List[Dict[str, Any]]:
@@ -242,4 +278,5 @@ __all__ = [
     "SYSTEM_PROMPT",
     "build_user_prompt",
     "parse_goal_payload",
+    "validate_plan_quality",
 ]
