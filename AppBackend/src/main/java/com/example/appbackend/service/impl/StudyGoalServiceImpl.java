@@ -28,6 +28,7 @@ import java.io.InputStream;
 import java.nio.ByteBuffer;
 import java.nio.charset.CharacterCodingException;
 import java.nio.charset.StandardCharsets;
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -37,7 +38,7 @@ import java.util.Map;
  * 学习计划结构化拆解服务实现。
  *
  * 拆解链路：xlsx/csv/text -> 表格序列化文本 -> ai-servers 专用智能体 -> 纯 JSON 预览。
- * Goal 进度由已完成任务数量自动计算，任务勾选与进度重算共用 applyProgress。
+ * Goal 进度由任务预计学习天数加权自动计算，任务状态与进度更新共用 applyProgress。
  */
 @Slf4j
 @Service
@@ -88,8 +89,8 @@ public class StudyGoalServiceImpl implements StudyGoalService {
             throw new BusinessException(Result.BAD_REQUEST_CODE, "文件内容为空或无法解析出任务数据");
         }
         if (content.length() > MAX_CONTENT_CHARS) {
-            log.info("study goal decompose content truncated, userId={}, originLength={}", userId, content.length());
-            content = content.substring(0, MAX_CONTENT_CHARS);
+            throw new BusinessException(Result.BAD_REQUEST_CODE,
+                    "文件或文本内容过长，请控制在" + MAX_CONTENT_CHARS + "字符以内");
         }
 
         Map<String, Object> request = new HashMap<>();
@@ -128,6 +129,14 @@ public class StudyGoalServiceImpl implements StudyGoalService {
         goal.setUserId(userId);
         goal.setTitle(trimToLength(title, 120));
         goal.setDescription(StringUtils.trimWhitespace(request.getGoal().getDescription()));
+        LocalDate startDate = request.getGoal().getStartDate() == null
+                ? LocalDate.now() : request.getGoal().getStartDate();
+        LocalDate targetDate = request.getGoal().getTargetDate();
+        if (targetDate != null && targetDate.isBefore(startDate)) {
+            throw new BusinessException(Result.BAD_REQUEST_CODE, "目标日期不能早于开始日期");
+        }
+        goal.setStartDate(startDate);
+        goal.setTargetDate(targetDate);
         goal.setProgress(0);
         goal.setStatus("pending");
         goal = studyGoalRepository.save(goal);
@@ -136,6 +145,11 @@ public class StudyGoalServiceImpl implements StudyGoalService {
         int orderNum = 1;
         for (StudyGoalDTO.TaskInput input : inputs) {
             tasks.add(buildTaskEntity(goal.getId(), input, orderNum++));
+        }
+        scheduleTasks(tasks, startDate);
+        LocalDate scheduledEnd = tasks.get(tasks.size() - 1).getPlannedEndDate();
+        if (targetDate != null && scheduledEnd.isAfter(targetDate)) {
+            throw new BusinessException(Result.BAD_REQUEST_CODE, "预计排期超过目标日期，请调整目标日期或任务天数");
         }
         tasks = studyTaskRepository.saveAll(tasks);
         applyProgress(goal, tasks);
@@ -151,17 +165,94 @@ public class StudyGoalServiceImpl implements StudyGoalService {
     @Override
     @Transactional
     public StudyGoalDTO.GoalView updateTaskCompletion(Long taskId, Boolean isCompleted, Long userId) {
+        return updateTaskProgress(taskId, Boolean.TRUE.equals(isCompleted) ? 100 : 0, userId);
+    }
+
+    @Override
+    @Transactional
+    public StudyGoalDTO.GoalView updateTaskProgress(Long taskId, Integer progressPercent, Long userId) {
+        int normalizedProgress = normalizeProgress(progressPercent);
         StudyTask task = studyTaskRepository.findById(taskId)
                 .orElseThrow(() -> new BusinessException(Result.NOT_FOUND_CODE, "任务不存在"));
         requireOwnedGoal(task.getGoalId(), userId);
-        boolean completed = Boolean.TRUE.equals(isCompleted);
+        boolean completed = normalizedProgress >= 100;
+        task.setProgressPercent(normalizedProgress);
         task.setIsCompleted(completed);
-        task.setStatus(completed ? "completed" : "pending");
+        task.setStatus(completed ? "completed" : normalizedProgress > 0 ? "in_progress" : "pending");
         studyTaskRepository.save(task);
 
         StudyGoal goal = requireOwnedGoal(task.getGoalId(), userId);
         applyProgress(goal, studyTaskRepository.findByGoalIdOrderByOrderNumAscIdAsc(goal.getId()));
         return toGoalView(goal);
+    }
+
+    @Override
+    @Transactional
+    public StudyGoalDTO.GoalView updateTaskStatus(Long taskId, String status, Long userId) {
+        if (!List.of("pending", "in_progress", "blocked", "skipped", "completed").contains(status)) {
+            throw new BusinessException(Result.BAD_REQUEST_CODE, "任务状态不合法");
+        }
+        StudyTask task = studyTaskRepository.findById(taskId)
+                .orElseThrow(() -> new BusinessException(Result.NOT_FOUND_CODE, "任务不存在"));
+        requireOwnedGoal(task.getGoalId(), userId);
+        task.setStatus(status);
+        if ("completed".equals(status)) {
+            task.setProgressPercent(100);
+            task.setIsCompleted(true);
+        } else {
+            task.setIsCompleted(false);
+            if ("pending".equals(status) && effectiveProgress(task) >= 100) {
+                task.setProgressPercent(0);
+            }
+        }
+        studyTaskRepository.save(task);
+        StudyGoal goal = requireOwnedGoal(task.getGoalId(), userId);
+        applyProgress(goal, studyTaskRepository.findByGoalIdOrderByOrderNumAscIdAsc(goal.getId()));
+        return toGoalView(goal);
+    }
+
+    @Override
+    @Transactional
+    public StudyGoalDTO.GoalDetail postponeTask(Long taskId, Integer days, Long userId) {
+        if (days == null || days < 1 || days > 30) {
+            throw new BusinessException(Result.BAD_REQUEST_CODE, "延后天数必须在 1 到 30 天之间");
+        }
+        StudyTask selected = studyTaskRepository.findById(taskId)
+                .orElseThrow(() -> new BusinessException(Result.NOT_FOUND_CODE, "任务不存在"));
+        StudyGoal goal = requireOwnedGoal(selected.getGoalId(), userId);
+        if (effectiveProgress(selected) >= 100 || "completed".equals(selected.getStatus())) {
+            throw new BusinessException(Result.BAD_REQUEST_CODE, "已完成任务不能延后");
+        }
+        int selectedOrder = selected.getOrderNum() == null ? Integer.MAX_VALUE : selected.getOrderNum();
+        LocalDate selectedStart = selected.getPlannedStartDate() == null
+                ? (goal.getStartDate() == null ? LocalDate.now() : goal.getStartDate())
+                : selected.getPlannedStartDate();
+        LocalDate selectedEnd = selected.getPlannedEndDate() == null
+                ? selectedStart.plusDays(normalizeEstimatedDays(selected.getEstimatedDays()) - 1L)
+                : selected.getPlannedEndDate();
+        List<StudyTask> tasks = studyTaskRepository.findByGoalIdOrderByOrderNumAscIdAsc(goal.getId());
+        List<StudyTask> changed = new ArrayList<>();
+        for (StudyTask task : tasks) {
+            int order = task.getOrderNum() == null ? Integer.MAX_VALUE : task.getOrderNum();
+            if (order < selectedOrder || effectiveProgress(task) >= 100 || "completed".equals(task.getStatus())) {
+                continue;
+            }
+            LocalDate start = task == selected ? selectedStart : task.getPlannedStartDate();
+            LocalDate end = task == selected ? selectedEnd : task.getPlannedEndDate();
+            if (start == null || end == null) {
+                continue;
+            }
+            task.setPlannedStartDate(start.plusDays(days));
+            task.setPlannedEndDate(end.plusDays(days));
+            changed.add(task);
+        }
+        if (!changed.contains(selected)) {
+            selected.setPlannedStartDate(selectedStart.plusDays(days));
+            selected.setPlannedEndDate(selectedEnd.plusDays(days));
+            changed.add(selected);
+        }
+        studyTaskRepository.saveAll(changed);
+        return getGoalDetail(goal.getId(), userId, "all");
     }
 
     @Override
@@ -172,6 +263,15 @@ public class StudyGoalServiceImpl implements StudyGoalService {
             case "completed" -> studyTaskRepository.findByGoalIdAndIsCompletedTrueOrderByOrderNumAscIdAsc(goalId);
             default -> studyTaskRepository.findByGoalIdOrderByOrderNumAscIdAsc(goalId);
         };
+        if ("today".equals(filter)) {
+            LocalDate today = LocalDate.now();
+            tasks = tasks.stream()
+                    .filter(task -> task.getPlannedStartDate() != null
+                            && task.getPlannedEndDate() != null
+                            && !today.isBefore(task.getPlannedStartDate())
+                            && !today.isAfter(task.getPlannedEndDate()))
+                    .toList();
+        }
         StudyGoalDTO.GoalDetail detail = new StudyGoalDTO.GoalDetail();
         detail.setGoal(toGoalView(goal));
         for (StudyTask task : tasks) {
@@ -217,6 +317,8 @@ public class StudyGoalServiceImpl implements StudyGoalService {
             summary.setDescription(goal.getDescription());
             summary.setProgress(goal.getProgress());
             summary.setStatus(goal.getStatus());
+            summary.setStartDate(goal.getStartDate());
+            summary.setTargetDate(goal.getTargetDate());
             summary.setTotalTasks((int) count[0]);
             summary.setCompletedTasks((int) count[1]);
             summary.setRemainingTasks((int) (count[0] - count[1]));
@@ -232,15 +334,21 @@ public class StudyGoalServiceImpl implements StudyGoalService {
                 .orElseThrow(() -> new BusinessException(Result.NOT_FOUND_CODE, "目标不存在或无权访问"));
     }
 
-    /**
-     * 根据已完成任务数量重算目标进度与状态：0 条完成 -> pending，全部完成 -> completed，其余 in_progress。
-     */
+    /** 根据预计学习天数加权重算目标进度，避免一个大任务与一个小任务权重相同。 */
     private void applyProgress(StudyGoal goal, List<StudyTask> tasks) {
-        long completed = tasks.stream().filter(task -> Boolean.TRUE.equals(task.getIsCompleted())).count();
         int total = tasks.size();
-        int progress = total == 0 ? 0 : (int) Math.round(completed * 100.0 / total);
+        int totalDays = tasks.stream()
+                .mapToInt(task -> normalizeEstimatedDays(task.getEstimatedDays()))
+                .sum();
+        int weightedProgress = tasks.stream()
+                .mapToInt(task -> normalizeEstimatedDays(task.getEstimatedDays()) * effectiveProgress(task))
+                .sum();
+        int progress = totalDays == 0 ? 0 : (int) Math.round(weightedProgress / (double) totalDays);
+        boolean allCompleted = total > 0 && tasks.stream().allMatch(task -> effectiveProgress(task) >= 100);
+        boolean hasStarted = tasks.stream().anyMatch(task -> effectiveProgress(task) > 0
+                || (task.getStatus() != null && !"pending".equals(task.getStatus())));
         goal.setProgress(progress);
-        goal.setStatus(completed == 0 ? "pending" : completed >= total ? "completed" : "in_progress");
+        goal.setStatus(allCompleted ? "completed" : hasStarted ? "in_progress" : "pending");
         studyGoalRepository.save(goal);
     }
 
@@ -252,11 +360,23 @@ public class StudyGoalServiceImpl implements StudyGoalService {
         task.setEstimatedDays(normalizeEstimatedDays(input.getEstimatedDays()));
         task.setPriority(ALLOWED_PRIORITIES.contains(input.getPriority()) ? input.getPriority() : DEFAULT_PRIORITY);
         task.setOrderNum(orderNum);
-        boolean completed = Boolean.TRUE.equals(input.getIsCompleted());
+        int progress = normalizeProgress(input.getProgressPercent());
+        boolean completed = Boolean.TRUE.equals(input.getIsCompleted()) || progress >= 100;
+        task.setProgressPercent(completed ? 100 : progress);
         task.setIsCompleted(completed);
-        task.setStatus(completed ? "completed" : "pending");
+        task.setStatus(completed ? "completed" : progress > 0 ? "in_progress" : "pending");
         task.setDescription(StringUtils.trimWhitespace(input.getDescription()));
         return task;
+    }
+
+    private void scheduleTasks(List<StudyTask> tasks, LocalDate startDate) {
+        LocalDate cursor = startDate;
+        for (StudyTask task : tasks) {
+            int days = normalizeEstimatedDays(task.getEstimatedDays());
+            task.setPlannedStartDate(cursor);
+            task.setPlannedEndDate(cursor.plusDays(days - 1L));
+            cursor = cursor.plusDays(days);
+        }
     }
 
     private Integer normalizeEstimatedDays(Integer estimatedDays) {
@@ -264,6 +384,23 @@ public class StudyGoalServiceImpl implements StudyGoalService {
             return 1;
         }
         return Math.min(estimatedDays, MAX_ESTIMATED_DAYS);
+    }
+
+    private int normalizeProgress(Integer progressPercent) {
+        if (progressPercent == null) {
+            return 0;
+        }
+        if (progressPercent < 0 || progressPercent > 100) {
+            throw new BusinessException(Result.BAD_REQUEST_CODE, "任务进度必须在 0 到 100 之间");
+        }
+        return progressPercent;
+    }
+
+    private int effectiveProgress(StudyTask task) {
+        if (task.getProgressPercent() != null) {
+            return Math.max(0, Math.min(100, task.getProgressPercent()));
+        }
+        return Boolean.TRUE.equals(task.getIsCompleted()) ? 100 : 0;
     }
 
     @SuppressWarnings("unchecked")
@@ -302,6 +439,7 @@ public class StudyGoalServiceImpl implements StudyGoalService {
                 view.setOrderNum(orderNum++);
                 view.setStatus("pending");
                 view.setIsCompleted(false);
+                view.setProgressPercent(0);
                 view.setDescription(StringUtils.trimWhitespace(agentTask.getDescription()));
                 response.getTasks().add(view);
             }
@@ -317,6 +455,8 @@ public class StudyGoalServiceImpl implements StudyGoalService {
         view.setId(goal.getId());
         view.setTitle(goal.getTitle());
         view.setDescription(goal.getDescription());
+        view.setStartDate(goal.getStartDate());
+        view.setTargetDate(goal.getTargetDate());
         view.setProgress(goal.getProgress());
         view.setStatus(goal.getStatus());
         return view;
@@ -329,10 +469,13 @@ public class StudyGoalServiceImpl implements StudyGoalService {
         view.setTaskName(task.getTaskName());
         view.setStage(task.getStage());
         view.setEstimatedDays(task.getEstimatedDays());
+        view.setPlannedStartDate(task.getPlannedStartDate());
+        view.setPlannedEndDate(task.getPlannedEndDate());
         view.setPriority(task.getPriority());
         view.setOrderNum(task.getOrderNum());
         view.setStatus(task.getStatus());
         view.setIsCompleted(Boolean.TRUE.equals(task.getIsCompleted()));
+        view.setProgressPercent(effectiveProgress(task));
         view.setDescription(task.getDescription());
         return view;
     }

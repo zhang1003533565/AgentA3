@@ -33,6 +33,15 @@ public interface StudyGoalService {
      */
     StudyGoalDTO.GoalView updateTaskCompletion(Long taskId, Boolean isCompleted, Long userId);
 
+    /** 更新任务部分完成进度，并按预计学习天数重算目标进度。 */
+    StudyGoalDTO.GoalView updateTaskProgress(Long taskId, Integer progressPercent, Long userId);
+
+    /** 更新任务状态；completed 会同步任务完成标记与 100% 进度。 */
+    StudyGoalDTO.GoalView updateTaskStatus(Long taskId, String status, Long userId);
+
+    /** 延后任务及其之后的未完成任务，并返回刷新后的目标详情。 */
+    StudyGoalDTO.GoalDetail postponeTask(Long taskId, Integer days, Long userId);
+
     /**
      * 查询指定目标详情，filter 支持 all / pending（剩余）/ completed（已完成）。
      */

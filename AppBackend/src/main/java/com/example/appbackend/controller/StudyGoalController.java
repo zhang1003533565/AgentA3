@@ -77,6 +77,36 @@ public class StudyGoalController {
         return Result.success(studyGoalService.updateTaskCompletion(taskId, isCompleted, userId));
     }
 
+    @PutMapping("/tasks/{taskId}/progress")
+    @Operation(summary = "更新任务进度", description = "支持 0-100 的部分完成进度，并按任务预计天数加权重算目标进度")
+    public Result<StudyGoalDTO.GoalView> updateProgress(@PathVariable("taskId") Long taskId,
+                                                         @RequestBody StudyGoalDTO.TaskProgressRequest request,
+                                                         HttpServletRequest httpRequest) {
+        Long userId = currentUserId(httpRequest);
+        Integer progress = request == null ? null : request.getProgressPercent();
+        return Result.success(studyGoalService.updateTaskProgress(taskId, progress, userId));
+    }
+
+    @PutMapping("/tasks/{taskId}/status")
+    @Operation(summary = "更新任务状态", description = "状态支持 pending/in_progress/blocked/skipped/completed")
+    public Result<StudyGoalDTO.GoalView> updateStatus(@PathVariable("taskId") Long taskId,
+                                                       @RequestBody StudyGoalDTO.TaskStatusRequest request,
+                                                       HttpServletRequest httpRequest) {
+        Long userId = currentUserId(httpRequest);
+        String status = request == null ? null : request.getStatus();
+        return Result.success(studyGoalService.updateTaskStatus(taskId, status, userId));
+    }
+
+    @PostMapping("/tasks/{taskId}/postpone")
+    @Operation(summary = "延后任务", description = "将指定任务及其之后的未完成任务整体顺延指定天数")
+    public Result<StudyGoalDTO.GoalDetail> postpone(@PathVariable("taskId") Long taskId,
+                                                     @RequestBody StudyGoalDTO.TaskPostponeRequest request,
+                                                     HttpServletRequest httpRequest) {
+        Long userId = currentUserId(httpRequest);
+        Integer days = request == null ? null : request.getDays();
+        return Result.success(studyGoalService.postponeTask(taskId, days, userId));
+    }
+
     @GetMapping("/my")
     @Operation(summary = "我的学习计划", description = "分页返回当前用户创建过的计划（按更新时间倒序），退出后可随时找回继续勾选")
     public Result<PageResponse<StudyGoalDTO.GoalSummary>> myGoals(
