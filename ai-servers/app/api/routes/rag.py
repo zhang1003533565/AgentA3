@@ -1321,6 +1321,9 @@ def _build_learning_error_payload(
 
 def _run_rag_query_core(request: RagQueryRequest, authorization: str) -> RagQueryResponse:
     request.input = _prepare_request_input(request)
+    direct_tool_response = _run_admin_direct_tool_test(request)
+    if direct_tool_response is not None:
+        return direct_tool_response
     requested_agent = _normalize_requested_agent(request)
     if request.agentName and not requested_agent:
         raise HTTPException(status_code=400, detail="智能体不存在")
@@ -1341,6 +1344,29 @@ def _run_rag_query_core(request: RagQueryRequest, authorization: str) -> RagQuer
         return _run_direct_agent(request, agent_profile)
 
     return _run_agent_without_local_retrieval(request, active_agent)
+
+
+def _run_admin_direct_tool_test(request: RagQueryRequest) -> Optional[RagQueryResponse]:
+    """Run an explicitly selected admin-console tool without Leader routing."""
+    metadata = request.metadata if isinstance(request.metadata, dict) else {}
+    if metadata.get("testFrom") != "admin_tool_console" or metadata.get("directToolTest") is not True:
+        return None
+    tool_name = str(metadata.get("expectedToolName") or "").strip()
+    if tool_name != TEXT_TO_FILE_TOOL_NAME:
+        raise HTTPException(status_code=400, detail="当前工具暂不支持直接测试。")
+    if not _is_tool_enabled(request, tool_name):
+        raise HTTPException(status_code=403, detail=f"工具 {_tool_display_name(tool_name)} 已在后台关闭，无法运行测试。")
+    plan = LeaderPlan(
+        intent="document_export",
+        target_agent=tool_name,
+        need_retrieval=False,
+        rag_strategy="",
+        action="call_tool",
+        tool_name=tool_name,
+        route_reason="管理台直接运行指定工具。",
+        route_mode="direct_tool_test",
+    )
+    return _run_text_to_file_tool(request, plan, direct_tool_test=True)
 
 
 def _normalize_requested_agent(request: RagQueryRequest) -> Optional[str]:
@@ -3165,7 +3191,7 @@ def _text_file_title(content: str) -> str:
     return "文本文件"
 
 
-def _run_text_to_file_tool(request: RagQueryRequest, leader_plan) -> RagQueryResponse:
+def _run_text_to_file_tool(request: RagQueryRequest, leader_plan, direct_tool_test: bool = False) -> RagQueryResponse:
     request_metadata = request.metadata if isinstance(request.metadata, dict) else {}
     requested_output_type = _normalize_requested_file_type(
         request_metadata.get("requestedOutputType")
@@ -3173,7 +3199,7 @@ def _run_text_to_file_tool(request: RagQueryRequest, leader_plan) -> RagQueryRes
         or "md"
     )
     metadata = {
-        "agentName": "leader_agent",
+        "agentName": TEXT_TO_FILE_TOOL_NAME if direct_tool_test else "leader_agent",
         "targetAgent": TEXT_TO_FILE_TOOL_NAME,
         "executedAgent": TEXT_TO_FILE_TOOL_NAME,
         "intent": leader_plan.intent,
@@ -3185,8 +3211,8 @@ def _run_text_to_file_tool(request: RagQueryRequest, leader_plan) -> RagQueryRes
         "toolDisplayName": _tool_display_name(leader_plan.tool_name),
         "routeReason": leader_plan.route_reason,
         "strategyLabel": "文本转文件工具",
-        "executionMode": "leader_call_tool",
-        "executionModeLabel": "Leader 调用文本转文件工具",
+        "executionMode": "direct_tool_test" if direct_tool_test else "leader_call_tool",
+        "executionModeLabel": "管理台直接运行文本转文件工具" if direct_tool_test else "Leader 调用文本转文件工具",
         "answerType": "document_export",
         "requestedOutputType": requested_output_type,
         "toolToggles": _tool_toggles_from_request(request),
@@ -3220,8 +3246,9 @@ def _run_text_to_file_tool(request: RagQueryRequest, leader_plan) -> RagQueryRes
         answer=answer,
         answerType="document_export",
         documents=[],
-        trace=[
+        trace=([] if direct_tool_test else [
             RagTraceResponse(stage="leader_route", detail=_leader_plan_detail(leader_plan)),
+        ]) + [
             RagTraceResponse(stage="tool_call", detail={
                 "toolName": TEXT_TO_FILE_TOOL_NAME,
                 "toolDisplayName": _tool_display_name(TEXT_TO_FILE_TOOL_NAME),

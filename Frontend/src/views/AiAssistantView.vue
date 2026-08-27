@@ -4,7 +4,9 @@ import { useRouter } from 'vue-router'
 
 import AppTabBar from '../components/AppTabBar.vue'
 import { deleteLeaderSession, getLeaderSessionDetail, getLeaderSessions, queryLeaderAgent, streamLeaderAgent } from '../api/aiGeneration'
+import { API_BASE_URL } from '../api/request'
 import { AI_RESOURCE_ACCEPT, uploadAiResource } from '../api/upload'
+import { getToken } from '../utils/auth'
 import pdfIcon from '../assets/file-icons/pdf.png'
 import pptIcon from '../assets/file-icons/ppt.png'
 import excelIcon from '../assets/file-icons/excel.png'
@@ -391,6 +393,49 @@ function attachmentUrl(item) {
 
 function attachmentName(item) {
   return item?.name || item?.fileName || item?.title || '上传图片'
+}
+
+async function loadAttachmentBlob(item) {
+  const source = attachmentUrl(item)
+  if (!source) throw new Error('该附件缺少可用地址')
+  const token = getToken()
+  const response = await fetch(source.startsWith('/') ? `${API_BASE_URL}${source}` : source, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  })
+  if (!response.ok) throw new Error(`读取附件失败（${response.status}）`)
+  return response.blob()
+}
+
+async function openAttachment(item) {
+  const previewWindow = window.open('about:blank', '_blank')
+  try {
+    const objectUrl = URL.createObjectURL(await loadAttachmentBlob(item))
+    if (previewWindow) {
+      previewWindow.opener = null
+      previewWindow.location.href = objectUrl
+    } else {
+      window.open(objectUrl, '_blank', 'noopener,noreferrer')
+    }
+    window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60000)
+  } catch (cause) {
+    previewWindow?.close()
+    showToast(cause.message || '打开附件失败')
+  }
+}
+
+async function downloadAttachment(item) {
+  try {
+    const objectUrl = URL.createObjectURL(await loadAttachmentBlob(item))
+    const link = document.createElement('a')
+    link.href = objectUrl
+    link.download = attachmentName(item)
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    URL.revokeObjectURL(objectUrl)
+  } catch (cause) {
+    showToast(cause.message || '下载附件失败')
+  }
 }
 
 function fileExtension(item) {
@@ -1219,18 +1264,25 @@ function handleUpload(event) {
                     <p>{{ message.content }}</p>
                     <div v-if="message.attachments?.length" class="message-attachments">
                       <template v-for="item in message.attachments" :key="item.id || item.url || item.name">
-                        <img
-                          v-if="isImageAttachment(item) && attachmentUrl(item)"
-                          class="message-image"
-                          :src="attachmentUrl(item)"
-                          :alt="attachmentName(item)"
-                          loading="lazy"
-                        />
-                        <span v-else class="message-file">
-                          <img v-if="fileIconAsset(item)" class="file-type-image" :src="fileIconAsset(item)" :alt="fileExtension(item)" />
-                          <i v-else :class="['file-type-icon', `file-type-icon--${fileIconClass(item)}`]">{{ fileExtension(item) }}</i>
-                          <span>{{ attachmentName(item) }}</span>
-                        </span>
+                        <div :class="['message-attachment-card', { 'is-image': isImageAttachment(item) }]">
+                          <img
+                            v-if="isImageAttachment(item) && attachmentUrl(item)"
+                            class="message-image"
+                            :src="attachmentUrl(item)"
+                            :alt="attachmentName(item)"
+                            loading="lazy"
+                            @click="openAttachment(item)"
+                          />
+                          <div v-else class="message-file">
+                            <img v-if="fileIconAsset(item)" class="file-type-image" :src="fileIconAsset(item)" :alt="fileExtension(item)" />
+                            <i v-else :class="['file-type-icon', `file-type-icon--${fileIconClass(item)}`]">{{ fileExtension(item) }}</i>
+                            <span :title="attachmentName(item)">{{ attachmentName(item) }}</span>
+                          </div>
+                          <div class="message-attachment-actions">
+                            <button type="button" @click="openAttachment(item)"><IconLine name="file" :size="14" />打开</button>
+                            <button type="button" @click="downloadAttachment(item)"><IconLine name="download" :size="14" />下载</button>
+                          </div>
+                        </div>
                       </template>
                     </div>
                     <pre v-if="message.code"><code>{{ message.code }}</code></pre>
@@ -2011,11 +2063,17 @@ function handleUpload(event) {
 .upload-item small { margin-top: 3px; color: var(--muted); font-size: 10px; }
 .upload-item > button { color: var(--primary); background: transparent; font-size: 11px; }
 .message-attachments { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 9px; }
+.message-attachment-card { display: flex; min-width: 250px; max-width: 430px; align-items: center; gap: 7px; padding: 5px 7px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+.message-attachment-card.is-image { display: block; max-width: 360px; padding: 0; overflow: hidden; }
 .message-image { display: block; width: min(346px, 100%); max-height: 300px; border-radius: 12px; object-fit: cover; cursor: zoom-in; }
-.message-file { display: inline-flex; align-items: center; gap: 5px; padding: 5px 8px; border: 1px solid var(--line); border-radius: 7px; font-size: 11px; }
+.message-file { display: inline-flex; min-width: 0; flex: 1; align-items: center; gap: 5px; padding: 2px; font-size: 11px; }
 .message-file > span { min-width: 0; max-width: 290px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .message-file .file-type-icon { width: 24px; height: 28px; font-size: 7px; }
 .message-file .file-type-image { width: 30px; height: 34px; }
+.message-attachment-actions { display: inline-flex; align-items: center; gap: 3px; }
+.message-attachment-card.is-image .message-attachment-actions { justify-content: flex-end; padding: 5px 7px; border-top: 1px solid var(--line); }
+.message-attachment-actions button { display: inline-flex; align-items: center; gap: 3px; padding: 4px 6px; border-radius: 5px; color: var(--primary); background: transparent; font-size: 10px; }
+.message-attachment-actions button:hover { background: var(--primary-soft); }
 .message-row.user .message-image { border: 1px solid rgba(255, 255, 255, .35); }
 .chat-composer {
   display: flex;

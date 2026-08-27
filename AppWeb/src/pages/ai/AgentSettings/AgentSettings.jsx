@@ -689,6 +689,10 @@ function AgentSettings() {
           expectedToolName: selectedToolTest.name,
         },
       }
+      if (selectedToolTest.name === 'text_to_file_tool') {
+        payload.metadata.directToolTest = true
+        payload.metadata.requestedOutputType = toolTestOutputType || 'md'
+      }
       const testedTextModel = llmModelOptions.find((option) => option.modality === 'text' && option.isDefault)
         || llmModelOptions.find((option) => option.modality === 'text')
       if (testedTextModel) payload.llmModel = testedTextModel.value

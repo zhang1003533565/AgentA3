@@ -321,6 +321,29 @@ class RagApiRoutesTest(unittest.TestCase):
         self.assertEqual(["docx"], [item["ext"] for item in payload["attachments"]])
         self.assertEqual(["leader_route", "agent_answer", "tool_call"], [item["stage"] for item in payload["trace"]])
 
+    def test_admin_text_to_file_tool_runs_directly_without_leader_route(self):
+        response = self.client.post(
+            "/internal/rag/query",
+            headers=self.headers,
+            json={
+                "input": "请把以下内容按原文转成纯文本文件：校园二手交易应当当面验货。",
+                "agentName": "leader_agent",
+                "metadata": {
+                    "testFrom": "admin_tool_console",
+                    "directToolTest": True,
+                    "expectedToolName": "text_to_file_tool",
+                    "requestedOutputType": "txt",
+                },
+            },
+        )
+
+        self.assertEqual(200, response.status_code)
+        payload = response.json()
+        self.assertEqual(["txt"], [item["ext"] for item in payload["attachments"]])
+        self.assertEqual(["tool_call"], [item["stage"] for item in payload["trace"]])
+        self.assertEqual("direct_tool_test", payload["metadata"]["executionMode"])
+        self.assertEqual("text_to_file_tool", payload["metadata"]["executedAgent"])
+
     def test_free_text_word_export_skips_clarification_message_and_uses_previous_substantive_candidate(self):
         response = self.client.post(
             "/internal/rag/query",
