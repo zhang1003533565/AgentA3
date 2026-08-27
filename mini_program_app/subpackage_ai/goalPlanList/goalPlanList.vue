@@ -812,4 +812,22 @@ function goCreate() {
   background: #5B7F80;
   box-shadow: 0 10rpx 22rpx rgba(91, 127, 128, 0.2);
 }
+
+/* 卡片文案在窄屏下自然换行，避免被操作区或卡片边界截断 */
+.study-plan-list-page .current-plan-desc,
+.study-plan-list-page .current-next-title {
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+.study-plan-list-page .current-plan-desc {
+  white-space: normal;
+  line-height: 1.45;
+}
+
+.study-plan-list-page .current-next-title {
+  white-space: normal;
+  line-height: 1.45;
+}
 </style>

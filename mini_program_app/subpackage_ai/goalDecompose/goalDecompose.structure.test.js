@@ -97,3 +97,9 @@ test('preview stage metrics keep numbers and units in aligned value columns', ()
   assert.match(source, /\.preview-stage-stat-number\s*\{[\s\S]*?width:\s*56rpx/)
   assert.match(source, /\.preview-stage-stat-unit\s*\{[\s\S]*?width:\s*28rpx/)
 })
+
+test('execution hierarchy gives long task copy the available width beside controls', () => {
+  assert.match(source, /\.study-plan-page \.task-group-title-wrap\s*\{[\s\S]*?flex:\s*1[\s\S]*?min-width:\s*0/)
+  assert.match(source, /\.study-plan-page \.task-group-title,[\s\S]*?\.study-plan-page \.task-group-meta\s*\{[\s\S]*?overflow-wrap:\s*anywhere/)
+  assert.match(source, /\.study-plan-page \.task-body\s*\{[\s\S]*?flex:\s*1[\s\S]*?min-width:\s*0/)
+})

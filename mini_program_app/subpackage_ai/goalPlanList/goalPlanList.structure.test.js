@@ -43,3 +43,9 @@ test('history count reflects the server total and deletion refreshes the first p
   assert.match(source, /class="history-count">\{\{ historyCount \}\}/)
   assert.match(source, /deleteStudyGoal\(item\.id\)\.then\(\(\) => fetchPage\(1, false\)\)/)
 })
+
+test('current plan copy can wrap without colliding with the card edges', () => {
+  assert.match(source, /\.study-plan-list-page \.current-plan-desc\s*,[\s\S]*?min-width:\s*0[\s\S]*?overflow-wrap:\s*anywhere/)
+  assert.match(source, /\.study-plan-list-page \.current-next-title\s*\{[\s\S]*?white-space:\s*normal/)
+  assert.match(source, /\.study-plan-list-page \.current-plan-desc,[\s\S]*?\.study-plan-list-page \.current-next-title\s*\{[\s\S]*?overflow-wrap:\s*anywhere/)
+})

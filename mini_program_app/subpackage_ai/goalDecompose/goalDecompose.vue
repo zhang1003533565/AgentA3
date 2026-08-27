@@ -2958,4 +2958,36 @@ function priorityLevel(priority) {
   background: #397577;
   font-size: 24rpx;
 }
+
+/* 执行态长文案与右侧操作区保持清晰的可用边界 */
+.study-plan-page .task-group-title-wrap {
+  flex: 1;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.study-plan-page .task-group-title,
+.study-plan-page .task-group-meta {
+  min-width: 0;
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.study-plan-page .task-group-meta {
+  line-height: 1.4;
+}
+
+.study-plan-page .task-body {
+  flex: 1;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.study-plan-page .task-name,
+.study-plan-page .task-desc {
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
 </style>
