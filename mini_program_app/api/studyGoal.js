@@ -150,6 +150,11 @@ export function getStudyGoalDetail(goalId, filter = 'all') {
   return request({ url: `/api/study-goal/${goalId}`, method: 'GET', data: { filter } })
 }
 
+/** 为历史计划补全缺失的细分任务，并返回刷新后的详情。 */
+export function expandStudyGoalSubtasks(goalId) {
+  return request({ url: `/api/study-goal/${goalId}/expand-subtasks`, method: 'POST' })
+}
+
 /**
  * 分页查询「我的学习计划」列表（按更新时间倒序），用于退出后找回历史计划
  */

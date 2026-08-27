@@ -88,9 +88,9 @@
               </view>
             </view>
             <view class="goal-meta-row">
-              <text class="goal-meta">{{ previewTasks.length }} 个大任务</text>
+              <text class="goal-meta">{{ previewTasks.length }} 个阶段</text>
               <text class="goal-meta-split">·</text>
-              <text class="goal-meta">{{ totalSubtaskCount }} 个细分任务</text>
+              <text class="goal-meta">{{ totalSubtaskCount }} 个执行步骤</text>
               <text class="goal-meta-split">·</text>
               <text class="goal-meta">预计 {{ totalEstimatedDays }} 天</text>
               <text class="goal-meta-split">·</text>
@@ -183,6 +183,15 @@
               <text v-if="goalDetail.goal.targetDate">目标 {{ formatPlanDate(goalDetail.goal.targetDate) }}</text>
               <text>每天 {{ goalDetail.goal.dailyStudyMinutes || 60 }} 分钟</text>
             </view>
+            <view v-if="hasLegacyTasks" class="legacy-plan-notice">
+              <view class="legacy-plan-copy">
+                <text class="legacy-plan-title">这份计划还没有细分执行步骤</text>
+                <text class="legacy-plan-sub">AI 将保留现有阶段和进度，只补充可勾选的学习行动</text>
+              </view>
+              <view class="legacy-plan-action" @tap="expandLegacySubtasks">
+                <text>{{ expandingSubtasks ? '补全中...' : 'AI 补全' }}</text>
+              </view>
+            </view>
           </view>
 
           <view class="section-card filter-card">
@@ -226,7 +235,7 @@
                 <view class="task-group-head">
                   <view class="task-group-title-wrap">
                     <text class="task-group-title">{{ task.taskName }}</text>
-                    <text class="task-group-meta">{{ task.stage || '学习阶段' }} · {{ task.subtasks.length }} 个细分任务 · {{ task.progressPercent }}%</text>
+              <text class="task-group-meta">{{ task.stage || '学习阶段' }} · {{ task.subtasks.length }} 个执行步骤 · {{ task.progressPercent }}%</text>
                   </view>
                   <text class="task-group-status">{{ statusText(task.status) }}</text>
                 </view>
@@ -309,7 +318,8 @@ import {
   updateStudySubtaskCompletion,
   updateStudySubtaskStatus,
   postponeStudySubtask,
-  getStudyGoalDetail
+  getStudyGoalDetail,
+  expandStudyGoalSubtasks
 } from '@/api/studyGoal.js'
 import {
   buildStudyGoalPayload,
@@ -332,6 +342,7 @@ const goalDetail = ref(null)
 const activeFilter = ref('all')
 const togglingIds = ref([])
 const statusOptions = ['未开始', '进行中', '受阻', '已跳过', '已完成']
+const expandingSubtasks = ref(false)
 
 const canDecompose = computed(() => Boolean(planText.value.trim()) || Boolean(chosenFile.value))
 
@@ -407,6 +418,10 @@ const todayCount = computed(() =>
 
 const totalWorkItemCount = computed(() =>
   goalDetail.value ? leafTasks(goalDetail.value.tasks).length : 0
+)
+
+const hasLegacyTasks = computed(() =>
+  Boolean(goalDetail.value?.tasks?.some((task) => !Array.isArray(task.subtasks) || task.subtasks.length === 0))
 )
 
 const progressPercent = computed(() => Math.max(0, Math.min(100, Number(goalDetail.value?.goal.progress) || 0)))
@@ -692,6 +707,28 @@ function postponeSubtask(subtask) {
     .finally(() => {
       togglingIds.value = togglingIds.value.filter((id) => id !== busyKey)
     })
+}
+
+function expandLegacySubtasks() {
+  if (!goalDetail.value?.goal?.id || expandingSubtasks.value || !hasLegacyTasks.value) return
+  uni.showModal({
+    title: '补全细分任务',
+    content: 'AI 会根据当前计划补充可执行步骤，并重新计算阶段排期。已有细分任务和进度不会被覆盖。',
+    confirmText: '开始补全',
+    success: (result) => {
+      if (!result.confirm) return
+      expandingSubtasks.value = true
+      expandStudyGoalSubtasks(goalDetail.value.goal.id)
+        .then((response) => {
+          applyGoalDetail(response?.data)
+          uni.showToast({ title: '细分任务已补全', icon: 'success' })
+        })
+        .catch(() => {})
+        .finally(() => {
+          expandingSubtasks.value = false
+        })
+    }
+  })
 }
 
 function applyGoalProgress(goal) {
@@ -1615,6 +1652,46 @@ function priorityLevel(priority) {
   gap: 24rpx;
   margin-top: 18rpx;
   color: #8B93A6;
+  font-size: 21rpx;
+}
+
+.legacy-plan-notice {
+  display: flex;
+  align-items: center;
+  gap: 18rpx;
+  margin-top: 20rpx;
+  padding: 18rpx 20rpx;
+  border: 1rpx solid #EAD9C7;
+  border-radius: 14rpx;
+  background: #FFF9F2;
+}
+
+.legacy-plan-copy {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 5rpx;
+}
+
+.legacy-plan-title {
+  color: #8A5A25;
+  font-size: 23rpx;
+  font-weight: 600;
+}
+
+.legacy-plan-sub {
+  color: #A0805A;
+  font-size: 20rpx;
+  line-height: 1.4;
+}
+
+.legacy-plan-action {
+  flex-shrink: 0;
+  padding: 12rpx 18rpx;
+  border-radius: 999rpx;
+  background: #A87A2A;
+  color: #FFFFFF;
   font-size: 21rpx;
 }
 

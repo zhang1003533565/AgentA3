@@ -10,4 +10,7 @@ test('execution task rows do not expose an unexplained draggable progress contro
   assert.match(source, /延期 1 天/)
   assert.match(source, /细分任务/)
   assert.match(source, /toggleSubtask/)
+  assert.match(source, /task-group-head/)
+  assert.match(source, /AI 补全/)
+  assert.match(source, /expandStudyGoalSubtasks/)
 })
