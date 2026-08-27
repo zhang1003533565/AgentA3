@@ -12,6 +12,8 @@ public interface StudyTaskRepository extends JpaRepository<StudyTask, Long> {
 
     List<StudyTask> findByGoalIdOrderByOrderNumAscIdAsc(Long goalId);
 
+    List<StudyTask> findByGoalIdInOrderByGoalIdAscOrderNumAscIdAsc(Collection<Long> goalIds);
+
     List<StudyTask> findByGoalIdAndIsCompletedFalseOrderByOrderNumAscIdAsc(Long goalId);
 
     List<StudyTask> findByGoalIdAndIsCompletedTrueOrderByOrderNumAscIdAsc(Long goalId);

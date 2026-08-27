@@ -38,7 +38,7 @@
             <text class="meta-split">·</text>
             <text class="meta-text meta-text--remain">剩余 {{ item.remainingTasks }}</text>
             <text class="meta-split">·</text>
-            <text class="meta-text">共 {{ item.totalTasks }} 项</text>
+            <text class="meta-text">共 {{ item.totalTasks }} 个可执行任务</text>
             <text class="plan-time">{{ formatTime(item.updatedAt) }}</text>
           </view>
           <view class="plan-schedule">

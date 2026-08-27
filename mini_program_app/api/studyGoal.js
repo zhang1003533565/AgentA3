@@ -98,10 +98,46 @@ export function updateStudyTaskStatus(taskId, status) {
   })
 }
 
+/** 更新细分任务完成状态，服务端自动聚合父任务和 Goal 进度。 */
+export function updateStudySubtaskCompletion(subtaskId, isCompleted) {
+  return request({
+    url: `/api/study-goal/subtasks/${subtaskId}/completion`,
+    method: 'PUT',
+    data: { isCompleted }
+  })
+}
+
+/** 更新细分任务部分完成进度。 */
+export function updateStudySubtaskProgress(subtaskId, progressPercent) {
+  return request({
+    url: `/api/study-goal/subtasks/${subtaskId}/progress`,
+    method: 'PUT',
+    data: { progressPercent }
+  })
+}
+
+/** 更新细分任务状态。 */
+export function updateStudySubtaskStatus(subtaskId, status) {
+  return request({
+    url: `/api/study-goal/subtasks/${subtaskId}/status`,
+    method: 'PUT',
+    data: { status }
+  })
+}
+
 /** 延后指定任务及其之后的未完成任务。 */
 export function postponeStudyTask(taskId, days = 1) {
   return request({
     url: `/api/study-goal/tasks/${taskId}/postpone`,
+    method: 'POST',
+    data: { days }
+  })
+}
+
+/** 延后指定细分任务及其之后的未完成叶子任务。 */
+export function postponeStudySubtask(subtaskId, days = 1) {
+  return request({
+    url: `/api/study-goal/subtasks/${subtaskId}/postpone`,
     method: 'POST',
     data: { days }
   })

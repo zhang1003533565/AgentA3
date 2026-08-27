@@ -32,11 +32,34 @@ export function addPlanDays(value, days) {
 export function schedulePlanTasks(tasks, startDate = todayDate()) {
   let cursor = toDateInputValue(startDate) || todayDate()
   return (Array.isArray(tasks) ? tasks : []).map((task, index) => {
+    const subtasks = Array.isArray(task?.subtasks)
+      ? task.subtasks.map((subtask, subtaskIndex) => normalizePlanSubtask(subtask, subtaskIndex))
+      : []
+    if (subtasks.length) {
+      let subtaskCursor = cursor
+      const scheduledSubtasks = subtasks.map((subtask, subtaskIndex) => {
+        const estimatedDays = Math.max(1, Number(subtask.estimatedDays) || 1)
+        const plannedStartDate = subtaskCursor
+        const plannedEndDate = addPlanDays(plannedStartDate, estimatedDays - 1)
+        subtaskCursor = addPlanDays(plannedStartDate, estimatedDays)
+        return { ...subtask, orderNum: subtaskIndex + 1, estimatedDays, plannedStartDate, plannedEndDate }
+      })
+      const scheduledTask = {
+        ...task,
+        orderNum: index + 1,
+        estimatedDays: scheduledSubtasks.reduce((sum, subtask) => sum + subtask.estimatedDays, 0),
+        plannedStartDate: scheduledSubtasks[0].plannedStartDate,
+        plannedEndDate: scheduledSubtasks[scheduledSubtasks.length - 1].plannedEndDate,
+        subtasks: scheduledSubtasks
+      }
+      cursor = subtaskCursor
+      return scheduledTask
+    }
     const estimatedDays = Math.max(1, Number(task?.estimatedDays) || 1)
     const plannedStartDate = cursor
     const plannedEndDate = addPlanDays(cursor, estimatedDays - 1)
     cursor = addPlanDays(cursor, estimatedDays)
-    return { ...task, orderNum: index + 1, estimatedDays, plannedStartDate, plannedEndDate }
+    return { ...task, orderNum: index + 1, estimatedDays, plannedStartDate, plannedEndDate, subtasks: [] }
   })
 }
 
@@ -47,19 +70,41 @@ export function isPlanTaskToday(task, date = todayDate()) {
 }
 
 export function normalizePlanTask(task, index = 0) {
+  const subtasks = Array.isArray(task?.subtasks)
+    ? task.subtasks.map((subtask, subtaskIndex) => normalizePlanSubtask(subtask, subtaskIndex))
+    : []
   return {
     id: task?.id,
     orderNum: index + 1,
     taskName: String(task?.taskName || '').trim(),
     stage: String(task?.stage || '').trim(),
-    estimatedDays: Math.max(1, Number(task?.estimatedDays) || 1),
+    estimatedDays: subtasks.length
+      ? subtasks.reduce((sum, subtask) => sum + subtask.estimatedDays, 0)
+      : Math.max(1, Number(task?.estimatedDays) || 1),
     priority: ['高', '中', '低'].includes(task?.priority) ? task.priority : '中',
     description: String(task?.description || '').trim(),
     progressPercent: Math.max(0, Math.min(100, Number(task?.progressPercent) || 0)),
     isCompleted: Boolean(task?.isCompleted),
     status: task?.status || 'pending',
     plannedStartDate: toDateInputValue(task?.plannedStartDate),
-    plannedEndDate: toDateInputValue(task?.plannedEndDate)
+    plannedEndDate: toDateInputValue(task?.plannedEndDate),
+    subtasks
+  }
+}
+
+export function normalizePlanSubtask(subtask, index = 0) {
+  return {
+    id: subtask?.id,
+    taskId: subtask?.taskId,
+    orderNum: index + 1,
+    taskName: String(subtask?.taskName || '').trim(),
+    description: String(subtask?.description || '').trim(),
+    estimatedDays: Math.max(1, Number(subtask?.estimatedDays) || 1),
+    plannedStartDate: toDateInputValue(subtask?.plannedStartDate),
+    plannedEndDate: toDateInputValue(subtask?.plannedEndDate),
+    progressPercent: Math.max(0, Math.min(100, Number(subtask?.progressPercent) || 0)),
+    isCompleted: Boolean(subtask?.isCompleted),
+    status: subtask?.status || 'pending'
   }
 }
 
@@ -80,7 +125,16 @@ export function buildStudyGoalPayload(goal, tasks) {
       orderNum: index + 1,
       isCompleted: false,
       progressPercent: 0,
-      description: String(task?.description || '').trim()
+      description: String(task?.description || '').trim(),
+      subtasks: (Array.isArray(task?.subtasks) ? task.subtasks : []).map((subtask, subtaskIndex) => ({
+        taskName: String(subtask?.taskName || '').trim(),
+        description: String(subtask?.description || '').trim(),
+        estimatedDays: Math.max(1, Number(subtask?.estimatedDays) || 1),
+        orderNum: subtaskIndex + 1,
+        isCompleted: false,
+        progressPercent: 0,
+        status: 'pending'
+      }))
     }))
   }
 }

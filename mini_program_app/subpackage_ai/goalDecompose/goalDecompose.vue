@@ -88,7 +88,9 @@
               </view>
             </view>
             <view class="goal-meta-row">
-              <text class="goal-meta">共 {{ previewTasks.length }} 个任务</text>
+              <text class="goal-meta">{{ previewTasks.length }} 个大任务</text>
+              <text class="goal-meta-split">·</text>
+              <text class="goal-meta">{{ totalSubtaskCount }} 个细分任务</text>
               <text class="goal-meta-split">·</text>
               <text class="goal-meta">预计 {{ totalEstimatedDays }} 天</text>
               <text class="goal-meta-split">·</text>
@@ -123,6 +125,28 @@
                 <text class="row-action--danger" @tap="removePreviewTask(index)">删除</text>
               </view>
             </view>
+            <template v-for="task in previewTasks" :key="`subtasks-${task.orderNum}`">
+              <view v-if="task.subtasks.length" class="subtask-editor">
+              <view class="subtask-editor__head">
+                <text class="subtask-editor__title">{{ task.taskName || '未命名任务' }} · 细分任务</text>
+                <text class="subtask-editor__hint">按执行顺序完成</text>
+              </view>
+              <view v-for="(subtask, subtaskIndex) in task.subtasks" :key="`${task.orderNum}-${subtask.orderNum}`" class="subtask-row">
+                <text class="subtask-order">{{ subtask.orderNum }}</text>
+                <view class="subtask-name-col">
+                  <input class="task-edit-input" v-model="subtask.taskName" maxlength="120" placeholder="细分任务名称" />
+                  <input class="task-edit-desc" v-model="subtask.description" maxlength="500" placeholder="完成标准（可选）" />
+                </view>
+                <input class="days-edit-input" type="number" v-model="subtask.estimatedDays" @input="reschedulePreview" />
+                <view class="subtask-actions">
+                  <text @tap="movePreviewSubtask(task, subtaskIndex, -1)">上移</text>
+                  <text @tap="movePreviewSubtask(task, subtaskIndex, 1)">下移</text>
+                  <text class="row-action--danger" @tap="removePreviewSubtask(task, subtaskIndex)">删除</text>
+                </view>
+              </view>
+              <view class="add-subtask-row" @tap="addPreviewSubtask(task)"><text>＋ 添加细分任务</text></view>
+              </view>
+            </template>
             <view class="add-task-row" @tap="addPreviewTask"><text>＋ 添加任务</text></view>
           </view>
 
@@ -174,7 +198,7 @@
               :class="{ 'filter-tab--active': activeFilter === 'all' }"
               @tap="activeFilter = 'all'"
             >
-              <text>全部 {{ goalDetail.tasks.length }}</text>
+              <text>全部 {{ totalWorkItemCount }}</text>
             </view>
             <view
               class="filter-tab"
@@ -197,31 +221,66 @@
               <text class="empty-main">{{ emptyText }}</text>
               <text class="empty-sub">{{ emptySubText }}</text>
             </view>
-            <view
-              class="task-item"
-              v-for="task in filteredTasks"
-              :key="task.id"
-              :class="{ 'task-item--completed': task.isCompleted }"
-              @tap="toggleTask(task)"
-            >
-              <view class="checkbox" :class="{ 'checkbox--checked': task.isCompleted, 'checkbox--disabled': togglingIds.includes(task.id) }">
-                <view v-if="task.isCompleted" class="checkbox-mark"></view>
-              </view>
-              <view class="task-body">
-                <text class="task-name" :class="{ 'task-name--done': task.isCompleted }">{{ task.taskName }}</text>
-                <view class="task-meta">
-                  <text v-if="task.stage" class="meta-text">{{ task.stage }}</text>
-                  <text v-if="task.estimatedDays" class="meta-text">预计{{ task.estimatedDays }}天</text>
-                  <view class="priority-tag priority-tag--small" :class="`priority-tag--${priorityLevel(task.priority)}`">
-                    <text>{{ task.priority }}</text>
+            <view v-for="task in filteredTasks" :key="task.id" class="task-group">
+              <template v-if="task.subtasks.length">
+                <view class="task-group-head">
+                  <view class="task-group-title-wrap">
+                    <text class="task-group-title">{{ task.taskName }}</text>
+                    <text class="task-group-meta">{{ task.stage || '学习阶段' }} · {{ task.subtasks.length }} 个细分任务 · {{ task.progressPercent }}%</text>
                   </view>
-                  <text class="meta-text">{{ formatPlanDate(task.plannedStartDate) }}-{{ formatPlanDate(task.plannedEndDate) }}</text>
+                  <text class="task-group-status">{{ statusText(task.status) }}</text>
                 </view>
-                <view class="task-controls">
-                  <picker :range="statusOptions" :value="statusIndex(task.status)" @change.stop="changeTaskStatus(task, $event)">
-                    <text class="status-picker">状态：{{ statusText(task.status) }}</text>
-                  </picker>
-                  <text class="postpone-link" @tap.stop="postponeTask(task)">延期 1 天</text>
+                <view
+                  class="task-item task-item--subtask"
+                  v-for="subtask in visibleSubtasks(task)"
+                  :key="`subtask-${subtask.id}`"
+                  :class="{ 'task-item--completed': subtask.isCompleted }"
+                  @tap="toggleSubtask(subtask)"
+                >
+                  <view class="checkbox" :class="{ 'checkbox--checked': subtask.isCompleted, 'checkbox--disabled': togglingIds.includes(subtaskBusyKey(subtask)) }">
+                    <view v-if="subtask.isCompleted" class="checkbox-mark"></view>
+                  </view>
+                  <view class="task-body">
+                    <text class="task-name" :class="{ 'task-name--done': subtask.isCompleted }">{{ subtask.taskName }}</text>
+                    <text v-if="subtask.description" class="task-desc">{{ subtask.description }}</text>
+                    <view class="task-meta">
+                      <text v-if="subtask.estimatedDays" class="meta-text">预计{{ subtask.estimatedDays }}天</text>
+                      <text class="meta-text">{{ formatPlanDate(subtask.plannedStartDate) }}-{{ formatPlanDate(subtask.plannedEndDate) }}</text>
+                    </view>
+                    <view class="task-controls">
+                      <picker :range="statusOptions" :value="statusIndex(subtask.status)" @change.stop="changeSubtaskStatus(subtask, $event)">
+                        <text class="status-picker">状态：{{ statusText(subtask.status) }}</text>
+                      </picker>
+                      <text class="postpone-link" @tap.stop="postponeSubtask(subtask)">延期 1 天</text>
+                    </view>
+                  </view>
+                </view>
+              </template>
+              <view
+                v-else
+                class="task-item"
+                :class="{ 'task-item--completed': task.isCompleted }"
+                @tap="toggleTask(task)"
+              >
+                <view class="checkbox" :class="{ 'checkbox--checked': task.isCompleted, 'checkbox--disabled': togglingIds.includes(task.id) }">
+                  <view v-if="task.isCompleted" class="checkbox-mark"></view>
+                </view>
+                <view class="task-body">
+                  <text class="task-name" :class="{ 'task-name--done': task.isCompleted }">{{ task.taskName }}</text>
+                  <view class="task-meta">
+                    <text v-if="task.stage" class="meta-text">{{ task.stage }}</text>
+                    <text v-if="task.estimatedDays" class="meta-text">预计{{ task.estimatedDays }}天</text>
+                    <view class="priority-tag priority-tag--small" :class="`priority-tag--${priorityLevel(task.priority)}`">
+                      <text>{{ task.priority }}</text>
+                    </view>
+                    <text class="meta-text">{{ formatPlanDate(task.plannedStartDate) }}-{{ formatPlanDate(task.plannedEndDate) }}</text>
+                  </view>
+                  <view class="task-controls">
+                    <picker :range="statusOptions" :value="statusIndex(task.status)" @change.stop="changeTaskStatus(task, $event)">
+                      <text class="status-picker">状态：{{ statusText(task.status) }}</text>
+                    </picker>
+                    <text class="postpone-link" @tap.stop="postponeTask(task)">延期 1 天</text>
+                  </view>
                 </view>
               </view>
             </view>
@@ -247,6 +306,9 @@ import {
   updateStudyTaskCompletion,
   updateStudyTaskStatus,
   postponeStudyTask,
+  updateStudySubtaskCompletion,
+  updateStudySubtaskStatus,
+  postponeStudySubtask,
   getStudyGoalDetail
 } from '@/api/studyGoal.js'
 import {
@@ -310,24 +372,41 @@ const totalEstimatedDays = computed(
   () => previewTasks.value.reduce((sum, task) => sum + (Number(task.estimatedDays) || 0), 0)
 )
 
+const totalSubtaskCount = computed(
+  () => previewTasks.value.reduce((sum, task) => sum + (Array.isArray(task.subtasks) ? task.subtasks.length : 0), 0)
+)
+
 const filteredTasks = computed(() => {
   if (!goalDetail.value) return []
-  if (activeFilter.value === 'today') return goalDetail.value.tasks.filter((task) => isPlanTaskToday(task))
-  if (activeFilter.value === 'pending') return goalDetail.value.tasks.filter((task) => !task.isCompleted)
-  if (activeFilter.value === 'completed') return goalDetail.value.tasks.filter((task) => task.isCompleted)
-  return goalDetail.value.tasks
+  return goalDetail.value.tasks.filter((task) => {
+    const subtasks = Array.isArray(task.subtasks) ? task.subtasks : []
+    if (!subtasks.length) {
+      if (activeFilter.value === 'today') return isPlanTaskToday(task)
+      if (activeFilter.value === 'pending') return !task.isCompleted
+      if (activeFilter.value === 'completed') return task.isCompleted
+      return true
+    }
+    if (activeFilter.value === 'today') return subtasks.some((subtask) => isPlanTaskToday(subtask))
+    if (activeFilter.value === 'pending') return subtasks.some((subtask) => !subtask.isCompleted)
+    if (activeFilter.value === 'completed') return subtasks.some((subtask) => subtask.isCompleted)
+    return true
+  })
 })
 
 const completedCount = computed(() =>
-  goalDetail.value ? goalDetail.value.tasks.filter((task) => task.isCompleted).length : 0
+  goalDetail.value ? leafTasks(goalDetail.value.tasks).filter((task) => task.isCompleted).length : 0
 )
 
 const remainingCount = computed(() =>
-  goalDetail.value ? goalDetail.value.tasks.filter((task) => !task.isCompleted).length : 0
+  goalDetail.value ? leafTasks(goalDetail.value.tasks).filter((task) => !task.isCompleted).length : 0
 )
 
 const todayCount = computed(() =>
-  goalDetail.value ? goalDetail.value.tasks.filter((task) => isPlanTaskToday(task)).length : 0
+  goalDetail.value ? leafTasks(goalDetail.value.tasks).filter((task) => isPlanTaskToday(task)).length : 0
+)
+
+const totalWorkItemCount = computed(() =>
+  goalDetail.value ? leafTasks(goalDetail.value.tasks).length : 0
 )
 
 const progressPercent = computed(() => Math.max(0, Math.min(100, Number(goalDetail.value?.goal.progress) || 0)))
@@ -343,6 +422,21 @@ const emptyText = computed(() =>
 const emptySubText = computed(() =>
   activeFilter.value === 'pending' ? '恭喜，该目标下的任务已全部完成' : activeFilter.value === 'today' ? '可以查看全部任务或调整排期' : '换个筛选条件看看'
 )
+
+function leafTasks(tasks) {
+  return (Array.isArray(tasks) ? tasks : []).flatMap((task) => {
+    const subtasks = Array.isArray(task.subtasks) ? task.subtasks : []
+    return subtasks.length ? subtasks : [task]
+  })
+}
+
+function visibleSubtasks(task) {
+  const subtasks = Array.isArray(task?.subtasks) ? task.subtasks : []
+  if (activeFilter.value === 'today') return subtasks.filter((subtask) => isPlanTaskToday(subtask))
+  if (activeFilter.value === 'pending') return subtasks.filter((subtask) => !subtask.isCompleted)
+  if (activeFilter.value === 'completed') return subtasks.filter((subtask) => subtask.isCompleted)
+  return subtasks
+}
 
 function onPlanTextInput(event) {
   if (event?.detail?.value?.trim()) chosenFile.value = null
@@ -418,6 +512,10 @@ function confirmSave() {
     uni.showToast({ title: '请补全目标标题和任务名称', icon: 'none' })
     return
   }
+  if (previewTasks.value.some((task) => task.subtasks.some((subtask) => !subtask.taskName.trim()))) {
+    uni.showToast({ title: '请补全细分任务名称', icon: 'none' })
+    return
+  }
   const scheduledTasks = schedulePlanTasks(previewTasks.value, previewGoal.value.startDate)
   const lastEnd = scheduledTasks[scheduledTasks.length - 1].plannedEndDate
   if (previewGoal.value.targetDate && lastEnd > previewGoal.value.targetDate) {
@@ -466,6 +564,56 @@ function toggleTask(task) {
     })
 }
 
+function subtaskBusyKey(subtask) {
+  return `subtask:${subtask?.id || ''}`
+}
+
+function parentForSubtask(subtask) {
+  return goalDetail.value?.tasks.find((task) => Array.isArray(task.subtasks)
+    && task.subtasks.some((item) => item.id === subtask.id))
+}
+
+function recomputeParent(parent) {
+  if (!parent || !parent.subtasks?.length) return
+  const totalDays = parent.subtasks.reduce((sum, subtask) => sum + (Number(subtask.estimatedDays) || 1), 0)
+  const weighted = parent.subtasks.reduce((sum, subtask) => sum + (Number(subtask.estimatedDays) || 1) * (Number(subtask.progressPercent) || 0), 0)
+  parent.progressPercent = totalDays ? Math.round(weighted / totalDays) : 0
+  parent.isCompleted = parent.subtasks.every((subtask) => subtask.isCompleted)
+  parent.status = parent.isCompleted
+    ? 'completed'
+    : parent.subtasks.some((subtask) => subtask.status !== 'pending') || parent.progressPercent > 0
+      ? 'in_progress'
+      : 'pending'
+}
+
+function recomputeParents() {
+  goalDetail.value?.tasks.forEach((task) => recomputeParent(task))
+}
+
+function toggleSubtask(subtask) {
+  if (!subtask.id || togglingIds.value.includes(subtaskBusyKey(subtask))) return
+  const nextValue = !subtask.isCompleted
+  const previous = {
+    isCompleted: subtask.isCompleted,
+    progressPercent: subtask.progressPercent,
+    status: subtask.status
+  }
+  subtask.isCompleted = nextValue
+  subtask.progressPercent = nextValue ? 100 : 0
+  subtask.status = nextValue ? 'completed' : 'pending'
+  const busyKey = subtaskBusyKey(subtask)
+  togglingIds.value.push(busyKey)
+  updateStudySubtaskCompletion(subtask.id, nextValue)
+    .then((response) => {
+      applyGoalProgress(response?.data)
+      recomputeParents()
+    })
+    .catch(() => Object.assign(subtask, previous))
+    .finally(() => {
+      togglingIds.value = togglingIds.value.filter((id) => id !== busyKey)
+    })
+}
+
 function statusIndex(status) {
   const index = ['pending', 'in_progress', 'blocked', 'skipped', 'completed'].indexOf(status)
   return index < 0 ? 0 : index
@@ -493,6 +641,36 @@ function changeTaskStatus(task, event) {
     })
 }
 
+function changeSubtaskStatus(subtask, event) {
+  if (!subtask.id || togglingIds.value.includes(subtaskBusyKey(subtask))) return
+  const statuses = ['pending', 'in_progress', 'blocked', 'skipped', 'completed']
+  const nextStatus = statuses[Number(event?.detail?.value) || 0]
+  const previous = {
+    status: subtask.status,
+    progressPercent: subtask.progressPercent,
+    isCompleted: subtask.isCompleted
+  }
+  subtask.status = nextStatus
+  if (nextStatus === 'completed') {
+    subtask.progressPercent = 100
+    subtask.isCompleted = true
+  } else {
+    subtask.isCompleted = false
+    if (nextStatus === 'pending' && subtask.progressPercent >= 100) subtask.progressPercent = 0
+  }
+  const busyKey = subtaskBusyKey(subtask)
+  togglingIds.value.push(busyKey)
+  updateStudySubtaskStatus(subtask.id, nextStatus)
+    .then((response) => {
+      applyGoalProgress(response?.data)
+      recomputeParents()
+    })
+    .catch(() => Object.assign(subtask, previous))
+    .finally(() => {
+      togglingIds.value = togglingIds.value.filter((id) => id !== busyKey)
+    })
+}
+
 function postponeTask(task) {
   if (!task.id || togglingIds.value.includes(task.id) || task.isCompleted) return
   togglingIds.value.push(task.id)
@@ -501,6 +679,18 @@ function postponeTask(task) {
     .catch(() => {})
     .finally(() => {
       togglingIds.value = togglingIds.value.filter((id) => id !== task.id)
+    })
+}
+
+function postponeSubtask(subtask) {
+  if (!subtask.id || togglingIds.value.includes(subtaskBusyKey(subtask)) || subtask.isCompleted) return
+  const busyKey = subtaskBusyKey(subtask)
+  togglingIds.value.push(busyKey)
+  postponeStudySubtask(subtask.id, 1)
+    .then((response) => applyGoalDetail(response?.data))
+    .catch(() => {})
+    .finally(() => {
+      togglingIds.value = togglingIds.value.filter((id) => id !== busyKey)
     })
 }
 
@@ -532,8 +722,38 @@ function addPreviewTask() {
     priority: '中',
     description: '',
     progressPercent: 0,
-    isCompleted: false
+    isCompleted: false,
+    status: 'pending',
+    subtasks: []
   })
+  reschedulePreview()
+}
+
+function addPreviewSubtask(task) {
+  task.subtasks.push({
+    orderNum: task.subtasks.length + 1,
+    taskName: '',
+    description: '',
+    estimatedDays: 1,
+    progressPercent: 0,
+    isCompleted: false,
+    status: 'pending'
+  })
+  reschedulePreview()
+}
+
+function removePreviewSubtask(task, index) {
+  task.subtasks.splice(index, 1)
+  reschedulePreview()
+}
+
+function movePreviewSubtask(task, index, offset) {
+  const nextIndex = index + offset
+  if (nextIndex < 0 || nextIndex >= task.subtasks.length) return
+  const subtasks = [...task.subtasks]
+  const [current] = subtasks.splice(index, 1)
+  subtasks.splice(nextIndex, 0, current)
+  task.subtasks = subtasks
   reschedulePreview()
 }
 
@@ -1035,6 +1255,76 @@ function priorityLevel(priority) {
   font-size: 23rpx;
 }
 
+.subtask-editor {
+  margin: 0 0 18rpx 62rpx;
+  padding: 18rpx 18rpx 4rpx;
+  border-left: 4rpx solid #DCE5F2;
+  background: #F8FAFD;
+  border-radius: 0 12rpx 12rpx 0;
+}
+
+.subtask-editor__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12rpx;
+  margin-bottom: 10rpx;
+}
+
+.subtask-editor__title {
+  min-width: 0;
+  color: #3D5773;
+  font-size: 22rpx;
+  font-weight: 600;
+}
+
+.subtask-editor__hint {
+  flex-shrink: 0;
+  color: #98A0B0;
+  font-size: 19rpx;
+}
+
+.subtask-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12rpx;
+  padding: 12rpx 0;
+  border-top: 1rpx solid #E9EDF4;
+  flex-wrap: wrap;
+}
+
+.subtask-order {
+  width: 28rpx;
+  padding-top: 12rpx;
+  color: #8B93A6;
+  font-size: 21rpx;
+  text-align: center;
+}
+
+.subtask-name-col {
+  flex: 1;
+  min-width: 220rpx;
+  display: flex;
+  flex-direction: column;
+  gap: 6rpx;
+}
+
+.subtask-actions {
+  width: 100%;
+  margin-left: 40rpx;
+  display: flex;
+  gap: 20rpx;
+  color: #5C7A99;
+  font-size: 20rpx;
+}
+
+.add-subtask-row {
+  padding: 14rpx 0;
+  color: #5C7A99;
+  font-size: 21rpx;
+  text-align: center;
+}
+
 .col-check {
   width: 48rpx;
   flex-shrink: 0;
@@ -1220,6 +1510,49 @@ function priorityLevel(priority) {
   gap: 20rpx;
   padding: 24rpx 0;
   border-bottom: 1rpx solid #F1F3F8;
+}
+
+.task-group + .task-group {
+  border-top: 1rpx solid #EDF0F6;
+}
+
+.task-group-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18rpx;
+  padding: 24rpx 0 12rpx;
+}
+
+.task-group-title-wrap {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6rpx;
+}
+
+.task-group-title {
+  color: #233047;
+  font-size: 27rpx;
+  font-weight: 600;
+}
+
+.task-group-meta,
+.task-group-status {
+  color: #8B93A6;
+  font-size: 21rpx;
+}
+
+.task-group-status {
+  flex-shrink: 0;
+  padding: 6rpx 12rpx;
+  border-radius: 999rpx;
+  background: #F2F5F9;
+}
+
+.task-item--subtask {
+  padding-left: 20rpx;
+  border-left: 4rpx solid #DCE5F2;
 }
 
 .task-item:last-child {

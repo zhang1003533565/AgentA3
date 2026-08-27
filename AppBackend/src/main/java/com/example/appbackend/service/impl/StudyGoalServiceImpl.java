@@ -435,8 +435,35 @@ public class StudyGoalServiceImpl implements StudyGoalService {
         }
         Map<Long, long[]> counters = new HashMap<>();
         if (!goalIds.isEmpty()) {
-            for (StudyTaskRepository.TaskCountView view : studyTaskRepository.countByGoalIds(goalIds)) {
-                counters.put(view.getGoalId(), new long[]{view.getTotal(), view.getCompleted()});
+            List<StudyTask> tasks = studyTaskRepository.findByGoalIdInOrderByGoalIdAscOrderNumAscIdAsc(goalIds);
+            Map<Long, List<StudyTask>> tasksByGoal = new HashMap<>();
+            List<Long> taskIds = new ArrayList<>();
+            for (StudyTask task : tasks) {
+                tasksByGoal.computeIfAbsent(task.getGoalId(), ignored -> new ArrayList<>()).add(task);
+                taskIds.add(task.getId());
+            }
+            Map<Long, List<StudySubtask>> subtasksByTask = new HashMap<>();
+            if (!taskIds.isEmpty()) {
+                for (StudySubtask subtask : studySubtaskRepository.findByTaskIdInOrderByTaskIdAscOrderNumAscIdAsc(taskIds)) {
+                    subtasksByTask.computeIfAbsent(subtask.getTaskId(), ignored -> new ArrayList<>()).add(subtask);
+                }
+            }
+            for (Long goalId : goalIds) {
+                long total = 0;
+                long completed = 0;
+                for (StudyTask task : tasksByGoal.getOrDefault(goalId, List.of())) {
+                    List<StudySubtask> subtasks = subtasksByTask.getOrDefault(task.getId(), List.of());
+                    if (subtasks.isEmpty()) {
+                        total++;
+                        if (effectiveProgress(task) >= 100) {
+                            completed++;
+                        }
+                    } else {
+                        total += subtasks.size();
+                        completed += subtasks.stream().filter(subtask -> effectiveProgress(subtask) >= 100).count();
+                    }
+                }
+                counters.put(goalId, new long[]{total, completed});
             }
         }
 
