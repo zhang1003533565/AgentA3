@@ -3,9 +3,11 @@ package com.example.appbackend.service.impl;
 import com.example.appbackend.dto.StudyGoalDTO;
 import com.example.appbackend.entity.StudyGoal;
 import com.example.appbackend.entity.StudyTask;
+import com.example.appbackend.entity.StudySubtask;
 import com.example.appbackend.exception.BusinessException;
 import com.example.appbackend.repository.StudyGoalRepository;
 import com.example.appbackend.repository.StudyTaskRepository;
+import com.example.appbackend.repository.StudySubtaskRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -17,6 +19,8 @@ import java.time.LocalDate;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Optional;
+import java.util.ArrayList;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -35,6 +39,9 @@ class StudyGoalServiceImplTest {
 
     @Mock
     private StudyTaskRepository studyTaskRepository;
+
+    @Mock
+    private StudySubtaskRepository studySubtaskRepository;
 
     @Test
     void saveGoalSchedulesTasksSequentiallyFromStartDate() {
@@ -70,6 +77,55 @@ class StudyGoalServiceImplTest {
     }
 
     @Test
+    void saveGoalPersistsNestedSubtasksAndAggregatesProgressByLeafDays() {
+        StudyGoal goal = new StudyGoal();
+        goal.setId(42L);
+        when(studyGoalRepository.save(any(StudyGoal.class))).thenAnswer(invocation -> {
+            StudyGoal saved = invocation.getArgument(0);
+            saved.setId(goal.getId());
+            return saved;
+        });
+        when(studyTaskRepository.saveAll(any())).thenAnswer(invocation -> {
+            List<StudyTask> saved = invocation.getArgument(0);
+            for (int index = 0; index < saved.size(); index++) {
+                saved.get(index).setId(100L + index);
+            }
+            return saved;
+        });
+        AtomicReference<List<StudySubtask>> savedSubtasks = new AtomicReference<>(new ArrayList<>());
+        when(studySubtaskRepository.saveAll(any())).thenAnswer(invocation -> {
+            List<StudySubtask> saved = invocation.getArgument(0);
+            for (int index = 0; index < saved.size(); index++) {
+                saved.get(index).setId(200L + index);
+            }
+            savedSubtasks.set(saved);
+            return saved;
+        });
+        when(studySubtaskRepository.findByTaskIdOrderByOrderNumAscIdAsc(100L))
+                .thenAnswer(invocation -> savedSubtasks.get());
+
+        StudyGoalDTO.GoalInput goalInput = new StudyGoalDTO.GoalInput();
+        goalInput.setTitle("Java 基础");
+        goalInput.setStartDate(LocalDate.of(2026, 8, 27));
+        StudyGoalDTO.TaskInput parent = task("语法", 99);
+        parent.setSubtasks(List.of(subtask("阅读语法", 2), subtask("完成练习", 1)));
+        StudyGoalDTO.SaveRequest request = new StudyGoalDTO.SaveRequest();
+        request.setGoal(goalInput);
+        request.setTasks(List.of(parent));
+
+        StudyGoalDTO.GoalDetail detail = service().saveGoal(7L, request);
+
+        StudyGoalDTO.TaskView savedParent = detail.getTasks().get(0);
+        assertEquals(3, savedParent.getEstimatedDays());
+        assertEquals(0, detail.getGoal().getProgress());
+        assertEquals(2, savedParent.getSubtasks().size());
+        assertEquals(LocalDate.of(2026, 8, 27), savedParent.getSubtasks().get(0).getPlannedStartDate());
+        assertEquals(LocalDate.of(2026, 8, 28), savedParent.getSubtasks().get(0).getPlannedEndDate());
+        assertEquals(LocalDate.of(2026, 8, 29), savedParent.getSubtasks().get(1).getPlannedStartDate());
+        assertEquals(LocalDate.of(2026, 8, 29), savedParent.getSubtasks().get(1).getPlannedEndDate());
+    }
+
+    @Test
     void partialTaskProgressUsesEstimatedDaysAsWeight() {
         StudyGoal goal = new StudyGoal();
         goal.setId(42L);
@@ -86,6 +142,32 @@ class StudyGoalServiceImplTest {
         service.updateTaskProgress(1L, 50, 7L);
 
         assertEquals(13, goal.getProgress());
+        assertEquals("in_progress", goal.getStatus());
+    }
+
+    @Test
+    void parentProgressUpdatesAllNestedSubtasksAndAggregatesLeafProgress() {
+        StudyGoal goal = new StudyGoal();
+        goal.setId(42L);
+        StudyTask parent = taskEntity(1L, 3, 0, "pending");
+        StudySubtask first = subtaskEntity(11L, 1L, 1, 0, "pending");
+        StudySubtask second = subtaskEntity(12L, 1L, 2, 0, "pending");
+        List<StudySubtask> subtasks = new ArrayList<>(List.of(first, second));
+        when(studyTaskRepository.findById(1L)).thenReturn(Optional.of(parent));
+        when(studyGoalRepository.findByIdAndUserId(42L, 7L)).thenReturn(Optional.of(goal));
+        when(studySubtaskRepository.findByTaskIdOrderByOrderNumAscIdAsc(1L)).thenReturn(subtasks);
+        when(studyTaskRepository.findByGoalIdOrderByOrderNumAscIdAsc(42L)).thenReturn(List.of(parent));
+        when(studyTaskRepository.save(any(StudyTask.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(studySubtaskRepository.saveAll(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        when(studyGoalRepository.save(any(StudyGoal.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        StudyGoalServiceImpl service = service();
+        service.updateTaskProgress(1L, 50, 7L);
+
+        assertEquals(50, first.getProgressPercent());
+        assertEquals(50, second.getProgressPercent());
+        assertEquals(50, parent.getProgressPercent());
+        assertEquals(50, goal.getProgress());
         assertEquals("in_progress", goal.getStatus());
     }
 
@@ -132,11 +214,19 @@ class StudyGoalServiceImplTest {
 
     private StudyGoalServiceImpl service() {
         return new StudyGoalServiceImpl(
-                pythonAiProxyService, studyGoalRepository, studyTaskRepository, new ObjectMapper());
+                pythonAiProxyService, studyGoalRepository, studyTaskRepository, studySubtaskRepository,
+                new ObjectMapper());
     }
 
     private StudyGoalDTO.TaskInput task(String name, int days) {
         StudyGoalDTO.TaskInput input = new StudyGoalDTO.TaskInput();
+        input.setTaskName(name);
+        input.setEstimatedDays(days);
+        return input;
+    }
+
+    private StudyGoalDTO.SubtaskInput subtask(String name, int days) {
+        StudyGoalDTO.SubtaskInput input = new StudyGoalDTO.SubtaskInput();
         input.setTaskName(name);
         input.setEstimatedDays(days);
         return input;
@@ -153,5 +243,18 @@ class StudyGoalServiceImplTest {
         task.setIsCompleted(progress >= 100);
         task.setStatus(status);
         return task;
+    }
+
+    private StudySubtask subtaskEntity(Long id, Long taskId, int order, int progress, String status) {
+        StudySubtask subtask = new StudySubtask();
+        subtask.setId(id);
+        subtask.setTaskId(taskId);
+        subtask.setOrderNum(order);
+        subtask.setTaskName("细分任务" + id);
+        subtask.setEstimatedDays(1);
+        subtask.setProgressPercent(progress);
+        subtask.setIsCompleted(progress >= 100);
+        subtask.setStatus(status);
+        return subtask;
     }
 }
