@@ -14,6 +14,8 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.InOrder;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.mock.web.MockMultipartFile;
 
 import java.time.LocalDate;
@@ -235,6 +237,27 @@ class StudyGoalServiceImplTest {
         assertEquals(1, detail.getTasks().size());
         assertEquals(1, detail.getTasks().get(0).getSubtasks().size());
         assertEquals(11L, detail.getTasks().get(0).getSubtasks().get(0).getId());
+    }
+
+    @Test
+    void listMyGoalsExposesFirstUnfinishedLeafAsNextTask() {
+        StudyGoal goal = new StudyGoal();
+        goal.setId(42L);
+        StudyTask parent = taskEntity(1L, 3, 50, "in_progress");
+        StudySubtask completed = subtaskEntity(11L, 1L, 1, 100, "completed");
+        StudySubtask next = subtaskEntity(12L, 1L, 2, 0, "pending");
+        next.setTaskName("完成练习");
+
+        when(studyGoalRepository.findByUserIdOrderByUpdatedAtDesc(7L, PageRequest.of(0, 10)))
+                .thenReturn(new PageImpl<>(List.of(goal), PageRequest.of(0, 10), 1));
+        when(studyTaskRepository.findByGoalIdInOrderByGoalIdAscOrderNumAscIdAsc(List.of(42L)))
+                .thenReturn(List.of(parent));
+        when(studySubtaskRepository.findByTaskIdInOrderByTaskIdAscOrderNumAscIdAsc(List.of(1L)))
+                .thenReturn(List.of(completed, next));
+
+        StudyGoalDTO.GoalSummary summary = service().listMyGoals(7L, 1, 10).getRecords().get(0);
+
+        assertEquals("完成练习", summary.getNextTaskName());
     }
 
     @Test

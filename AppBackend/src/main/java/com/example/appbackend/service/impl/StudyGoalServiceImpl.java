@@ -472,6 +472,7 @@ public class StudyGoalServiceImpl implements StudyGoalService {
             goalIds.add(goal.getId());
         }
         Map<Long, long[]> counters = new HashMap<>();
+        Map<Long, String> nextTaskByGoal = new HashMap<>();
         if (!goalIds.isEmpty()) {
             List<StudyTask> tasks = studyTaskRepository.findByGoalIdInOrderByGoalIdAscOrderNumAscIdAsc(goalIds);
             Map<Long, List<StudyTask>> tasksByGoal = new HashMap<>();
@@ -489,19 +490,31 @@ public class StudyGoalServiceImpl implements StudyGoalService {
             for (Long goalId : goalIds) {
                 long total = 0;
                 long completed = 0;
+                String nextTaskName = null;
                 for (StudyTask task : tasksByGoal.getOrDefault(goalId, List.of())) {
                     List<StudySubtask> subtasks = subtasksByTask.getOrDefault(task.getId(), List.of());
                     if (subtasks.isEmpty()) {
                         total++;
                         if (effectiveProgress(task) >= 100) {
                             completed++;
+                        } else if (nextTaskName == null && StringUtils.hasText(task.getTaskName())) {
+                            nextTaskName = task.getTaskName();
                         }
                     } else {
                         total += subtasks.size();
                         completed += subtasks.stream().filter(subtask -> effectiveProgress(subtask) >= 100).count();
+                        if (nextTaskName == null) {
+                            for (StudySubtask subtask : subtasks) {
+                                if (effectiveProgress(subtask) < 100 && StringUtils.hasText(subtask.getTaskName())) {
+                                    nextTaskName = subtask.getTaskName();
+                                    break;
+                                }
+                            }
+                        }
                     }
                 }
                 counters.put(goalId, new long[]{total, completed});
+                nextTaskByGoal.put(goalId, nextTaskName);
             }
         }
 
@@ -520,6 +533,7 @@ public class StudyGoalServiceImpl implements StudyGoalService {
             summary.setTotalTasks((int) count[0]);
             summary.setCompletedTasks((int) count[1]);
             summary.setRemainingTasks((int) (count[0] - count[1]));
+            summary.setNextTaskName(nextTaskByGoal.get(goal.getId()));
             summary.setCreatedAt(goal.getCreatedAt() == null ? null : goal.getCreatedAt().toString());
             summary.setUpdatedAt(goal.getUpdatedAt() == null ? null : goal.getUpdatedAt().toString());
             summaries.add(summary);

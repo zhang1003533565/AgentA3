@@ -197,6 +197,8 @@ public final class StudyGoalDTO {
 
         private Integer remainingTasks;
 
+        private String nextTaskName;
+
         private String createdAt;
 
         private String updatedAt;

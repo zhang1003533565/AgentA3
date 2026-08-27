@@ -29,6 +29,10 @@ test('current plan exposes a visible delete action with the same confirmation fl
   assert.match(source, /@tap\.stop="confirmDelete\(currentPlan\)"/)
 })
 
+test('current plan highlights the first unfinished task when the summary provides it', () => {
+  assert.match(source, /function currentPlanNextAction\(item\) \{[\s\S]*?if \(item\.nextTaskName\) return item\.nextTaskName/)
+})
+
 test('plan list actions use outlined surfaces instead of filled buttons', () => {
   assert.match(source, /\.plan-action--view\s*\{[\s\S]*?background:\s*#FFFFFF[\s\S]*?border:/)
   assert.match(source, /\.plan-action--delete\s*\{[\s\S]*?background:\s*#FFFFFF[\s\S]*?border:/)

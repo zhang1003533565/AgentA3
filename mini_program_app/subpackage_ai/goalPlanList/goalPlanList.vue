@@ -157,6 +157,7 @@ function formatTime(value) {
 }
 
 function currentPlanNextAction(item) {
+  if (item.nextTaskName) return item.nextTaskName
   if (item.status === 'in_progress') return '继续执行计划中的任务'
   if (item.status === 'pending') return '开始第一项执行任务'
   return '查看计划完成情况'
