@@ -1,4 +1,5 @@
 import asyncio
+import base64
 import hashlib
 import json
 import os
@@ -40,13 +41,14 @@ from app.multi_agents.runner import run_specialist_agent
 from app.multi_agents.textbook_knowledge_agent import resolve_knowledge_source_mode
 from app.multi_agents.tool_intent_router_agent import TOOL_INTENT_ROUTER_TOOL, tool_intent_router_agent
 from app.services.tool_index import tool_index
+from app.services.image_stitching import ImageStitchingError, collect_stitch_images, stitch_images
 from app.services.file_format_registry import get_detectable_extensions, get_file_format_registry, get_output_aliases, resolve_file_format
 from app.learning_workflow import (
     LearningWorkflowRequest,
     export_learning_resources,
     run_learning_workflow,
 )
-from app.rag.document_conversion import DocxConversionError, PdfConversionError, PptConversionError, convert_docx_to_pdf, convert_docx_to_ppt, convert_pdf, convert_ppt_to_docx, convert_ppt_to_pdf, export_generated_answer, export_text_to_file, materialize_generated_image_answer
+from app.rag.document_conversion import DocxConversionError, FileContentExtractionError, PdfConversionError, PptConversionError, convert_docx_to_pdf, convert_docx_to_ppt, convert_pdf, convert_ppt_to_docx, convert_ppt_to_pdf, export_generated_answer, export_text_to_file, extract_file_content, materialize_generated_image_answer
 from app.rag.document_conversion.generated_exporter import GeneratedExportAccessError, open_generated_export
 from app.rag.structured.text_to_sql import TextToSqlService
 from app.services.assistant_resource_builder import (
@@ -133,6 +135,18 @@ VISUAL_GENERATION_TOOLS = [
     }
     for tool_name, config in VISUAL_GENERATION_TOOL_CONFIG.items()
 ]
+IMAGE_STITCHING_TOOL = {
+    "name": "image_stitching_tool",
+    "zhName": "图片拼接工具",
+    "displayName": "图片拼接工具（image_stitching_tool）",
+    "category": "visual_generation",
+    "purpose": "将多张图片按上传顺序，以最多三列的自适应网格拼接，并在每张图片左侧标注序号。",
+    "trigger": "用户明确要求把两张或多张图片拼接或合并。",
+    "outputs": ["image"],
+    "status": "implemented",
+    "configurable": True,
+}
+VISUAL_GENERATION_TOOLS.insert(1, IMAGE_STITCHING_TOOL)
 VISUAL_GENERATION_TOOL_NAMES = frozenset(VISUAL_GENERATION_TOOL_CONFIG)
 IMAGE_RECOGNITION_TOOL_NAME = "recognize_image_tool"
 IMAGE_RECOGNITION_AGENT_NAME = "vision_agent"
@@ -150,6 +164,79 @@ IMAGE_RECOGNITION_TOOL = {
     "configurable": True,
     "boundAgent": IMAGE_RECOGNITION_AGENT_NAME,
 }
+
+FILE_CONTENT_EXTRACTION_TOOLS = [
+    {
+        "name": "markdown_to_text_tool",
+        "zhName": "Markdown 转文本工具",
+        "displayName": "Markdown 转文本工具（markdown_to_text_tool）",
+        "category": "file_content_extraction",
+        "purpose": "提取 Markdown 文件内容：纯文本返回文本；包含图片时返回文本和图片；只有图片或扫描内容时返回图片。",
+        "trigger": "上传 .md/.markdown 文件并要求读取、提取、解析或转为可供智能体使用的内容。",
+        "inputFormats": ["md", "markdown"],
+        "contentModes": ["text", "text_with_images", "scanned_or_image_only"],
+        "outputs": ["text", "image"],
+        "status": "implemented",
+        "configurable": True,
+        "invocation": "file_parse_pipeline",
+    },
+    {
+        "name": "txt_to_text_tool",
+        "zhName": "TXT 转文本工具",
+        "displayName": "TXT 转文本工具（txt_to_text_tool）",
+        "category": "file_content_extraction",
+        "purpose": "读取 TXT 纯文本；存在随文件提交或引用的图片时同时保留图片，图片型内容则按图片输出。",
+        "trigger": "上传 .txt 文件并要求读取、提取、解析或转为可供智能体使用的内容。",
+        "inputFormats": ["txt"],
+        "contentModes": ["text", "text_with_images", "scanned_or_image_only"],
+        "outputs": ["text", "image"],
+        "status": "implemented",
+        "configurable": True,
+        "invocation": "file_parse_pipeline",
+    },
+    {
+        "name": "word_to_text_tool",
+        "zhName": "Word 转文本工具",
+        "displayName": "Word 转文本工具（word_to_text_tool）",
+        "category": "file_content_extraction",
+        "purpose": "提取 Word 段落、表格与图片：纯文本返回文本；图文文档返回文本和图片；扫描件返回页面图片。",
+        "trigger": "上传 .doc/.docx 文件并要求读取、提取、解析或转为可供智能体使用的内容。",
+        "inputFormats": ["doc", "docx"],
+        "contentModes": ["text", "text_with_images", "scanned_or_image_only"],
+        "outputs": ["text", "image"],
+        "status": "implemented",
+        "configurable": True,
+        "invocation": "file_parse_pipeline",
+    },
+    {
+        "name": "ppt_to_text_tool",
+        "zhName": "PPT 转文本工具",
+        "displayName": "PPT 转文本工具（ppt_to_text_tool）",
+        "category": "file_content_extraction",
+        "purpose": "按页提取 PPT 文本、表格与图片：纯文本返回文本；图文幻灯片返回文本和图片；扫描型幻灯片返回图片。",
+        "trigger": "上传 .ppt/.pptx 文件并要求读取、提取、解析或转为可供智能体使用的内容。",
+        "inputFormats": ["ppt", "pptx"],
+        "contentModes": ["text", "text_with_images", "scanned_or_image_only"],
+        "outputs": ["text", "image"],
+        "status": "implemented",
+        "configurable": True,
+        "invocation": "file_parse_pipeline",
+    },
+    {
+        "name": "pdf_to_text_tool",
+        "zhName": "PDF 转文本工具",
+        "displayName": "PDF 转文本工具（pdf_to_text_tool）",
+        "category": "file_content_extraction",
+        "purpose": "按页提取 PDF 文本与图片：文本 PDF 返回文本；图文 PDF 返回文本和图片；扫描 PDF 返回页面图片。",
+        "trigger": "上传 .pdf 文件并要求读取、提取、解析或转为可供智能体使用的内容。",
+        "inputFormats": ["pdf"],
+        "contentModes": ["text", "text_with_images", "scanned_or_image_only"],
+        "outputs": ["text", "image"],
+        "status": "implemented",
+        "configurable": True,
+        "invocation": "file_parse_pipeline",
+    },
+]
 
 
 class AgentExecutionError(Exception):
@@ -268,15 +355,36 @@ GENERATED_CONTENT_TOOLS = [
         "status": "implemented",
     },
     {
-        "name": "text_to_file_tool",
-        "zhName": "文本转文件工具",
-        "displayName": "文本转文件工具（text_to_file_tool）",
+        "name": "text_to_markdown_tool",
+        "zhName": "文本转 Markdown 工具",
+        "displayName": "文本转 Markdown 工具（text_to_markdown_tool）",
         "category": "content_export",
-        "purpose": "把用户提供的文本按原文导出为文件，支持 Markdown/纯文本/Word 三种格式，并按用户选择的格式生成附件。",
-        "trigger": "用户要求把已提供的文本按原文转成 txt/md/word 文件，或对已生成消息选择导出格式时触发。",
-        "outputs": ["md", "txt", "docx"],
+        "purpose": "把用户提供的文本按原文导出为 Markdown 文件，不整理、不改写内容。",
+        "trigger": "用户要求把已提供的文本按原文转成 md/Markdown 文件时调用。",
+        "outputs": ["md"],
         "status": "implemented",
     },
+    {
+        "name": "text_to_txt_tool",
+        "zhName": "文本转 TXT 工具",
+        "displayName": "文本转 TXT 工具（text_to_txt_tool）",
+        "category": "content_export",
+        "purpose": "把用户提供的文本按原文导出为纯文本文件，不整理、不改写内容。",
+        "trigger": "用户要求把已提供的文本按原文转成 txt/纯文本文件时调用。",
+        "outputs": ["txt"],
+        "status": "implemented",
+    },
+    {
+        "name": "text_to_docx_tool",
+        "zhName": "文本转 Word 工具",
+        "displayName": "文本转 Word 工具（text_to_docx_tool）",
+        "category": "content_export",
+        "purpose": "把用户提供的文本按原文导出为 Word 文档，不整理、不改写内容。",
+        "trigger": "用户要求把已提供的文本按原文转成 word/docx 文件时调用。",
+        "outputs": ["docx"],
+        "status": "implemented",
+    },
+    *FILE_CONTENT_EXTRACTION_TOOLS,
 ]
 
 CAMPUS_SERVICE_TOOLS = [
@@ -350,8 +458,21 @@ CAMPUS_SERVICE_TOOLS = [
 
 SERVICE_TOOL_NAMES = {tool["name"] for tool in CAMPUS_SERVICE_TOOLS}
 
-TEXT_TO_FILE_TOOL_NAME = "text_to_file_tool"
-TEXT_TO_FILE_FORMAT_NAMES = {"txt", "md", "docx"}
+TEXT_TO_MARKDOWN_TOOL_NAME = "text_to_markdown_tool"
+TEXT_TO_TXT_TOOL_NAME = "text_to_txt_tool"
+TEXT_TO_DOCX_TOOL_NAME = "text_to_docx_tool"
+TEXT_TO_FILE_TOOL_BY_FORMAT = {
+    "md": TEXT_TO_MARKDOWN_TOOL_NAME,
+    "txt": TEXT_TO_TXT_TOOL_NAME,
+    "docx": TEXT_TO_DOCX_TOOL_NAME,
+}
+TEXT_TO_FILE_TOOL_NAMES = frozenset(TEXT_TO_FILE_TOOL_BY_FORMAT.values())
+TEXT_TO_FILE_FORMAT_NAMES = frozenset(TEXT_TO_FILE_TOOL_BY_FORMAT)
+TEXT_TO_FILE_TOOL_LABELS = {
+    TEXT_TO_MARKDOWN_TOOL_NAME: "文本转 Markdown 工具",
+    TEXT_TO_TXT_TOOL_NAME: "文本转 TXT 工具",
+    TEXT_TO_DOCX_TOOL_NAME: "文本转 Word 工具",
+}
 TOOL_CAPABILITY_QUERY_NAME = "tool_capability_query"
 TOOL_CAPABILITY_QUERY = {
     "name": TOOL_CAPABILITY_QUERY_NAME,
@@ -393,13 +514,35 @@ LEADER_CALLABLE_TOOLS = [
         "configurable": True,
     },
     {
-        "name": "text_to_file_tool",
-        "zhName": "文本转文件工具",
-        "displayName": "文本转文件工具（text_to_file_tool）",
+        "name": "text_to_markdown_tool",
+        "zhName": "文本转 Markdown 工具",
+        "displayName": "文本转 Markdown 工具（text_to_markdown_tool）",
         "category": "content_export",
-        "purpose": "把用户提供的文本按原文导出为 Markdown/纯文本/Word 文件，不整理、不改写内容。",
-        "trigger": "用户要求把已提供的文本按原文转成 txt/md/word 文件时调用。",
-        "outputs": ["md", "txt", "docx"],
+        "purpose": "把用户提供的文本按原文导出为 Markdown 文件，不整理、不改写内容。",
+        "trigger": "用户要求把已提供的文本按原文转成 md/Markdown 文件时调用。",
+        "outputs": ["md"],
+        "status": "implemented",
+        "configurable": True,
+    },
+    {
+        "name": "text_to_txt_tool",
+        "zhName": "文本转 TXT 工具",
+        "displayName": "文本转 TXT 工具（text_to_txt_tool）",
+        "category": "content_export",
+        "purpose": "把用户提供的文本按原文导出为纯文本文件，不整理、不改写内容。",
+        "trigger": "用户要求把已提供的文本按原文转成 txt/纯文本文件时调用。",
+        "outputs": ["txt"],
+        "status": "implemented",
+        "configurable": True,
+    },
+    {
+        "name": "text_to_docx_tool",
+        "zhName": "文本转 Word 工具",
+        "displayName": "文本转 Word 工具（text_to_docx_tool）",
+        "category": "content_export",
+        "purpose": "把用户提供的文本按原文导出为 Word 文档，不整理、不改写内容。",
+        "trigger": "用户要求把已提供的文本按原文转成 word/docx 文件时调用。",
+        "outputs": ["docx"],
         "status": "implemented",
         "configurable": True,
     },
@@ -423,6 +566,12 @@ class DocxConvertRequest(BaseModel):
     fileName: str = Field(min_length=1, max_length=255)
     contentBase64: str = Field(min_length=1)
     convertMode: str = Field(default="smart", max_length=16)
+
+
+class FileContentToolTestRequest(BaseModel):
+    toolName: str = Field(min_length=1, max_length=80)
+    fileName: str = Field(min_length=1, max_length=255)
+    contentBase64: str = Field(min_length=1)
 
 
 class AgentExampleInputUpdateRequest(BaseModel):
@@ -886,7 +1035,9 @@ async def run_rag_query_stream(
                 callable_catalog = _build_leader_callable_catalog(request)
                 conversation_context = _apply_conversation_context(request, authorization or "")
                 try:
-                    plan = _requested_image_recognition_plan(request)
+                    plan = _requested_image_stitching_plan(request)
+                    if plan is None:
+                        plan = _requested_image_recognition_plan(request)
                     if plan is None:
                         plan = _requested_file_transform_plan(request)
                     if plan is None:
@@ -1321,6 +1472,9 @@ def _build_learning_error_payload(
 
 def _run_rag_query_core(request: RagQueryRequest, authorization: str) -> RagQueryResponse:
     request.input = _prepare_request_input(request)
+    direct_tool_response = _run_admin_direct_tool_test(request)
+    if direct_tool_response is not None:
+        return direct_tool_response
     requested_agent = _normalize_requested_agent(request)
     if request.agentName and not requested_agent:
         raise HTTPException(status_code=400, detail="智能体不存在")
@@ -1341,6 +1495,29 @@ def _run_rag_query_core(request: RagQueryRequest, authorization: str) -> RagQuer
         return _run_direct_agent(request, agent_profile)
 
     return _run_agent_without_local_retrieval(request, active_agent)
+
+
+def _run_admin_direct_tool_test(request: RagQueryRequest) -> Optional[RagQueryResponse]:
+    """Run an explicitly selected admin-console tool without Leader routing."""
+    metadata = request.metadata if isinstance(request.metadata, dict) else {}
+    if metadata.get("testFrom") != "admin_tool_console" or metadata.get("directToolTest") is not True:
+        return None
+    tool_name = str(metadata.get("expectedToolName") or "").strip()
+    if tool_name not in TEXT_TO_FILE_TOOL_NAMES:
+        raise HTTPException(status_code=400, detail="当前工具暂不支持直接测试。")
+    if not _is_tool_enabled(request, tool_name):
+        raise HTTPException(status_code=403, detail=f"工具 {_tool_display_name(tool_name)} 已在后台关闭，无法运行测试。")
+    plan = LeaderPlan(
+        intent="document_export",
+        target_agent=tool_name,
+        need_retrieval=False,
+        rag_strategy="",
+        action="call_tool",
+        tool_name=tool_name,
+        route_reason="管理台直接运行指定工具。",
+        route_mode="direct_tool_test",
+    )
+    return _run_text_to_file_tool(request, plan, direct_tool_test=True)
 
 
 def _normalize_requested_agent(request: RagQueryRequest) -> Optional[str]:
@@ -1508,7 +1685,9 @@ def _run_leader_orchestration(request: RagQueryRequest, authorization: str) -> R
     profile_context = _profile_context_from_request(request)
     callable_catalog = _build_leader_callable_catalog(request)
     conversation_context = _apply_conversation_context(request, authorization)
-    plan = _requested_image_recognition_plan(request)
+    plan = _requested_image_stitching_plan(request)
+    if plan is None:
+        plan = _requested_image_recognition_plan(request)
     if plan is None:
         plan = _requested_file_transform_plan(request)
     if plan is None:
@@ -1530,6 +1709,67 @@ def _run_leader_orchestration(request: RagQueryRequest, authorization: str) -> R
         planMs=plan_ms,
         executionMs=execution_ms,
     )
+
+
+def _requested_image_stitching_plan(request: RagQueryRequest) -> Optional[LeaderPlan]:
+    image_count = len(collect_stitch_images(request))
+    if image_count < 2:
+        if _is_automatic_upload_request(request) and _has_image_container_attachment(request):
+            return LeaderPlan(
+                intent="image_stitching",
+                target_agent="leader_agent",
+                need_retrieval=False,
+                rag_strategy="",
+                answer="文件中未检测到至少两张可拼接的图片。",
+                action="direct_answer",
+                route_reason="已检查上传文件，但未找到至少两张可提取图片。",
+                route_mode="attachment",
+            )
+        return None
+    if not _is_tool_enabled(request, IMAGE_STITCHING_TOOL["name"]):
+        return LeaderPlan(
+            intent="image_stitching",
+            target_agent="leader_agent",
+            need_retrieval=False,
+            rag_strategy="",
+            answer="图片拼接工具当前已关闭，请先在后台开启后再试。",
+            action="direct_answer",
+            route_reason=f"检测到 {image_count} 个图片资源，但图片拼接工具已关闭。",
+            route_mode="tool_disabled",
+        )
+    return LeaderPlan(
+        intent="image_stitching",
+        target_agent="leader_agent",
+        need_retrieval=False,
+        rag_strategy="",
+        answer="正在按上传顺序拼接图片。",
+        action="call_tool",
+        tool_name=IMAGE_STITCHING_TOOL["name"],
+        route_reason=f"检测到 {image_count} 个图片资源，自动调用图片拼接工具。",
+        route_mode="attachment",
+    )
+
+
+def _is_automatic_upload_request(request: RagQueryRequest) -> bool:
+    metadata = request.metadata if isinstance(request.metadata, dict) else {}
+    return metadata.get("source") == "web_ai_conversation" and metadata.get("uploadOnly") is True
+
+
+def _has_image_container_attachment(request: RagQueryRequest) -> bool:
+    for raw in request.attachments or []:
+        if not isinstance(raw, dict):
+            continue
+        name = str(raw.get("name") or raw.get("fileName") or "").lower()
+        mime_type = str(raw.get("mimeType") or raw.get("contentType") or raw.get("type") or "").lower()
+        if (
+            mime_type in {"application/pdf", "application/zip"}
+            or "presentationml.presentation" in mime_type
+            or "wordprocessingml.document" in mime_type
+            or "spreadsheetml.sheet" in mime_type
+            or name.endswith((".pdf", ".pptx", ".docx", ".xlsx", ".zip"))
+        ):
+            return True
+    return False
 
 
 def _requested_image_recognition_plan(request: RagQueryRequest) -> Optional[LeaderPlan]:
@@ -1573,15 +1813,17 @@ def _requested_file_transform_plan(request: RagQueryRequest) -> Optional[LeaderP
     ):
         return None
     if interaction_type == "transform" and requested_output_type in TEXT_TO_FILE_FORMAT_NAMES:
-        if not _is_tool_enabled(request, TEXT_TO_FILE_TOOL_NAME):
+        tool_name = TEXT_TO_FILE_TOOL_BY_FORMAT[requested_output_type]
+        tool_label = TEXT_TO_FILE_TOOL_LABELS.get(tool_name, "文本转文件工具")
+        if not _is_tool_enabled(request, tool_name):
             return LeaderPlan(
                 intent="document_export",
                 target_agent="leader_agent",
                 need_retrieval=False,
                 rag_strategy="",
-                answer="文本转文件工具当前已关闭，请先在后台开启后再试。",
+                answer=f"{tool_label}当前已关闭，请先在后台开启后再试。",
                 action="direct_answer",
-                route_reason="用户请求文本转文件，但文本转文件工具已关闭，未执行工具调用。",
+                route_reason=f"用户请求文本转文件，但{tool_label}已关闭，未执行工具调用。",
                 route_mode="tool_disabled",
             )
         return LeaderPlan(
@@ -1590,8 +1832,8 @@ def _requested_file_transform_plan(request: RagQueryRequest) -> Optional[LeaderP
             need_retrieval=False,
             rag_strategy="",
             action="call_tool",
-            tool_name=TEXT_TO_FILE_TOOL_NAME,
-            route_reason=f"用户选择将当前消息按原文生成 {requested_output_type} 文件，调用已启用的文本转文件工具。",
+            tool_name=tool_name,
+            route_reason=f"用户选择将当前消息按原文生成 {requested_output_type} 文件，调用已启用的{tool_label}。",
             route_mode="rules",
         )
     if not _is_tool_enabled(request, "generated_export_tools"):
@@ -1909,7 +2151,9 @@ def _execute_leader_plan(
             response = _run_service_tool(request, authorization, plan)
         elif plan.tool_name == "generated_export_tools":
             response = _run_generated_export_tool(request, plan)
-        elif plan.tool_name == TEXT_TO_FILE_TOOL_NAME:
+        elif plan.tool_name == IMAGE_STITCHING_TOOL["name"]:
+            response = _run_image_stitching_tool(request, plan)
+        elif plan.tool_name in TEXT_TO_FILE_TOOL_NAMES:
             response = _run_text_to_file_tool(request, plan)
         elif plan.tool_name == IMAGE_RECOGNITION_TOOL_NAME:
             response = _run_image_recognition_tool(request, plan)
@@ -2698,6 +2942,95 @@ def _run_visual_generation_tool(
     ))
 
 
+def _run_image_stitching_tool(
+    request: RagQueryRequest,
+    leader_plan,
+) -> RagQueryResponse:
+    images = collect_stitch_images(request)
+    if len(images) < 2:
+        raise HTTPException(status_code=400, detail="图片拼接工具需要至少两张图片资源。")
+    try:
+        stitched = stitch_images(images, columns=3)
+    except ImageStitchingError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    encoded = base64.b64encode(stitched).decode("ascii")
+    _, attachments = materialize_generated_image_answer(
+        json.dumps({
+            "status": "success",
+            "message": "图片拼接完成",
+            "images": [{
+                "index": 0,
+                "status": "success",
+                "contentType": "image/png",
+                "base64": encoded,
+            }],
+        }, ensure_ascii=False),
+        display_stem="图片拼接结果",
+        tool_name=IMAGE_STITCHING_TOOL["name"],
+    )
+    # The admin tool console has no persisted session/message URL to download
+    # the generated export, so provide a preview only for that test response.
+    if (
+        isinstance(request.metadata, dict)
+        and request.metadata.get("testFrom") == "admin_agent_console"
+    ):
+        for attachment in attachments:
+            if attachment.get("type") == "image":
+                attachment["previewDataUrl"] = f"data:image/png;base64,{encoded}"
+    metadata = {
+        "agentName": "leader_agent",
+        "targetAgent": IMAGE_STITCHING_TOOL["name"],
+        "executedAgent": IMAGE_STITCHING_TOOL["name"],
+        "toolName": IMAGE_STITCHING_TOOL["name"],
+        "toolDisplayName": IMAGE_STITCHING_TOOL["displayName"],
+        "imageCount": len(images),
+        "sourceNames": [item.name for item in images],
+        "layout": "grid",
+        "columns": min(3, len(images)),
+        "numbered": True,
+        "intent": getattr(leader_plan, "intent", "") or "image_stitching",
+        "needRetrieval": False,
+        "retrievalSkipped": True,
+        "strategyLabel": "图片拼接工具",
+        "executionMode": "leader_call_tool",
+        "executionModeLabel": "Leader 调用图片拼接工具",
+        "answerType": "image_stitching",
+        "toolToggles": _tool_toggles_from_request(request),
+        "leaderAction": leader_plan.action,
+        "leaderActionLabel": _leader_action_label(leader_plan.action),
+        "routeReason": leader_plan.route_reason,
+    }
+    metadata.update(_context_metadata_from_request(request))
+    trace = [
+        RagTraceResponse(stage="leader_route", detail=_leader_plan_detail(leader_plan)),
+        RagTraceResponse(stage="tool_call", detail={
+            "toolName": IMAGE_STITCHING_TOOL["name"],
+            "toolDisplayName": IMAGE_STITCHING_TOOL["displayName"],
+            "imageCount": len(images),
+            "layout": metadata["layout"],
+            "columns": metadata["columns"],
+            "numbered": metadata["numbered"],
+        }),
+        RagTraceResponse(stage="image_stitching_tool", detail={
+            "imageCount": len(images),
+            "layout": metadata["layout"],
+            "columns": metadata["columns"],
+            "numbered": metadata["numbered"],
+            "outputCount": len(attachments),
+        }),
+    ]
+    return _decorate_output_response(RagQueryResponse(
+        strategy=IMAGE_STITCHING_TOOL["name"],
+        answer=f"已按上传顺序以最多 3 列的自适应网格拼接 {len(images)} 张图片，并在每张图片左侧标注顺序编号。",
+        answerType="image_stitching",
+        documents=[],
+        trace=trace,
+        metadata=metadata,
+        attachments=attachments,
+    ))
+
+
 def _run_image_recognition_tool(
     request: RagQueryRequest,
     leader_plan,
@@ -3165,28 +3498,39 @@ def _text_file_title(content: str) -> str:
     return "文本文件"
 
 
-def _run_text_to_file_tool(request: RagQueryRequest, leader_plan) -> RagQueryResponse:
+def _run_text_to_file_tool(request: RagQueryRequest, leader_plan, direct_tool_test: bool = False) -> RagQueryResponse:
     request_metadata = request.metadata if isinstance(request.metadata, dict) else {}
+    tool_name = str(leader_plan.tool_name or "").strip()
+    if tool_name not in TEXT_TO_FILE_TOOL_NAMES:
+        raise HTTPException(status_code=400, detail="未识别的文本转文件工具。")
+    format_from_tool = next(
+        (fmt for fmt, name in TEXT_TO_FILE_TOOL_BY_FORMAT.items() if name == tool_name),
+        "",
+    )
     requested_output_type = _normalize_requested_file_type(
         request_metadata.get("requestedOutputType")
         or _requested_file_type_from_text(request.input)
+        or format_from_tool
         or "md"
     )
+    if TEXT_TO_FILE_TOOL_BY_FORMAT.get(requested_output_type) != tool_name:
+        requested_output_type = format_from_tool or requested_output_type
+    tool_label = TEXT_TO_FILE_TOOL_LABELS.get(tool_name, "文本转文件工具")
     metadata = {
-        "agentName": "leader_agent",
-        "targetAgent": TEXT_TO_FILE_TOOL_NAME,
-        "executedAgent": TEXT_TO_FILE_TOOL_NAME,
+        "agentName": tool_name if direct_tool_test else "leader_agent",
+        "targetAgent": tool_name,
+        "executedAgent": tool_name,
         "intent": leader_plan.intent,
         "needRetrieval": False,
         "retrievalSkipped": True,
         "leaderAction": leader_plan.action,
         "leaderActionLabel": _leader_action_label(leader_plan.action),
-        "toolName": leader_plan.tool_name,
-        "toolDisplayName": _tool_display_name(leader_plan.tool_name),
+        "toolName": tool_name,
+        "toolDisplayName": _tool_display_name(tool_name),
         "routeReason": leader_plan.route_reason,
-        "strategyLabel": "文本转文件工具",
-        "executionMode": "leader_call_tool",
-        "executionModeLabel": "Leader 调用文本转文件工具",
+        "strategyLabel": tool_label,
+        "executionMode": "direct_tool_test" if direct_tool_test else "leader_call_tool",
+        "executionModeLabel": f"管理台直接运行{tool_label}" if direct_tool_test else f"Leader 调用{tool_label}",
         "answerType": "document_export",
         "requestedOutputType": requested_output_type,
         "toolToggles": _tool_toggles_from_request(request),
@@ -3200,31 +3544,32 @@ def _run_text_to_file_tool(request: RagQueryRequest, leader_plan) -> RagQueryRes
     metadata["sourceMessageOrigin"] = request_metadata.get("sourceMessageOrigin") or (
         "selected_message" if source_content else "user_request"
     )
-    export_result = export_text_to_file(export_content, requested_output_type, metadata)
+    export_result = export_text_to_file(export_content, requested_output_type, metadata, tool_name=tool_name)
     if not export_result.attachments:
         diagnostics = export_result.diagnostics if isinstance(export_result.diagnostics, dict) else {}
         reason = str(diagnostics.get("reason") or "").strip()
         if reason == "tool_disabled":
-            disabled_tool = str(diagnostics.get("disabledTool") or TEXT_TO_FILE_TOOL_NAME)
+            disabled_tool = str(diagnostics.get("disabledTool") or tool_name)
             raise HTTPException(status_code=403, detail=f"工具 {_tool_display_name(disabled_tool)} 已在后台关闭，Leader 本次不会调用。")
         if reason == "empty_answer":
             raise HTTPException(status_code=400, detail="未找到可导出的文本内容，请先提供需要导出的文本。")
         if reason == "unsupported_format":
-            raise HTTPException(status_code=400, detail="文本转文件工具仅支持 Markdown、纯文本和 Word 三种输出格式。")
+            raise HTTPException(status_code=400, detail=f"{tool_label}仅支持对应输出格式。")
         raise HTTPException(status_code=400, detail="当前文本无法导出为所选格式，请检查后台工具开关后重试。")
     metadata["generatedExports"] = export_result.diagnostics
     formats = "、".join(str(item.get("ext") or "").upper() for item in export_result.attachments if item.get("ext"))
     answer = f"已按原文生成文本文件，附件格式：{formats or '文件'}。"
     return _decorate_output_response(RagQueryResponse(
-        strategy="text_to_file_tool",
+        strategy=tool_name,
         answer=answer,
         answerType="document_export",
         documents=[],
-        trace=[
+        trace=([] if direct_tool_test else [
             RagTraceResponse(stage="leader_route", detail=_leader_plan_detail(leader_plan)),
+        ]) + [
             RagTraceResponse(stage="tool_call", detail={
-                "toolName": TEXT_TO_FILE_TOOL_NAME,
-                "toolDisplayName": _tool_display_name(TEXT_TO_FILE_TOOL_NAME),
+                "toolName": tool_name,
+                "toolDisplayName": _tool_display_name(tool_name),
                 **export_result.diagnostics,
             }),
         ],
@@ -3590,11 +3935,11 @@ def _file_format_follow_up_actions(answer_type: str, metadata: Dict[str, Any], a
             ("Markdown 题库", "请把当前消息原内容生成 Markdown 题库文件。", "md", "markdown_export_tool"),
         )
     else:
-        # 文本转文件工具：用户可在 Markdown / 纯文本 / Word 中任选一种输出格式。
+        # 文本转文件工具：按格式分别提供 Markdown / 纯文本 / Word。
         candidates = (
-            ("Markdown 文件", "请把当前消息原内容生成 Markdown 文件。", "md", TEXT_TO_FILE_TOOL_NAME),
-            ("纯文本文件", "请把当前消息原内容生成纯文本文件。", "txt", TEXT_TO_FILE_TOOL_NAME),
-            ("Word 文件", "请把当前消息原内容生成 Word 文件。", "docx", TEXT_TO_FILE_TOOL_NAME),
+            ("Markdown 文件", "请把当前消息原内容生成 Markdown 文件。", "md", TEXT_TO_MARKDOWN_TOOL_NAME),
+            ("纯文本文件", "请把当前消息原内容生成纯文本文件。", "txt", TEXT_TO_TXT_TOOL_NAME),
+            ("Word 文件", "请把当前消息原内容生成 Word 文件。", "docx", TEXT_TO_DOCX_TOOL_NAME),
         )
     return [
         _follow_up_action(label, prompt, output_type, "primary")
@@ -3828,9 +4173,10 @@ def _strategy_label(strategy_name: str) -> str:
         "java_facility_api": "设施位置查询工具",
         "java_secondhand_api": "旧物查询工具",
         "generated_export_tools": "内容导出工具",
-        TEXT_TO_FILE_TOOL_NAME: "文本转文件工具",
+        **TEXT_TO_FILE_TOOL_LABELS,
         "text_to_sql": "Text-to-SQL",
         IMAGE_RECOGNITION_TOOL_NAME: "图片识别工具",
+        IMAGE_STITCHING_TOOL["name"]: "图片拼接工具",
         **{
             tool_name: config["zhName"]
             for tool_name, config in VISUAL_GENERATION_TOOL_CONFIG.items()
@@ -3845,6 +4191,7 @@ def _tool_zh_name(tool_name: str) -> str:
     labels = {
         TOOL_CAPABILITY_QUERY_NAME: "工具能力查询",
         IMAGE_RECOGNITION_TOOL_NAME: "图片识别工具",
+        IMAGE_STITCHING_TOOL["name"]: "图片拼接工具",
         "text_to_sql": "结构化查询工具",
         "java_schedule_api": "课表查询工具",
         "java_activity_api": "活动查询工具",
@@ -3853,7 +4200,7 @@ def _tool_zh_name(tool_name: str) -> str:
         "java_facility_api": "设施位置查询工具",
         "java_secondhand_api": "旧物查询工具",
         "generated_export_tools": "内容整理工具",
-        TEXT_TO_FILE_TOOL_NAME: "文本转文件工具",
+        **TEXT_TO_FILE_TOOL_LABELS,
         "markdown_export_tool": "Markdown 导出工具",
         "docx_export_tool": "Word 导出工具",
         "excel_export_tool": "Excel 导出工具",
@@ -3899,6 +4246,22 @@ def _answer_type_for_agent(agent_name: str) -> str:
     if (agent_name or "").startswith("meeting_"):
         return "markdown"
     return mapping.get(agent_name or "", "text")
+
+
+@router.post("/tools/file-content/test")
+def test_file_content_tool(
+    request: FileContentToolTestRequest,
+    authorization: Optional[str] = Header(default=None, alias="Authorization"),
+) -> Dict[str, Any]:
+    _require_authorization(authorization)
+    try:
+        content = base64.b64decode(request.contentBase64, validate=True)
+    except (ValueError, base64.binascii.Error) as exc:
+        raise HTTPException(status_code=400, detail="文件内容不是合法 Base64") from exc
+    try:
+        return extract_file_content(request.toolName, request.fileName, content)
+    except FileContentExtractionError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.post("/pdf/convert")

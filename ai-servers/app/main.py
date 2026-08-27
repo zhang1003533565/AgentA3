@@ -7,6 +7,7 @@ from app.api.routes.architecture import router as architecture_router
 from app.api.routes.chat import router as chat_router
 from app.api.routes.coding import router as coding_router
 from app.api.routes.goal import router as goal_decomposition_router
+from app.api.routes.course import course_router
 from app.api.routes.images import router as images_router
 from app.api.routes.models import router as models_router
 from app.api.routes.rag import export_router as rag_export_router
@@ -27,6 +28,7 @@ app.include_router(architecture_router)
 app.include_router(chat_router)
 app.include_router(coding_router)
 app.include_router(goal_decomposition_router)
+app.include_router(course_router)
 app.include_router(images_router)
 app.include_router(models_router)
 app.include_router(rag_router)

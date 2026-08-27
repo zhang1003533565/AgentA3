@@ -42,6 +42,7 @@ import ExamResultView from '../views/ExamResultView.vue'
 import ExamDetailView from '../views/ExamDetailView.vue'
 import ExamHistoryView from '../views/ExamHistoryView.vue'
 import ResumeView from '../views/ResumeView.vue'
+import ResumeWorkspaceView from '../views/ResumeWorkspaceView.vue'
 import ResumeDesigner from '../views/ResumeDesigner.vue'
 import ResumeWizard from '../views/ResumeWizard.vue'
 import CampusCourseView from '../views/CampusCourseView.vue'
@@ -101,8 +102,11 @@ const routes = [
   { path: '/mine/papers/results/:attemptId/details', name: 'exam-detail', component: ExamDetailView },
   { path: '/mine/account-settings', name: 'account-settings', component: AccountSettingsView },
   { path: '/resume', name: 'resume', component: ResumeView },
+  { path: '/resume/workspace', name: 'resume-workspace', component: ResumeWorkspaceView },
+  { path: '/resume/legacy', redirect: '/resume' },
   { path: '/resume/designer', name: 'resume-designer', component: ResumeDesigner },
   { path: '/resume/wizard', name: 'resume-wizard', component: ResumeWizard },
+  { path: '/resume/wizard/edit', name: 'resume-edit', component: ResumeWizard },
   { path: '/career/nebula/:careerId?', name: 'career-nebula', component: CareerNebulaView },
   { path: '/career/nebula/:careerId/planet/:skillId', name: 'career-planet', component: CareerPlanetView },
   { path: '/convert', name: 'convert', component: DocumentConvertView },

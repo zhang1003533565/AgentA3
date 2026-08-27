@@ -99,7 +99,7 @@ FILE_FORMAT_REGISTRY: List[Dict[str, Any]] = [
         "canUpload": True,
         "canDetect": True,
         "canExport": True,
-        "tool": "text_to_file_tool",
+        "tool": "text_to_txt_tool",
         "description": "纯文本文件输入和按原文导出。",
     },
     {

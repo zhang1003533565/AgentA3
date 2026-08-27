@@ -1,12 +1,20 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Alert, Button, Empty, Input, List, Spin, Tag, Typography, message } from 'antd'
-import { HistoryOutlined, PlusOutlined, ReloadOutlined, RobotOutlined, SendOutlined, UploadOutlined } from '@ant-design/icons'
+import { DownloadOutlined, EyeOutlined, FileOutlined, HistoryOutlined, PlusOutlined, ReloadOutlined, RobotOutlined, SendOutlined, UploadOutlined } from '@ant-design/icons'
 import { getLeaderSessionDetail, getLeaderSessions, streamLeaderAgent } from '../../../api/aiLeader'
 import { getRagAgents } from '../../../api/rag'
+import { API_BASE_URL } from '../../../config/apiBase'
 import './AiConversation.css'
 
 const { Text, Title } = Typography
 const { TextArea } = Input
+
+const attachmentName = (attachment) => attachment?.name || attachment?.fileName || attachment?.title || '文件'
+
+const base64ToBlob = (contentBase64, mimeType) => {
+  const bytes = Uint8Array.from(atob(contentBase64), (character) => character.charCodeAt(0))
+  return new Blob([bytes], { type: mimeType || 'application/octet-stream' })
+}
 
 const normalizeMessage = (item, index) => ({
   id: item.id || `${item.role}-${index}`,
@@ -46,6 +54,7 @@ function AiConversation() {
     const reader = new FileReader()
     reader.onload = () => {
       const dataUrl = String(reader.result || '')
+      const isImage = (file.type || '').toLowerCase().startsWith('image/')
       resolve({
         name: file.name,
         fileName: file.name,
@@ -53,6 +62,7 @@ function AiConversation() {
         mimeType: file.type || 'application/octet-stream',
         size: file.size,
         contentBase64: dataUrl.includes(',') ? dataUrl.split(',')[1] : dataUrl,
+        ...(isImage ? { url: dataUrl, previewDataUrl: dataUrl } : {}),
       })
     }
     reader.onerror = () => reject(new Error(`读取文件失败：${file.name}`))
@@ -120,9 +130,46 @@ function AiConversation() {
       return allowed.has(extension)
     })
     if (accepted.length !== files.length) message.error('包含暂不支持上传的文件格式')
-    setSelectedFiles((current) => [...current, ...accepted].slice(0, 8))
+    setSelectedFiles((current) => [...current, ...accepted])
     event.target.value = ''
   }
+
+  const loadAttachmentBlob = useCallback(async (attachment) => {
+    if (attachment?.contentBase64) return base64ToBlob(attachment.contentBase64, attachment.mimeType || attachment.type)
+    const sourceUrl = attachment?.previewUrl || attachment?.url
+    if (!sourceUrl) throw new Error('该附件缺少可用的文件地址')
+    const token = localStorage.getItem('token')
+    const response = await fetch(sourceUrl.startsWith('/') ? `${API_BASE_URL}${sourceUrl}` : sourceUrl, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    })
+    if (!response.ok) throw new Error(`读取附件失败（${response.status}）`)
+    return response.blob()
+  }, [])
+
+  const openAttachment = useCallback(async (attachment) => {
+    try {
+      const blobUrl = URL.createObjectURL(await loadAttachmentBlob(attachment))
+      window.open(blobUrl, '_blank', 'noopener,noreferrer')
+      window.setTimeout(() => URL.revokeObjectURL(blobUrl), 60000)
+    } catch (requestError) {
+      message.error(requestError?.message || '打开附件失败')
+    }
+  }, [loadAttachmentBlob])
+
+  const downloadAttachment = useCallback(async (attachment) => {
+    try {
+      const blobUrl = URL.createObjectURL(await loadAttachmentBlob(attachment))
+      const anchor = document.createElement('a')
+      anchor.href = blobUrl
+      anchor.download = attachmentName(attachment)
+      document.body.appendChild(anchor)
+      anchor.click()
+      anchor.remove()
+      URL.revokeObjectURL(blobUrl)
+    } catch (requestError) {
+      message.error(requestError?.message || '下载附件失败')
+    }
+  }, [loadAttachmentBlob])
 
   const sendMessage = async () => {
     const content = input.trim()
@@ -132,8 +179,16 @@ function AiConversation() {
     const thinkingId = `assistant-${Date.now()}`
     const pendingFiles = [...selectedFiles]
     setSelectedFiles([])
+    let uploadedAttachments
+    try {
+      uploadedAttachments = await Promise.all(pendingFiles.map((file) => fileToAttachment(file)))
+    } catch (requestError) {
+      setError(requestError?.message || '读取上传文件失败')
+      message.error(requestError?.message || '读取上传文件失败')
+      return
+    }
     setMessages((current) => [...current,
-      { id: `user-${Date.now()}`, role: 'user', content: content || '请查看我上传的文件。', attachments: pendingFiles.map(({ file }) => ({ name: file.name, type: file.type, size: file.size })) },
+      { id: `user-${Date.now()}`, role: 'user', content: content || '请查看我上传的文件。', attachments: uploadedAttachments },
       { id: thinkingId, role: 'assistant', content: '', status: 'running', steps: ['已提交给智能助手，正在准备处理'] },
     ])
     setLoading(true)
@@ -141,7 +196,7 @@ function AiConversation() {
       const streamTask = streamLeaderAgent({
         sessionId: sessionId || undefined,
         input: content || '请查看我上传的文件。',
-        attachments: await Promise.all(pendingFiles.map(({ file }) => fileToAttachment(file))),
+        attachments: uploadedAttachments,
         metadata: { uploadOnly: pendingFiles.length > 0 },
       }, {
         onSession: (payload) => {
@@ -238,7 +293,22 @@ function AiConversation() {
               <div className="ai-conversation-bubble">
                 {item.role === 'assistant' && item.steps?.length ? <div className="ai-conversation-steps">{item.steps.map((step, stepIndex) => <div key={`${item.id}-step-${stepIndex}`} className="ai-conversation-step"><span className="ai-conversation-step-dot" />{step}</div>)}</div> : null}
                 {item.content || (item.status === 'running' ? '正在处理…' : '智能助手没有返回可用内容。')}
-                {item.attachments?.length ? <div className="ai-conversation-attachments">{item.attachments.map((attachment, attachmentIndex) => <div className="ai-conversation-attachment" key={`${item.id}-attachment-${attachmentIndex}`}><UploadOutlined /><span>{attachment.name || attachment.fileName || '文件'}</span></div>)}</div> : null}
+                {item.attachments?.length ? <div className="ai-conversation-attachments">{item.attachments.map((attachment, attachmentIndex) => {
+                  const imageType = String(attachment.type || attachment.mimeType || '').toLowerCase()
+                  const imageUrl = (imageType === 'image' || imageType.startsWith('image/'))
+                    ? (attachment.previewDataUrl || attachment.previewUrl || attachment.url)
+                    : ''
+                  return (
+                    <div className="ai-conversation-attachment" key={`${item.id}-attachment-${attachmentIndex}`}>
+                      {imageUrl ? <img className="ai-conversation-attachment-image" src={imageUrl} alt={attachmentName(attachment)} /> : <FileOutlined />}
+                      <span title={attachmentName(attachment)}>{attachmentName(attachment)}</span>
+                      <div className="ai-conversation-attachment-actions">
+                        <Button type="text" size="small" icon={<EyeOutlined />} onClick={() => openAttachment(attachment)}>打开</Button>
+                        <Button type="text" size="small" icon={<DownloadOutlined />} onClick={() => downloadAttachment(attachment)}>下载</Button>
+                      </div>
+                    </div>
+                  )
+                })}</div> : null}
               </div>
               {item.role === 'assistant' && item.agentName ? <Text type="secondary" className="ai-conversation-meta">{item.agentName}{item.model ? ` · ${item.model}` : ''}</Text> : null}
             </div>
@@ -253,7 +323,7 @@ function AiConversation() {
             <TextArea value={input} onChange={(event) => setInput(event.target.value)} onPressEnter={(event) => { if (!event.shiftKey) { event.preventDefault(); sendMessage() } }} placeholder="输入你想咨询的内容，Enter 发送，Shift + Enter 换行" autoSize={{ minRows: 2, maxRows: 6 }} disabled={loading} />
             <Button type="primary" icon={<SendOutlined />} onClick={sendMessage} loading={loading} disabled={!input.trim() && !selectedFiles.length}>发送</Button>
           </div>
-          {selectedFiles.length ? <div className="ai-conversation-selected-files">{selectedFiles.map(({ file }, index) => <Tag key={`${file.name}-${index}`} closable onClose={() => setSelectedFiles((current) => current.filter((_, fileIndex) => fileIndex !== index))}>{file.name}</Tag>)}</div> : null}
+          {selectedFiles.length ? <div className="ai-conversation-selected-files">{selectedFiles.map((file, index) => <Tag key={`${file.name}-${index}`} closable onClose={() => setSelectedFiles((current) => current.filter((_, fileIndex) => fileIndex !== index))}>{file.name}</Tag>)}</div> : null}
         </div>
       </section>
     </div>
