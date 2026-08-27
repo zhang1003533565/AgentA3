@@ -80,12 +80,12 @@ def test_parse_plain_json_payload():
         _dumps(
             {
                 "goal": {"title": "30天学会Python爬虫", "description": "零基础到爬虫项目"},
-                "tasks": [_task()],
+                "tasks": [_task(), _task(task_name="练习", order_num=2), _task(task_name="项目", order_num=3)],
             }
         )
     )
     assert payload["goal"]["title"] == "30天学会Python爬虫"
-    assert len(payload["tasks"]) == 1
+    assert len(payload["tasks"]) == 3
     assert payload["tasks"][0]["order_num"] == 1
 
 
@@ -136,6 +136,14 @@ def test_order_num_is_renumbered_even_if_model_duplicates():
     # 拆解产物不允许携带完成态
     assert all(not task["is_completed"] for task in payload["tasks"])
     assert all(task["status"] == "pending" for task in payload["tasks"])
+
+
+def test_task_output_is_capped_at_thirty_items():
+    payload = parse_goal_payload(
+        _dumps({"goal": {"title": "计划"}, "tasks": [_task(task_name=f"任务{i}") for i in range(35)]})
+    )
+    assert len(payload["tasks"]) == 30
+    assert payload["tasks"][-1]["order_num"] == 30
 
 
 def test_empty_answer_is_rejected():

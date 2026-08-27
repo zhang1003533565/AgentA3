@@ -3,6 +3,7 @@ package com.example.appbackend.service.impl;
 import com.example.appbackend.dto.StudyGoalDTO;
 import com.example.appbackend.entity.StudyGoal;
 import com.example.appbackend.entity.StudyTask;
+import com.example.appbackend.exception.BusinessException;
 import com.example.appbackend.repository.StudyGoalRepository;
 import com.example.appbackend.repository.StudyTaskRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -10,13 +11,17 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.mock.web.MockMultipartFile;
 
 import java.time.LocalDate;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -111,6 +116,17 @@ class StudyGoalServiceImplTest {
         assertEquals(LocalDate.of(2026, 8, 30), later.getPlannedStartDate());
         assertEquals(LocalDate.of(2026, 8, 31), later.getPlannedEndDate());
         assertEquals(LocalDate.of(2026, 8, 30), completed.getPlannedStartDate());
+    }
+
+    @Test
+    void oversizedDecomposeInputIsRejectedInsteadOfSilentlyTruncated() {
+        MockMultipartFile file = new MockMultipartFile(
+                "file", "plan.csv", "text/csv", "x".repeat(16_001).getBytes(StandardCharsets.UTF_8));
+
+        StudyGoalServiceImpl service = service();
+
+        assertThrows(BusinessException.class, () -> service.decompose(7L, file, null, null));
+        verifyNoInteractions(pythonAiProxyService);
     }
 
     private StudyGoalServiceImpl service() {
