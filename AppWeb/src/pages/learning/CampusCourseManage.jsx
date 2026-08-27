@@ -210,120 +210,54 @@ function CampusCourseManage() {
   const [aiSelectedChapterKeys, setAiSelectedChapterKeys] = useState([])
   const folderInputRef = useRef(null)
 
-  const chineseNumberMap = {
-    零: 0,
-    一: 1,
-    二: 2,
-    两: 2,
-    三: 3,
-    四: 4,
-    五: 5,
-    六: 6,
-    七: 7,
-    八: 8,
-    九: 9,
-    十: 10,
-  }
-
-  const parseChineseNumber = (value = '') => {
-    const normalized = String(value || '').trim()
-    if (!normalized) return null
-    if (/^\d+$/.test(normalized)) return Number(normalized)
-
-    const clean = normalized.replace(/前|第|章|章节|生成|和|到|至|、|，|\s+/g, '')
-    if (!clean) return null
-
-    if (clean === '十') return 10
-    if (clean.length === 1 && chineseNumberMap[clean] !== undefined) return chineseNumberMap[clean]
-
-    if (/^十[一二三四五六七八九]$/.test(clean)) {
-      return 10 + chineseNumberMap[clean[1]]
-    }
-
-    if (/^[一二三四五六七八九]十$/.test(clean)) {
-      return chineseNumberMap[clean[0]] * 10
-    }
-
-    if (/^[一二三四五六七八九]十[一二三四五六七八九]$/.test(clean)) {
-      return chineseNumberMap[clean[0]] * 10 + chineseNumberMap[clean[2]]
-    }
-
-    return null
-  }
-
-  const extractEstimatedMinutes = (text = '') => {
-    if (!text) return 0
-
-    const normalizedText = String(text).replace(/[，、]/g, ' ')
-    const patterns = [
-      /(?:预习|学习|学习时长|时长|预计|预计学习|时间|时长为|都为|为|等于|是)?\s*([零一二两三四五六七八九十\d]+)\s*分钟/i,
-      /(?:分钟)\s*([零一二两三四五六七八九十\d]+)/i,
-      /(?:\b|\D)(\d+)\s*分钟/i,
-    ]
-
-    for (const pattern of patterns) {
-      const match = normalizedText.match(pattern)
-      if (!match) continue
-      const value = match[1]
-      const parsed = parseChineseNumber(value)
-      if (Number.isInteger(parsed) && parsed >= 0) {
-        return parsed
-      }
-    }
-
-    return 0
-  }
-
   const extractRequestedChapterRange = (text = '') => {
-    if (!text) return [1]
+    const currentCount = detail?.chapters?.length || 0
+    const numMap = { '一': 1, '二': 2, '两': 2, '三': 3, '四': 4, '五': 5, '六': 6, '七': 7, '八': 8, '九': 9, '十': 10 }
+    const source = String(text || '')
+    const numbers = []
 
-    const normalizedText = String(text).replace(/[，、]/g, ' ')
-
-    const rangePattern = /(?:生成|请)?(?:前|第)?\s*([零一二两三四五六七八九十\d]+)\s*章\s*(?:到|至|-|~)\s*([零一二两三四五六七八九十\d]+)\s*章/i
-    const rangeMatch = normalizedText.match(rangePattern)
-    if (rangeMatch) {
-      const start = parseChineseNumber(rangeMatch[1])
-      const end = parseChineseNumber(rangeMatch[2])
-      if (Number.isInteger(start) && Number.isInteger(end) && start <= end) {
-        return Array.from({ length: end - start + 1 }, (_, index) => start + index)
+    let arabicNumber = ''
+    const pushArabicNumber = () => {
+      if (arabicNumber) numbers.push(Number(arabicNumber))
+      arabicNumber = ''
+    }
+    for (const character of source) {
+      if (character >= '0' && character <= '9') {
+        arabicNumber += character
+      } else {
+        pushArabicNumber()
+        if (numMap[character] !== undefined) numbers.push(numMap[character])
       }
     }
+    pushArabicNumber()
 
-    const multiPattern = /(?:生成|请)?(?:第)?\s*([零一二两三四五六七八九十\d]+)\s*章\s*(?:和|及|、|,|\+)\s*(?:第)?\s*([零一二两三四五六七八九十\d]+)\s*章/i
-    const multiMatch = normalizedText.match(multiPattern)
-    if (multiMatch) {
-      const numbers = [parseChineseNumber(multiMatch[1]), parseChineseNumber(multiMatch[2])]
-      if (numbers.every((value) => Number.isInteger(value))) {
-        return [...new Set(numbers.sort((a, b) => a - b))]
-      }
+    const getFirstNumber = () => numbers[0]
+    const getSecondNumber = () => numbers[1]
+    const buildRange = (start, count) => {
+      if (!Number.isInteger(start) || !Number.isInteger(count) || count < 1) return [1]
+      return Array.from({ length: count }, (_, index) => start + index)
     }
 
-    const prefixPattern = /(?:生成|请)?\s*(前|前面)\s*([零一二两三四五六七八九十\d]+)\s*章/i
-    const prefixMatch = normalizedText.match(prefixPattern)
-    if (prefixMatch) {
-      const count = parseChineseNumber(prefixMatch[2])
-      if (Number.isInteger(count) && count > 0) {
-        return Array.from({ length: count }, (_, index) => index + 1)
-      }
+    if (source.includes('再') || source.includes('继续') || source.includes('接着')) {
+      return buildRange(currentCount + 1, getFirstNumber())
     }
-
-    const sectionPattern = /(?:生成|请)?\s*(?:第)?\s*([零一二两三四五六七八九十\d]+)\s*章/i
-    const sectionMatch = normalizedText.match(sectionPattern)
-    if (sectionMatch) {
-      const chapter = parseChineseNumber(sectionMatch[1])
-      if (Number.isInteger(chapter) && chapter > 0) {
-        return [chapter]
-      }
+    if (source.includes('到') || source.includes('至')) {
+      const start = getFirstNumber()
+      const end = getSecondNumber()
+      if (Number.isInteger(start) && Number.isInteger(end) && end >= start) return buildRange(start, end - start + 1)
+      return [1]
     }
-
-    const firstNumber = normalizedText.match(/\d+|[零一二两三四五六七八九十]+/)
-    if (firstNumber) {
-      const chapter = parseChineseNumber(firstNumber[0])
-      if (Number.isInteger(chapter) && chapter > 0) {
-        return [chapter]
-      }
+    if (source.includes('和') || source.includes('、')) {
+      return numbers.length ? numbers : [1]
     }
-
+    if (source.includes('前')) return buildRange(1, getFirstNumber())
+    if (source.includes('个章节') || source.includes('个章') || (source.includes('章') && !source.includes('第'))) {
+      return buildRange(1, getFirstNumber())
+    }
+    if (source.includes('第') && source.includes('章')) {
+      const chapter = getFirstNumber()
+      return Number.isInteger(chapter) ? [chapter] : [1]
+    }
     return [1]
   }
 
@@ -352,8 +286,8 @@ function CampusCourseManage() {
   }
 
   const handleAiSend = async () => {
-    const trimmedValue = aiInput.trim()
-    if (!trimmedValue) {
+    const prompt = aiInput
+    if (!prompt.trim()) {
       message.warning('请输入想要生成的章节内容要求')
       return
     }
@@ -364,55 +298,55 @@ function CampusCourseManage() {
       return
     }
 
-    const chapterNumbers = extractRequestedChapterRange(trimmedValue)
-    const resolvedChapterNumbers = Array.isArray(chapterNumbers) && chapterNumbers.length
-      ? chapterNumbers
-      : [1]
-    const requestedEstimatedMinutes = extractEstimatedMinutes(trimmedValue)
+    const chapterNumbers = extractRequestedChapterRange(prompt)
 
     setAiSending(true)
     setAiGeneratedChapters([])
     setAiSelectedChapterKeys([])
     setAiPreviewActiveKey('')
-    setAiGenerateProgress({ current: 0, total: resolvedChapterNumbers.length, generating: false })
-    setAiHistory((prev) => [...prev, { role: 'user', content: trimmedValue }])
+    setAiGenerateProgress({ current: 0, total: chapterNumbers.length, generating: false })
+    setAiHistory((prev) => [...prev, { role: 'user', content: prompt }])
     setAiInput('')
 
     try {
-      for (let i = 0; i < resolvedChapterNumbers.length; i += 1) {
-        const targetChapter = resolvedChapterNumbers[i]
+      for (let i = 0; i < chapterNumbers.length; i += 1) {
+        const targetChapter = chapterNumbers[i]
         const chapterPrompt = `请生成第 ${targetChapter} 章的内容`
 
-        setAiGenerateProgress({ current: i, total: resolvedChapterNumbers.length, generating: true })
+        setAiGenerateProgress({ current: i, total: chapterNumbers.length, generating: true })
         message.loading({
-          content: `正在生成第 ${i + 1}/${resolvedChapterNumbers.length} 章...`,
+          content: `正在生成第 ${i + 1}/${chapterNumbers.length} 章...`,
           key: 'ai-generate-progress',
           duration: 0,
         })
 
         const response = await request.post(`/api/admin/campus-courses/${courseId}/ai/generate`, {
           prompt: chapterPrompt,
-          estimatedMinutes: requestedEstimatedMinutes,
         }, {
           timeout: 300000,
         })
 
-        const chapterData = buildAiGeneratedChapter(response?.data || response || {}, targetChapter, requestedEstimatedMinutes)
+        const responseData = response?.data || response || {}
+        const chapterData = buildAiGeneratedChapter(
+          responseData,
+          targetChapter,
+          responseData?.estimatedMinutes ?? responseData?.estimated_minutes ?? 0,
+        )
         setAiGeneratedChapters((prev) => [...prev, chapterData])
         setAiSelectedChapterKeys((prev) => (prev.includes(chapterData.id) ? prev : [...prev, chapterData.id]))
         setAiPreviewActiveKey(String(chapterData.id))
-        setAiGenerateProgress({ current: i + 1, total: resolvedChapterNumbers.length, generating: i + 1 < resolvedChapterNumbers.length })
+        setAiGenerateProgress({ current: i + 1, total: chapterNumbers.length, generating: i + 1 < chapterNumbers.length })
 
         message.success({
-          content: `第 ${i + 1}/${resolvedChapterNumbers.length} 章已生成`,
+          content: `第 ${i + 1}/${chapterNumbers.length} 章已生成`,
           key: 'ai-generate-progress',
           duration: 1.2,
         })
       }
 
-      setAiGenerateProgress({ current: resolvedChapterNumbers.length, total: resolvedChapterNumbers.length, generating: false })
-      setAiHistory((prev) => [...prev, { role: 'assistant', content: `已生成 ${resolvedChapterNumbers.length} 章内容，等待确认导入。` }])
-      message.success(`AI 已完成 ${resolvedChapterNumbers.length} 章生成，已在预览中展示`)
+      setAiGenerateProgress({ current: chapterNumbers.length, total: chapterNumbers.length, generating: false })
+      setAiHistory((prev) => [...prev, { role: 'assistant', content: `已生成 ${chapterNumbers.length} 章内容，等待确认导入。` }])
+      message.success(`AI 已完成 ${chapterNumbers.length} 章生成，已在预览中展示`)
     } catch (error) {
       const errorMessage = error?.message || 'AI 生成失败，请稍后重试'
       setAiHistory((prev) => [...prev, { role: 'assistant', content: '生成失败，请稍后重试。' }])
@@ -1555,7 +1489,7 @@ function CampusCourseManage() {
               <Empty description="描述你的课程目标，我来生成章节提纲和内容" image={Empty.PRESENTED_IMAGE_SIMPLE} />
             )}
 
-            {(aiGenerateProgress.generating || aiGeneratedChapters.length) && (
+            {(aiGenerateProgress.generating || aiGeneratedChapters.length > 0) && (
               <div
                 style={{
                   border: '1px solid #f0f0f0',
