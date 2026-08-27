@@ -1,5 +1,6 @@
 package com.example.appbackend.service;
 
+import com.example.appbackend.dto.PageResponse;
 import com.example.appbackend.dto.StudyGoalDTO;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -41,4 +42,9 @@ public interface StudyGoalService {
      * 查询指定目标下的剩余任务（is_completed = false）。
      */
     List<StudyGoalDTO.TaskView> getRemainingTasks(Long goalId, Long userId);
+
+    /**
+     * 分页查询当前用户的学习计划列表（按更新时间倒序），用于退出后找回历史计划。
+     */
+    PageResponse<StudyGoalDTO.GoalSummary> listMyGoals(Long userId, Integer page, Integer size);
 }

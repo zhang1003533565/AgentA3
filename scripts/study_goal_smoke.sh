@@ -77,4 +77,17 @@ CODE=$(curl -s -o /dev/null -w '%{http_code}' "$B/999999999/remaining-tasks" -H 
 echo "GET /999999999/remaining-tasks http=$CODE"
 [ "$CODE" != "200" ] || { echo 'FAIL: should not return 200'; exit 1; }
 
+echo "== 8) my-goals list -> the created plan is findable with correct counters"
+SMOKE_RESP=$(curl -s "$B/my?page=1&size=10" -H "$A") python -c "
+import json,os
+data=json.loads(os.environ['SMOKE_RESP'])['data']
+rows=data['records']
+assert data['total']>=1 and rows, data
+first=rows[0]
+assert first['id'] is not None and first['totalTasks']>=4, first
+completed, remaining = first['completedTasks'], first['remainingTasks']
+assert completed+remaining==first['totalTasks'], first
+print('my-plans ok: total=%s first={id=%s progress=%s done=%s remain=%s}'%(
+    data['total'], first['id'], first['progress'], completed, remaining))"
+
 echo "ALL SMOKE CHECKS PASSED"

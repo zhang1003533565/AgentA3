@@ -106,6 +106,30 @@ public final class StudyGoalDTO {
         private Boolean isCompleted;
     }
 
+    /** 「我的计划」列表项：目标摘要 + 任务计数。 */
+    @Data
+    public static class GoalSummary {
+        private Long id;
+
+        private String title;
+
+        private String description;
+
+        private Integer progress;
+
+        private String status;
+
+        private Integer totalTasks;
+
+        private Integer completedTasks;
+
+        private Integer remainingTasks;
+
+        private String createdAt;
+
+        private String updatedAt;
+    }
+
     /** 目标视图。 */
     @Data
     public static class GoalView {

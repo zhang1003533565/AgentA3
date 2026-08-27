@@ -1,5 +1,6 @@
 package com.example.appbackend.controller;
 
+import com.example.appbackend.dto.PageResponse;
 import com.example.appbackend.dto.StudyGoalDTO;
 import com.example.appbackend.entity.Result;
 import com.example.appbackend.service.StudyGoalService;
@@ -74,6 +75,16 @@ public class StudyGoalController {
         Long userId = currentUserId(httpRequest);
         boolean isCompleted = request != null && Boolean.TRUE.equals(request.getIsCompleted());
         return Result.success(studyGoalService.updateTaskCompletion(taskId, isCompleted, userId));
+    }
+
+    @GetMapping("/my")
+    @Operation(summary = "我的学习计划", description = "分页返回当前用户创建过的计划（按更新时间倒序），退出后可随时找回继续勾选")
+    public Result<PageResponse<StudyGoalDTO.GoalSummary>> myGoals(
+            @RequestParam(value = "page", required = false) Integer page,
+            @RequestParam(value = "size", required = false) Integer size,
+            HttpServletRequest httpRequest) {
+        Long userId = currentUserId(httpRequest);
+        return Result.success(studyGoalService.listMyGoals(userId, page, size));
     }
 
     @GetMapping("/{goalId}")

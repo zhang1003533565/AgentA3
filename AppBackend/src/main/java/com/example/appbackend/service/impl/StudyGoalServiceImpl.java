@@ -1,5 +1,6 @@
 package com.example.appbackend.service.impl;
 
+import com.example.appbackend.dto.PageResponse;
 import com.example.appbackend.dto.StudyGoalDTO;
 import com.example.appbackend.entity.StudyGoal;
 import com.example.appbackend.entity.StudyTask;
@@ -15,6 +16,8 @@ import org.apache.poi.ss.usermodel.DataFormatter;
 import org.apache.poi.ss.usermodel.Row;
 import org.apache.poi.ss.usermodel.Sheet;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -185,6 +188,43 @@ public class StudyGoalServiceImpl implements StudyGoalService {
             views.add(toTaskView(task));
         }
         return views;
+    }
+
+    @Override
+    public PageResponse<StudyGoalDTO.GoalSummary> listMyGoals(Long userId, Integer page, Integer size) {
+        int pageNo = page == null || page < 1 ? 1 : page;
+        int pageSize = size == null || size < 1 ? 10 : Math.min(size, 50);
+        Page<StudyGoal> goalPage = studyGoalRepository.findByUserIdOrderByUpdatedAtDesc(
+                userId, PageRequest.of(pageNo - 1, pageSize));
+
+        List<Long> goalIds = new ArrayList<>();
+        for (StudyGoal goal : goalPage.getContent()) {
+            goalIds.add(goal.getId());
+        }
+        Map<Long, long[]> counters = new HashMap<>();
+        if (!goalIds.isEmpty()) {
+            for (StudyTaskRepository.TaskCountView view : studyTaskRepository.countByGoalIds(goalIds)) {
+                counters.put(view.getGoalId(), new long[]{view.getTotal(), view.getCompleted()});
+            }
+        }
+
+        List<StudyGoalDTO.GoalSummary> summaries = new ArrayList<>();
+        for (StudyGoal goal : goalPage.getContent()) {
+            long[] count = counters.getOrDefault(goal.getId(), new long[]{0, 0});
+            StudyGoalDTO.GoalSummary summary = new StudyGoalDTO.GoalSummary();
+            summary.setId(goal.getId());
+            summary.setTitle(goal.getTitle());
+            summary.setDescription(goal.getDescription());
+            summary.setProgress(goal.getProgress());
+            summary.setStatus(goal.getStatus());
+            summary.setTotalTasks((int) count[0]);
+            summary.setCompletedTasks((int) count[1]);
+            summary.setRemainingTasks((int) (count[0] - count[1]));
+            summary.setCreatedAt(goal.getCreatedAt() == null ? null : goal.getCreatedAt().toString());
+            summary.setUpdatedAt(goal.getUpdatedAt() == null ? null : goal.getUpdatedAt().toString());
+            summaries.add(summary);
+        }
+        return new PageResponse<>(summaries, goalPage.getTotalElements(), pageNo, pageSize);
     }
 
     private StudyGoal requireOwnedGoal(Long goalId, Long userId) {
