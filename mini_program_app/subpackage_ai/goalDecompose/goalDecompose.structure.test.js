@@ -76,3 +76,12 @@ test('preview page uses existing line icons for editable plan metadata', () => {
   assert.match(source, /static\/icons\/line\/calendar\.svg/)
   assert.match(source, /static\/icons\/line\/clock\.svg/)
 })
+
+test('preview stage metrics keep numbers and units in aligned value columns', () => {
+  assert.match(source, /class="preview-stage-stat-value-line"/)
+  assert.match(source, /class="preview-stage-stat-number"/)
+  assert.match(source, /class="preview-stage-stat-unit"/)
+  assert.match(source, /\.preview-stage-stat-value-line\s*\{[\s\S]*?min-width:\s*102rpx/)
+  assert.match(source, /\.preview-stage-stat-number\s*\{[\s\S]*?width:\s*56rpx/)
+  assert.match(source, /\.preview-stage-stat-unit\s*\{[\s\S]*?width:\s*28rpx/)
+})

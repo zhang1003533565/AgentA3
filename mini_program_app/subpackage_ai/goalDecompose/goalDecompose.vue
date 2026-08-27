@@ -142,9 +142,9 @@
                       <image class="preview-stage-stat-icon" src="@/static/icons/line/clock.svg" mode="aspectFit" />
                       <view class="preview-stage-stat-copy">
                         <text class="preview-stage-stat-label">预计天数</text>
-                        <view class="preview-days-input">
-                          <input class="days-edit-input" type="number" v-model="task.estimatedDays" @input="reschedulePreview" />
-                          <text>天</text>
+                        <view class="preview-days-input preview-stage-stat-value-line">
+                          <input class="days-edit-input preview-stage-stat-number" type="number" v-model="task.estimatedDays" @input="reschedulePreview" />
+                          <text class="preview-stage-stat-unit">天</text>
                         </view>
                       </view>
                     </view>
@@ -152,7 +152,10 @@
                       <image class="preview-stage-stat-icon" src="@/static/icons/line/clipboard.svg" mode="aspectFit" />
                       <view class="preview-stage-stat-copy">
                         <text class="preview-stage-stat-label">执行步骤</text>
-                        <text class="preview-stage-stat-value">{{ task.subtasks.length }} 个</text>
+                        <view class="preview-stage-stat-value-line">
+                          <text class="preview-stage-stat-number">{{ task.subtasks.length }}</text>
+                          <text class="preview-stage-stat-unit">个</text>
+                        </view>
                       </view>
                     </view>
                   </view>
@@ -2751,12 +2754,43 @@ function priorityLevel(priority) {
   font-size: 23rpx;
 }
 
+.study-plan-page .preview-stage-stat-value-line {
+  display: flex;
+  align-items: baseline;
+  min-width: 102rpx;
+  gap: 10rpx;
+  color: #27364B;
+  font-size: 23rpx;
+  line-height: 1.2;
+}
+
+.study-plan-page .preview-stage-stat-number {
+  display: block;
+  width: 56rpx;
+  min-width: 56rpx;
+  padding: 0;
+  color: #27364B;
+  font-size: 23rpx;
+  line-height: 1.2;
+  text-align: left;
+}
+
+.study-plan-page .preview-stage-stat-unit {
+  display: block;
+  width: 28rpx;
+  min-width: 28rpx;
+  color: #27364B;
+  font-size: 21rpx;
+  line-height: 1.2;
+  text-align: left;
+}
+
 .study-plan-page .preview-stage-stat .preview-days-input {
   gap: 4rpx;
 }
 
 .study-plan-page .preview-stage-stat .days-edit-input {
-  width: 54rpx;
+  width: 56rpx;
   height: 34rpx;
   padding: 0;
   border: 0;
