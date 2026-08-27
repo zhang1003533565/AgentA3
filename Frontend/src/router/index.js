@@ -90,6 +90,7 @@ const routes = [
   { path: '/resume', name: 'resume', component: ResumeView },
   { path: '/resume/designer', name: 'resume-designer', component: ResumeDesigner },
   { path: '/resume/wizard', name: 'resume-wizard', component: ResumeWizard },
+  { path: '/resume/wizard/edit', name: 'resume-edit', component: ResumeWizard },
 ]
 
 const router = createRouter({
