@@ -284,6 +284,36 @@ const groupedResumes = computed(() => {
             </div>
           </div>
         </router-link>
+
+        <router-link to="/resume/workspace" class="ai-card">
+          <div class="ai-card-inner">
+            <div class="ai-icon-wrap purple">
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16v16H4z"/><path d="M8 8h8M8 12h8M8 16h5"/></svg>
+            </div>
+            <div class="ai-content">
+              <h3>简历制作</h3>
+              <p>使用开源 AIResume 编辑器，分区填写、拖拽排序并实时预览简历</p>
+            </div>
+            <div class="ai-arrow">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+            </div>
+          </div>
+        </router-link>
+
+        <router-link :to="{ path: '/resume/workspace', query: { tab: 'templates' } }" class="ai-card">
+          <div class="ai-card-inner">
+            <div class="ai-icon-wrap amber">
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg>
+            </div>
+            <div class="ai-content">
+              <h3>模板市场</h3>
+              <p>浏览并使用开源项目保留的五套原始简历模板</p>
+            </div>
+            <div class="ai-arrow">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+            </div>
+          </div>
+        </router-link>
       </div>
 
       <!-- 简历分组管理 -->
@@ -461,6 +491,14 @@ const groupedResumes = computed(() => {
 
 .ai-icon-wrap.green {
   background: linear-gradient(135deg, #10b981, #34d399);
+}
+
+.ai-icon-wrap.purple {
+  background: linear-gradient(135deg, #6d5bd0, #8b7de3);
+}
+
+.ai-icon-wrap.amber {
+  background: linear-gradient(135deg, #d28a32, #e8a94f);
 }
 
 .ai-content {

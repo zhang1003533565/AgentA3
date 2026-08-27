@@ -1,0 +1,3 @@
+const g="http://localhost:8080".replace(/\/+$/,"");async function h(r,c){var o;const s=localStorage.getItem("token")||"",i=r.map(n=>`${n.role==="user"?"用户":n.role==="assistant"?"智能体":"要求"}：${n.content}`).join(`
+
+`),e=await fetch(`${g}/api/llm/chat`,{method:"POST",headers:{"Content-Type":"application/json",...s?{Authorization:`Bearer ${s}`}:{}},body:JSON.stringify({input:i,agentName:"resume_polish_expand_agent",ragStrategy:"direct_agent"})}),t=await e.json().catch(()=>({}));if(!e.ok||(t==null?void 0:t.code)!==200)throw new Error((t==null?void 0:t.msg)||(t==null?void 0:t.message)||`AI 请求失败: ${e.status}`);const a=((o=t==null?void 0:t.data)==null?void 0:o.answer)||(t==null?void 0:t.answer)||"";c(a,!0)}export{h as s};

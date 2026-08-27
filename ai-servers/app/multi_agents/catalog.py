@@ -98,6 +98,13 @@ RESUME_AGENT_SPECS = {
         "帮我看一下这份简历哪里需要优化，如何改进？",
         ["resume_optimization_json"],
     ),
+    "resume_polish_expand_agent": (
+        "简历润色扩展智能体",
+        "resume_polish_expand",
+        "针对简历中的单个字段或经历段落，在不编造事实的前提下进行专业润色，或给出可补充的事实方向与追问清单。",
+        "目标岗位是 Java 后端工程师，请润色这段项目经历，并给出还可以补充哪些真实信息",
+        ["resume_polish_expand_json"],
+    ),
 }
 
 DIAGRAM_AGENT_SPECS = {
@@ -148,7 +155,7 @@ INTERNAL_VISUAL_AGENTS = frozenset({
     "ppt_image_agent",
 })
 FILE_EXPORT_INTERNAL_AGENTS = frozenset({"file_content_planner_agent"})
-RESUME_INTERNAL_AGENTS = frozenset({"resume_create_agent", "resume_edit_agent"})
+RESUME_INTERNAL_AGENTS = frozenset({"resume_create_agent", "resume_edit_agent", "resume_polish_expand_agent"})
 INTERNAL_ONLY_AGENT_NAMES = frozenset({"tool_intent_router_agent"})
 LEADER_CALLABLE_AGENT_ORDER = tuple(
     agent_name
@@ -241,13 +248,14 @@ def _resume_agent_profile(agent_name: str, role: str, intent: str, purpose: str,
     input_map = {
         "resume_create_agent": ["user_request", "conversation_context"],
         "resume_edit_agent": ["uploaded_resume", "target_position", "conversation_context"],
+        "resume_polish_expand_agent": ["section", "original_text", "target_position", "job_description", "mode"],
     }
     return {
         "role": role,
         "purpose": purpose,
         "inputs": input_map[agent_name],
         "outputs": outputs,
-        "skills": ["resume generation", "resume optimization", intent],
+        "skills": ["resume generation", "resume optimization", "resume polishing", "truthful expansion", intent],
         "intent": intent,
         "needRetrieval": False,
         "executionMode": "direct_agent",
