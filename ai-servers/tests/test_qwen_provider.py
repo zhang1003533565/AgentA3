@@ -14,6 +14,26 @@ def _provider(model: str) -> QwenProvider:
     return provider
 
 
+def test_kimi_k3_uses_fixed_temperature_and_reasoning_mode(monkeypatch):
+    captured = []
+
+    class FakeChatOpenAI:
+        def __init__(self, **kwargs):
+            captured.append(kwargs)
+
+    provider = _provider("kimi-k3")
+    provider._chat_openai = FakeChatOpenAI
+    provider._api_key = "test-key"
+    provider._base_url = "https://llm.test/v1"
+    provider._max_output_tokens = None
+
+    provider._build_llm("kimi-k3")
+
+    assert captured
+    assert captured[0]["temperature"] == 1.0
+    assert captured[0]["reasoning_effort"] == "max"
+
+
 def test_qwen38_does_not_send_explicit_thinking_budget():
     token = set_active_max_output_tokens(10_000)
     try:
@@ -42,6 +62,15 @@ def test_qwen_defaults_to_no_thinking_for_short_calls():
         reset_active_max_output_tokens(token)
 
     assert body == {"extra_body": {"enable_thinking": False}}
+
+
+def test_deepseek_and_glm_use_bailian_hybrid_thinking_switch():
+    assert _provider("deepseek-v4-flash-0731")._thinking_extra_body("low") == {
+        "extra_body": {"enable_thinking": True}
+    }
+    assert _provider("glm-5.2")._thinking_extra_body("none") == {
+        "extra_body": {"enable_thinking": False}
+    }
 
 
 def test_provider_switches_model_after_quota_like_failure(monkeypatch):

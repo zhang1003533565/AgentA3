@@ -37,7 +37,9 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.regex.Pattern;
 
@@ -48,6 +50,8 @@ public class PythonAiProxyService {
     private static final String ARCHITECTURE_AGENT_NAME = "diagram_architecture_agent";
     private static final String CODING_TUTOR_AGENT_NAME = "python_coding_tutor_agent";
     private static final String GENERATOR_AGENT_NAME = "python_problem_generator_agent";
+    private static final String RESUME_POLISH_EXPAND_AGENT_NAME = "resume_polish_expand_agent";
+    private static final String RESUME_EDIT_AGENT_NAME = "resume_edit_agent";
     private static final String AGENT_MODEL_BINDING_PREFIX = "ai.agent-bindings.";
     private static final String AGENT_ENABLED_PREFIX = "ai.agent-enabled.";
     private static final String TOOL_ENABLED_PREFIX = "ai.tool-enabled.";
@@ -55,6 +59,14 @@ public class PythonAiProxyService {
     private static final String TOOL_RETRIEVAL_PREFIX = "ai.tool-retrieval.";
     private static final String LEGACY_TEXT_CONFIG_PREFIX = "ai.service.text";
     private static final Pattern SAFE_SSE_EVENT_NAME = Pattern.compile("[A-Za-z][A-Za-z0-9_-]{0,39}");
+    private static final long FILE_CONTENT_TOOL_TEST_MAX_BYTES = 25L * 1024 * 1024;
+    private static final Map<String, Set<String>> FILE_CONTENT_TOOL_EXTENSIONS = Map.of(
+            "markdown_to_text_tool", Set.of(".md", ".markdown"),
+            "txt_to_text_tool", Set.of(".txt"),
+            "word_to_text_tool", Set.of(".docx"),
+            "ppt_to_text_tool", Set.of(".pptx"),
+            "pdf_to_text_tool", Set.of(".pdf")
+    );
 
     private final WebClient.Builder webClientBuilder;
     private final ObjectMapper objectMapper;
@@ -124,7 +136,7 @@ public class PythonAiProxyService {
                     .uri(buildUri("/internal/chat"))
                     .headers(headers -> applyPythonHeaders(headers, authorization, userId, requestedModel))
                     .contentType(MediaType.APPLICATION_JSON)
-                    .bodyValue(request)
+                    .bodyValue(normalizePythonRequest(request))
                     .retrieve()
                     .bodyToMono(LlmChatResponse.class)
                     .timeout(Duration.ofSeconds(timeoutSeconds))
@@ -287,11 +299,13 @@ public class PythonAiProxyService {
 
     public Object queryRag(Map<String, Object> request, String authorization) {
         String requestedModel = resolveRequestedModel(request);
-        if (!StringUtils.hasText(requestedModel)) {
+        boolean localImageStitchingRequest = isLocalImageStitchingRequest(request);
+        if (!localImageStitchingRequest && !StringUtils.hasText(requestedModel)) {
             throw new BusinessException(Result.ERROR_CODE, "请选择已测试成功的模型后再执行智能体");
         }
         Map<String, Object> sanitized = sanitizeRagRequest(withAgentToggles(request));
-        return postRagObject("/internal/rag/query", sanitized, authorization, requestedModel);
+        return postRagObject("/internal/rag/query", sanitized, authorization,
+                localImageStitchingRequest ? null : requestedModel);
     }
 
     /**
@@ -558,7 +572,8 @@ public class PythonAiProxyService {
                                 String authorization,
                                 SseEventHandler eventHandler) {
         String requestedModel = resolveRequestedModel(request);
-        if (!StringUtils.hasText(requestedModel)) {
+        boolean localImageStitchingRequest = isLocalImageStitchingRequest(request);
+        if (!localImageStitchingRequest && !StringUtils.hasText(requestedModel)) {
             throw new BusinessException(Result.ERROR_CODE, "请选择已测试成功的模型后再执行智能体");
         }
         Map<String, Object> sanitized = sanitizeRagRequest(withAgentToggles(request));
@@ -566,9 +581,72 @@ public class PythonAiProxyService {
                 "/internal/rag/query/stream",
                 sanitized,
                 authorization,
-                requestedModel,
+                localImageStitchingRequest ? null : requestedModel,
                 eventHandler
         );
+    }
+
+    private boolean isLocalImageStitchingRequest(Map<String, Object> request) {
+        if (request == null) {
+            return false;
+        }
+        Object rawMetadata = request.get("metadata");
+        if (rawMetadata instanceof Map<?, ?> metadata
+                && "admin_agent_console".equals(String.valueOf(metadata.get("testFrom")))
+                && "image_stitching_tool".equals(String.valueOf(metadata.get("expectedToolName")))) {
+            return true;
+        }
+        for (String field : List.of("imageDataUrls", "images", "imageUrls")) {
+            Object rawImages = request.get(field);
+            if (rawImages instanceof List<?> images && images.size() >= 2) {
+                return true;
+            }
+        }
+        Object rawAttachments = request.get("attachments");
+        if (!(rawAttachments instanceof List<?> attachments)) {
+            return false;
+        }
+        long directImageCount = attachments.stream().filter(this::isImageAttachment).count();
+        return directImageCount >= 2 || attachments.stream().anyMatch(this::mayContainImages);
+    }
+
+    private boolean isImageAttachment(Object rawAttachment) {
+        if (!(rawAttachment instanceof Map<?, ?> attachment)) {
+            return false;
+        }
+        String mimeType = firstAttachmentText(attachment, "mimeType", "contentType", "type");
+        if (mimeType.toLowerCase(Locale.ROOT).startsWith("image/")) {
+            return true;
+        }
+        String name = firstAttachmentText(attachment, "name", "fileName");
+        return List.of(".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".tif", ".tiff")
+                .stream().anyMatch(name.toLowerCase(Locale.ROOT)::endsWith);
+    }
+
+    private boolean mayContainImages(Object rawAttachment) {
+        if (!(rawAttachment instanceof Map<?, ?> attachment)) {
+            return false;
+        }
+        String mimeType = firstAttachmentText(attachment, "mimeType", "contentType", "type")
+                .toLowerCase(Locale.ROOT);
+        String name = firstAttachmentText(attachment, "name", "fileName").toLowerCase(Locale.ROOT);
+        return mimeType.equals("application/pdf")
+                || mimeType.equals("application/zip")
+                || mimeType.contains("presentationml.presentation")
+                || mimeType.contains("wordprocessingml.document")
+                || mimeType.contains("spreadsheetml.sheet")
+                || List.of(".pdf", ".pptx", ".docx", ".xlsx", ".zip")
+                .stream().anyMatch(name::endsWith);
+    }
+
+    private String firstAttachmentText(Map<?, ?> attachment, String... keys) {
+        for (String key : keys) {
+            Object value = attachment.get(key);
+            if (value != null && StringUtils.hasText(String.valueOf(value))) {
+                return String.valueOf(value).trim();
+            }
+        }
+        return "";
     }
 
     /**
@@ -594,6 +672,57 @@ public class PythonAiProxyService {
 
     public Object convertPdf(MultipartFile file, String targetFormat, String authorization) {
         return convertPdf(file, targetFormat, authorization, "image");
+    }
+
+    public Object testFileContentTool(String toolName, MultipartFile file, String authorization) {
+        validateAuthorization(authorization);
+        String normalizedTool = String.valueOf(toolName == null ? "" : toolName).trim();
+        Set<String> allowedExtensions = FILE_CONTENT_TOOL_EXTENSIONS.get(normalizedTool);
+        if (allowedExtensions == null) {
+            throw new BusinessException(Result.BAD_REQUEST_CODE, "不支持的文件提取工具");
+        }
+        if (!isToolEnabled(normalizedTool, loadToolToggles())) {
+            throw new BusinessException(403, "该工具已在智能体设置中关闭");
+        }
+        if (file == null || file.isEmpty()) {
+            throw new BusinessException(Result.BAD_REQUEST_CODE, "请选择测试文件");
+        }
+        if (file.getSize() > FILE_CONTENT_TOOL_TEST_MAX_BYTES) {
+            throw new BusinessException(413, "测试文件不能超过 25MB");
+        }
+        String filename = StringUtils.hasText(file.getOriginalFilename())
+                ? StringUtils.cleanPath(file.getOriginalFilename())
+                : "document";
+        String lowerName = filename.toLowerCase(Locale.ROOT);
+        boolean extensionMatched = allowedExtensions.stream().anyMatch(lowerName::endsWith);
+        if (!extensionMatched) {
+            throw new BusinessException(Result.BAD_REQUEST_CODE,
+                    "文件格式与所选工具不匹配，支持格式: " + String.join("、", allowedExtensions));
+        }
+
+        String token = normalizeBearerToken(authorization);
+        Long userId = extractUserId(token);
+        try {
+            Map<String, Object> payload = Map.of(
+                    "toolName", normalizedTool,
+                    "fileName", filename,
+                    "contentBase64", Base64.getEncoder().encodeToString(file.getBytes())
+            );
+            return buildFileResponseWebClient()
+                    .post()
+                    .uri(buildUri("/internal/rag/tools/file-content/test"))
+                    .headers(headers -> applyPythonAuthHeaders(headers, authorization, userId))
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .bodyValue(payload)
+                    .retrieve()
+                    .bodyToMono(Object.class)
+                    .timeout(Duration.ofSeconds(timeoutSeconds))
+                    .block();
+        } catch (WebClientResponseException e) {
+            throw new BusinessException(e.getStatusCode().value(), "文件工具测试失败: " + extractRemoteMessage(e));
+        } catch (Exception e) {
+            throw new BusinessException(Result.ERROR_CODE, "文件工具测试失败: " + e.getMessage());
+        }
     }
 
     public Object convertPdf(MultipartFile file, String targetFormat, String authorization, String convertMode) {
@@ -1328,7 +1457,12 @@ public class PythonAiProxyService {
         if (StringUtils.hasText(requestedModel)) {
             return requestedModel.trim();
         }
-        return resolveAgentBoundModel(agentName);
+        String boundModel = resolveAgentBoundModel(agentName);
+        if (!StringUtils.hasText(boundModel)
+                && RESUME_POLISH_EXPAND_AGENT_NAME.equals(agentName)) {
+            return resolveAgentBoundModel(RESUME_EDIT_AGENT_NAME);
+        }
+        return boundModel;
     }
 
     private String resolveAgentBoundModel(String agentName) {

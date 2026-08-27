@@ -15,6 +15,96 @@ const stats = ref({
 const masterResume = ref(null)
 const tailoredResumes = ref([])
 
+// ===== 新建分组弹窗状态 =====
+const showGroupModal = ref(false)
+const newGroupName = ref('')
+const groupNameError = ref('')
+const MAX_GROUP_NAME_LENGTH = 20
+
+function openGroupModal() {
+  newGroupName.value = ''
+  groupNameError.value = ''
+  showGroupModal.value = true
+}
+
+function closeGroupModal() {
+  showGroupModal.value = false
+  newGroupName.value = ''
+  groupNameError.value = ''
+}
+
+function handleCreateGroup() {
+  const name = newGroupName.value.trim()
+
+  if (!name) {
+    groupNameError.value = '分组名称不能为空'
+    return
+  }
+
+  if (name.length > MAX_GROUP_NAME_LENGTH) {
+    groupNameError.value = `分组名称不得超过${MAX_GROUP_NAME_LENGTH}个字符`
+    return
+  }
+
+  const newGroup = {
+    groupId: `group-${Date.now()}`,
+    groupName: name,
+    count: 0,
+    resumes: [],
+  }
+
+  resumeGroups.value.push(newGroup)
+  closeGroupModal()
+}
+
+function handleGroupInput() {
+  if (groupNameError.value) {
+    groupNameError.value = ''
+  }
+}
+
+// ===== 简历分组 Mock 数据（仅用于 UI 展示）=====
+const resumeGroups = ref([
+  {
+    groupId: 'group-java',
+    groupName: 'Java工程师简历',
+    count: 2,
+    resumes: [
+      {
+        id: 'java-1',
+        title: 'Java高级开发_张三',
+        snippet: '8年Java后端开发经验，熟悉Spring Cloud、微服务架构与中间件优化',
+        initial: 'J',
+        time: '2023-10-24',
+        score: 85,
+      },
+      {
+        id: 'java-2',
+        title: '互联网大厂专用版',
+        snippet: '针对互联网大厂JD定制，突出高并发与分布式系统设计能力',
+        initial: 'I',
+        time: '2023-10-20',
+        score: 92,
+      },
+    ],
+  },
+  {
+    groupId: 'group-cpp',
+    groupName: 'C++工程师简历',
+    count: 1,
+    resumes: [
+      {
+        id: 'cpp-1',
+        title: 'C++系统开发_李四',
+        snippet: '5年C++系统开发经验，擅长高性能计算、网络编程与跨平台开发',
+        initial: 'C',
+        time: '2023-10-18',
+        score: 88,
+      },
+    ],
+  },
+])
+
 // ===== 工具函数 =====
 const formatDate = (value) => {
   if (!value) return '—'
@@ -86,6 +176,73 @@ const lastAiGenDisplay = computed(() => {
   if (hours < 24) return `${hours} 小时前`
   return `${Math.floor(hours / 24)} 天前`
 })
+
+// ===== 简历分组计算属性 =====
+const groupedResumes = computed(() => {
+  // 优先使用 Mock 分组数据展示，原有数据逻辑保留
+  if (resumeGroups.value && resumeGroups.value.length > 0) {
+    return resumeGroups.value.map((group) => ({
+      ...group,
+      resumes: group.resumes.map((resume) => ({
+        ...resume,
+        time: resume.time || formatDate(stats.lastEditedDate),
+      })),
+    }))
+  }
+
+  const allResumes = []
+
+  // 主简历放入第一组
+  if (masterResume) {
+    allResumes.push({
+      id: 'master',
+      title: masterResume.title || '主简历',
+      snippet: masterResume.contentSnippet?.slice(0, 80) || '暂无内容',
+      initial: 'M',
+      time: formatDate(stats.lastEditedDate),
+      groupId: 'group-master',
+      groupName: '我的简历',
+      score: 0,
+    })
+  }
+
+  // 定制简历
+  tailoredResumes.forEach((resume, index) => {
+    allResumes.push({
+      id: resume.id || `custom-${index}`,
+      title: resume.title || '未命名简历',
+      snippet: resume.jobSnippet?.slice(0, 80) || resume.contentSnippet?.slice(0, 80) || '暂无内容',
+      initial: getMonogram(resume.title || '简历'),
+      time: getRelativeTime(resume.updatedAt || stats.lastEditedDate),
+      groupId: 'group-custom',
+      groupName: '定制简历',
+      score: resume.score || 0,
+    })
+  })
+
+  // 按分组返回
+  const result = []
+
+  if (allResumes.filter((r) => r.groupId === 'group-master').length > 0) {
+    result.push({
+      groupId: 'group-master',
+      groupName: '我的简历',
+      count: allResumes.filter((r) => r.groupId === 'group-master').length,
+      resumes: allResumes.filter((r) => r.groupId === 'group-master'),
+    })
+  }
+
+  if (allResumes.filter((r) => r.groupId === 'group-custom').length > 0) {
+    result.push({
+      groupId: 'group-custom',
+      groupName: '定制简历',
+      count: allResumes.filter((r) => r.groupId === 'group-custom').length,
+      resumes: allResumes.filter((r) => r.groupId === 'group-custom'),
+    })
+  }
+
+  return result
+})
 </script>
 
 <template>
@@ -93,156 +250,166 @@ const lastAiGenDisplay = computed(() => {
     <AppTabBar />
     <div class="container">
       <header class="page-header">
-        <h1>我的简历</h1>
+        <h1>我的简历工作台</h1>
       </header>
 
-      <!-- 统计卡片 -->
-      <div class="stats-grid">
-        <div class="stat-card">
-          <div class="stat-icon" style="background: #eff6ff; color: #2563eb;">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-          </div>
-          <div class="stat-label">简历数量</div>
-          <div class="stat-value">{{ stats.resumeCount }} 份</div>
-          <div class="stat-sub">最近更新：{{ getRelativeTime(stats.lastEditedDate) }}</div>
-        </div>
-
-        <div class="stat-card">
-          <div class="stat-icon" style="background: #fef3c7; color: #d97706;">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
-          </div>
-          <div class="stat-label">AI 使用</div>
-          <div class="stat-value">{{ stats.aiUsageCount }} 次</div>
-          <div class="stat-sub">累计优化建议：{{ stats.aiUsageCount * 3 }} 条</div>
-        </div>
-
-        <div class="stat-card">
-          <div class="stat-icon" style="background: #fce7f3; color: #db2777;">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-          </div>
-          <div class="stat-label">最近编辑</div>
-          <div class="stat-value" style="font-size: 16px;">{{ formatDate(stats.lastEditedDate) }}</div>
-        </div>
-
-        <div class="stat-card">
-          <div class="stat-icon" style="background: #d1fae5; color: #059669;">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>
-          </div>
-          <div class="stat-label">主简历状态</div>
-          <div class="stat-value" :style="{ color: statusDisplay.color }">
-            <span v-if="processingStatus === 'ready'" class="status-dot" style="background: #10b981;"></span>
-            <span v-else-if="processingStatus === 'processing'" class="status-dot spinning"></span>
-            <span v-else-if="processingStatus === 'failed'" class="status-dot" style="background: #dc2626;"></span>
-            {{ statusDisplay.text }}
-          </div>
-        </div>
-      </div>
-
       <!-- AI 助手卡片 -->
-      <router-link to="/resume/wizard" class="ai-card" @click="lastAiGenTime = String(Date.now()); localStorage.setItem('last_ai_gen_time', lastAiGenTime)">
-        <div class="ai-card-inner">
-          <div class="ai-icon-wrap">
-            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
-          </div>
-          <div class="ai-content">
-            <h3>AI 简历向导</h3>
-            <p>通过 AI 对话智能生成简历内容，只需回答几个问题</p>
-            <div class="ai-stats">
-              <span class="ai-stat-item">
-                <span class="ai-stat-dot" style="background: #10b981;"></span>
-                累计生成 <strong>{{ stats.aiUsageCount }}</strong> 次
-              </span>
-              <span class="ai-stat-divider">|</span>
-              <span class="ai-stat-item">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-                上次生成：{{ lastAiGenDisplay }}
-              </span>
+      <div class="ai-assist-grid">
+        <router-link to="/resume/wizard/edit" class="ai-card">
+          <div class="ai-card-inner">
+            <div class="ai-icon-wrap blue">
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2Zm0 16a1 1 0 1 1 1-1 1 1 0 0 1-1 1Zm0-6a1 1 0 1 1 1-1 1 1 0 0 1-1 1Z"/><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+            </div>
+            <div class="ai-content">
+              <h3>AI 一键改简历</h3>
+              <p>上传现有简历，AI 自动优化内容与布局，智能适配目标岗位</p>
+            </div>
+            <div class="ai-arrow">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
             </div>
           </div>
-          <div class="ai-arrow">
-            继续生成
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+        </router-link>
+
+        <router-link to="/resume/wizard" class="ai-card">
+          <div class="ai-card-inner">
+            <div class="ai-icon-wrap green">
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/><circle cx="12" cy="12" r="3"/></svg>
+            </div>
+            <div class="ai-content">
+              <h3>AI 生成简历</h3>
+              <p>通过 AI 对话智能生成简历内容，包含职业测评与岗位匹配</p>
+            </div>
+            <div class="ai-arrow">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+            </div>
           </div>
+        </router-link>
+
+        <router-link to="/resume/workspace" class="ai-card">
+          <div class="ai-card-inner">
+            <div class="ai-icon-wrap purple">
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16v16H4z"/><path d="M8 8h8M8 12h8M8 16h5"/></svg>
+            </div>
+            <div class="ai-content">
+              <h3>简历制作</h3>
+              <p>使用开源 AIResume 编辑器，分区填写、拖拽排序并实时预览简历</p>
+            </div>
+            <div class="ai-arrow">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+            </div>
+          </div>
+        </router-link>
+
+        <router-link :to="{ path: '/resume/workspace', query: { tab: 'templates' } }" class="ai-card">
+          <div class="ai-card-inner">
+            <div class="ai-icon-wrap amber">
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg>
+            </div>
+            <div class="ai-content">
+              <h3>模板市场</h3>
+              <p>浏览并使用开源项目保留的五套原始简历模板</p>
+            </div>
+            <div class="ai-arrow">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+            </div>
+          </div>
+        </router-link>
+      </div>
+
+      <!-- 简历分组管理 -->
+      <div class="section group-section-wrapper">
+        <div class="section-header">
+          <h2 class="section-title">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+            简历分组管理
+          </h2>
+          <button class="btn-new-group" type="button" @click="openGroupModal">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            新建分组
+          </button>
         </div>
-      </router-link>
 
-      <!-- 操作卡片 -->
-      <div class="action-grid">
-        <router-link to="/resume/wizard" class="action-card">
-          <div class="action-icon" style="background: #eff6ff; color: #2563eb;">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-          </div>
-          <h3>上传简历</h3>
-          <p>上传已有简历文件，AI 自动解析并优化格式</p>
-        </router-link>
-
-        <router-link to="/resume/designer" class="action-card">
-          <div class="action-icon" style="background: #d1fae5; color: #059669;">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-          </div>
-          <h3>编辑简历</h3>
-          <p>{{ masterResume ? '查看和编辑主简历内容' : '先创建一份简历开始' }}</p>
-        </router-link>
-
-        <router-link to="/resume/wizard" class="action-card">
-          <div class="action-icon" style="background: #fef3c7; color: #d97706;">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
-          </div>
-          <h3>岗位匹配</h3>
-          <p>粘贴 JD 分析匹配度，获取针对性优化建议</p>
-        </router-link>
-      </div>
-
-      <!-- 主简历 -->
-      <div v-if="masterResume" class="section">
-        <h2 class="section-title">主简历</h2>
-        <router-link to="/resume/designer" class="master-card">
-          <div class="master-left">
-            <div class="master-icon">M</div>
-            <div>
-              <h3>{{ masterResume.title }}</h3>
-              <p :style="{ color: statusDisplay.color, fontSize: '13px', margin: 0 }">{{ statusDisplay.text }}</p>
-            </div>
-          </div>
-          <div class="master-right">
-            <button v-if="processingStatus === 'failed'" class="btn-ghost">重试</button>
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
-          </div>
-        </router-link>
-      </div>
-
-      <!-- 定制简历 -->
-      <div v-if="tailoredResumes.length" class="section">
-        <h2 class="section-title">定制简历</h2>
-        <div class="project-grid">
-          <div v-for="resume in tailoredResumes" :key="resume.id" class="project-card">
-            <div class="project-header">
-              <div class="project-avatar" :style="{ backgroundColor: cardColors[hashTitle(resume.title) % cardColors.length].bg, color: cardColors[hashTitle(resume.title) % cardColors.length].fg }">
-                {{ getMonogram(resume.title) }}
+        <!-- 分组列表 -->
+        <div class="group-content">
+          <div v-for="item in groupedResumes" :key="item.groupId" class="group-list">
+            <h3 class="group-name">
+              {{ item.groupName }}
+              <span class="group-count">{{ item.count }} 份</span>
+            </h3>
+            <div class="project-grid">
+              <div
+                v-for="resume in item.resumes"
+                :key="resume.id"
+                class="project-card editable"
+                @click="$router.push('/resume/designer')"
+              >
+                <div class="project-header">
+                  <div
+                    class="project-avatar"
+                    :style="{
+                      backgroundColor: cardColors[hashTitle(resume.title) % cardColors.length].bg,
+                      color: cardColors[hashTitle(resume.title) % cardColors.length].fg,
+                    }"
+                  >
+                    {{ resume.initial }}
+                  </div>
+                  <span class="project-badge badge-ready">已就绪</span>
+                </div>
+                <h3 class="project-title">{{ resume.title }}</h3>
+                <p class="project-snippet">{{ resume.snippet }}</p>
+                <div class="project-meta">
+                  <span class="project-date">更新：{{ resume.time }}</span>
+                  <div class="resume-score">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+                    <span>{{ resume.score }}分</span>
+                  </div>
+                </div>
               </div>
-              <span class="project-badge" :class="resume.processingStatus === 'ready' ? 'badge-ready' : 'badge-processing'">
-                {{ resume.processingStatus === 'ready' ? '已就绪' : '处理中' }}
-              </span>
             </div>
-            <h3 class="project-title">{{ resume.title }}</h3>
-            <p class="project-snippet">{{ resume.jobSnippet?.slice(0, 50) }}{{ (resume.jobSnippet?.length || 0) > 50 ? '...' : '' }}</p>
-            <p class="project-date">编辑于 {{ getRelativeTime(resume.updatedAt) }}</p>
           </div>
         </div>
       </div>
 
-      <!-- 空状态 -->
-      <div v-if="!masterResume && !tailoredResumes.length" class="empty-state">
-        <div class="empty-icon">
-          <svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/></svg>
-        </div>
-        <h3>还没有简历</h3>
-        <p>上传你的第一份简历，或使用 AI 向导创建一份专业简历</p>
-        <div class="empty-actions">
-          <router-link to="/resume/wizard" class="btn-primary">AI 向导创建</router-link>
-          <router-link to="/resume/wizard" class="btn-ghost">上传已有简历</router-link>
-        </div>
-      </div>
+      <!-- 新建分组弹窗 -->
+      <Teleport to="body">
+        <Transition name="modal-fade">
+          <div v-if="showGroupModal" class="modal-overlay" @click.self="closeGroupModal">
+            <div class="modal-card">
+              <div class="modal-header">
+                <h3 class="modal-title">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+                  新建分组
+                </h3>
+                <button class="modal-close" type="button" aria-label="关闭" @click="closeGroupModal">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                </button>
+              </div>
+
+              <div class="modal-body">
+                <label class="input-label" for="group-name">分组名称</label>
+                <div class="input-wrapper" :class="{ 'input-wrapper--error': groupNameError }">
+                  <input
+                    id="group-name"
+                    v-model="newGroupName"
+                    type="text"
+                    maxlength="20"
+                    placeholder="请输入分组名称，例如：前端开发工程师"
+                    @input="handleGroupInput"
+                    @keydown.enter="handleCreateGroup"
+                  />
+                </div>
+                <p v-if="groupNameError" class="input-error">{{ groupNameError }}</p>
+                <p v-else class="input-hint">分组名称不得超过20个字符</p>
+              </div>
+
+              <div class="modal-footer">
+                <button class="btn-cancel" type="button" @click="closeGroupModal">取消</button>
+                <button class="btn-confirm" type="button" @click="handleCreateGroup">确认</button>
+              </div>
+            </div>
+          </div>
+        </Transition>
+      </Teleport>
     </div>
   </div>
 </template>
@@ -254,7 +421,10 @@ const lastAiGenDisplay = computed(() => {
 }
 
 .container {
+  display: flex;
+  flex-direction: column;
   max-width: 1200px;
+  min-height: calc(100vh - 60px);
   margin: 0 auto;
   padding: 90px 40px 32px;
 }
@@ -270,89 +440,31 @@ const lastAiGenDisplay = computed(() => {
   font-weight: 700;
 }
 
-/* ===== 统计卡片 ===== */
-.stats-grid {
+/* ===== AI 助手区域 ===== */
+.ai-assist-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 16px;
-  margin-bottom: 24px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 20px;
+  margin-bottom: 32px;
 }
 
-.stat-card {
-  padding: 20px;
-  border: 1px solid #e2e8f0;
-  border-radius: 12px;
-  background: #ffffff;
-  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
-}
-
-.stat-icon {
-  display: grid;
-  place-items: center;
-  width: 40px;
-  height: 40px;
-  border-radius: 10px;
-  margin-bottom: 12px;
-}
-
-.stat-label {
-  color: #64748b;
-  font-size: 13px;
-  margin-bottom: 4px;
-}
-
-.stat-value {
-  color: #0f172a;
-  font-size: 24px;
-  font-weight: 700;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.stat-sub {
-  color: #94a3b8;
-  font-size: 12px;
-  margin-top: 6px;
-}
-
-.status-dot {
-  display: inline-block;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  flex-shrink: 0;
-}
-
-@keyframes spin {
-  to { transform: rotate(360deg); }
-}
-
-.status-dot.spinning {
-  width: 16px;
-  height: 16px;
-  border: 2px solid #e2e8f0;
-  border-top-color: #2563eb;
-  border-radius: 50%;
-  animation: spin 0.8s linear infinite;
-}
-
-/* ===== AI 卡片 ===== */
 .ai-card {
   display: flex;
-  margin-bottom: 24px;
   padding: 28px 32px;
-  border: 1px solid #bfdbfe;
-  border-radius: 16px;
-  background: linear-gradient(135deg, #ffffff 0%, #eff6ff 100%);
+  border: 1px solid #e2e8f0;
+  border-radius: 18px;
+  background: #ffffff;
   text-decoration: none;
   color: inherit;
   cursor: pointer;
-  transition: box-shadow 0.2s;
+  transition: box-shadow 0.2s, transform 0.2s, border-color 0.2s;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.04);
 }
 
 .ai-card:hover {
-  box-shadow: 0 4px 24px rgba(37, 99, 235, 0.1);
+  transform: translateY(-2px);
+  border-color: #bfdbfe;
+  box-shadow: 0 12px 32px rgba(37, 99, 235, 0.1);
 }
 
 .ai-card-inner {
@@ -365,13 +477,28 @@ const lastAiGenDisplay = computed(() => {
 .ai-icon-wrap {
   display: grid;
   place-items: center;
-  width: 56px;
-  height: 56px;
-  border-radius: 14px;
-  background: #2563eb;
+  width: 60px;
+  height: 60px;
+  border-radius: 16px;
   color: #ffffff;
   flex-shrink: 0;
-  box-shadow: 0 0 28px rgba(37, 99, 235, 0.3);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
+}
+
+.ai-icon-wrap.blue {
+  background: linear-gradient(135deg, #2563eb, #3b82f6);
+}
+
+.ai-icon-wrap.green {
+  background: linear-gradient(135deg, #10b981, #34d399);
+}
+
+.ai-icon-wrap.purple {
+  background: linear-gradient(135deg, #6d5bd0, #8b7de3);
+}
+
+.ai-icon-wrap.amber {
+  background: linear-gradient(135deg, #d28a32, #e8a94f);
 }
 
 .ai-content {
@@ -424,64 +551,107 @@ const lastAiGenDisplay = computed(() => {
 .ai-arrow {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 10px 20px;
-  border-radius: 10px;
-  color: #ffffff;
-  background: #2563eb;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  color: #2563eb;
+  background: #eff6ff;
   font-size: 14px;
   font-weight: 600;
   white-space: nowrap;
   flex-shrink: 0;
+  transition: background 0.2s, color 0.2s;
 }
 
-/* ===== 操作卡片 ===== */
-.action-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 16px;
-  margin-bottom: 32px;
+.ai-card:hover .ai-arrow {
+  color: #ffffff;
+  background: #2563eb;
 }
 
-.action-card {
-  display: block;
-  padding: 24px;
-  border: 1px solid #e2e8f0;
-  border-radius: 12px;
+/* ===== 简历分组管理 ===== */
+.group-section-wrapper {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
   background: #ffffff;
-  text-decoration: none;
-  color: inherit;
-  cursor: pointer;
-  transition: box-shadow 0.2s, transform 0.2s;
-  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+  border: 1px solid #e2e8f0;
+  border-radius: 20px;
+  padding: 28px 32px;
+  box-shadow: 0 4px 20px rgba(15, 23, 42, 0.06);
 }
 
-.action-card:hover {
-  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
-  transform: translateY(-2px);
+.section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 24px;
 }
 
-.action-icon {
-  display: grid;
-  place-items: center;
-  width: 48px;
-  height: 48px;
-  border-radius: 12px;
-  margin-bottom: 14px;
-}
-
-.action-card h3 {
-  margin: 0 0 6px;
-  color: #0f172a;
-  font-size: 16px;
-  font-weight: 600;
-}
-
-.action-card p {
+.section-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
   margin: 0;
-  color: #94a3b8;
+  color: #0f172a;
+  font-size: 17px;
+  font-weight: 700;
+}
+
+.section-title svg {
+  color: #2563eb;
+}
+
+.btn-new-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 9px 16px;
+  border: none;
+  border-radius: 10px;
+  color: #ffffff;
+  background: #2563eb;
   font-size: 13px;
-  line-height: 1.5;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.btn-new-group:hover {
+  background: #1d4ed8;
+}
+
+.group-list {
+  margin-bottom: 28px;
+}
+
+.group-list:last-child {
+  margin-bottom: 0;
+}
+
+.group-name {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 16px;
+  color: #334155;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.group-count {
+  color: #94a3b8;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.group-list + .group-list {
+  padding-top: 24px;
+  border-top: 1px dashed #e2e8f0;
+}
+
+.group-content {
+  flex: 1;
 }
 
 /* ===== 区域标题 ===== */
@@ -549,23 +719,43 @@ const lastAiGenDisplay = computed(() => {
 /* ===== 定制简历网格 ===== */
 .project-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 16px;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 20px;
 }
 
 .project-card {
-  padding: 20px;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  padding: 22px;
   border: 1px solid #e2e8f0;
-  border-radius: 12px;
+  border-radius: 16px;
   background: #ffffff;
   cursor: pointer;
-  transition: box-shadow 0.2s, transform 0.2s;
-  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+  transition: box-shadow 0.25s, transform 0.25s, border-color 0.25s;
+  box-shadow: 0 2px 10px rgba(15, 23, 42, 0.05);
+  overflow: hidden;
+  min-height: 180px;
+}
+
+.project-card::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto;
+  height: 3px;
+  background: linear-gradient(90deg, #2563eb, #60a5fa);
+  opacity: 0;
+  transition: opacity 0.25s;
 }
 
 .project-card:hover {
-  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
-  transform: translateY(-2px);
+  border-color: #bfdbfe;
+  box-shadow: 0 12px 32px rgba(37, 99, 235, 0.12);
+  transform: translateY(-3px);
+}
+
+.project-card:hover::before {
+  opacity: 1;
 }
 
 .project-header {
@@ -615,47 +805,51 @@ const lastAiGenDisplay = computed(() => {
 }
 
 .project-snippet {
-  margin: 0 0 8px;
-  color: #94a3b8;
-  font-size: 12px;
-  line-height: 1.5;
+  margin: 0 0 16px;
+  color: #64748b;
+  font-size: 13px;
+  line-height: 1.6;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  min-height: 42px;
 }
 
 .project-date {
   margin: 0;
-  color: #cbd5e1;
+  color: #94a3b8;
   font-size: 12px;
 }
 
-/* ===== 空状态 ===== */
-.empty-state {
-  padding: 80px 40px;
-  text-align: center;
-  border: 2px dashed #e2e8f0;
-  border-radius: 16px;
-  background: #ffffff;
-}
-
-.empty-icon {
-  margin-bottom: 20px;
-}
-
-.empty-state h3 {
-  margin: 0 0 10px;
-  color: #0f172a;
-  font-size: 20px;
-}
-
-.empty-state p {
-  margin: 0 0 28px;
-  color: #94a3b8;
-  font-size: 15px;
-}
-
-.empty-actions {
+.project-meta {
   display: flex;
-  justify-content: center;
-  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: auto;
+  padding-top: 14px;
+  border-top: 1px solid #f1f5f9;
+}
+
+.resume-score {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 10px;
+  border-radius: 8px;
+  color: #f59e0b;
+  background: #fffbeb;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.resume-score svg {
+  fill: #fbbf24;
+  stroke: #f59e0b;
+}
+
+.project-card.editable:hover {
+  border-color: #bfdbfe;
 }
 
 /* ===== 按钮 ===== */
@@ -693,5 +887,187 @@ const lastAiGenDisplay = computed(() => {
 
 .btn-ghost:hover {
   background: #f8fafc;
+}
+
+/* ===== 新建分组弹窗 ===== */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  display: grid;
+  place-items: center;
+  background: rgba(15, 23, 42, 0.45);
+  backdrop-filter: blur(4px);
+}
+
+.modal-card {
+  width: min(460px, calc(100% - 32px));
+  border: 1px solid #e2e8f0;
+  border-radius: 20px;
+  background: #ffffff;
+  box-shadow: 0 24px 56px rgba(15, 23, 42, 0.18);
+  overflow: hidden;
+}
+
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 22px 26px;
+  border-bottom: 1px solid #f1f5f9;
+  background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%);
+}
+
+.modal-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+  color: #0f172a;
+  font-size: 17px;
+  font-weight: 700;
+}
+
+.modal-title svg {
+  color: #2563eb;
+}
+
+.modal-close {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border: none;
+  border-radius: 10px;
+  color: #94a3b8;
+  background: transparent;
+  cursor: pointer;
+  transition: color 0.2s, background 0.2s;
+}
+
+.modal-close:hover {
+  color: #64748b;
+  background: #f1f5f9;
+}
+
+.modal-body {
+  padding: 26px;
+}
+
+.input-label {
+  display: block;
+  margin-bottom: 10px;
+  color: #334155;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.input-wrapper {
+  display: flex;
+  align-items: center;
+  padding: 2px;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  background: #ffffff;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.input-wrapper:focus-within {
+  border-color: #93c5fd;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.08);
+}
+
+.input-wrapper--error {
+  border-color: #fca5a5;
+}
+
+.input-wrapper--error:focus-within {
+  border-color: #f87171;
+  box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.08);
+}
+
+.input-wrapper input {
+  flex: 1;
+  width: 100%;
+  padding: 12px 14px;
+  border: none;
+  border-radius: 10px;
+  color: #0f172a;
+  background: transparent;
+  font-size: 14px;
+  outline: none;
+}
+
+.input-wrapper input::placeholder {
+  color: #cbd5e1;
+}
+
+.input-hint {
+  margin: 10px 0 0;
+  color: #94a3b8;
+  font-size: 12px;
+}
+
+.input-error {
+  margin: 10px 0 0;
+  color: #dc2626;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.modal-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  padding: 18px 26px;
+  border-top: 1px solid #f1f5f9;
+  background: #fafbfc;
+}
+
+.btn-cancel {
+  padding: 10px 20px;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  color: #64748b;
+  background: #ffffff;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s, color 0.2s;
+}
+
+.btn-cancel:hover {
+  color: #334155;
+  background: #f8fafc;
+}
+
+.btn-confirm {
+  padding: 10px 22px;
+  border: none;
+  border-radius: 10px;
+  color: #ffffff;
+  background: #2563eb;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s, box-shadow 0.2s;
+  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.25);
+}
+
+.btn-confirm:hover {
+  background: #1d4ed8;
+  box-shadow: 0 6px 16px rgba(37, 99, 235, 0.32);
+}
+
+/* 弹窗过渡动画 */
+.modal-fade-enter-active,
+.modal-fade-leave-active {
+  transition: opacity 0.25s ease;
+}
+
+.modal-fade-enter-from,
+.modal-fade-leave-to {
+  opacity: 0;
 }
 </style>

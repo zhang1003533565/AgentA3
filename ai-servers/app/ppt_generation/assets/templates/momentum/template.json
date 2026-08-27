@@ -2606,6 +2606,7 @@
                 }
               ],
               "name": "cards_row",
+              "fixed_children": 4,
               "max_children": 6,
               "min_children": 2
             }
@@ -18608,6 +18609,7 @@
                 }
               ],
               "name": "cards_row",
+              "fixed_children": 4,
               "max_children": 6,
               "min_children": 2
             }

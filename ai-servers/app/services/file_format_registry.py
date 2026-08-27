@@ -91,6 +91,18 @@ FILE_FORMAT_REGISTRY: List[Dict[str, Any]] = [
         "description": "Markdown 和 Mermaid 源文件输入、链接识别和导出。",
     },
     {
+        "key": "txt",
+        "name": "纯文本文件",
+        "type": "txt",
+        "extensions": ["txt"],
+        "mimeTypes": ["text/plain"],
+        "canUpload": True,
+        "canDetect": True,
+        "canExport": True,
+        "tool": "text_to_txt_tool",
+        "description": "纯文本文件输入和按原文导出。",
+    },
+    {
         "key": "archive",
         "name": "压缩包",
         "type": "zip",

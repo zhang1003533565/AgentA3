@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
+shopt -s extglob
 
 PROJECT_NAME="smart-campus-ai"
 SERVER_HOST="127.0.0.1"
 SERVER_PORT="8081"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT_ENV_FILE="$(cd "$SCRIPT_DIR/.." && pwd)/.env"
 cd "$SCRIPT_DIR"
 export UV_LINK_MODE="${UV_LINK_MODE:-copy}"
 
@@ -16,6 +18,38 @@ log() {
 fail() {
   printf '[%s] ERROR: %s\n' "$PROJECT_NAME" "$*" >&2
   exit 1
+}
+
+load_root_env() {
+  if [[ ! -f "$ROOT_ENV_FILE" ]]; then
+    log "No root .env found at '$ROOT_ENV_FILE'. Using existing process environment."
+    return
+  fi
+
+  local loaded=()
+  local raw_line line name value
+  while IFS= read -r raw_line || [[ -n "$raw_line" ]]; do
+    line="${raw_line%$'\r'}"
+    line="${line##+([[:space:]])}"
+    [[ -z "$line" || "$line" == \#* ]] && continue
+    if [[ "$line" =~ ^([A-Za-z_][A-Za-z0-9_]*)=(.*)$ ]]; then
+      name="${BASH_REMATCH[1]}"
+      value="${BASH_REMATCH[2]}"
+      if [[ "$value" == '"'*'"' || "$value" == "'"*"'" ]]; then
+        value="${value:1:${#value}-2}"
+      fi
+      if [[ "$name" == LLM_* || -z "${!name+x}" ]]; then
+        export "$name=$value"
+        loaded+=("$name")
+      fi
+    fi
+  done < "$ROOT_ENV_FILE"
+
+  if (( ${#loaded[@]} > 0 )); then
+    log "Loaded root .env keys: ${loaded[*]}"
+  else
+    log "Root .env found, but no environment keys were loaded."
+  fi
 }
 
 usage() {
@@ -66,6 +100,7 @@ start_ai_server() {
 }
 
 main() {
+  load_root_env
   ensure_uv
   sync_dependencies
   start_ai_server

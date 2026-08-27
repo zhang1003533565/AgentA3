@@ -25,7 +25,10 @@ from app.ppt_generation.service import (
     _source_outline_items,
     _content_quality_flags,
     _topic_outline_items,
+    _outline_topic_guidance,
+    _is_outline_transport_error,
     _sanitize_content_payload,
+    _ensure_outline_item_structure,
 )
 from app.ppt_generation.template_catalog import EmbeddedTemplateCatalog
 from app.ppt_generation.template_model import parse_slide_layout
@@ -296,6 +299,33 @@ def test_topic_only_sparse_outline_retries_for_depth(monkeypatch):
     assert "页面节点" in calls[1]["correction"]
 
 
+def test_topic_only_usable_short_outline_is_completed_without_model_retry(monkeypatch):
+    from app.ppt_generation import service as svc
+
+    calls = []
+
+    def fake_run_specialist_agent(agent, prompt, evidence):
+        calls.append(json.loads(prompt))
+        return _full_markdown(3)
+
+    monkeypatch.setattr(svc, "run_specialist_agent", fake_run_specialist_agent)
+    result = PptGenerationService().generate_outline(
+        {
+            "topic": "计算机专业就业指导",
+            "sourceContent": "计算机专业就业指导",
+            "pageCount": 5,
+        },
+        None,
+    )
+
+    assert len(calls) == 1
+    assert len(result["items"]) == 5
+    assert result["generationMode"] == "ai"
+    titles = [item["title"] for item in result["items"]]
+    assert titles[0] == "计算机专业就业指导"
+    assert titles[-2:] == ["学习与项目准备路径", "求职行动与决策清单"]
+
+
 def test_explicit_non_outline_mode_allows_framework_expansion(monkeypatch):
     from app.ppt_generation import service as svc
 
@@ -321,6 +351,69 @@ def test_explicit_non_outline_mode_allows_framework_expansion(monkeypatch):
     assert calls[0]["source_mode"] == "non_outline"
     assert calls[0]["outline_mode"] == "ai_outline"
     assert "重新搭建" in calls[0]["constraints"]
+
+
+def test_topic_guidance_uses_semantic_career_arc_without_layout_leakage():
+    guidance = _outline_topic_guidance("大学计算机就业方向简介", "学生", "topic_only")
+
+    assert "岗位" in guidance["recommended_narrative"] or "方向" in guidance["recommended_narrative"]
+    assert any("能力" in item for item in guidance["must_cover"])
+    assert any("方向" in item or "下一步" in item for item in guidance["must_cover"])
+    assert all("layoutId" not in item for item in guidance["avoid"])
+
+
+def test_outline_prompt_separates_topic_logic_from_ppt_format(monkeypatch):
+    from app.ppt_generation import service as svc
+
+    calls = []
+
+    def fake_run_specialist_agent(agent, prompt, evidence):
+        calls.append(json.loads(prompt))
+        return _full_markdown(5)
+
+    monkeypatch.setattr(svc, "run_specialist_agent", fake_run_specialist_agent)
+    PptGenerationService().generate_outline(
+        {
+            "topic": "大学计算机就业方向简介",
+            "sourceContent": "大学计算机就业方向简介",
+            "audience": "学生",
+            "pageCount": 5,
+        },
+        None,
+    )
+
+    prompt = calls[0]
+    assert "topic_interpretation" in prompt
+    assert "岗位" in prompt["topic_interpretation"]["recommended_narrative"]
+    assert "storyline" in prompt["planning_requirements"]
+    assert "方向" in prompt["topic_interpretation"]["recommended_narrative"]
+
+
+def test_outline_timeout_errors_from_http_clients_are_recoverable_transport_failures():
+    class FakeApiTimeoutError(Exception):
+        pass
+
+    class FakeReadTimeout(Exception):
+        pass
+
+    assert _is_outline_transport_error(FakeApiTimeoutError("Request timed out"))
+    assert _is_outline_transport_error(FakeReadTimeout("read operation timed out"))
+    assert not _is_outline_transport_error(ValueError("invalid outline"))
+
+
+def test_outline_connection_errors_from_openai_and_httpx_are_recoverable_transport_failures():
+    openai = pytest.importorskip("openai")
+    httpx = pytest.importorskip("httpx")
+
+    openai_error = openai.APIConnectionError(
+        message="Connection error.",
+        request=httpx.Request("POST", "https://example.invalid"),
+    )
+    httpx_error = httpx.ConnectError("Connection error.")
+
+    assert _is_outline_transport_error(openai_error)
+    assert _is_outline_transport_error(httpx_error)
+    assert not _is_outline_transport_error(HTTPException(status_code=502, detail="Connection error."))
 
 
 def test_generic_route_topic_is_replaced_by_short_manual_input(monkeypatch):
@@ -430,6 +523,19 @@ def test_structured_outline_preserves_page_nodes_and_rich_fields():
     assert items[0]["assetSuggestion"] == "概念关系图"
 
 
+def test_outline_structure_fills_nonsemantic_hints_when_model_omits_them():
+    item = _ensure_outline_item_structure({
+        "title": "核心问题",
+        "keyPoints": ["明确问题边界", "说明影响因素", "给出判断依据"],
+        "nodes": [{"title": "问题边界", "content": "先界定需要解决的范围。"}],
+    })
+
+    assert item["objective"]
+    assert item["type"] == "内容页"
+    assert item["displaySuggestion"]
+    assert item["assetSuggestion"]
+
+
 def test_rebuilt_outline_keeps_nodes_in_markdown_and_items():
     items = [{
         "id": "slide_1",
@@ -456,7 +562,10 @@ def test_rebuilt_outline_keeps_nodes_in_markdown_and_items():
 def test_topic_only_single_page_is_recovered_to_editable_scaffold(monkeypatch):
     from app.ppt_generation import service as svc
 
+    calls = []
+
     def fake_run_specialist_agent(agent, prompt, evidence):
+        calls.append(prompt)
         return SINGLE_PAGE_MARKDOWN
 
     monkeypatch.setattr(svc, "run_specialist_agent", fake_run_specialist_agent)
@@ -470,7 +579,8 @@ def test_topic_only_single_page_is_recovered_to_editable_scaffold(monkeypatch):
     )
 
     assert len(result["items"]) == 5
-    assert result["generationMode"] == "topic_recovery"
+    assert len(calls) == 1
+    assert result["generationMode"] == "ai"
     assert result["items"][0]["title"] == "大学高等数学教育学PPT"
     assert result["items"][-1]["type"] == "总结页"
 
@@ -488,6 +598,35 @@ def test_topic_outline_scaffold_respects_page_range():
     assert len(items) == 5
     assert items[0]["type"] == "封面页"
     assert items[-1]["type"] == "总结页"
+
+
+def test_career_topic_scaffold_uses_decision_and_action_arc():
+    items = _topic_outline_items("计算机专业就业指导", 5, 5)
+    titles = [item["title"] for item in items]
+
+    assert titles[0] == "计算机专业就业指导"
+    assert titles[1:] == [
+        "就业方向与岗位地图",
+        "岗位差异与能力要求",
+        "学习与项目准备路径",
+        "求职行动与决策清单",
+    ]
+    assert all(title not in {"核心概念", "知识结构", "方法与应用", "总结与思考"} for title in titles)
+
+
+def test_generic_scaffold_is_only_flagged_for_non_tutorial_topics():
+    generic_items = [
+        {"title": "主题与背景"},
+        {"title": "核心概念"},
+        {"title": "知识结构"},
+        {"title": "方法与应用"},
+        {"title": "总结与思考"},
+    ]
+
+    from app.ppt_generation.service import _is_generic_topic_scaffold
+
+    assert _is_generic_topic_scaffold(generic_items, "计算机专业就业指导", "topic_only")
+    assert not _is_generic_topic_scaffold(generic_items, "数据结构课程", "topic_only")
 
 
 def test_generate_outline_retries_with_correction_on_single_page(monkeypatch):
@@ -508,6 +647,32 @@ def test_generate_outline_retries_with_correction_on_single_page(monkeypatch):
     assert len(calls) == 2  # 第一次失败，第二次带纠正重试
     assert "correction" in calls[1]
     assert result["outlineMarkdown"].startswith("## PPT 大纲")
+
+
+def test_generate_outline_reports_real_generation_stages(monkeypatch):
+    from app.ppt_generation import service as svc
+
+    monkeypatch.setattr(svc, "run_specialist_agent", lambda *args, **kwargs: _full_markdown(5))
+    events = []
+    service = PptGenerationService()
+
+    result = service.generate_outline(
+        {"topic": "数据结构", "pageCount": 5, "sourceContent": "资料内容"},
+        None,
+        progress_callback=events.append,
+    )
+
+    assert len(result["items"]) == 5
+    assert [event["stage"] for event in events] == [
+        "preparing",
+        "planning",
+        "model_generation",
+        "parsing",
+        "quality_check",
+        "finalizing",
+    ]
+    assert [event["progress"] for event in events] == sorted(event["progress"] for event in events)
+    assert events[-1]["progress"] == 96
 
 
 def test_generate_outline_expands_single_page_after_all_retries(monkeypatch):

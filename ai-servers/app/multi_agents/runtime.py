@@ -23,16 +23,16 @@ logger = logging.getLogger("multi_agents.runtime")
 
 # 同一套阿里云百炼凭据下的免费文本模型故障切换顺序。
 FREE_TEXT_MODEL_FALLBACK_CHAIN = (
-    "qwen3.7-max-2026-06-08",
-    "qwen3.7-max-2026-05-17",
-    "qwen3.7-max-preview",
-    "kimi-k3",
     "deepseek-v4-flash-0731",
     "glm-5.2",
     "kimi-k2.7-code",
     "deepseek-v4-pro-0813",
     "qwen3.5-ocr",
     "qwen3.7-plus-2026-05-26",
+    "qwen3.8-2.4t-a95b",
+    "qwen3.8-max",
+    # Kimi K3 仅保留为最后兜底：max 推理档位延迟高，不应阻塞正常大纲生成。
+    "kimi-k3",
 )
 
 # 500 不能单独说明是模型额度问题：本地依赖缺失、配置错误也会返回 500。
@@ -63,7 +63,7 @@ LLM_SAME_MODEL_RETRIES = max(0, min(1, int(os.getenv("LLM_SAME_MODEL_RETRIES") o
 LLM_EMPTY_RESPONSE_RETRIES = max(0, min(1, int(os.getenv("LLM_EMPTY_RESPONSE_RETRIES") or 0)))
 LLM_MODEL_FALLBACK_MAX_ATTEMPTS = max(
     1,
-    min(len(FREE_TEXT_MODEL_FALLBACK_CHAIN), int(os.getenv("LLM_MODEL_FALLBACK_MAX_ATTEMPTS") or 2)),
+    min(len(FREE_TEXT_MODEL_FALLBACK_CHAIN), int(os.getenv("LLM_MODEL_FALLBACK_MAX_ATTEMPTS") or len(FREE_TEXT_MODEL_FALLBACK_CHAIN))),
 )
 
 
@@ -167,6 +167,16 @@ def _is_transient_model_retry_error(error: BaseException) -> bool:
     return any(marker in message for marker in _MODEL_RETRY_MARKERS)
 
 
+def _is_empty_model_response_error(error: BaseException) -> bool:
+    """Empty model output should fail over, not repeat the same 502."""
+    message = str(error or "").lower()
+    return (
+        "llm 返回内容为空" in message
+        or "llm returned empty" in message
+        or "empty model response" in message
+    )
+
+
 def _configured_fallback_config() -> Optional[LlmRuntimeConfig]:
     """Read an explicit cross-provider fallback without exposing credentials."""
     values = {
@@ -241,10 +251,15 @@ def _complete_with_model_fallback(
         candidates.append(config)
     if configured_fallback and all(candidate.cache_key() != configured_fallback.cache_key() for candidate in candidates):
         candidates.append(configured_fallback)
+    # 大纲即使没有配置跨 provider 兜底，也要经过一次同模型恢复窗口；
+    # 不能因为候选列表只有主模型就跳过空响应/瞬时错误重试。
     if len(candidates) == 1:
         return _complete_with_provider(
             get_chat_model_provider(), system_prompt, user_prompt, reasoning_effort
         )
+    # Give outline generation one bounded recovery window on the primary model
+    # before allowing a cross-provider switch. Other agents keep their existing
+    # retry policy so content generation latency is unchanged.
     transient_retries = LLM_SAME_MODEL_RETRIES if strict_ppt_recovery else 0
     empty_response_retries = LLM_EMPTY_RESPONSE_RETRIES if strict_ppt_recovery else 0
     for index, candidate in enumerate(candidates):
@@ -294,6 +309,7 @@ def _complete_with_model_fallback(
                 if (
                     same_model_attempt < transient_retries
                     and _is_transient_model_retry_error(error)
+                    and not _is_empty_model_response_error(error)
                 ):
                     logger.warning(
                         "retrying same model after transient error agent=%s model=%s retry=%s error=%s",
