@@ -117,6 +117,22 @@ public class MeetingController {
         ));
     }
 
+    @PostMapping("/{sessionId}/leave")
+    @Operation(summary = "离开会议")
+    public Result<Void> leave(@PathVariable String sessionId,
+                              HttpServletRequest httpRequest) {
+        meetingService.leaveMeeting(currentUserId(httpRequest), sessionId);
+        return Result.success();
+    }
+
+    @PostMapping("/{sessionId}/transfer-host")
+    @Operation(summary = "转交主持人")
+    public Result<MeetingDTO.SessionDetail> transferHost(@PathVariable String sessionId,
+                                                         @Valid @RequestBody MeetingDTO.TransferHostRequest request,
+                                                         HttpServletRequest httpRequest) {
+        return Result.success(meetingService.transferHost(currentUserId(httpRequest), sessionId, request.getNewHostName()));
+    }
+
     @PostMapping("/{sessionId}/organize")
     @Operation(summary = "整理会后内容", description = "根据会议记录生成转写整理、会议纪要、流程调度、成员分析和资源推荐结果")
     public Result<MeetingDTO.SessionDetail> organize(@PathVariable String sessionId,
@@ -166,6 +182,17 @@ public class MeetingController {
                 currentUserId(httpRequest),
                 sessionId,
                 request,
+                httpRequest.getHeader("Authorization")
+        ));
+    }
+
+    @PostMapping("/{sessionId}/ai-minutes")
+    @Operation(summary = "会后任务分工 AI 分析", description = "根据完整会议记录、弹幕/聊天和参会人信息，执行会后任务分工智能体分析")
+    public Result<MeetingDTO.AIMinutesResult> aiMinutes(@PathVariable String sessionId,
+                                                        HttpServletRequest httpRequest) {
+        return Result.success(meetingService.aiMinutesAnalysis(
+                currentUserId(httpRequest),
+                sessionId,
                 httpRequest.getHeader("Authorization")
         ));
     }

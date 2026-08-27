@@ -125,6 +125,12 @@
   border-radius: 8px;
 }
 
+.rag-agent-image-upload-label {
+  margin-top: 6px;
+  color: #475569;
+  font-size: 12px;
+}
+
 .rag-result-empty {
   display: flex;
   min-height: 360px;

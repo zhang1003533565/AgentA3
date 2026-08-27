@@ -6,3 +6,7 @@ __pycache__
 *.pyo
 data/ai-exports
 tests
+.uv-cache
+node_modules
+presenton_runtime/node_modules
+presenton_runtime/dist

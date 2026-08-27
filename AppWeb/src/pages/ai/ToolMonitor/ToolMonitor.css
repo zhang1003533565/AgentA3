@@ -1,0 +1,27 @@
+.tool-monitor-page {
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.tool-monitor-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.tool-monitor-heading {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.tool-monitor-card .ant-card-body {
+  padding: 16px;
+}
+
+.tool-monitor-candidate-table {
+  margin-top: 8px;
+}

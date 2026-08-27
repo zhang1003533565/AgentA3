@@ -8,8 +8,9 @@ import zipfile
 from pathlib import Path
 from xml.etree import ElementTree
 
-import fitz
 from docx import Document
+from docx.table import Table
+from docx.text.paragraph import Paragraph
 from pptx import Presentation
 
 
@@ -21,10 +22,8 @@ def extract_source_text(path: Path, max_characters: int = 200_000) -> str:
     extension = path.suffix.lower()
     if extension == ".txt":
         text = _decode_text(path.read_bytes())
-    elif extension == ".pdf":
-        text = _extract_pdf(path)
     elif extension == ".docx":
-        text = "\n".join(p.text for p in Document(path).paragraphs if p.text.strip())
+        text = _extract_docx(path)
     elif extension == ".pptx":
         text = _extract_pptx(path)
     elif extension == ".xlsx":
@@ -39,6 +38,41 @@ def extract_source_text(path: Path, max_characters: int = 200_000) -> str:
     return normalized[:max_characters]
 
 
+def _extract_docx(path: Path) -> str:
+    """Extract a DOCX in document order, including headings and tables.
+
+    ``Document.paragraphs`` silently omits tables. PPT source material often
+    puts the facts that must become comparison slides in tables, so walking the
+    document body is required instead of collecting paragraphs alone.
+    """
+    document = Document(path)
+    blocks = []
+    table_index = 0
+    for child in document.element.body.iterchildren():
+        tag = str(child.tag).rsplit("}", 1)[-1]
+        if tag == "p":
+            paragraph = Paragraph(child, document)
+            value = str(paragraph.text or "").strip()
+            if not value:
+                continue
+            style_name = str(getattr(paragraph.style, "name", "") or "")
+            heading = re.search(r"(?:Heading|标题)\s*([1-6])", style_name, flags=re.IGNORECASE)
+            if heading:
+                value = f"{'#' * int(heading.group(1))} {value}"
+            blocks.append(value)
+        elif tag == "tbl":
+            table_index += 1
+            table = Table(child, document)
+            rows = []
+            for row in table.rows:
+                cells = [re.sub(r"\s+", " ", str(cell.text or "").strip()) for cell in row.cells]
+                if any(cells):
+                    rows.append(" | ".join(cells))
+            if rows:
+                blocks.append(f"[表格 {table_index}]\n" + "\n".join(rows))
+    return "\n".join(blocks)
+
+
 def _decode_text(content: bytes) -> str:
     for encoding in ("utf-8-sig", "utf-8", "gb18030"):
         try:
@@ -46,14 +80,6 @@ def _decode_text(content: bytes) -> str:
         except UnicodeDecodeError:
             continue
     return content.decode("utf-8", errors="replace")
-
-
-def _extract_pdf(path: Path) -> str:
-    document = fitz.open(path)
-    try:
-        return "\n\n".join(page.get_text("text") for page in document)
-    finally:
-        document.close()
 
 
 def _extract_pptx(path: Path) -> str:

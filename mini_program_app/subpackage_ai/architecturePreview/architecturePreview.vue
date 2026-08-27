@@ -7,13 +7,7 @@
       :fixed="true"
       :placeholder="true"
       titleAlign="center"
-    >
-      <template #right>
-        <view class="nav-delete-action" @tap="deleteCurrentArchitecture">
-          <image class="nav-delete-icon" src="/static/icons/diagram/trash-2-lucide.svg" mode="aspectFit" />
-        </view>
-      </template>
-    </nav-bar>
+    />
 
     <view class="canvas-wrapper" :class="{ 'canvas-wrapper--dragging': isDragging }">
       <scroll-view
@@ -1461,4 +1455,7 @@ loadArchitecture()
 
 /* 底部操作栏样式已抽到 subpackage_ai/components/AiResultBar.vue
    这里不再写底部栏 CSS，由组件提供 */
+.page { background: #F6F7FB; }
+.canvas-wrapper, .canvas, .diagram-stage { background: #F6F7FB; }
+.canvas-content { padding: 28rpx 24rpx 200rpx; }
 </style>

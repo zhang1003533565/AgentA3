@@ -53,7 +53,7 @@ class AppAiPptControllerTest {
         mvc.perform(get("/api/app/ai/ppt/templates/general/thumbnail"))
                 .andExpect(status().isUnauthorized());
         mvc.perform(multipart("/api/app/ai/ppt/files")
-                        .file("file", "material.pdf".getBytes(java.nio.charset.StandardCharsets.UTF_8)))
+                        .file("file", "material.txt".getBytes(java.nio.charset.StandardCharsets.UTF_8)))
                 .andExpect(status().isUnauthorized());
     }
 
@@ -62,7 +62,7 @@ class AppAiPptControllerTest {
         mvc.perform(get("/api/app/ai/ppt/options")
                         .requestAttr("userId", 42L))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.scenes[0].value").value("review"));
+                .andExpect(jsonPath("$.data.templates").isArray());
 
         mvc.perform(post("/api/app/ai/ppt/outlines")
                         .requestAttr("userId", 42L)
@@ -89,11 +89,8 @@ class AppAiPptControllerTest {
         @Override
         public AiPptDTO.OptionsResponse getOptions(Long userId, String authorization) {
             this.userId = userId;
-            AiPptDTO.SceneOption scene = new AiPptDTO.SceneOption();
-            scene.setValue("review");
-            scene.setLabel("复习资料");
             AiPptDTO.OptionsResponse response = new AiPptDTO.OptionsResponse();
-            response.setScenes(java.util.List.of(scene));
+            response.setTemplates(java.util.List.of());
             response.setCacheTtlSeconds(86400);
             return response;
         }
@@ -115,6 +112,13 @@ class AppAiPptControllerTest {
         public Object generateSlides(Long userId, AiPptDTO.SlidesRequest request, String authorization) {
             this.userId = userId;
             return Map.of("slides", java.util.List.of());
+        }
+
+        @Override
+        public Object renderPreview(Long userId, AiPptDTO.PreviewRequest request, String authorization) {
+            this.userId = userId;
+            this.authorization = authorization;
+            return Map.of("imageBase64", "", "mimeType", "image/png");
         }
 
         @Override
@@ -168,6 +172,12 @@ class AppAiPptControllerTest {
         @Override
         public PythonAiProxyService.GeneratedExportResponse downloadTemplateThumbnail(
                 Long userId, String templateId, String authorization) {
+            return new PythonAiProxyService.GeneratedExportResponse(new byte[0], MediaType.IMAGE_PNG, 0);
+        }
+
+        @Override
+        public PythonAiProxyService.GeneratedExportResponse downloadTemplateLayoutPreview(
+                Long userId, String templateId, Integer slideIndex, String authorization) {
             return new PythonAiProxyService.GeneratedExportResponse(new byte[0], MediaType.IMAGE_PNG, 0);
         }
     }

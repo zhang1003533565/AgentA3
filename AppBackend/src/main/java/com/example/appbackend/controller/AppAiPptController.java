@@ -56,11 +56,35 @@ public class AppAiPptController {
         return Result.success(aiPptService.generateOutline(requireUserId(request), body, authorization));
     }
 
+    @PostMapping("/outlines/tasks")
+    public Result<Object> createOutlineTask(@Valid @RequestBody AiPptDTO.OutlineRequest body,
+                                            @RequestHeader(value = "Authorization", required = false) String authorization,
+                                            HttpServletRequest request) {
+        return Result.success(aiPptService.createOutlineTask(requireUserId(request), body, authorization));
+    }
+
     @PostMapping("/slides")
     public Result<Object> generateSlides(@Valid @RequestBody AiPptDTO.SlidesRequest body,
                                         @RequestHeader(value = "Authorization", required = false) String authorization,
                                         HttpServletRequest request) {
-        return Result.success(aiPptService.generateSlides(requireUserId(request), body, authorization));
+        // Page content generation is asynchronous because each page may spend
+        // several minutes in the model. The existing public path now returns a
+        // task immediately; progress is available from /tasks/{taskId}/stream.
+        return Result.success(aiPptService.createSlidesTask(requireUserId(request), body, authorization));
+    }
+
+    @PostMapping("/previews")
+    public Result<Object> renderPreview(@Valid @RequestBody AiPptDTO.PreviewRequest body,
+                                        @RequestHeader(value = "Authorization", required = false) String authorization,
+                                        HttpServletRequest request) {
+        return Result.success(aiPptService.renderPreview(requireUserId(request), body, authorization));
+    }
+
+    @PostMapping("/slides/tasks")
+    public Result<Object> createSlidesTask(@Valid @RequestBody AiPptDTO.SlidesRequest body,
+                                           @RequestHeader(value = "Authorization", required = false) String authorization,
+                                           HttpServletRequest request) {
+        return Result.success(aiPptService.createSlidesTask(requireUserId(request), body, authorization));
     }
 
     @PostMapping("/tasks")
@@ -135,6 +159,21 @@ public class AppAiPptController {
                 .contentType(file.contentType())
                 .contentLength(file.bytes().length)
                 .cacheControl(CacheControl.maxAge(java.time.Duration.ofMinutes(5)).cachePrivate())
+                .body(file.bytes());
+    }
+
+    @GetMapping("/templates/{templateId}/layout-previews/{slideIndex}")
+    public ResponseEntity<byte[]> downloadTemplateLayoutPreview(
+            @PathVariable String templateId,
+            @PathVariable Integer slideIndex,
+            @RequestHeader(value = "Authorization", required = false) String authorization,
+            HttpServletRequest request) {
+        PythonAiProxyService.GeneratedExportResponse file = aiPptService.downloadTemplateLayoutPreview(
+                requireUserId(request), templateId, slideIndex, authorization);
+        return ResponseEntity.ok()
+                .contentType(file.contentType())
+                .contentLength(file.bytes().length)
+                .cacheControl(CacheControl.maxAge(java.time.Duration.ofHours(24)).cachePrivate())
                 .body(file.bytes());
     }
 

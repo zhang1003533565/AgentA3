@@ -10,9 +10,9 @@ public interface MeetingParticipantRepository extends JpaRepository<MeetingParti
 
     List<MeetingParticipant> findByMeetingSessionIdOrderBySortOrderAscIdAsc(Long meetingSessionId);
 
-    List<MeetingParticipant> findByUserId(Long userId);
+    Optional<MeetingParticipant> findByMeetingSessionIdAndName(Long meetingSessionId, String name);
 
-    Optional<MeetingParticipant> findByMeetingSessionIdAndUserId(Long meetingSessionId, Long userId);
+    void deleteByMeetingSessionIdAndName(Long meetingSessionId, String name);
 
     void deleteByMeetingSessionId(Long meetingSessionId);
 }

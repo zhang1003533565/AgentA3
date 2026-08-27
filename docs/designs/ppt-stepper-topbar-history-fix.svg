@@ -1,0 +1,50 @@
+<svg width="390" height="360" viewBox="0 0 390 360" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="390" height="360" fill="#F5F7FB"/>
+  <rect x="0" y="0" width="390" height="88" fill="#FFFFFF"/>
+  <g transform="translate(24 47)">
+    <path d="M14 6L8 12L14 18" stroke="#172033" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+  <text x="195" y="61" text-anchor="middle" fill="#172033" font-family="Arial, sans-serif" font-size="16" font-weight="700">个性化资源包</text>
+  <g transform="translate(292 31)">
+    <rect width="74" height="40" rx="20" fill="#FFFFFF" stroke="#D8E0EC"/>
+    <path d="M18 20A10 10 0 1 0 28 10C24.6 10 21.7 11.6 19.9 14L18 16" stroke="#5265F5" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M18 11V16H23" stroke="#5265F5" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M28 15V21L32 23" stroke="#5265F5" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="44" y="25" fill="#5265F5" font-family="Arial, sans-serif" font-size="13" font-weight="700">历史</text>
+  </g>
+
+  <g transform="translate(14 112)">
+    <rect width="362" height="166" rx="14" fill="#FFFFFF" stroke="#E2E8F0"/>
+    <text x="18" y="35" fill="#172033" font-family="Arial, sans-serif" font-size="15" font-weight="800">PPT 生成流程</text>
+    <text x="330" y="35" text-anchor="end" fill="#5265F5" font-family="Arial, sans-serif" font-size="13" font-weight="800">1 / 8</text>
+    <rect x="54" y="72" width="244" height="4" rx="2" fill="#DFE5EE"/>
+    <rect x="54" y="72" width="0" height="4" rx="2" fill="#5265F5"/>
+
+    <g transform="translate(44 56)">
+      <circle cx="12" cy="18" r="18" fill="#EEF1FF" stroke="#5265F5" stroke-width="2"/>
+      <text x="12" y="24" text-anchor="middle" fill="#5265F5" font-family="Arial, sans-serif" font-size="15" font-weight="800">1</text>
+      <text x="12" y="70" text-anchor="middle" fill="#4055E8" font-family="Arial, sans-serif" font-size="13" font-weight="800">选模板</text>
+      <text x="12" y="91" text-anchor="middle" fill="#5265F5" font-family="Arial, sans-serif" font-size="11" font-weight="700">进行中</text>
+    </g>
+    <g transform="translate(106 56)">
+      <circle cx="12" cy="18" r="15" fill="#F8FAFC" stroke="#D7DFEB" stroke-width="1.5"/>
+      <text x="12" y="23" text-anchor="middle" fill="#96A1B2" font-family="Arial, sans-serif" font-size="13" font-weight="800">2</text>
+      <text x="12" y="70" text-anchor="middle" fill="#8B95A7" font-family="Arial, sans-serif" font-size="13">大纲来源</text>
+      <text x="12" y="91" text-anchor="middle" fill="#B3BAC8" font-family="Arial, sans-serif" font-size="11">待处理</text>
+    </g>
+    <g transform="translate(178 56)">
+      <circle cx="12" cy="18" r="15" fill="#F8FAFC" stroke="#D7DFEB" stroke-width="1.5"/>
+      <text x="12" y="23" text-anchor="middle" fill="#96A1B2" font-family="Arial, sans-serif" font-size="13" font-weight="800">3</text>
+      <text x="12" y="70" text-anchor="middle" fill="#8B95A7" font-family="Arial, sans-serif" font-size="13">编辑大纲</text>
+      <text x="12" y="91" text-anchor="middle" fill="#B3BAC8" font-family="Arial, sans-serif" font-size="11">待处理</text>
+    </g>
+    <g transform="translate(250 56)">
+      <circle cx="12" cy="18" r="15" fill="#F8FAFC" stroke="#D7DFEB" stroke-width="1.5"/>
+      <text x="12" y="23" text-anchor="middle" fill="#96A1B2" font-family="Arial, sans-serif" font-size="13" font-weight="800">4</text>
+      <text x="12" y="70" text-anchor="middle" fill="#8B95A7" font-family="Arial, sans-serif" font-size="13">设置 PPT</text>
+      <text x="12" y="91" text-anchor="middle" fill="#B3BAC8" font-family="Arial, sans-serif" font-size="11">待处理</text>
+    </g>
+  </g>
+
+  <text x="24" y="318" fill="#64748B" font-family="Arial, sans-serif" font-size="12">设计要点：历史入口进入导航右侧；圆点、连线、文字分层，文字区域不再被节点遮挡。</text>
+</svg>

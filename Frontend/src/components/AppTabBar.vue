@@ -67,6 +67,7 @@ const shortcutItems = [
         <RouterLink to="/ai">AI 助手</RouterLink>
         <RouterLink to="/ai-tools">AI 工具</RouterLink>
         <RouterLink to="/resume">我的简历</RouterLink>
+        <RouterLink to="/career/nebula">星图探索</RouterLink>
       </nav>
 
       <div class="app-tab-nav__profile">
@@ -125,7 +126,7 @@ const shortcutItems = [
 .app-site-header__inner {
   display: flex;
   align-items: center;
-  width: min(1200px, calc(100% - 40px));
+  width: min(1480px, calc(100% - 40px));
   height: 100%;
   margin: 0 auto;
   gap: 18px;
@@ -152,6 +153,7 @@ const shortcutItems = [
   flex: 1;
   gap: 6px;
   overflow-x: auto;
+  padding-right: 6px;
   scrollbar-width: none;
 }
 
@@ -163,13 +165,14 @@ const shortcutItems = [
   display: grid;
   place-items: center;
   min-height: 36px;
-  padding: 0 12px;
+  padding: 0 10px;
   border-radius: 8px;
   color: #ccd5e4;
   font-size: 14px;
   font-weight: 600;
   text-decoration: none;
   white-space: nowrap;
+  flex: 0 0 auto;
   transition: all 0.2s ease;
 }
 

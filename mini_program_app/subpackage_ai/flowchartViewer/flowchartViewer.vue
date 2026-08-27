@@ -7,18 +7,7 @@
       :fixed="true"
       :placeholder="true"
       titleAlign="center"
-    >
-      <template #right>
-        <view class="nav-result-actions">
-          <view class="nav-icon-action" @tap="openHistory">
-            <image class="nav-action-icon" src="/static/icons/diagram/history.svg" mode="aspectFit" />
-          </view>
-          <view class="nav-icon-action" @tap="deleteCurrentFlowchart">
-            <image class="nav-action-icon" src="/static/icons/diagram/trash-2-lucide.svg" mode="aspectFit" />
-          </view>
-        </view>
-      </template>
-    </nav-bar>
+    />
 
     <view v-if="loading" class="loading-state">正在加载流程图...</view>
     <movable-area v-else class="diagram-stage" scale-area>
@@ -237,10 +226,6 @@ onUnmounted(() => {
   if (typeof document !== 'undefined') document.removeEventListener('wheel', onWheel)
 })
 // #endif
-
-function openHistory() {
-  uni.navigateTo({ url: '/subpackage_ai/diagramHistory/diagramHistory?type=flowchart' })
-}
 
 function leaveAfterDelete() {
   const pages = getCurrentPages()
@@ -603,4 +588,8 @@ onMounted(() => {
 .action-btn--sec { background: #fff; color: #1e344f; border: 2rpx solid #e2e8ef; }
 .action-btn--pri { background: #5081B8; color: #fff; }
 .export-canvas { position: fixed; left: -99999px; top: -99999px; opacity: 0; pointer-events: none; }
+.page { background: #F6F7FB; color: #172033; }
+.diagram-stage { background-color: #F6F7FB; background-image: radial-gradient(#D9E2EE 1px, transparent 1px); background-size: 22rpx 22rpx; }
+.bottom-tip, .bottom-actions { background: #FFFFFF; border-color: #E6E8F1; }
+.bottom-actions { padding: 16rpx 24rpx calc(24rpx + env(safe-area-inset-bottom)); }
 </style>

@@ -18,12 +18,12 @@ public final class AiPptDTO {
 
     @Data
     public static class OptionsResponse {
-        private List<SceneOption> scenes;
         private List<TemplateOption> templates;
         private long cacheTtlSeconds;
         private String engine;
         private boolean enhancedEngineAvailable;
         private boolean editorEnabled;
+        private boolean templateCatalogAvailable = true;
     }
 
     @Data
@@ -33,18 +33,18 @@ public final class AiPptDTO {
         private String description;
         private String thumbnailUrl;
         private Integer layoutCount;
+        private List<LayoutInfo> layouts;
         @JsonProperty("default")
         private boolean defaultOption;
     }
 
     @Data
-    public static class SceneOption {
-        private String value;
-        private String label;
+    public static class LayoutInfo {
+        private String id;
         private String description;
-        private boolean enabled;
-        @JsonProperty("default")
-        private boolean defaultOption;
+        private List<String> elementTypes;
+        private List<String> slots;
+        private List<String> previewTexts;
     }
 
     @Data
@@ -60,11 +60,15 @@ public final class AiPptDTO {
         private String outlineMode = "ai_outline";
         @Min(3)
         @Max(50)
-        private Integer pageCount = 15;
-        @Size(max = 32)
-        private String scene = "review";
+        private Integer pageCount = 30;
+        @Size(max = 200000)
+        private String sourceSupplement;
         @Size(max = 200)
         private String topic;
+        @Size(max = 64)
+        private String audience;
+        @Size(max = 32)
+        private String tone;
     }
 
     @Data
@@ -73,11 +77,17 @@ public final class AiPptDTO {
         private Map<String, Object> outline;
         @Size(max = 200000)
         private String sourceContent;
+        @Size(max = 200000)
+        private String sourceSupplement;
         @Size(max = 80)
         private String sourceFileId;
         private Map<String, Object> settings;
         @Size(max = 2000)
         private String sharedPrompt;
+        @Size(max = 64)
+        private String audience;
+        @Size(max = 32)
+        private String tone;
     }
 
     @Data
@@ -93,7 +103,7 @@ public final class AiPptDTO {
         @Size(max = 2000)
         private String sharedPrompt;
         private Map<String, Object> settings;
-        @Size(max = 2)
+        @Size(max = 1)
         private List<String> exportFormats;
     }
 
@@ -104,5 +114,16 @@ public final class AiPptDTO {
         private String imageBase64;
         @Size(max = 8)
         private String extension = "png";
+    }
+
+    @Data
+    public static class PreviewRequest {
+        @Size(max = 64)
+        private String templateId = "general";
+        @Size(max = 255)
+        private String title = "演示文稿";
+        @NotNull
+        private Map<String, Object> slide;
+        private Map<String, Object> settings;
     }
 }

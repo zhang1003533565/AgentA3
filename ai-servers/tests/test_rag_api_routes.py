@@ -183,17 +183,14 @@ class RagApiRoutesTest(unittest.TestCase):
         catalog = self._rag_routes._build_leader_callable_catalog(request)
         content_tool = next(
             item
-            for item in catalog["contentTools"]
+            for item in catalog["tools"]
             if item["name"] == "ai_ppt_generation_tool"
         )
 
         self.assertFalse(content_tool["enabled"])
         self.assertEqual("unwired", content_tool["invocation"])
         self.assertEqual("registered", content_tool["status"])
-        self.assertNotIn(
-            "ai_ppt_generation_tool",
-            {item["name"] for item in catalog["tools"]},
-        )
+        self.assertIn("ai_ppt_generation_tool", {item["name"] for item in catalog["tools"]})
 
     def test_file_transform_action_forces_real_export_tool(self):
         request = SimpleNamespace(metadata={
@@ -207,7 +204,7 @@ class RagApiRoutesTest(unittest.TestCase):
 
         self.assertIsNotNone(plan)
         self.assertEqual("call_tool", plan.action)
-        self.assertEqual("generated_export_tools", plan.tool_name)
+        self.assertEqual("text_to_file_tool", plan.tool_name)
         self.assertEqual("rules", plan.route_mode)
 
     def test_second_source_option_is_expanded_to_explicit_model_authorization(self):
@@ -380,7 +377,7 @@ class RagApiRoutesTest(unittest.TestCase):
         self.assertEqual([], decorated.attachments)
         self.assertEqual("output_format_not_selected", decorated.outputMeta["generatedExports"]["reason"])
         self.assertEqual(
-            ["docx", "xlsx", "md", "pptx"],
+            ["md", "txt", "docx"],
             [item["outputType"] for item in decorated.outputMeta["followUpActions"]],
         )
 
@@ -694,7 +691,6 @@ class RagApiRoutesTest(unittest.TestCase):
         self.assertFalse(payload["metadata"]["needRetrieval"])
         self.assertIn("PPT 大纲", payload["answer"])
         self.assertIn("### 大纲信息", payload["answer"])
-        self.assertIn("- 使用场景：", payload["answer"])
         self.assertIn("- 受众：", payload["answer"])
         self.assertNotIn("讲解目标", payload["answer"])
         self.assertNotIn("页面内容建议", payload["answer"])
@@ -785,7 +781,7 @@ class RagApiRoutesTest(unittest.TestCase):
             def __init__(self):
                 self.callable_catalogs = []
 
-            def complete(self, system_prompt, user_prompt):
+            def complete(self, system_prompt, user_prompt, reasoning_effort=None):
                 if "Leader 智能体" in system_prompt:
                     payload = json.loads(user_prompt)
                     self.callable_catalogs.append(payload["leader_callable_catalog"])
@@ -803,7 +799,7 @@ class RagApiRoutesTest(unittest.TestCase):
                             },
                             ensure_ascii=False,
                         )
-                return super().complete(system_prompt, user_prompt)
+                return super().complete(system_prompt, user_prompt, reasoning_effort=reasoning_effort)
 
         rag_routes = importlib.import_module("app.api.routes.rag")
         leader_module = importlib.import_module("app.multi_agents.leader_agent.agent")
@@ -1418,6 +1414,20 @@ class RagApiRoutesTest(unittest.TestCase):
 
         self.assertEqual(400, response.status_code)
 
+    def test_admin_agent_console_can_directly_test_registered_internal_visual_agent(self):
+        request = self._rag_routes.RagQueryRequest(
+            input="识别图片",
+            agentName="vision_agent",
+            metadata={"testFrom": "admin_agent_console"},
+        )
+        ordinary_request = self._rag_routes.RagQueryRequest(
+            input="识别图片",
+            agentName="vision_agent",
+        )
+
+        self.assertEqual("vision_agent", self._rag_routes._normalize_requested_agent(request))
+        self.assertIsNone(self._rag_routes._normalize_requested_agent(ordinary_request))
+
     def test_learning_workflow_internal_agents_cannot_be_directly_requested(self):
         for requested_agent in ("learning_path_agent", "Python 学习路径智能体"):
             with self.subTest(requested_agent=requested_agent):
@@ -1493,10 +1503,9 @@ class RagApiRoutesTest(unittest.TestCase):
 """
         normalized = normalize_ppt_outline_answer(
             raw,
-            "topic: 数据结构中的栈与队列; scene_type: academic; audience: 学生; slide_count: 6",
+            "topic: 数据结构中的栈与队列; audience: 学生; slide_count: 6",
         )
         self.assertIn("### 大纲信息", normalized)
-        self.assertIn("- 使用场景：学术", normalized)
         self.assertIn("- 受众：学生", normalized)
         self.assertIn("- 页面类型：封面页", normalized)
         self.assertIn("- 本页目标：明确主题。", normalized)
@@ -1561,7 +1570,7 @@ def _fake_question_payload(question_type):
 
 
 class FakeRagModelProvider:
-    def complete(self, system_prompt, user_prompt):
+    def complete(self, system_prompt, user_prompt, reasoning_effort=None):
         if "系统接口返回的数据" in system_prompt:
             payload = json.loads(user_prompt)
             if payload.get("answer_policy", {}).get("mode") == "canteen_query":
@@ -1750,6 +1759,18 @@ class FakeRagModelProvider:
             return "## 资源推荐\n- 成员A：推荐复习资料"
         if "语音播报智能体" in system_prompt:
             return "## 语音播报稿\n请大家关注会议结论。"
+        if "Presenton's presentation structure agent" in system_prompt:
+            return json.dumps({"layouts": [{"slideIndex": 1, "layoutId": "content"}]}, ensure_ascii=False)
+        if "PPT 逐页内容智能体" in system_prompt:
+            return json.dumps({
+                "slides": [{
+                    "index": 1,
+                    "title": "数据结构中的栈与队列",
+                    "content": ["栈遵循后进先出，队列遵循先进先出。"],
+                    "componentContent": {},
+                    "speakerNote": "说明两种结构的访问顺序。",
+                }]
+            }, ensure_ascii=False)
         if "PPT 大纲智能体" in system_prompt:
             return """## PPT 大纲
 ### 第 1 页：课程导入
@@ -1783,8 +1804,8 @@ class FakeRagModelProvider:
     def answer(self, prompt, input_text, history, search_keyword, search_results):
         return f"已检索到{len(search_results or [])}条候选，关键词={search_keyword}"
 
-    def stream_complete(self, system_prompt, user_prompt):
-        yield self.complete(system_prompt, user_prompt)
+    def stream_complete(self, system_prompt, user_prompt, reasoning_effort=None):
+        yield self.complete(system_prompt, user_prompt, reasoning_effort=reasoning_effort)
 
 
 class FakeImageProvider:

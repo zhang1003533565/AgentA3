@@ -5,6 +5,7 @@ import zhCN from 'antd/locale/zh_CN'
 import dayjs from 'dayjs'
 import './index.css'
 import App from './App.jsx'
+import AppErrorBoundary from './components/AppErrorBoundary/AppErrorBoundary.jsx'
 
 // 确保 window.dayjs 存在，Ant Design 内部可能依赖它
 window.dayjs = dayjs
@@ -45,6 +46,8 @@ const appTheme = {
 
 createRoot(document.getElementById('root')).render(
   <ConfigProvider locale={zhCN} theme={appTheme}>
-    <App />
+    <AppErrorBoundary>
+      <App />
+    </AppErrorBoundary>
   </ConfigProvider>,
 )

@@ -10,11 +10,13 @@ import com.example.appbackend.dto.UserProfileDTO;
 import com.example.appbackend.entity.AiLeaderGeneratedExport;
 import com.example.appbackend.entity.AiLeaderMessage;
 import com.example.appbackend.entity.AiLeaderSession;
+import com.example.appbackend.entity.AiToolCallRecord;
 import com.example.appbackend.entity.Result;
 import com.example.appbackend.exception.BusinessException;
 import com.example.appbackend.repository.AiLeaderGeneratedExportRepository;
 import com.example.appbackend.repository.AiLeaderMessageRepository;
 import com.example.appbackend.repository.AiLeaderSessionRepository;
+import com.example.appbackend.repository.AiToolCallRecordRepository;
 import com.example.appbackend.service.UserProfileService;
 import com.example.appbackend.service.impl.AssistantEnvelopeService;
 import com.example.appbackend.service.impl.PythonAiProxyService;
@@ -33,6 +35,7 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestHeader;
@@ -41,6 +44,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
+import org.springframework.transaction.annotation.Transactional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -74,6 +78,7 @@ public class AppAiLeaderController {
     private final AiLeaderSessionRepository sessionRepository;
     private final AiLeaderMessageRepository messageRepository;
     private final AiLeaderGeneratedExportRepository exportRepository;
+    private final AiToolCallRecordRepository toolCallRecordRepository;
     private final UserProfileService userProfileService;
     private final ObjectMapper objectMapper;
     private final AssistantEnvelopeService assistantEnvelopeService;
@@ -82,6 +87,7 @@ public class AppAiLeaderController {
                                  AiLeaderSessionRepository sessionRepository,
                                  AiLeaderMessageRepository messageRepository,
                                  AiLeaderGeneratedExportRepository exportRepository,
+                                 AiToolCallRecordRepository toolCallRecordRepository,
                                  UserProfileService userProfileService,
                                  ObjectMapper objectMapper,
                                  AssistantEnvelopeService assistantEnvelopeService) {
@@ -89,6 +95,7 @@ public class AppAiLeaderController {
         this.sessionRepository = sessionRepository;
         this.messageRepository = messageRepository;
         this.exportRepository = exportRepository;
+        this.toolCallRecordRepository = toolCallRecordRepository;
         this.userProfileService = userProfileService;
         this.objectMapper = objectMapper;
         this.assistantEnvelopeService = assistantEnvelopeService;
@@ -109,7 +116,8 @@ public class AppAiLeaderController {
         LlmChatResponse response = toChatResponse(session, ragResult);
         AssistantEnvelopeService.PreparedEnvelope envelope = assistantEnvelopeService.prepareLiveResponse(
                 response, mapValue(ragResult), request.getInput());
-        saveAssistantMessage(userId, session, response, envelope);
+        AiLeaderMessage savedMessage = saveAssistantMessage(userId, session, response, envelope);
+        saveToolCallRecordIfNeeded(userId, session, savedMessage, ragResult, request.getInput());
         refreshSession(session, response.getAnswer());
         captureLeaderProfileEvidence(userId, session, request, response);
         return Result.success(response);
@@ -194,12 +202,16 @@ public class AppAiLeaderController {
                 AssistantEnvelopeService.PreparedEnvelope envelope = assistantEnvelopeService.prepareLiveResponse(
                         response, mapValue(eventPayload), request.getInput(), Set.copyOf(internalCapabilities));
                 AiLeaderMessage existing = visibleGenerationMessage.get();
+                AiLeaderMessage savedMessage;
                 if (existing == null) {
-                    AiLeaderMessage saved = saveAssistantMessage(userId, session, response, envelope);
-                    visibleGenerationMessage.set(saved);
+                    savedMessage = saveAssistantMessage(userId, session, response, envelope);
+                    visibleGenerationMessage.set(savedMessage);
                 } else {
                     updateAssistantMessage(userId, session, existing, response, envelope);
+                    savedMessage = existing;
                 }
+                // 保存工具调用打分记录（流式接口）
+                saveToolCallRecordIfNeeded(userId, session, savedMessage, eventPayload, request.getInput());
                 completed.set(true);
                 assistantEnvelopeService.overwriteSsePayload(eventPayload, response);
                 refreshSession(session, response.getAnswer());
@@ -253,6 +265,19 @@ public class AppAiLeaderController {
         }
         detail.setMessages(items);
         return Result.success(detail);
+    }
+
+    @DeleteMapping("/sessions/{sessionId}")
+    @Transactional
+    @Operation(summary = "删除 App Leader 会话", description = "删除当前用户指定会话及其消息、导出记录")
+    public Result<Void> deleteSession(@PathVariable String sessionId, HttpServletRequest httpRequest) {
+        Long userId = currentUserId(httpRequest);
+        AiLeaderSession session = sessionRepository.findByUserIdAndSessionId(userId, sessionId)
+                .orElseThrow(() -> new BusinessException(404, "会话不存在"));
+        exportRepository.deleteAll(exportRepository.findByUserIdAndLeaderSessionId(userId, session.getId()));
+        messageRepository.deleteAll(messageRepository.findByLeaderSessionIdOrderByCreateTimeAscIdAsc(session.getId()));
+        sessionRepository.delete(session);
+        return Result.success(null);
     }
 
     @GetMapping("/sessions/{sessionId}/messages/{messageId}/exports/{storageKey}")
@@ -679,6 +704,13 @@ public class AppAiLeaderController {
         message.setRole(AiLeaderMessage.ROLE_USER);
         message.setContent(visibleInput == null ? "" : visibleInput);
         message.setAnswerType(userMessageAnswerType(request));
+        if (request != null && request.getAttachments() != null && !request.getAttachments().isEmpty()) {
+            try {
+                message.setAttachmentsJson(objectMapper.writeValueAsString(request.getAttachments()));
+            } catch (JsonProcessingException error) {
+                throw new IllegalStateException("Unable to persist uploaded resources", error);
+            }
+        }
         if (request != null && StringUtils.hasText(request.getInteractionType())) {
             Map<String, Object> actionMeta = new LinkedHashMap<>();
             actionMeta.put("interactionType", request.getInteractionType().trim());
@@ -757,6 +789,7 @@ public class AppAiLeaderController {
         item.setOutputMeta(readMap(message.getOutputMetaJson()));
         item.setRetrievalMeta(readMap(message.getRetrievalMetaJson()));
         item.setTrace(readMapList(message.getTraceJson()));
+        item.setAttachments(readMapList(message.getAttachmentsJson()));
         if (AiLeaderMessage.ROLE_ASSISTANT.equals(message.getRole())) {
             assistantEnvelopeService.restoreEnvelope(message, item, expectedQuery);
         }
@@ -864,5 +897,48 @@ public class AppAiLeaderController {
             }
         }
         return truncate(input.trim().replaceAll("\\s+", " "), 40);
+    }
+
+    private void saveToolCallRecordIfNeeded(Long userId, AiLeaderSession session,
+                                            AiLeaderMessage savedMessage, Object ragResult, String userInput) {
+        try {
+            log.info("[ToolMonitor] saveToolCallRecordIfNeeded called, userId={}, sessionId={}", 
+                    userId, session == null ? null : session.getSessionId());
+            Map<String, Object> result = ragResult instanceof Map<?, ?> map ? (Map<String, Object>) map : Map.of();
+            log.info("[ToolMonitor] ragResult type: {}, keys: {}", 
+                    ragResult == null ? "null" : ragResult.getClass().getSimpleName(),
+                    result.keySet());
+            // 流式接口用 retrievalMeta，非流式接口用 metadata
+            Object metadataValue = result.containsKey("metadata") ? result.get("metadata") : result.get("retrievalMeta");
+            Map<String, Object> metadata = mapValue(metadataValue);
+            log.info("[ToolMonitor] metadata keys: {}", metadata.keySet());
+            String leaderAction = stringValue(metadata.get("leaderAction"));
+            log.info("[ToolMonitor] leaderAction: {}", leaderAction);
+            boolean toolCalled = "call_tool".equals(leaderAction);
+            Map<String, Object> toolSelection = mapValue(metadata.get("toolSelection"));
+            log.info("[ToolMonitor] toolSelection: {}", toolSelection);
+            // 优先读取全量打分数据，回退到候选工具列表
+            List<Map<String, Object>> allToolScores = traceAsMaps(toolSelection.get("allToolScores"));
+            List<Map<String, Object>> candidateTools = !allToolScores.isEmpty() 
+                    ? allToolScores 
+                    : traceAsMaps(toolSelection.get("candidateTools"));
+            log.info("[ToolMonitor] allToolScores count: {}, candidateTools count: {}", allToolScores.size(), candidateTools.size());
+            String candidateToolsJson = candidateTools.isEmpty() ? "[]" : objectMapper.writeValueAsString(candidateTools);
+            AiToolCallRecord record = new AiToolCallRecord();
+            record.setUserId(userId);
+            record.setLeaderSessionId(session == null ? null : session.getId());
+            record.setMessageId(savedMessage == null ? null : savedMessage.getId());
+            record.setToolName(stringValue(metadata.get("toolName")));
+            record.setToolDisplayName(stringValue(metadata.get("toolDisplayName")));
+            record.setUserInput(truncate(stringValue(userInput), 500));
+            record.setIntent(stringValue(toolSelection.get("intent")));
+            record.setToolCalled(toolCalled);
+            record.setCandidateToolsJson(candidateToolsJson);
+            toolCallRecordRepository.save(record);
+            log.info("[ToolMonitor] record saved, id={}, toolCalled={}", record.getId(), toolCalled);
+        } catch (Exception error) {
+            log.warn("[ToolMonitor] tool call record save failed userId={} sessionId={}: {}",
+                    userId, session == null ? null : session.getSessionId(), error.getMessage(), error);
+        }
     }
 }

@@ -19,6 +19,8 @@ public interface MeetingService {
 
     MeetingDTO.SessionDetail joinMeeting(Long userId, MeetingDTO.JoinRoomRequest request);
 
+    void leaveMeeting(Long userId, String sessionId);
+
     MeetingDTO.SessionDetail getMeeting(Long userId, String sessionId);
 
     MeetingDTO.SessionDetail startMeeting(Long userId, String sessionId);
@@ -26,6 +28,8 @@ public interface MeetingService {
     MeetingDTO.SessionDetail endMeeting(Long userId, String sessionId, String authorization);
 
     MeetingDTO.SessionDetail organizeMeeting(Long userId, String sessionId, String authorization);
+
+    MeetingDTO.SessionDetail transferHost(Long userId, String sessionId, String newHostName);
 
     void deleteMeeting(Long userId, String sessionId);
 
@@ -38,4 +42,6 @@ public interface MeetingService {
     List<MeetingDTO.CommentItem> listComments(Long userId, String sessionId);
 
     MeetingDTO.CommentItem addComment(Long userId, String sessionId, MeetingDTO.CommentRequest request);
+
+    MeetingDTO.AIMinutesResult aiMinutesAnalysis(Long userId, String sessionId, String authorization);
 }
