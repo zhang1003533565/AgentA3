@@ -60,27 +60,53 @@
 
         <!-- 第二步：拆解预览（未入库） -->
         <template v-if="phase === 'preview'">
+          <view class="preview-workflow-stepper">
+            <view class="workflow-step workflow-step--done">
+              <view class="workflow-step-marker"><text>✓</text></view>
+              <text class="workflow-step-label">输入资料</text>
+            </view>
+            <view class="workflow-step-line workflow-step-line--done"></view>
+            <view class="workflow-step workflow-step--done">
+              <view class="workflow-step-marker"><text>✓</text></view>
+              <text class="workflow-step-label">AI拆解</text>
+            </view>
+            <view class="workflow-step-line"></view>
+            <view class="workflow-step workflow-step--active">
+              <view class="workflow-step-marker"><text>3</text></view>
+              <text class="workflow-step-label">预览调整</text>
+            </view>
+          </view>
+
           <view class="section-card goal-card preview-goal-card">
             <view class="goal-head preview-goal-title-row">
-              <text class="goal-badge">预览</text>
               <input class="goal-title-input" v-model="previewGoal.title" maxlength="120" />
+              <image class="preview-goal-edit" src="@/static/icons/line/edit-3.svg" mode="aspectFit" />
             </view>
             <textarea class="goal-desc-input" v-model="previewGoal.description" maxlength="500" placeholder="补充目标说明（可选）" />
             <view class="date-settings">
               <view class="date-setting">
-                <text class="date-label">开始日期</text>
+                <view class="date-setting-head">
+                  <image class="date-setting-icon" src="@/static/icons/line/calendar.svg" mode="aspectFit" />
+                  <text class="date-label">开始日期</text>
+                </view>
                 <picker mode="date" :value="previewGoal.startDate" @change="changePreviewDate('startDate', $event)">
                   <text class="date-value">{{ formatPlanDate(previewGoal.startDate) }}</text>
                 </picker>
               </view>
               <view class="date-setting">
-                <text class="date-label">目标日期</text>
+                <view class="date-setting-head">
+                  <image class="date-setting-icon" src="@/static/icons/line/calendar.svg" mode="aspectFit" />
+                  <text class="date-label">目标日期</text>
+                </view>
                 <picker mode="date" :value="previewGoal.targetDate" @change="changePreviewDate('targetDate', $event)">
                   <text class="date-value">{{ previewGoal.targetDate ? formatPlanDate(previewGoal.targetDate) : '不设置' }}</text>
                 </picker>
               </view>
               <view class="date-setting capacity-setting">
-                <text class="date-label">每日学习容量</text>
+                <view class="date-setting-head">
+                  <image class="date-setting-icon" src="@/static/icons/line/clock.svg" mode="aspectFit" />
+                  <text class="date-label">每日学习时长</text>
+                </view>
                 <view class="capacity-line">
                   <input class="capacity-input" type="number" v-model="previewGoal.dailyStudyMinutes" />
                   <text class="date-value">分钟</text>
@@ -93,86 +119,95 @@
               <text class="goal-meta">{{ totalSubtaskCount }} 个执行步骤</text>
               <text class="goal-meta-split">·</text>
               <text class="goal-meta">预计 {{ totalEstimatedDays }} 天</text>
-              <text class="goal-meta-split">·</text>
-              <text class="goal-meta">排至 {{ formatPlanDate(previewTasks[previewTasks.length - 1]?.plannedEndDate) }}</text>
             </view>
           </view>
 
           <view class="section-card task-table preview-task-list">
             <template v-for="(task, index) in previewTasks" :key="task.orderNum">
-            <view class="preview-stage">
-              <view class="preview-stage-head">
-                <view class="preview-stage-number">{{ task.orderNum }}</view>
-                <view class="preview-stage-title">
-                  <text class="preview-stage-kicker">学习阶段</text>
-                  <input class="task-edit-input" v-model="task.taskName" maxlength="120" placeholder="阶段名称" />
-                </view>
-                <view class="priority-tag" :class="`priority-tag--${priorityLevel(task.priority)}`" @tap="cyclePriority(task)">
-                  <text>{{ task.priority }}</text>
-                </view>
-              </view>
-              <textarea class="task-edit-desc preview-stage-desc" v-model="task.description" maxlength="500" placeholder="阶段说明（可选）" auto-height />
-              <view class="preview-stage-fields">
-                <view class="preview-field">
-                  <text class="preview-field-label">阶段类型</text>
-                  <input class="stage-edit-input" v-model="task.stage" maxlength="60" placeholder="例如：基础阶段" />
-                </view>
-                <view class="preview-field preview-field--days">
-                  <text class="preview-field-label">预计天数</text>
-                  <view class="preview-days-input">
-                    <input class="days-edit-input" type="number" v-model="task.estimatedDays" @input="reschedulePreview" />
-                    <text>天</text>
+              <view class="preview-stage-group">
+                <view class="preview-stage">
+                  <view class="preview-stage-head">
+                    <view class="preview-stage-number">{{ task.orderNum }}</view>
+                    <view class="preview-stage-title">
+                      <text class="preview-stage-kicker">学习阶段</text>
+                      <input class="task-edit-input" v-model="task.taskName" maxlength="120" placeholder="阶段名称" />
+                    </view>
+                    <view class="priority-tag" :class="`priority-tag--${priorityLevel(task.priority)}`" @tap="cyclePriority(task)">
+                      <text>难度：{{ task.priority }}</text>
+                    </view>
+                  </view>
+                  <textarea class="task-edit-desc preview-stage-desc" v-model="task.description" maxlength="500" placeholder="阶段说明（可选）" auto-height />
+                  <view class="preview-stage-stats">
+                    <view class="preview-stage-stat">
+                      <image class="preview-stage-stat-icon" src="@/static/icons/line/clock.svg" mode="aspectFit" />
+                      <view class="preview-stage-stat-copy">
+                        <text class="preview-stage-stat-label">预计天数</text>
+                        <view class="preview-days-input">
+                          <input class="days-edit-input" type="number" v-model="task.estimatedDays" @input="reschedulePreview" />
+                          <text>天</text>
+                        </view>
+                      </view>
+                    </view>
+                    <view class="preview-stage-stat">
+                      <image class="preview-stage-stat-icon" src="@/static/icons/line/clipboard.svg" mode="aspectFit" />
+                      <view class="preview-stage-stat-copy">
+                        <text class="preview-stage-stat-label">执行步骤</text>
+                        <text class="preview-stage-stat-value">{{ task.subtasks.length }} 个</text>
+                      </view>
+                    </view>
+                  </view>
+                  <view class="preview-stage-type-row">
+                    <text class="preview-field-label">阶段类型</text>
+                    <input class="stage-edit-input" v-model="task.stage" maxlength="60" placeholder="例如：基础阶段" />
+                  </view>
+                  <view class="row-actions">
+                    <text @tap="movePreviewTask(index, -1)">上移</text>
+                    <text @tap="movePreviewTask(index, 1)">下移</text>
+                    <text class="row-action--danger" @tap="removePreviewTask(index)">删除阶段</text>
                   </view>
                 </view>
-              </view>
-              <view class="row-actions">
-                <text @tap="movePreviewTask(index, -1)">上移</text>
-                <text @tap="movePreviewTask(index, 1)">下移</text>
-                <text class="row-action--danger" @tap="removePreviewTask(index)">删除阶段</text>
-              </view>
-            </view>
-              <view v-if="task.subtasks.length" class="subtask-editor">
-              <view class="subtask-editor__head preview-subtask-head">
-                <view class="subtask-editor__heading">
-                  <text class="subtask-editor__title">{{ task.taskName || '未命名阶段' }} · 执行步骤</text>
-                  <text class="subtask-editor__count">{{ task.subtasks.length }} 项</text>
+                <view v-if="task.subtasks.length" class="subtask-editor">
+                  <view class="subtask-editor__head preview-subtask-head">
+                    <view class="subtask-editor__heading">
+                      <text class="subtask-editor__title">执行步骤（{{ task.subtasks.length }}）</text>
+                    </view>
+                    <view class="subtask-collapse-trigger" @tap="togglePreviewSubtasks(task)">
+                      <text>{{ isPreviewSubtasksExpanded(task) ? '收起步骤' : '展开步骤' }}</text>
+                      <view
+                        class="subtask-collapse-chevron"
+                        :class="{ 'subtask-collapse-chevron--expanded': isPreviewSubtasksExpanded(task) }"
+                      ></view>
+                    </view>
+                  </view>
+                  <template v-if="isPreviewSubtasksExpanded(task)">
+                  <view v-for="(subtask, subtaskIndex) in task.subtasks" :key="`${task.orderNum}-${subtask.orderNum}`" class="subtask-row">
+                    <text class="subtask-order">{{ subtask.orderNum }}</text>
+                    <view class="subtask-name-col">
+                      <input class="task-edit-input" v-model="subtask.taskName" maxlength="120" placeholder="执行步骤名称" />
+                      <textarea class="task-edit-desc subtask-desc-input" v-model="subtask.description" maxlength="500" placeholder="完成标准（可选）" auto-height />
+                    </view>
+                    <view class="subtask-days-input">
+                      <input class="days-edit-input" type="number" v-model="subtask.estimatedDays" @input="reschedulePreview" />
+                      <text>天</text>
+                    </view>
+                    <view class="subtask-actions">
+                      <text @tap="movePreviewSubtask(task, subtaskIndex, -1)">上移</text>
+                      <text @tap="movePreviewSubtask(task, subtaskIndex, 1)">下移</text>
+                      <text class="row-action--danger" @tap="removePreviewSubtask(task, subtaskIndex)">删除</text>
+                    </view>
+                  </view>
+                  <view class="add-subtask-row" @tap="addPreviewSubtask(task)"><text>＋ 添加执行步骤</text></view>
+                  </template>
                 </view>
-                <view class="subtask-collapse-trigger" @tap="togglePreviewSubtasks(task)">
-                  <text>{{ isPreviewSubtasksExpanded(task) ? '收起' : '展开' }}</text>
-                  <view
-                    class="subtask-collapse-chevron"
-                    :class="{ 'subtask-collapse-chevron--expanded': isPreviewSubtasksExpanded(task) }"
-                  ></view>
-                </view>
-              </view>
-              <template v-if="isPreviewSubtasksExpanded(task)">
-              <view v-for="(subtask, subtaskIndex) in task.subtasks" :key="`${task.orderNum}-${subtask.orderNum}`" class="subtask-row">
-                <text class="subtask-order">{{ subtask.orderNum }}</text>
-                <view class="subtask-name-col">
-                  <input class="task-edit-input" v-model="subtask.taskName" maxlength="120" placeholder="执行步骤名称" />
-                  <textarea class="task-edit-desc subtask-desc-input" v-model="subtask.description" maxlength="500" placeholder="完成标准（可选）" auto-height />
-                </view>
-                <view class="subtask-days-input">
-                  <input class="days-edit-input" type="number" v-model="subtask.estimatedDays" @input="reschedulePreview" />
-                  <text>天</text>
-                </view>
-                <view class="subtask-actions">
-                  <text @tap="movePreviewSubtask(task, subtaskIndex, -1)">上移</text>
-                  <text @tap="movePreviewSubtask(task, subtaskIndex, 1)">下移</text>
-                  <text class="row-action--danger" @tap="removePreviewSubtask(task, subtaskIndex)">删除</text>
-                </view>
-              </view>
-              <view class="add-subtask-row" @tap="addPreviewSubtask(task)"><text>＋ 添加执行步骤</text></view>
-              </template>
               </view>
             </template>
             <view class="add-task-row" @tap="addPreviewTask"><text>＋ 添加学习阶段</text></view>
           </view>
 
-          <view class="action-bar">
-            <view class="ghost-btn" @tap="backToInput"><text>返回修改</text></view>
+          <view class="action-bar preview-action-bar">
+            <view class="ghost-btn" @tap="backToInput"><text>返回修改资料</text></view>
             <view class="primary-btn primary-btn--inline" :class="{ 'primary-btn--disabled': saving }" @tap="confirmSave">
-              <text>{{ saving ? '创建中...' : '确认创建任务' }}</text>
+              <text>{{ saving ? '创建中...' : '确认并创建计划' }}</text>
             </view>
           </view>
         </template>
@@ -2452,5 +2487,429 @@ function priorityLevel(priority) {
 
 .study-plan-page .task-item--today {
   background: #FBFDFB;
+}
+
+/* 预览调整态按“步骤—摘要—阶段—保存”重排，降低长页面的阅读压力 */
+.study-plan-page .preview-workflow-stepper {
+  display: flex;
+  align-items: flex-start;
+  padding: 8rpx 34rpx 20rpx;
+}
+
+.study-plan-page .workflow-step {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  align-items: center;
+  gap: 8rpx;
+  color: #6C788A;
+  font-size: 20rpx;
+  white-space: nowrap;
+}
+
+.study-plan-page .workflow-step-marker {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44rpx;
+  height: 44rpx;
+  box-sizing: border-box;
+  border: 2rpx solid #81909F;
+  border-radius: 50%;
+  color: #527677;
+  font-size: 25rpx;
+  font-weight: 600;
+}
+
+.study-plan-page .workflow-step--active {
+  color: #3E7476;
+  font-weight: 600;
+}
+
+.study-plan-page .workflow-step--active .workflow-step-marker {
+  border-color: #5B7F80;
+  background: #5B7F80;
+  color: #FFFFFF;
+}
+
+.study-plan-page .workflow-step-line {
+  flex: 1;
+  height: 2rpx;
+  margin: 21rpx 10rpx 0;
+  background: #D5DCE3;
+}
+
+.study-plan-page .workflow-step-line--done {
+  background: #829297;
+}
+
+.study-plan-page .preview-goal-card {
+  padding: 26rpx 24rpx 0;
+}
+
+.study-plan-page .preview-goal-title-row {
+  display: flex;
+  align-items: center;
+  gap: 14rpx;
+}
+
+.study-plan-page .preview-goal-title-row .goal-title-input {
+  flex: 1;
+  width: auto;
+  height: 62rpx;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #172033;
+  font-size: 30rpx;
+  font-weight: 600;
+}
+
+.study-plan-page .preview-goal-edit {
+  flex: 0 0 auto;
+  width: 34rpx;
+  height: 34rpx;
+  opacity: 0.72;
+}
+
+.study-plan-page .preview-goal-card .goal-desc-input {
+  min-height: 94rpx;
+  margin-top: 14rpx;
+  padding: 16rpx 18rpx;
+  border: 1rpx solid #E3E8ED;
+  border-radius: 12rpx;
+  background: #FAFBFC;
+  color: #435064;
+  font-size: 23rpx;
+  line-height: 1.55;
+}
+
+.study-plan-page .preview-goal-card .date-settings {
+  gap: 10rpx;
+  margin-top: 16rpx;
+}
+
+.study-plan-page .preview-goal-card .date-setting {
+  padding: 14rpx 12rpx;
+  border: 1rpx solid #E5EAEF;
+  border-radius: 12rpx;
+  background: #FFFFFF;
+}
+
+.study-plan-page .date-setting-head {
+  display: flex;
+  align-items: center;
+  gap: 6rpx;
+  min-width: 0;
+}
+
+.study-plan-page .date-setting-icon {
+  flex: 0 0 auto;
+  width: 24rpx;
+  height: 24rpx;
+  opacity: 0.72;
+}
+
+.study-plan-page .preview-goal-card .date-label {
+  min-width: 0;
+  margin-bottom: 6rpx;
+  font-size: 19rpx;
+}
+
+.study-plan-page .preview-goal-card .date-value {
+  display: block;
+  overflow: hidden;
+  color: #27364B;
+  font-size: 22rpx;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.study-plan-page .preview-goal-card .capacity-line {
+  min-height: 32rpx;
+}
+
+.study-plan-page .preview-goal-card .capacity-input {
+  width: 70rpx;
+  height: 32rpx;
+  padding: 0 6rpx;
+  border-color: #D6DEE5;
+  color: #27364B;
+  font-size: 22rpx;
+}
+
+.study-plan-page .preview-summary {
+  justify-content: center;
+  margin: 20rpx -24rpx 0;
+  padding: 18rpx 20rpx;
+  border-top: 1rpx solid #EDF0F3;
+}
+
+.study-plan-page .preview-summary .goal-meta {
+  color: #4E7A7B;
+  font-size: 22rpx;
+}
+
+.study-plan-page .preview-summary .goal-meta-split {
+  color: #8A969B;
+}
+
+.study-plan-page .preview-task-list {
+  padding: 0;
+  overflow: visible;
+  background: transparent;
+  border: 0;
+}
+
+.study-plan-page .preview-stage-group {
+  margin-top: 16rpx;
+  overflow: hidden;
+  border: 1rpx solid #E4E9ED;
+  border-radius: 16rpx;
+  background: #FFFFFF;
+}
+
+.study-plan-page .preview-stage {
+  padding: 24rpx 22rpx 18rpx;
+  border-bottom: 0;
+}
+
+.study-plan-page .preview-stage-number {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
+
+.study-plan-page .preview-stage-title .task-edit-input {
+  height: 48rpx;
+  color: #172033;
+  font-size: 27rpx;
+}
+
+.study-plan-page .preview-stage-head > .priority-tag {
+  max-width: 126rpx;
+  margin-top: 20rpx;
+  padding: 7rpx 12rpx;
+  border-radius: 8rpx;
+  font-size: 19rpx;
+  text-overflow: ellipsis;
+}
+
+.study-plan-page .preview-stage-desc {
+  width: calc(100% - 54rpx);
+  max-width: calc(100% - 54rpx);
+  margin-top: 12rpx;
+  color: #657287;
+  font-size: 22rpx;
+}
+
+.study-plan-page .preview-stage-stats {
+  display: flex;
+  margin: 18rpx 0 0 54rpx;
+  padding: 16rpx 0;
+  border-top: 1rpx solid #EDF0F3;
+  border-bottom: 1rpx solid #EDF0F3;
+}
+
+.study-plan-page .preview-stage-stat {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 12rpx;
+  min-width: 0;
+}
+
+.study-plan-page .preview-stage-stat + .preview-stage-stat {
+  padding-left: 20rpx;
+  border-left: 1rpx solid #E7EBEE;
+}
+
+.study-plan-page .preview-stage-stat-icon {
+  flex: 0 0 auto;
+  width: 30rpx;
+  height: 30rpx;
+  opacity: 0.72;
+}
+
+.study-plan-page .preview-stage-stat-copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 4rpx;
+}
+
+.study-plan-page .preview-stage-stat-label,
+.study-plan-page .preview-stage-stat-value {
+  color: #7C8998;
+  font-size: 19rpx;
+}
+
+.study-plan-page .preview-stage-stat-value,
+.study-plan-page .preview-days-input {
+  color: #27364B;
+  font-size: 23rpx;
+}
+
+.study-plan-page .preview-stage-stat .preview-days-input {
+  gap: 4rpx;
+}
+
+.study-plan-page .preview-stage-stat .days-edit-input {
+  width: 54rpx;
+  height: 34rpx;
+  padding: 0;
+  border: 0;
+  color: #27364B;
+  font-size: 23rpx;
+}
+
+.study-plan-page .preview-stage-type-row {
+  display: flex;
+  align-items: center;
+  gap: 12rpx;
+  margin: 14rpx 0 0 54rpx;
+  color: #7C8998;
+  font-size: 19rpx;
+}
+
+.study-plan-page .preview-stage-type-row .preview-field-label {
+  flex: 0 0 auto;
+  margin: 0;
+}
+
+.study-plan-page .preview-stage-type-row .stage-edit-input {
+  flex: 1;
+  width: auto;
+  height: 38rpx;
+  padding: 0 8rpx;
+  border-color: #E0E6EB;
+  background: #FAFBFC;
+  font-size: 20rpx;
+}
+
+.study-plan-page .preview-stage .row-actions {
+  margin: 14rpx 0 0 54rpx;
+  color: #557779;
+}
+
+.study-plan-page .preview-stage .row-action--danger,
+.study-plan-page .subtask-actions .row-action--danger {
+  color: #B76760;
+}
+
+.study-plan-page .preview-stage-group .subtask-editor {
+  margin: 0;
+  padding: 0 16rpx 14rpx;
+  border-top: 1rpx solid #E8EDEF;
+  border-left: 0;
+  border-radius: 0;
+  background: #F8FAFB;
+}
+
+.study-plan-page .preview-stage-group .preview-subtask-head {
+  margin: 0 -16rpx 8rpx;
+  padding: 16rpx;
+  border-bottom: 1rpx solid #E8EDEF;
+}
+
+.study-plan-page .preview-stage-group .subtask-editor__title {
+  color: #263B3D;
+  font-size: 23rpx;
+}
+
+.study-plan-page .preview-stage-group .subtask-collapse-trigger {
+  min-height: 36rpx;
+  padding: 2rpx 8rpx;
+  background: transparent;
+  color: #527677;
+}
+
+.study-plan-page .preview-stage-group .subtask-row {
+  margin-top: 10rpx;
+  padding: 14rpx 12rpx;
+  border: 1rpx solid #E2E8EB;
+  border-radius: 10rpx;
+  background: #FFFFFF;
+}
+
+.study-plan-page .preview-stage-group .subtask-order {
+  width: 30rpx;
+  padding-top: 10rpx;
+  color: #527677;
+}
+
+.study-plan-page .preview-stage-group .subtask-name-col {
+  min-width: 160rpx;
+}
+
+.study-plan-page .preview-stage-group .subtask-name-col .task-edit-input {
+  height: 42rpx;
+  border: 0;
+  background: transparent;
+  font-size: 23rpx;
+  font-weight: 500;
+}
+
+.study-plan-page .preview-stage-group .subtask-desc-input {
+  color: #7C8998;
+  font-size: 20rpx;
+}
+
+.study-plan-page .preview-stage-group .subtask-days-input {
+  flex: 0 0 auto;
+  max-width: 76rpx;
+}
+
+.study-plan-page .preview-stage-group .subtask-actions {
+  margin-left: 40rpx;
+  gap: 18rpx;
+}
+
+.study-plan-page .preview-stage-group .add-subtask-row {
+  margin-top: 10rpx;
+  padding: 14rpx 0 4rpx;
+  border: 1rpx dashed #C9D6D8;
+  border-radius: 10rpx;
+  color: #397577;
+}
+
+.study-plan-page .preview-task-list > .add-task-row {
+  margin-top: 16rpx;
+  padding: 18rpx 0;
+  border: 1rpx dashed #C9D6D8;
+  border-radius: 14rpx;
+  background: #FFFFFF;
+  color: #397577;
+}
+
+.study-plan-page .preview-action-bar {
+  position: sticky;
+  bottom: 0;
+  z-index: 10;
+  margin: 24rpx -28rpx 0;
+  padding: 14rpx 28rpx calc(14rpx + env(safe-area-inset-bottom));
+  border-top: 1rpx solid #E4E9ED;
+  background: rgba(255, 255, 255, 0.97);
+}
+
+.study-plan-page .preview-action-bar .ghost-btn {
+  flex: 0 0 214rpx;
+  height: 72rpx;
+  padding: 0 14rpx;
+  border-color: #D6DEE4;
+  border-radius: 12rpx;
+  color: #657287;
+  font-size: 23rpx;
+}
+
+.study-plan-page .preview-action-bar .primary-btn--inline {
+  flex: 1;
+  width: auto;
+  height: 72rpx;
+  margin-top: 0;
+  border-radius: 12rpx;
+  background: #397577;
+  font-size: 24rpx;
 }
 </style>

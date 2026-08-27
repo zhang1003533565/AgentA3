@@ -59,3 +59,20 @@ test('collapse arrows use a centered geometry instead of a font glyph', () => {
   assert.match(source, /\.study-plan-page \.subtask-collapse-chevron\s*\{[\s\S]*?width:\s*12rpx[\s\S]*?height:\s*12rpx[\s\S]*?border-right:/)
   assert.match(source, /\.subtask-collapse-chevron--expanded\s*\{[\s\S]*?transform:\s*rotate\(-135deg\)/)
 })
+
+test('preview page follows the selected three-step editor hierarchy', () => {
+  assert.match(source, /class="preview-workflow-stepper"/)
+  assert.match(source, /输入资料/)
+  assert.match(source, /AI拆解/)
+  assert.match(source, /预览调整/)
+  assert.match(source, /class="preview-stage-group"/)
+  assert.match(source, /class="preview-stage-stats"/)
+  assert.match(source, /class="[^"]*preview-action-bar[^"]*"/)
+  assert.match(source, /确认并创建计划/)
+})
+
+test('preview page uses existing line icons for editable plan metadata', () => {
+  assert.match(source, /static\/icons\/line\/edit-3\.svg/)
+  assert.match(source, /static\/icons\/line\/calendar\.svg/)
+  assert.match(source, /static\/icons\/line\/clock\.svg/)
+})
