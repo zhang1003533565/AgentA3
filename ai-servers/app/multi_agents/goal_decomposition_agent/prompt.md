@@ -29,7 +29,15 @@
       "order_num": 1,
       "status": "pending",
       "is_completed": false,
-      "description": "掌握变量、循环、函数等基础语法"
+      "description": "掌握变量、循环、函数等基础语法",
+      "subtasks": [
+        {
+          "task_name": "阅读变量与数据类型",
+          "description": "能解释常见类型并完成一个小练习",
+          "estimated_days": 2,
+          "order_num": 1
+        }
+      ]
     }
   ]
 }
@@ -49,6 +57,11 @@
 | tasks[].status | 固定为 "pending" |
 | tasks[].is_completed | 固定为 false |
 | tasks[].description | 补充说明，可为空字符串 |
+| tasks[].subtasks | 当前任务下的可执行细分任务数组；没有必要细分时为空数组 |
+| subtasks[].task_name | 一次学习行动，不能只是重复父任务标题 |
+| subtasks[].description | 完成标准或产出物，可为空字符串 |
+| subtasks[].estimated_days | 正整数天数，所有细分任务天数之和构成父任务工作量 |
+| subtasks[].order_num | 从 1 开始连续编号 |
 
 ## 补全规则
 
@@ -56,3 +69,4 @@
 2. 任务数量建议 3~30 个，按学习顺序排列；输入只有目标没有明细时自行规划合理的里程碑任务；若输入无法支持 3 个任务，保留所有有效任务交给前端编辑补充。
 3. 若输入是表格，逐行识别任务名称、阶段、天数、优先级、说明列；空值按上述默认规则补全。
 4. 不臆造用户未提及的目标之外的范围，不输出任务以外的任何字段。
+5. 对有足够内容的任务输出 2~6 个细分任务；原始内容不足以合理拆分时输出空数组，不为凑数编造内容。

@@ -19,6 +19,7 @@ TASK_NAME_MAX_LENGTH = 120
 STAGE_MAX_LENGTH = 60
 DESCRIPTION_MAX_LENGTH = 500
 MAX_TASKS = 30
+MAX_SUBTASKS = 6
 ALLOWED_PRIORITIES = ("高", "中", "低")
 DEFAULT_PRIORITY = "中"
 DEFAULT_STAGE = "基础阶段"
@@ -47,7 +48,15 @@ SYSTEM_PROMPT = """你是一名资深学习规划师，负责把用户上传的�
       "order_num": 1,
       "status": "pending",
       "is_completed": false,
-      "description": "补充说明，可为空字符串"
+      "description": "补充说明，可为空字符串",
+      "subtasks": [
+        {
+          "task_name": "一个可在一次学习中完成的动作",
+          "description": "完成标准或产出物",
+          "estimated_days": 1,
+          "order_num": 1
+        }
+      ]
     }
   ]
 }
@@ -63,12 +72,18 @@ SYSTEM_PROMPT = """你是一名资深学习规划师，负责把用户上传的�
 - status：固定为 "pending"
 - is_completed：固定为 false
 - description：补充说明，可为空字符串
+- subtasks：把每个任务拆成 2~6 个可执行的叶子步骤；每个步骤应有明确动作和完成标准
+- subtasks[].task_name：具体到一次学习行动，不能只是重复父任务标题
+- subtasks[].description：完成标准或产出物，可为空字符串
+- subtasks[].estimated_days：正整数天数，所有细分任务天数之和应与父任务工作量相符
+- subtasks[].order_num：从 1 开始连续编号
 
 【补全规则】
 1. 缺失阶段时，根据任务在计划中的先后位置归入合理阶段，并对相邻任务沿用统一命名。
 2. 任务数量 3~30 个，按学习顺序排列；输入只有目标没有明细时自行规划合理的里程碑任务。
 3. 若输入是表格，逐行识别任务名称、阶段、天数、优先级、说明列；空值按默认规则补全。
 4. 不臆造用户未提及的目标之外的范围，不输出任务以外的任何字段。
+5. 对有足够内容的任务优先输出 2~6 个细分任务；若原始内容只有一个不可再拆的动作，可输出空数组，不要为了凑数编造步骤。
 """
 
 _SOURCE_TYPE_HINTS = {
@@ -129,6 +144,7 @@ def parse_goal_payload(raw: Any) -> Dict[str, Any]:
                 "status": "pending",
                 "is_completed": False,
                 "description": _clean_text(raw_task.get("description"), max_length=DESCRIPTION_MAX_LENGTH),
+                "subtasks": _normalize_subtasks(raw_task.get("subtasks")),
             }
         )
     if not tasks:
@@ -137,6 +153,36 @@ def parse_goal_payload(raw: Any) -> Dict[str, Any]:
     for index, task in enumerate(tasks, start=1):
         task["order_num"] = index
     return {"goal": {"title": title[:GOAL_TITLE_MAX_LENGTH], "description": description}, "tasks": tasks}
+
+
+def _normalize_subtasks(value: Any) -> List[Dict[str, Any]]:
+    subtasks: List[Dict[str, Any]] = []
+    raw_subtasks = value if isinstance(value, list) else []
+    for raw_subtask in raw_subtasks:
+        if not isinstance(raw_subtask, dict):
+            continue
+        task_name = _clean_text(
+            raw_subtask.get("task_name") or raw_subtask.get("name"),
+            max_length=TASK_NAME_MAX_LENGTH,
+        )
+        if not task_name:
+            continue
+        subtasks.append(
+            {
+                "task_name": task_name,
+                "description": _clean_text(raw_subtask.get("description"), max_length=DESCRIPTION_MAX_LENGTH),
+                "estimated_days": _to_positive_int(
+                    raw_subtask.get("estimated_days"),
+                    default=MIN_ESTIMATED_DAYS,
+                    minimum=MIN_ESTIMATED_DAYS,
+                    maximum=MAX_ESTIMATED_DAYS,
+                ),
+                "order_num": len(subtasks) + 1,
+            }
+        )
+        if len(subtasks) >= MAX_SUBTASKS:
+            break
+    return subtasks
 
 
 def _extract_json(raw: Any) -> str:

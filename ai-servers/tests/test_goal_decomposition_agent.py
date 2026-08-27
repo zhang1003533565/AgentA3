@@ -146,6 +146,42 @@ def test_task_output_is_capped_at_thirty_items():
     assert payload["tasks"][-1]["order_num"] == 30
 
 
+def test_nested_subtasks_are_normalized_and_renumbered():
+    payload = parse_goal_payload(
+        _dumps(
+            {
+                "goal": {"title": "计划"},
+                "tasks": [
+                    _task(
+                        subtasks=[
+                            {"task_name": "先读资料", "estimated_days": 2, "order_num": 8},
+                            {"name": "再做练习", "estimated_days": "3", "order_num": 8},
+                        ]
+                    )
+                ],
+            }
+        )
+    )
+    subtasks = payload["tasks"][0]["subtasks"]
+    assert [item["task_name"] for item in subtasks] == ["先读资料", "再做练习"]
+    assert [item["order_num"] for item in subtasks] == [1, 2]
+    assert [item["estimated_days"] for item in subtasks] == [2, 3]
+
+
+def test_nested_subtasks_are_capped_and_invalid_entries_are_dropped():
+    raw_subtasks = [{"task_name": f"步骤{i}"} for i in range(8)]
+    raw_subtasks.insert(7, {"description": "没有名字"})
+    payload = parse_goal_payload(_dumps({"goal": {"title": "计划"}, "tasks": [_task(subtasks=raw_subtasks)]}))
+    subtasks = payload["tasks"][0]["subtasks"]
+    assert len(subtasks) == 6
+    assert subtasks[-1]["order_num"] == 6
+
+
+def test_tasks_without_subtasks_remain_valid_for_compatibility():
+    payload = parse_goal_payload('{"goal": {"title": "计划"}, "tasks": [{"task_name": "不可再拆动作"}]}')
+    assert payload["tasks"][0]["subtasks"] == []
+
+
 def test_empty_answer_is_rejected():
     with pytest.raises(HTTPException) as exc_info:
         parse_goal_payload("   ")
