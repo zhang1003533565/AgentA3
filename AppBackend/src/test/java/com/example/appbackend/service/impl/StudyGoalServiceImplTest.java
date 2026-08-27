@@ -201,6 +201,27 @@ class StudyGoalServiceImplTest {
     }
 
     @Test
+    void remainingTasksOnlyExposeUnfinishedNestedSubtasks() {
+        StudyGoal goal = new StudyGoal();
+        goal.setId(42L);
+        StudyTask parent = taskEntity(1L, 3, 50, "in_progress");
+        StudySubtask completed = subtaskEntity(11L, 1L, 1, 100, "completed");
+        StudySubtask pending = subtaskEntity(12L, 1L, 2, 0, "pending");
+
+        when(studyGoalRepository.findByIdAndUserId(42L, 7L)).thenReturn(Optional.of(goal));
+        when(studyTaskRepository.findByGoalIdAndIsCompletedFalseOrderByOrderNumAscIdAsc(42L))
+                .thenReturn(List.of(parent));
+        when(studySubtaskRepository.findByTaskIdOrderByOrderNumAscIdAsc(1L))
+                .thenReturn(List.of(completed, pending));
+
+        List<StudyGoalDTO.TaskView> remaining = service().getRemainingTasks(42L, 7L);
+
+        assertEquals(1, remaining.size());
+        assertEquals(1, remaining.get(0).getSubtasks().size());
+        assertEquals(12L, remaining.get(0).getSubtasks().get(0).getId());
+    }
+
+    @Test
     void postponingSubtaskShiftsLaterLeafItemsAndRefreshesParentWindow() {
         StudyGoal goal = new StudyGoal();
         goal.setId(42L);

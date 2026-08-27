@@ -438,7 +438,10 @@ public class StudyGoalServiceImpl implements StudyGoalService {
         requireOwnedGoal(goalId, userId);
         List<StudyGoalDTO.TaskView> views = new ArrayList<>();
         for (StudyTask task : studyTaskRepository.findByGoalIdAndIsCompletedFalseOrderByOrderNumAscIdAsc(goalId)) {
-            views.add(toTaskView(task));
+            StudyGoalDTO.TaskView view = toRemainingTaskView(task);
+            if (view != null) {
+                views.add(view);
+            }
         }
         return views;
     }
@@ -978,6 +981,17 @@ public class StudyGoalServiceImpl implements StudyGoalService {
             view.getSubtasks().add(toSubtaskView(subtask));
         }
         return view;
+    }
+
+    private StudyGoalDTO.TaskView toRemainingTaskView(StudyTask task) {
+        StudyGoalDTO.TaskView view = toTaskView(task);
+        if (view.getSubtasks().isEmpty()) {
+            return view;
+        }
+        view.getSubtasks().removeIf(subtask -> Boolean.TRUE.equals(subtask.getIsCompleted())
+                || (subtask.getProgressPercent() != null && subtask.getProgressPercent() >= 100)
+                || "completed".equals(subtask.getStatus()));
+        return view.getSubtasks().isEmpty() ? null : view;
     }
 
     private StudyGoalDTO.SubtaskView toSubtaskView(StudySubtask subtask) {
