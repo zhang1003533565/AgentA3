@@ -1324,6 +1324,7 @@ public class MeetingServiceImpl implements MeetingService {
         // 1. 会议基本信息
         input.append("会议主题：").append(session.getTitle()).append("\n");
         input.append("会议状态：").append(statusLabel(session.getStatus())).append("\n");
+        input.append("会议数字 ID：").append(session.getId()).append("\n");
         
         // 2. 参会人信息（包含 userId 映射）
         List<MeetingParticipant> participants = participantRepository.findByMeetingSessionIdOrderBySortOrderAscIdAsc(session.getId());
