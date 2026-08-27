@@ -411,24 +411,33 @@ public class StudyGoalServiceImpl implements StudyGoalService {
     @Override
     public StudyGoalDTO.GoalDetail getGoalDetail(Long goalId, Long userId, String filter) {
         StudyGoal goal = requireOwnedGoal(goalId, userId);
-        List<StudyTask> tasks = switch (filter == null ? "all" : filter) {
+        String requestedFilter = filter == null ? "all" : filter;
+        List<StudyTask> tasks = switch (requestedFilter) {
             case "pending" -> studyTaskRepository.findByGoalIdAndIsCompletedFalseOrderByOrderNumAscIdAsc(goalId);
             case "completed" -> studyTaskRepository.findByGoalIdAndIsCompletedTrueOrderByOrderNumAscIdAsc(goalId);
             default -> studyTaskRepository.findByGoalIdOrderByOrderNumAscIdAsc(goalId);
         };
-        if ("today".equals(filter)) {
-            LocalDate today = LocalDate.now();
-            tasks = tasks.stream()
-                    .filter(task -> task.getPlannedStartDate() != null
-                            && task.getPlannedEndDate() != null
-                            && !today.isBefore(task.getPlannedStartDate())
-                            && !today.isAfter(task.getPlannedEndDate()))
-                    .toList();
-        }
         StudyGoalDTO.GoalDetail detail = new StudyGoalDTO.GoalDetail();
         detail.setGoal(toGoalView(goal));
+        LocalDate today = "today".equals(requestedFilter) ? LocalDate.now() : null;
         for (StudyTask task : tasks) {
-            detail.getTasks().add(toTaskView(task));
+            StudyGoalDTO.TaskView view = toTaskView(task);
+            boolean hasSubtasks = !view.getSubtasks().isEmpty();
+            if ("today".equals(requestedFilter)) {
+                if (hasSubtasks) {
+                    view.getSubtasks().removeIf(subtask -> !isPlannedOn(subtask, today));
+                } else if (!isPlannedOn(view, today)) {
+                    continue;
+                }
+            } else if ("pending".equals(requestedFilter) && hasSubtasks) {
+                view.getSubtasks().removeIf(this::isCompleted);
+            } else if ("completed".equals(requestedFilter) && hasSubtasks) {
+                view.getSubtasks().removeIf(subtask -> !isCompleted(subtask));
+            }
+            if (hasSubtasks && view.getSubtasks().isEmpty()) {
+                continue;
+            }
+            detail.getTasks().add(view);
         }
         return detail;
     }
@@ -992,6 +1001,26 @@ public class StudyGoalServiceImpl implements StudyGoalService {
                 || (subtask.getProgressPercent() != null && subtask.getProgressPercent() >= 100)
                 || "completed".equals(subtask.getStatus()));
         return view.getSubtasks().isEmpty() ? null : view;
+    }
+
+    private boolean isPlannedOn(StudyGoalDTO.TaskView task, LocalDate date) {
+        return task.getPlannedStartDate() != null
+                && task.getPlannedEndDate() != null
+                && !date.isBefore(task.getPlannedStartDate())
+                && !date.isAfter(task.getPlannedEndDate());
+    }
+
+    private boolean isPlannedOn(StudyGoalDTO.SubtaskView subtask, LocalDate date) {
+        return subtask.getPlannedStartDate() != null
+                && subtask.getPlannedEndDate() != null
+                && !date.isBefore(subtask.getPlannedStartDate())
+                && !date.isAfter(subtask.getPlannedEndDate());
+    }
+
+    private boolean isCompleted(StudyGoalDTO.SubtaskView subtask) {
+        return Boolean.TRUE.equals(subtask.getIsCompleted())
+                || (subtask.getProgressPercent() != null && subtask.getProgressPercent() >= 100)
+                || "completed".equals(subtask.getStatus());
     }
 
     private StudyGoalDTO.SubtaskView toSubtaskView(StudySubtask subtask) {

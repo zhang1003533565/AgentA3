@@ -177,6 +177,33 @@ class StudyGoalServiceImplTest {
     }
 
     @Test
+    void todayDetailFilterOnlyReturnsSubtasksScheduledForToday() {
+        StudyGoal goal = new StudyGoal();
+        goal.setId(42L);
+        LocalDate today = LocalDate.now();
+        StudyTask parent = taskEntity(1L, 2, 0, "pending");
+        parent.setPlannedStartDate(today);
+        parent.setPlannedEndDate(today.plusDays(1));
+        StudySubtask todaySubtask = subtaskEntity(11L, 1L, 1, 0, "pending");
+        todaySubtask.setPlannedStartDate(today);
+        todaySubtask.setPlannedEndDate(today);
+        StudySubtask futureSubtask = subtaskEntity(12L, 1L, 2, 0, "pending");
+        futureSubtask.setPlannedStartDate(today.plusDays(1));
+        futureSubtask.setPlannedEndDate(today.plusDays(1));
+
+        when(studyGoalRepository.findByIdAndUserId(42L, 7L)).thenReturn(Optional.of(goal));
+        when(studyTaskRepository.findByGoalIdOrderByOrderNumAscIdAsc(42L)).thenReturn(List.of(parent));
+        when(studySubtaskRepository.findByTaskIdOrderByOrderNumAscIdAsc(1L))
+                .thenReturn(List.of(todaySubtask, futureSubtask));
+
+        StudyGoalDTO.GoalDetail detail = service().getGoalDetail(42L, 7L, "today");
+
+        assertEquals(1, detail.getTasks().size());
+        assertEquals(1, detail.getTasks().get(0).getSubtasks().size());
+        assertEquals(11L, detail.getTasks().get(0).getSubtasks().get(0).getId());
+    }
+
+    @Test
     void subtaskProgressUpdatesOnlyTheLeafAndRecomputesParentAndGoal() {
         StudyGoal goal = new StudyGoal();
         goal.setId(42L);
