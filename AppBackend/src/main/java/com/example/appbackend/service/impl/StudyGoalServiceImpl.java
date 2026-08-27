@@ -308,9 +308,27 @@ public class StudyGoalServiceImpl implements StudyGoalService {
                 : selected.getPlannedEndDate();
         List<StudyTask> tasks = studyTaskRepository.findByGoalIdOrderByOrderNumAscIdAsc(goal.getId());
         List<StudyTask> changed = new ArrayList<>();
+        List<StudySubtask> changedSubtasks = new ArrayList<>();
         for (StudyTask task : tasks) {
             int order = task.getOrderNum() == null ? Integer.MAX_VALUE : task.getOrderNum();
             if (order < selectedOrder || effectiveProgress(task) >= 100 || "completed".equals(task.getStatus())) {
+                continue;
+            }
+            List<StudySubtask> subtasks = subtasksOf(task);
+            if (!subtasks.isEmpty()) {
+                boolean subtaskChanged = false;
+                for (StudySubtask subtask : subtasks) {
+                    if (effectiveProgress(subtask) >= 100 || "completed".equals(subtask.getStatus())) {
+                        continue;
+                    }
+                    shiftSubtaskDates(subtask, days, task, goal);
+                    changedSubtasks.add(subtask);
+                    subtaskChanged = true;
+                }
+                if (subtaskChanged) {
+                    refreshParentSchedule(task, subtasks);
+                    changed.add(task);
+                }
                 continue;
             }
             LocalDate start = task == selected ? selectedStart : task.getPlannedStartDate();
@@ -326,6 +344,9 @@ public class StudyGoalServiceImpl implements StudyGoalService {
             selected.setPlannedStartDate(selectedStart.plusDays(days));
             selected.setPlannedEndDate(selectedEnd.plusDays(days));
             changed.add(selected);
+        }
+        if (!changedSubtasks.isEmpty()) {
+            studySubtaskRepository.saveAll(changedSubtasks);
         }
         studyTaskRepository.saveAll(changed);
         return getGoalDetail(goal.getId(), userId, "all");

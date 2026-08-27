@@ -268,6 +268,48 @@ class StudyGoalServiceImplTest {
     }
 
     @Test
+    void postponingNestedTaskShiftsItsUnfinishedSubtasksAndKeepsCompletedOnes() {
+        StudyGoal goal = new StudyGoal();
+        goal.setId(42L);
+        goal.setStartDate(LocalDate.of(2026, 8, 27));
+        StudyTask selected = taskEntity(1L, 3, 0, "pending");
+        selected.setPlannedStartDate(LocalDate.of(2026, 8, 27));
+        selected.setPlannedEndDate(LocalDate.of(2026, 8, 29));
+        StudyTask later = taskEntity(2L, 1, 0, "pending");
+        later.setPlannedStartDate(LocalDate.of(2026, 8, 30));
+        later.setPlannedEndDate(LocalDate.of(2026, 8, 30));
+
+        StudySubtask first = subtaskEntity(11L, 1L, 1, 0, "pending");
+        first.setPlannedStartDate(LocalDate.of(2026, 8, 27));
+        first.setPlannedEndDate(LocalDate.of(2026, 8, 27));
+        StudySubtask completed = subtaskEntity(12L, 1L, 2, 100, "completed");
+        completed.setPlannedStartDate(LocalDate.of(2026, 8, 28));
+        completed.setPlannedEndDate(LocalDate.of(2026, 8, 28));
+        StudySubtask last = subtaskEntity(13L, 1L, 3, 0, "pending");
+        last.setPlannedStartDate(LocalDate.of(2026, 8, 29));
+        last.setPlannedEndDate(LocalDate.of(2026, 8, 29));
+        List<StudySubtask> subtasks = new ArrayList<>(List.of(first, completed, last));
+        List<StudyTask> tasks = List.of(selected, later);
+
+        when(studyTaskRepository.findById(1L)).thenReturn(Optional.of(selected));
+        when(studyGoalRepository.findByIdAndUserId(42L, 7L)).thenReturn(Optional.of(goal));
+        when(studyTaskRepository.findByGoalIdOrderByOrderNumAscIdAsc(42L)).thenReturn(tasks);
+        when(studySubtaskRepository.findByTaskIdOrderByOrderNumAscIdAsc(1L)).thenReturn(subtasks);
+        when(studySubtaskRepository.findByTaskIdOrderByOrderNumAscIdAsc(2L)).thenReturn(List.of());
+        when(studySubtaskRepository.saveAll(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        when(studyTaskRepository.saveAll(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+        service().postponeTask(1L, 1, 7L);
+
+        assertEquals(LocalDate.of(2026, 8, 28), first.getPlannedStartDate());
+        assertEquals(LocalDate.of(2026, 8, 28), completed.getPlannedStartDate());
+        assertEquals(LocalDate.of(2026, 8, 30), last.getPlannedStartDate());
+        assertEquals(LocalDate.of(2026, 8, 28), selected.getPlannedStartDate());
+        assertEquals(LocalDate.of(2026, 8, 30), selected.getPlannedEndDate());
+        assertEquals(LocalDate.of(2026, 8, 31), later.getPlannedStartDate());
+    }
+
+    @Test
     void oversizedDecomposeInputIsRejectedInsteadOfSilentlyTruncated() {
         MockMultipartFile file = new MockMultipartFile(
                 "file", "plan.csv", "text/csv", "x".repeat(16_001).getBytes(StandardCharsets.UTF_8));
