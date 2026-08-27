@@ -133,9 +133,16 @@
             </view>
               <view v-if="task.subtasks.length" class="subtask-editor">
               <view class="subtask-editor__head preview-subtask-head">
-                <text class="subtask-editor__title">{{ task.taskName || '未命名阶段' }} · 执行步骤</text>
-                <text class="subtask-editor__hint">按执行顺序完成</text>
+                <view class="subtask-editor__heading">
+                  <text class="subtask-editor__title">{{ task.taskName || '未命名阶段' }} · 执行步骤</text>
+                  <text class="subtask-editor__count">{{ task.subtasks.length }} 项</text>
+                </view>
+                <view class="subtask-collapse-trigger" @tap="togglePreviewSubtasks(task)">
+                  <text>{{ isPreviewSubtasksExpanded(task) ? '收起' : '展开' }}</text>
+                  <text class="subtask-collapse-chevron">{{ isPreviewSubtasksExpanded(task) ? '⌃' : '⌄' }}</text>
+                </view>
               </view>
+              <template v-if="isPreviewSubtasksExpanded(task)">
               <view v-for="(subtask, subtaskIndex) in task.subtasks" :key="`${task.orderNum}-${subtask.orderNum}`" class="subtask-row">
                 <text class="subtask-order">{{ subtask.orderNum }}</text>
                 <view class="subtask-name-col">
@@ -153,6 +160,7 @@
                 </view>
               </view>
               <view class="add-subtask-row" @tap="addPreviewSubtask(task)"><text>＋ 添加执行步骤</text></view>
+              </template>
               </view>
             </template>
             <view class="add-task-row" @tap="addPreviewTask"><text>＋ 添加学习阶段</text></view>
@@ -244,10 +252,17 @@
                   <view class="task-group-title-wrap">
                     <text class="task-group-kicker">学习阶段</text>
                     <text class="task-group-title">{{ task.taskName }}</text>
-                    <text class="task-group-meta">{{ task.stage || '学习阶段' }} · {{ task.subtasks.length }} 个执行步骤 · {{ task.progressPercent }}%</text>
+                    <text class="task-group-meta">{{ task.stage || '学习阶段' }} · {{ taskSubtaskMeta(task) }} · {{ task.progressPercent }}%</text>
                   </view>
-                  <text class="task-group-status">{{ statusText(task.status) }}</text>
+                  <view class="task-group-actions">
+                    <view class="task-group-toggle" @tap.stop="toggleTaskGroup(task)">
+                      <text>{{ isTaskGroupExpanded(task) ? '收起' : '展开' }}</text>
+                      <text class="subtask-collapse-chevron">{{ isTaskGroupExpanded(task) ? '⌃' : '⌄' }}</text>
+                    </view>
+                    <text class="task-group-status">{{ statusText(task.status) }}</text>
+                  </view>
                 </view>
+                <template v-if="isTaskGroupExpanded(task)">
                 <view
                   class="task-item task-item--subtask"
                   v-for="subtask in visibleSubtasks(task)"
@@ -274,6 +289,7 @@
                     </view>
                   </view>
                 </view>
+                </template>
               </template>
               <view
                 v-else
@@ -354,6 +370,9 @@ const activeFilter = ref('all')
 const togglingIds = ref([])
 const statusOptions = ['未开始', '进行中', '受阻', '已跳过', '已完成']
 const expandingSubtasks = ref(false)
+const SUBTASK_AUTO_EXPAND_LIMIT = 3
+const previewSubtaskExpansion = ref({})
+const executionSubtaskExpansion = ref({})
 
 const canDecompose = computed(() => Boolean(planText.value.trim()) || Boolean(chosenFile.value))
 
@@ -366,9 +385,11 @@ onLoad((options) => {
 })
 
 function loadGoalDetail(goalId) {
+  clearSubtaskExpansion()
   getStudyGoalDetail(goalId, 'all')
     .then((response) => {
       applyGoalDetail(response?.data)
+      executionSubtaskExpansion.value = {}
       activeFilter.value = 'all'
       phase.value = 'saved'
     })
@@ -464,6 +485,67 @@ function visibleSubtasks(task) {
   return subtasks
 }
 
+function subtaskExpansionKey(scope, task) {
+  const taskIdentity = task?.id || task?.orderNum || task?.taskName || 'unknown'
+  const filter = scope === 'execution' ? activeFilter.value : 'preview'
+  return [scope, filter, taskIdentity].join(':')
+}
+
+function defaultSubtasksExpanded(count) {
+  return count > 0 && count <= SUBTASK_AUTO_EXPAND_LIMIT
+}
+
+function hasExpansionOverride(state, key) {
+  return Object.prototype.hasOwnProperty.call(state, key)
+}
+
+function isPreviewSubtasksExpanded(task) {
+  const key = subtaskExpansionKey('preview', task)
+  const count = Array.isArray(task?.subtasks) ? task.subtasks.length : 0
+  return hasExpansionOverride(previewSubtaskExpansion.value, key)
+    ? Boolean(previewSubtaskExpansion.value[key])
+    : defaultSubtasksExpanded(count)
+}
+
+function togglePreviewSubtasks(task) {
+  const key = subtaskExpansionKey('preview', task)
+  const nextValue = !isPreviewSubtasksExpanded(task)
+  previewSubtaskExpansion.value = {
+    ...previewSubtaskExpansion.value,
+    [key]: nextValue
+  }
+}
+
+function isTaskGroupExpanded(task) {
+  const key = subtaskExpansionKey('execution', task)
+  const count = visibleSubtasks(task).length
+  return hasExpansionOverride(executionSubtaskExpansion.value, key)
+    ? Boolean(executionSubtaskExpansion.value[key])
+    : defaultSubtasksExpanded(count)
+}
+
+function toggleTaskGroup(task) {
+  const key = subtaskExpansionKey('execution', task)
+  const nextValue = !isTaskGroupExpanded(task)
+  executionSubtaskExpansion.value = {
+    ...executionSubtaskExpansion.value,
+    [key]: nextValue
+  }
+}
+
+function taskSubtaskMeta(task) {
+  const total = Array.isArray(task?.subtasks) ? task.subtasks.length : 0
+  const visible = visibleSubtasks(task).length
+  return activeFilter.value === 'all'
+    ? total + ' 个执行步骤'
+    : '当前显示 ' + visible + '/' + total + ' 个执行步骤'
+}
+
+function clearSubtaskExpansion() {
+  previewSubtaskExpansion.value = {}
+  executionSubtaskExpansion.value = {}
+}
+
 function onPlanTextInput(event) {
   if (event?.detail?.value?.trim()) chosenFile.value = null
 }
@@ -513,6 +595,7 @@ function startDecompose() {
       previewGoal.value.startDate = todayDate()
       previewGoal.value.targetDate = ''
       previewTasks.value = schedulePlanTasks(data.tasks.map((task, index) => normalizePlanTask(task, index)), todayDate())
+      clearSubtaskExpansion()
       phase.value = 'preview'
     })
     .catch(() => {})
@@ -522,6 +605,7 @@ function startDecompose() {
 }
 
 function backToInput() {
+  clearSubtaskExpansion()
   if (phase.value === 'saved') {
     planText.value = ''
     chosenFile.value = null
@@ -2259,5 +2343,59 @@ function priorityLevel(priority) {
 
 .study-plan-page .preview-task-list .row-actions {
   flex-wrap: wrap;
+}
+
+.study-plan-page .subtask-editor__heading {
+  display: flex;
+  align-items: baseline;
+  gap: 8rpx;
+  min-width: 0;
+  flex: 1;
+}
+
+.study-plan-page .subtask-editor__count {
+  flex-shrink: 0;
+  color: #98A0B0;
+  font-size: 19rpx;
+}
+
+.study-plan-page .subtask-collapse-trigger,
+.study-plan-page .task-group-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  gap: 6rpx;
+  min-height: 44rpx;
+  padding: 4rpx 10rpx;
+  border-radius: 999rpx;
+  background: #EDF2FA;
+  color: #55708C;
+  font-size: 19rpx;
+}
+
+.study-plan-page .subtask-collapse-chevron {
+  color: #7890A8;
+  font-size: 22rpx;
+  line-height: 1;
+}
+
+.study-plan-page .preview-subtask-head {
+  gap: 10rpx;
+}
+
+.study-plan-page .task-group-actions {
+  display: flex;
+  flex-shrink: 0;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6rpx;
+}
+
+.study-plan-page .task-group-toggle {
+  min-height: 38rpx;
+  padding: 2rpx 9rpx;
+  background: transparent;
+  font-size: 19rpx;
 }
 </style>

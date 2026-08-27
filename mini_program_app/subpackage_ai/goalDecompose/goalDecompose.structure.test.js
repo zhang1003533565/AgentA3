@@ -34,3 +34,15 @@ test('preview layout gives long text explicit containers and natural wrapping ru
   assert.match(source, /overflow-wrap:\s*anywhere/)
   assert.match(source, /white-space:\s*normal/)
 })
+
+test('preview and execution pages expose stage-level subtask collapse controls', () => {
+  assert.match(source, /SUBTASK_AUTO_EXPAND_LIMIT\s*=\s*3/)
+  assert.match(source, /togglePreviewSubtasks/)
+  assert.match(source, /isPreviewSubtasksExpanded/)
+  assert.match(source, /toggleTaskGroup/)
+  assert.match(source, /isTaskGroupExpanded/)
+  assert.match(source, /v-if="isPreviewSubtasksExpanded\(task\)"/)
+  assert.match(source, /v-if="isTaskGroupExpanded\(task\)"/)
+  assert.match(source, /class="[^"]*subtask-collapse-trigger[^"]*"/)
+  assert.match(source, /class="[^"]*task-group-toggle[^"]*"/)
+})
