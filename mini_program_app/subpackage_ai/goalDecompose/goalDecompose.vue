@@ -714,7 +714,11 @@ function confirmSave() {
 function toggleTask(task) {
   if (!task.id || togglingIds.value.includes(task.id)) return
   const nextValue = !task.isCompleted
-  const previousProgress = task.progressPercent
+  const previous = {
+    isCompleted: task.isCompleted,
+    progressPercent: task.progressPercent,
+    status: task.status
+  }
   // 乐观更新：勾选立即生效，失败回滚
   task.isCompleted = nextValue
   task.progressPercent = nextValue ? 100 : 0
@@ -729,9 +733,7 @@ function toggleTask(task) {
       }
     })
     .catch(() => {
-      task.isCompleted = !nextValue
-      task.progressPercent = previousProgress
-      task.status = nextValue ? 'pending' : 'completed'
+      Object.assign(task, previous)
     })
     .finally(() => {
       togglingIds.value = togglingIds.value.filter((id) => id !== task.id)

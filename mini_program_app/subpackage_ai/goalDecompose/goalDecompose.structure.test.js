@@ -54,6 +54,11 @@ test('today view only exposes subtasks scheduled for today', () => {
   assert.match(source, /function isTodaySubtask\(subtask\)/)
 })
 
+test('task completion rollback restores the full previous task state', () => {
+  assert.match(source, /const previous = \{\s*isCompleted: task\.isCompleted,\s*progressPercent: task\.progressPercent,\s*status: task\.status\s*\}/)
+  assert.match(source, /\.catch\(\(\) => \{\s*Object\.assign\(task, previous\)/)
+})
+
 test('collapse arrows use a centered geometry instead of a font glyph', () => {
   assert.match(source, /class="subtask-collapse-chevron"[^>]*:class="[^"]*subtask-collapse-chevron--expanded[^"]*"/)
   assert.match(source, /\.study-plan-page \.subtask-collapse-chevron\s*\{[\s\S]*?width:\s*12rpx[\s\S]*?height:\s*12rpx[\s\S]*?border-right:/)
