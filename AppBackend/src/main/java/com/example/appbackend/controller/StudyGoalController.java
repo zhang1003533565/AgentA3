@@ -47,6 +47,17 @@ public class StudyGoalController {
         return Result.success(studyGoalService.decompose(userId, file, planText, authorization));
     }
 
+    @PostMapping(value = "/decompose-text", consumes = MediaType.APPLICATION_JSON_VALUE)
+    @Operation(summary = "粘贴文本解析", description = "接收学习计划文本，调用智能体返回 Goal+Tasks 结构化预览（不入库）")
+    public Result<StudyGoalDTO.DecomposeResponse> decomposeText(
+            @RequestBody StudyGoalDTO.TextDecomposeRequest request,
+            HttpServletRequest httpRequest) {
+        Long userId = currentUserId(httpRequest);
+        String authorization = httpRequest.getHeader("Authorization");
+        String planText = request == null ? null : request.getPlanText();
+        return Result.success(studyGoalService.decompose(userId, null, planText, authorization));
+    }
+
     @PostMapping("/save")
     @Operation(summary = "确认入库", description = "将预览的 Goal 与 Tasks 一并写入数据库并返回详情")
     public Result<StudyGoalDTO.GoalDetail> save(@RequestBody StudyGoalDTO.SaveRequest request,

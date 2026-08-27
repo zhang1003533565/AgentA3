@@ -94,6 +94,12 @@ public final class StudyGoalDTO {
         private String description;
     }
 
+    /** 粘贴文本拆解请求。 */
+    @Data
+    public static class TextDecomposeRequest {
+        private String planText;
+    }
+
     /** 任务勾选请求：更新是否完成并触发 Goal 进度重算。 */
     @Data
     public static class TaskCompletionRequest {
