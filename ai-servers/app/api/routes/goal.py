@@ -6,7 +6,7 @@
 本接口只做拆解，不落库；Goal/Task 持久化由 Java 侧确认入库接口完成。
 """
 
-from typing import List, Optional
+from typing import List, Literal, Optional
 
 from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel, Field
@@ -24,8 +24,14 @@ router = APIRouter(
 class GoalDecomposeRequest(BaseModel):
     """学习计划拆解请求。"""
 
-    sourceType: str = Field(default="text", description="输入来源类型 text/xlsx/csv")
-    content: str = Field(min_length=1, description="学习计划文本或表格序列化文本")
+    sourceType: Literal["text", "xlsx", "csv"] = Field(
+        default="text", description="输入来源类型 text/xlsx/csv"
+    )
+    content: str = Field(
+        min_length=1,
+        max_length=16000,
+        description="学习计划文本或表格序列化文本",
+    )
 
 
 class GoalInfo(BaseModel):

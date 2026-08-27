@@ -11,7 +11,7 @@ import json
 import pytest
 from fastapi import HTTPException
 
-from app.api.routes.goal import GoalDecomposeResponse, SubtaskPlan, TaskPlan
+from app.api.routes.goal import GoalDecomposeRequest, GoalDecomposeResponse, SubtaskPlan, TaskPlan
 from app.multi_agents.goal_decomposition_agent.agent import (
     build_user_prompt,
     parse_goal_payload,
@@ -37,6 +37,15 @@ def test_runtime_config_uses_env_fallback_when_headers_missing(clean_llm_env):
         "opencode", "https://example.test/v1", "deepseek-v4-flash",
     )
     assert config.api_key == "env-provided-key"
+
+
+def test_internal_request_restricts_source_type_and_content_size():
+    assert GoalDecomposeRequest(sourceType="csv", content="任务名称").sourceType == "csv"
+
+    with pytest.raises(ValueError):
+        GoalDecomposeRequest(sourceType="pdf", content="任务名称")
+    with pytest.raises(ValueError):
+        GoalDecomposeRequest(sourceType="text", content="x" * 16_001)
 
 
 def test_passthrough_headers_take_priority_over_env(clean_llm_env):
