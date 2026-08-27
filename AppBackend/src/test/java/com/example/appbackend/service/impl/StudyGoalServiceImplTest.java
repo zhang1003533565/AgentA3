@@ -172,6 +172,67 @@ class StudyGoalServiceImplTest {
     }
 
     @Test
+    void subtaskProgressUpdatesOnlyTheLeafAndRecomputesParentAndGoal() {
+        StudyGoal goal = new StudyGoal();
+        goal.setId(42L);
+        StudyTask parent = taskEntity(1L, 3, 0, "pending");
+        StudySubtask first = subtaskEntity(11L, 1L, 1, 0, "pending");
+        StudySubtask second = subtaskEntity(12L, 1L, 2, 0, "pending");
+        List<StudySubtask> subtasks = new ArrayList<>(List.of(first, second));
+        when(studySubtaskRepository.findById(11L)).thenReturn(Optional.of(first));
+        when(studyTaskRepository.findById(1L)).thenReturn(Optional.of(parent));
+        when(studyGoalRepository.findByIdAndUserId(42L, 7L)).thenReturn(Optional.of(goal));
+        when(studySubtaskRepository.findByTaskIdOrderByOrderNumAscIdAsc(1L)).thenReturn(subtasks);
+        when(studyTaskRepository.findByGoalIdOrderByOrderNumAscIdAsc(42L)).thenReturn(List.of(parent));
+        when(studySubtaskRepository.save(any(StudySubtask.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(studyGoalRepository.save(any(StudyGoal.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        service().updateSubtaskProgress(11L, 100, 7L);
+
+        assertEquals(100, first.getProgressPercent());
+        assertEquals(0, second.getProgressPercent());
+        assertEquals(50, parent.getProgressPercent());
+        assertEquals(50, goal.getProgress());
+    }
+
+    @Test
+    void postponingSubtaskShiftsLaterLeafItemsAndRefreshesParentWindow() {
+        StudyGoal goal = new StudyGoal();
+        goal.setId(42L);
+        goal.setStartDate(LocalDate.of(2026, 8, 27));
+        StudyTask parent = taskEntity(1L, 3, 0, "pending");
+        parent.setPlannedStartDate(LocalDate.of(2026, 8, 27));
+        parent.setPlannedEndDate(LocalDate.of(2026, 8, 29));
+        StudyTask later = taskEntity(2L, 1, 0, "pending");
+        later.setPlannedStartDate(LocalDate.of(2026, 8, 30));
+        later.setPlannedEndDate(LocalDate.of(2026, 8, 30));
+        StudySubtask selected = subtaskEntity(11L, 1L, 1, 0, "pending");
+        selected.setPlannedStartDate(LocalDate.of(2026, 8, 27));
+        selected.setPlannedEndDate(LocalDate.of(2026, 8, 27));
+        StudySubtask laterSubtask = subtaskEntity(12L, 1L, 2, 0, "pending");
+        laterSubtask.setPlannedStartDate(LocalDate.of(2026, 8, 28));
+        laterSubtask.setPlannedEndDate(LocalDate.of(2026, 8, 29));
+        List<StudySubtask> subtasks = new ArrayList<>(List.of(selected, laterSubtask));
+        when(studySubtaskRepository.findById(11L)).thenReturn(Optional.of(selected));
+        when(studyTaskRepository.findById(1L)).thenReturn(Optional.of(parent));
+        when(studyGoalRepository.findByIdAndUserId(42L, 7L)).thenReturn(Optional.of(goal));
+        when(studyTaskRepository.findByGoalIdOrderByOrderNumAscIdAsc(42L)).thenReturn(List.of(parent, later));
+        when(studySubtaskRepository.findByTaskIdOrderByOrderNumAscIdAsc(1L)).thenReturn(subtasks);
+        when(studySubtaskRepository.findByTaskIdOrderByOrderNumAscIdAsc(2L)).thenReturn(List.of());
+        when(studySubtaskRepository.saveAll(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        when(studyTaskRepository.saveAll(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+        StudyGoalDTO.GoalDetail detail = service().postponeSubtask(11L, 1, 7L);
+
+        assertEquals(LocalDate.of(2026, 8, 28), selected.getPlannedStartDate());
+        assertEquals(LocalDate.of(2026, 8, 29), laterSubtask.getPlannedStartDate());
+        assertEquals(LocalDate.of(2026, 8, 30), laterSubtask.getPlannedEndDate());
+        assertEquals(LocalDate.of(2026, 8, 31), later.getPlannedStartDate());
+        assertEquals(LocalDate.of(2026, 8, 30), parent.getPlannedEndDate());
+        assertEquals(2, detail.getTasks().size());
+    }
+
+    @Test
     void postponingTaskShiftsLaterUnfinishedTasksOnly() {
         StudyGoal goal = new StudyGoal();
         goal.setId(42L);

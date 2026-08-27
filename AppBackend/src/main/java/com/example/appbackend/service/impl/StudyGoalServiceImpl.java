@@ -221,9 +221,7 @@ public class StudyGoalServiceImpl implements StudyGoalService {
     @Override
     @Transactional
     public StudyGoalDTO.GoalView updateTaskStatus(Long taskId, String status, Long userId) {
-        if (!List.of("pending", "in_progress", "blocked", "skipped", "completed").contains(status)) {
-            throw new BusinessException(Result.BAD_REQUEST_CODE, "任务状态不合法");
-        }
+        validateTaskStatus(status);
         StudyTask task = studyTaskRepository.findById(taskId)
                 .orElseThrow(() -> new BusinessException(Result.NOT_FOUND_CODE, "任务不存在"));
         requireOwnedGoal(task.getGoalId(), userId);
@@ -249,6 +247,44 @@ public class StudyGoalServiceImpl implements StudyGoalService {
         StudyGoal goal = requireOwnedGoal(task.getGoalId(), userId);
         applyProgress(goal, studyTaskRepository.findByGoalIdOrderByOrderNumAscIdAsc(goal.getId()));
         return toGoalView(goal);
+    }
+
+    @Override
+    @Transactional
+    public StudyGoalDTO.GoalView updateSubtaskCompletion(Long subtaskId, Boolean isCompleted, Long userId) {
+        return updateSubtaskProgress(subtaskId, Boolean.TRUE.equals(isCompleted) ? 100 : 0, userId);
+    }
+
+    @Override
+    @Transactional
+    public StudyGoalDTO.GoalView updateSubtaskProgress(Long subtaskId, Integer progressPercent, Long userId) {
+        int normalizedProgress = normalizeProgress(progressPercent);
+        StudySubtask subtask = requireOwnedSubtask(subtaskId, userId);
+        boolean completed = normalizedProgress >= 100;
+        subtask.setProgressPercent(normalizedProgress);
+        subtask.setIsCompleted(completed);
+        subtask.setStatus(completed ? "completed" : normalizedProgress > 0 ? "in_progress" : "pending");
+        studySubtaskRepository.save(subtask);
+        return refreshGoalAfterSubtaskChange(subtask.getTaskId(), userId);
+    }
+
+    @Override
+    @Transactional
+    public StudyGoalDTO.GoalView updateSubtaskStatus(Long subtaskId, String status, Long userId) {
+        validateTaskStatus(status);
+        StudySubtask subtask = requireOwnedSubtask(subtaskId, userId);
+        subtask.setStatus(status);
+        if ("completed".equals(status)) {
+            subtask.setProgressPercent(100);
+            subtask.setIsCompleted(true);
+        } else {
+            subtask.setIsCompleted(false);
+            if ("pending".equals(status) && effectiveProgress(subtask) >= 100) {
+                subtask.setProgressPercent(0);
+            }
+        }
+        studySubtaskRepository.save(subtask);
+        return refreshGoalAfterSubtaskChange(subtask.getTaskId(), userId);
     }
 
     @Override
@@ -292,6 +328,62 @@ public class StudyGoalServiceImpl implements StudyGoalService {
             changed.add(selected);
         }
         studyTaskRepository.saveAll(changed);
+        return getGoalDetail(goal.getId(), userId, "all");
+    }
+
+    @Override
+    @Transactional
+    public StudyGoalDTO.GoalDetail postponeSubtask(Long subtaskId, Integer days, Long userId) {
+        validatePostponeDays(days);
+        StudySubtask selected = studySubtaskRepository.findById(subtaskId)
+                .orElseThrow(() -> new BusinessException(Result.NOT_FOUND_CODE, "细分任务不存在"));
+        StudyTask selectedParent = requireOwnedSubtaskParent(selected, userId);
+        StudyGoal goal = requireOwnedGoal(selectedParent.getGoalId(), userId);
+        if (effectiveProgress(selected) >= 100 || "completed".equals(selected.getStatus())) {
+            throw new BusinessException(Result.BAD_REQUEST_CODE, "已完成任务不能延后");
+        }
+
+        List<StudyTask> tasks = studyTaskRepository.findByGoalIdOrderByOrderNumAscIdAsc(goal.getId());
+        int selectedTaskOrder = orderOf(selectedParent.getOrderNum());
+        int selectedSubtaskOrder = orderOf(selected.getOrderNum());
+        List<StudySubtask> changedSubtasks = new ArrayList<>();
+        List<StudyTask> changedTasks = new ArrayList<>();
+        for (StudyTask task : tasks) {
+            int taskOrder = orderOf(task.getOrderNum());
+            List<StudySubtask> subtasks = subtasksOf(task);
+            if (!subtasks.isEmpty()) {
+                boolean taskChanged = false;
+                for (StudySubtask subtask : subtasks) {
+                    int subtaskOrder = orderOf(subtask.getOrderNum());
+                    boolean afterSelected = taskOrder > selectedTaskOrder
+                            || (task == selectedParent && subtaskOrder >= selectedSubtaskOrder);
+                    if (!afterSelected || effectiveProgress(subtask) >= 100
+                            || "completed".equals(subtask.getStatus())) {
+                        continue;
+                    }
+                    shiftSubtaskDates(subtask, days, task, goal);
+                    changedSubtasks.add(subtask);
+                    taskChanged = true;
+                }
+                if (taskChanged) {
+                    refreshParentSchedule(task, subtasks);
+                    if (!changedTasks.contains(task)) {
+                        changedTasks.add(task);
+                    }
+                }
+            } else if (taskOrder > selectedTaskOrder && effectiveProgress(task) < 100
+                    && !"completed".equals(task.getStatus())) {
+                shiftTaskDates(task, days, goal);
+                changedTasks.add(task);
+            }
+        }
+        if (changedSubtasks.isEmpty()) {
+            throw new BusinessException(Result.BAD_REQUEST_CODE, "未找到可延后的细分任务");
+        }
+        studySubtaskRepository.saveAll(changedSubtasks);
+        if (!changedTasks.isEmpty()) {
+            studyTaskRepository.saveAll(changedTasks);
+        }
         return getGoalDetail(goal.getId(), userId, "all");
     }
 
@@ -373,6 +465,95 @@ public class StudyGoalServiceImpl implements StudyGoalService {
     private StudyGoal requireOwnedGoal(Long goalId, Long userId) {
         return studyGoalRepository.findByIdAndUserId(goalId, userId)
                 .orElseThrow(() -> new BusinessException(Result.NOT_FOUND_CODE, "目标不存在或无权访问"));
+    }
+
+    private StudySubtask requireOwnedSubtask(Long subtaskId, Long userId) {
+        StudySubtask subtask = studySubtaskRepository.findById(subtaskId)
+                .orElseThrow(() -> new BusinessException(Result.NOT_FOUND_CODE, "细分任务不存在"));
+        requireOwnedSubtaskParent(subtask, userId);
+        return subtask;
+    }
+
+    private StudyTask requireOwnedSubtaskParent(StudySubtask subtask, Long userId) {
+        StudyTask parent = studyTaskRepository.findById(subtask.getTaskId())
+                .orElseThrow(() -> new BusinessException(Result.NOT_FOUND_CODE, "父任务不存在"));
+        requireOwnedGoal(parent.getGoalId(), userId);
+        return parent;
+    }
+
+    private StudyGoalDTO.GoalView refreshGoalAfterSubtaskChange(Long taskId, Long userId) {
+        StudyTask parent = studyTaskRepository.findById(taskId)
+                .orElseThrow(() -> new BusinessException(Result.NOT_FOUND_CODE, "父任务不存在"));
+        StudyGoal goal = requireOwnedGoal(parent.getGoalId(), userId);
+        applyProgress(goal, studyTaskRepository.findByGoalIdOrderByOrderNumAscIdAsc(goal.getId()));
+        return toGoalView(goal);
+    }
+
+    private void validateTaskStatus(String status) {
+        if (status == null || !List.of("pending", "in_progress", "blocked", "skipped", "completed").contains(status)) {
+            throw new BusinessException(Result.BAD_REQUEST_CODE, "任务状态不合法");
+        }
+    }
+
+    private void validatePostponeDays(Integer days) {
+        if (days == null || days < 1 || days > 30) {
+            throw new BusinessException(Result.BAD_REQUEST_CODE, "延后天数必须在 1 到 30 天之间");
+        }
+    }
+
+    private int orderOf(Integer orderNum) {
+        return orderNum == null ? Integer.MAX_VALUE : orderNum;
+    }
+
+    private void shiftSubtaskDates(StudySubtask subtask, int days, StudyTask parent, StudyGoal goal) {
+        LocalDate start = subtask.getPlannedStartDate();
+        if (start == null) {
+            start = parent.getPlannedStartDate();
+        }
+        if (start == null) {
+            start = goal.getStartDate() == null ? LocalDate.now() : goal.getStartDate();
+        }
+        LocalDate end = subtask.getPlannedEndDate();
+        if (end == null) {
+            end = start.plusDays(normalizeEstimatedDays(subtask.getEstimatedDays()) - 1L);
+        }
+        subtask.setPlannedStartDate(start.plusDays(days));
+        subtask.setPlannedEndDate(end.plusDays(days));
+    }
+
+    private void shiftTaskDates(StudyTask task, int days, StudyGoal goal) {
+        LocalDate start = task.getPlannedStartDate();
+        if (start == null) {
+            start = goal.getStartDate() == null ? LocalDate.now() : goal.getStartDate();
+        }
+        LocalDate end = task.getPlannedEndDate();
+        if (end == null) {
+            end = start.plusDays(normalizeEstimatedDays(task.getEstimatedDays()) - 1L);
+        }
+        task.setPlannedStartDate(start.plusDays(days));
+        task.setPlannedEndDate(end.plusDays(days));
+    }
+
+    private void refreshParentSchedule(StudyTask parent, List<StudySubtask> subtasks) {
+        LocalDate start = subtasks.stream()
+                .map(StudySubtask::getPlannedStartDate)
+                .filter(java.util.Objects::nonNull)
+                .min(LocalDate::compareTo)
+                .orElse(parent.getPlannedStartDate());
+        LocalDate end = subtasks.stream()
+                .map(StudySubtask::getPlannedEndDate)
+                .filter(java.util.Objects::nonNull)
+                .max(LocalDate::compareTo)
+                .orElse(parent.getPlannedEndDate());
+        if (start != null) {
+            parent.setPlannedStartDate(start);
+        }
+        if (end != null) {
+            parent.setPlannedEndDate(end);
+        }
+        parent.setEstimatedDays(subtasks.stream()
+                .mapToInt(subtask -> normalizeEstimatedDays(subtask.getEstimatedDays()))
+                .sum());
     }
 
     /** 根据预计学习天数加权重算目标进度，避免一个大任务与一个小任务权重相同。 */

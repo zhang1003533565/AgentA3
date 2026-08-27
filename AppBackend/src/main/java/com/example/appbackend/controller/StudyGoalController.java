@@ -97,6 +97,39 @@ public class StudyGoalController {
         return Result.success(studyGoalService.updateTaskStatus(taskId, status, userId));
     }
 
+    @PutMapping("/subtasks/{subtaskId}/completion")
+    @Operation(summary = "更新细分任务完成状态", description = "更新叶子任务并自动重算父任务与 Goal 进度")
+    public Result<StudyGoalDTO.GoalView> updateSubtaskCompletion(
+            @PathVariable("subtaskId") Long subtaskId,
+            @RequestBody StudyGoalDTO.TaskCompletionRequest request,
+            HttpServletRequest httpRequest) {
+        Long userId = currentUserId(httpRequest);
+        boolean isCompleted = request != null && Boolean.TRUE.equals(request.getIsCompleted());
+        return Result.success(studyGoalService.updateSubtaskCompletion(subtaskId, isCompleted, userId));
+    }
+
+    @PutMapping("/subtasks/{subtaskId}/progress")
+    @Operation(summary = "更新细分任务进度", description = "支持 0-100 的叶子任务进度，并自动聚合父任务与 Goal 进度")
+    public Result<StudyGoalDTO.GoalView> updateSubtaskProgress(
+            @PathVariable("subtaskId") Long subtaskId,
+            @RequestBody StudyGoalDTO.TaskProgressRequest request,
+            HttpServletRequest httpRequest) {
+        Long userId = currentUserId(httpRequest);
+        Integer progress = request == null ? null : request.getProgressPercent();
+        return Result.success(studyGoalService.updateSubtaskProgress(subtaskId, progress, userId));
+    }
+
+    @PutMapping("/subtasks/{subtaskId}/status")
+    @Operation(summary = "更新细分任务状态", description = "状态支持 pending/in_progress/blocked/skipped/completed")
+    public Result<StudyGoalDTO.GoalView> updateSubtaskStatus(
+            @PathVariable("subtaskId") Long subtaskId,
+            @RequestBody StudyGoalDTO.TaskStatusRequest request,
+            HttpServletRequest httpRequest) {
+        Long userId = currentUserId(httpRequest);
+        String status = request == null ? null : request.getStatus();
+        return Result.success(studyGoalService.updateSubtaskStatus(subtaskId, status, userId));
+    }
+
     @PostMapping("/tasks/{taskId}/postpone")
     @Operation(summary = "延后任务", description = "将指定任务及其之后的未完成任务整体顺延指定天数")
     public Result<StudyGoalDTO.GoalDetail> postpone(@PathVariable("taskId") Long taskId,
@@ -105,6 +138,17 @@ public class StudyGoalController {
         Long userId = currentUserId(httpRequest);
         Integer days = request == null ? null : request.getDays();
         return Result.success(studyGoalService.postponeTask(taskId, days, userId));
+    }
+
+    @PostMapping("/subtasks/{subtaskId}/postpone")
+    @Operation(summary = "延后细分任务", description = "将指定细分任务及其之后的未完成叶子任务整体顺延指定天数")
+    public Result<StudyGoalDTO.GoalDetail> postponeSubtask(
+            @PathVariable("subtaskId") Long subtaskId,
+            @RequestBody StudyGoalDTO.TaskPostponeRequest request,
+            HttpServletRequest httpRequest) {
+        Long userId = currentUserId(httpRequest);
+        Integer days = request == null ? null : request.getDays();
+        return Result.success(studyGoalService.postponeSubtask(subtaskId, days, userId));
     }
 
     @GetMapping("/my")

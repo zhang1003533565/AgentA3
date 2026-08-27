@@ -39,8 +39,20 @@ public interface StudyGoalService {
     /** 更新任务状态；completed 会同步任务完成标记与 100% 进度。 */
     StudyGoalDTO.GoalView updateTaskStatus(Long taskId, String status, Long userId);
 
+    /** 更新细分任务完成状态，并自动聚合父任务与目标进度。 */
+    StudyGoalDTO.GoalView updateSubtaskCompletion(Long subtaskId, Boolean isCompleted, Long userId);
+
+    /** 更新细分任务部分完成进度，并自动聚合父任务与目标进度。 */
+    StudyGoalDTO.GoalView updateSubtaskProgress(Long subtaskId, Integer progressPercent, Long userId);
+
+    /** 更新细分任务状态，并自动聚合父任务与目标进度。 */
+    StudyGoalDTO.GoalView updateSubtaskStatus(Long subtaskId, String status, Long userId);
+
     /** 延后任务及其之后的未完成任务，并返回刷新后的目标详情。 */
     StudyGoalDTO.GoalDetail postponeTask(Long taskId, Integer days, Long userId);
+
+    /** 延后细分任务及其之后的未完成叶子任务，并返回刷新后的目标详情。 */
+    StudyGoalDTO.GoalDetail postponeSubtask(Long subtaskId, Integer days, Long userId);
 
     /**
      * 查询指定目标详情，filter 支持 all / pending（剩余）/ completed（已完成）。
