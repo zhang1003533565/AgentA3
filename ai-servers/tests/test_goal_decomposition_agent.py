@@ -11,6 +11,7 @@ import json
 import pytest
 from fastapi import HTTPException
 
+from app.api.routes.goal import GoalDecomposeResponse, SubtaskPlan, TaskPlan
 from app.multi_agents.goal_decomposition_agent.agent import (
     build_user_prompt,
     parse_goal_payload,
@@ -166,6 +167,21 @@ def test_nested_subtasks_are_normalized_and_renumbered():
     assert [item["task_name"] for item in subtasks] == ["先读资料", "再做练习"]
     assert [item["order_num"] for item in subtasks] == [1, 2]
     assert [item["estimated_days"] for item in subtasks] == [2, 3]
+
+
+def test_internal_response_model_preserves_nested_subtasks():
+    response = GoalDecomposeResponse(
+        goal={"title": "计划"},
+        tasks=[
+            TaskPlan(
+                task_name="基础阶段",
+                order_num=1,
+                subtasks=[SubtaskPlan(task_name="完成一次练习", order_num=1)],
+            )
+        ],
+    )
+
+    assert response.tasks[0].subtasks[0].task_name == "完成一次练习"
 
 
 def test_nested_subtasks_are_capped_and_invalid_entries_are_dropped():

@@ -35,6 +35,15 @@ class GoalInfo(BaseModel):
     description: str = ""
 
 
+class SubtaskPlan(BaseModel):
+    """拆解出的可执行细分任务。"""
+
+    task_name: str
+    description: str = ""
+    estimated_days: int = Field(default=1, ge=1)
+    order_num: int = Field(ge=1)
+
+
 class TaskPlan(BaseModel):
     """拆解出的单条任务计划。"""
 
@@ -46,6 +55,7 @@ class TaskPlan(BaseModel):
     status: str = "pending"
     is_completed: bool = False
     description: str = ""
+    subtasks: List[SubtaskPlan] = Field(default_factory=list)
 
 
 class GoalDecomposeResponse(BaseModel):
