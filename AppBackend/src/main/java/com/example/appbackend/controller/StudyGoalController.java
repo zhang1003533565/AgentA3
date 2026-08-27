@@ -180,6 +180,15 @@ public class StudyGoalController {
         return Result.success(studyGoalService.getGoalDetail(goalId, userId, filter));
     }
 
+    @PostMapping("/{goalId}/expand-subtasks")
+    @Operation(summary = "补全细分任务", description = "为历史计划中缺少细分任务的父任务生成可执行步骤，不覆盖已有细分任务")
+    public Result<StudyGoalDTO.GoalDetail> expandSubtasks(@PathVariable("goalId") Long goalId,
+                                                           HttpServletRequest httpRequest) {
+        Long userId = currentUserId(httpRequest);
+        String authorization = httpRequest.getHeader("Authorization");
+        return Result.success(studyGoalService.expandMissingSubtasks(goalId, userId, authorization));
+    }
+
     @GetMapping("/{goalId}/remaining-tasks")
     @Operation(summary = "查询剩余任务", description = "返回指定 Goal 下 is_completed = false 的任务")
     public Result<List<StudyGoalDTO.TaskView>> remainingTasks(@PathVariable("goalId") Long goalId,

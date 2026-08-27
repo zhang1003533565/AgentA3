@@ -71,4 +71,7 @@ public interface StudyGoalService {
 
     /** 删除当前用户拥有的学习计划及其任务、细分任务。 */
     void deleteGoal(Long goalId, Long userId);
+
+    /** 为历史父任务计划补全缺失的细分任务，不覆盖已有细分任务。 */
+    StudyGoalDTO.GoalDetail expandMissingSubtasks(Long goalId, Long userId, String authorization);
 }

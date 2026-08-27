@@ -502,6 +502,91 @@ public class StudyGoalServiceImpl implements StudyGoalService {
         studyGoalRepository.delete(goal);
     }
 
+    @Override
+    @Transactional
+    public StudyGoalDTO.GoalDetail expandMissingSubtasks(Long goalId, Long userId, String authorization) {
+        StudyGoal goal = requireOwnedGoal(goalId, userId);
+        List<StudyTask> tasks = studyTaskRepository.findByGoalIdOrderByOrderNumAscIdAsc(goalId);
+        List<Integer> missingIndexes = new ArrayList<>();
+        for (int index = 0; index < tasks.size(); index++) {
+            if (subtasksOf(tasks.get(index)).isEmpty()) {
+                missingIndexes.add(index);
+            }
+        }
+        if (missingIndexes.isEmpty()) {
+            throw new BusinessException(Result.BAD_REQUEST_CODE, "当前计划已经具备细分任务，无需重复补全");
+        }
+
+        Map<String, Object> request = new HashMap<>();
+        request.put("sourceType", "text");
+        request.put("content", buildExpansionContent(goal, tasks));
+        StudyGoalDTO.DecomposeResponse generated = toDecomposeResponse(
+                pythonAiProxyService.generateGoalDecomposition(request, authorization));
+        if (generated.getTasks().size() != tasks.size()) {
+            throw new BusinessException(Result.ERROR_CODE, "细分任务补全结果与原计划阶段数量不一致，请重试");
+        }
+
+        Map<Long, List<StudySubtask>> additionsByTask = new HashMap<>();
+        for (Integer index : missingIndexes) {
+            StudyTask task = tasks.get(index);
+            StudyGoalDTO.TaskView generatedTask = generated.getTasks().get(index);
+            if (generatedTask.getSubtasks().isEmpty()) {
+                throw new BusinessException(Result.ERROR_CODE, "细分任务补全结果仍有阶段未生成执行步骤，请重试");
+            }
+            int inheritedProgress = effectiveProgress(task);
+            List<StudySubtask> additions = new ArrayList<>();
+            for (StudyGoalDTO.SubtaskView generatedSubtask : generatedTask.getSubtasks()) {
+                StudyGoalDTO.SubtaskInput input = new StudyGoalDTO.SubtaskInput();
+                input.setTaskName(generatedSubtask.getTaskName());
+                input.setDescription(generatedSubtask.getDescription());
+                input.setEstimatedDays(generatedSubtask.getEstimatedDays());
+                input.setProgressPercent(inheritedProgress);
+                input.setIsCompleted(inheritedProgress >= 100);
+                additions.add(buildSubtaskEntity(task.getId(), input));
+            }
+            task.setEstimatedDays(additions.stream()
+                    .mapToInt(subtask -> normalizeEstimatedDays(subtask.getEstimatedDays()))
+                    .sum());
+            additionsByTask.put(task.getId(), additions);
+        }
+
+        scheduleTasks(tasks, goal.getStartDate() == null ? LocalDate.now() : goal.getStartDate());
+        for (StudyTask task : tasks) {
+            List<StudySubtask> additions = additionsByTask.get(task.getId());
+            if (additions != null) {
+                scheduleSubtasks(additions, task.getPlannedStartDate());
+            }
+        }
+        for (List<StudySubtask> additions : additionsByTask.values()) {
+            studySubtaskRepository.saveAll(additions);
+        }
+        studyTaskRepository.saveAll(tasks);
+        applyProgress(goal, tasks);
+        return getGoalDetail(goalId, userId, "all");
+    }
+
+    private String buildExpansionContent(StudyGoal goal, List<StudyTask> tasks) {
+        StringBuilder content = new StringBuilder();
+        content.append("目标：").append(goal.getTitle()).append('\n');
+        if (StringUtils.hasText(goal.getDescription())) {
+            content.append("目标说明：").append(goal.getDescription()).append('\n');
+        }
+        content.append("请严格按编号保留以下父任务，并为每个父任务生成2到6个可执行细分任务。")
+                .append("不要合并、删除或改写父任务顺序；每个细分任务都要有完成标准，子任务天数之和等于父任务天数。\n");
+        for (int index = 0; index < tasks.size(); index++) {
+            StudyTask task = tasks.get(index);
+            content.append(index + 1).append(". ")
+                    .append(task.getTaskName())
+                    .append("；阶段：").append(task.getStage())
+                    .append("；预计天数：").append(normalizeEstimatedDays(task.getEstimatedDays()));
+            if (StringUtils.hasText(task.getDescription())) {
+                content.append("；说明：").append(task.getDescription());
+            }
+            content.append('\n');
+        }
+        return content.toString();
+    }
+
     private StudyGoal requireOwnedGoal(Long goalId, Long userId) {
         return studyGoalRepository.findByIdAndUserId(goalId, userId)
                 .orElseThrow(() -> new BusinessException(Result.NOT_FOUND_CODE, "目标不存在或无权访问"));

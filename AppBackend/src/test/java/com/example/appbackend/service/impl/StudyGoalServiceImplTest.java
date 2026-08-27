@@ -19,6 +19,8 @@ import org.springframework.mock.web.MockMultipartFile;
 import java.time.LocalDate;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
+import java.util.Map;
+import java.util.HashMap;
 import java.util.Optional;
 import java.util.ArrayList;
 import java.util.concurrent.atomic.AtomicReference;
@@ -27,6 +29,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.inOrder;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
@@ -299,6 +302,69 @@ class StudyGoalServiceImplTest {
 
         assertThrows(BusinessException.class, () -> service().deleteGoal(42L, 7L));
         verifyNoInteractions(studyTaskRepository, studySubtaskRepository);
+    }
+
+    @Test
+    void expandsOnlyLegacyTasksAndKeepsExistingSubtasks() {
+        StudyGoal goal = new StudyGoal();
+        goal.setId(42L);
+        goal.setTitle("30天学会 C++");
+        goal.setStartDate(LocalDate.of(2026, 8, 27));
+        StudyTask legacy = taskEntity(1L, 3, 0, "pending");
+        StudyTask existing = taskEntity(2L, 2, 50, "in_progress");
+        StudySubtask existingSubtask = subtaskEntity(21L, 2L, 1, 50, "in_progress");
+        List<StudyTask> tasks = List.of(legacy, existing);
+        Map<Long, List<StudySubtask>> storedSubtasks = new HashMap<>();
+        storedSubtasks.put(existing.getId(), new ArrayList<>(List.of(existingSubtask)));
+        when(studyGoalRepository.findByIdAndUserId(42L, 7L)).thenReturn(Optional.of(goal));
+        when(studyTaskRepository.findByGoalIdOrderByOrderNumAscIdAsc(42L)).thenReturn(tasks);
+        when(studySubtaskRepository.findByTaskIdOrderByOrderNumAscIdAsc(any(Long.class)))
+                .thenAnswer(invocation -> storedSubtasks.getOrDefault(invocation.getArgument(0), List.of()));
+        when(studySubtaskRepository.saveAll(any())).thenAnswer(invocation -> {
+            List<StudySubtask> saved = invocation.getArgument(0);
+            storedSubtasks.put(saved.get(0).getTaskId(), new ArrayList<>(saved));
+            return saved;
+        });
+        when(studyTaskRepository.saveAll(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        when(studyGoalRepository.save(any(StudyGoal.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(pythonAiProxyService.generateGoalDecomposition(any(), any())).thenReturn(
+                Map.of(
+                        "goal", Map.of("title", "30天学会 C++", "description", ""),
+                        "tasks", List.of(
+                                Map.of(
+                                        "task_name", "任务1",
+                                        "estimated_days", 3,
+                                        "subtasks", List.of(
+                                                Map.of("task_name", "阅读资料", "description", "写出三条要点", "estimated_days", 1),
+                                                Map.of("task_name", "完成练习", "description", "提交一份练习结果", "estimated_days", 2)
+                                        )
+                                ),
+                                Map.of(
+                                        "task_name", "任务2",
+                                        "estimated_days", 2,
+                                        "subtasks", List.of(
+                                                Map.of("task_name", "不应覆盖", "description", "保留已有任务", "estimated_days", 2)
+                                        )
+                                )
+                        )
+                )
+        );
+
+        StudyGoalDTO.GoalDetail detail = service().expandMissingSubtasks(42L, 7L, "Bearer token");
+
+        assertEquals(2, detail.getTasks().get(0).getSubtasks().size());
+        assertEquals(1, detail.getTasks().get(1).getSubtasks().size());
+        assertEquals(21L, detail.getTasks().get(1).getSubtasks().get(0).getId());
+        verify(pythonAiProxyService).generateGoalDecomposition(any(), any());
+    }
+
+    @Test
+    void expandingAnotherUsersGoalStopsBeforeCallingAi() {
+        when(studyGoalRepository.findByIdAndUserId(42L, 7L)).thenReturn(Optional.empty());
+
+        assertThrows(BusinessException.class,
+                () -> service().expandMissingSubtasks(42L, 7L, "Bearer token"));
+        verifyNoInteractions(pythonAiProxyService, studyTaskRepository, studySubtaskRepository);
     }
 
     private StudyGoalServiceImpl service() {
