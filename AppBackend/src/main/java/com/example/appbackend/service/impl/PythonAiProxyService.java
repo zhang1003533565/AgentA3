@@ -39,6 +39,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.regex.Pattern;
 
@@ -49,6 +50,8 @@ public class PythonAiProxyService {
     private static final String ARCHITECTURE_AGENT_NAME = "diagram_architecture_agent";
     private static final String CODING_TUTOR_AGENT_NAME = "python_coding_tutor_agent";
     private static final String GENERATOR_AGENT_NAME = "python_problem_generator_agent";
+    private static final String RESUME_POLISH_EXPAND_AGENT_NAME = "resume_polish_expand_agent";
+    private static final String RESUME_EDIT_AGENT_NAME = "resume_edit_agent";
     private static final String AGENT_MODEL_BINDING_PREFIX = "ai.agent-bindings.";
     private static final String AGENT_ENABLED_PREFIX = "ai.agent-enabled.";
     private static final String TOOL_ENABLED_PREFIX = "ai.tool-enabled.";
@@ -56,6 +59,14 @@ public class PythonAiProxyService {
     private static final String TOOL_RETRIEVAL_PREFIX = "ai.tool-retrieval.";
     private static final String LEGACY_TEXT_CONFIG_PREFIX = "ai.service.text";
     private static final Pattern SAFE_SSE_EVENT_NAME = Pattern.compile("[A-Za-z][A-Za-z0-9_-]{0,39}");
+    private static final long FILE_CONTENT_TOOL_TEST_MAX_BYTES = 25L * 1024 * 1024;
+    private static final Map<String, Set<String>> FILE_CONTENT_TOOL_EXTENSIONS = Map.of(
+            "markdown_to_text_tool", Set.of(".md", ".markdown"),
+            "txt_to_text_tool", Set.of(".txt"),
+            "word_to_text_tool", Set.of(".docx"),
+            "ppt_to_text_tool", Set.of(".pptx"),
+            "pdf_to_text_tool", Set.of(".pdf")
+    );
 
     private final WebClient.Builder webClientBuilder;
     private final ObjectMapper objectMapper;
@@ -125,7 +136,7 @@ public class PythonAiProxyService {
                     .uri(buildUri("/internal/chat"))
                     .headers(headers -> applyPythonHeaders(headers, authorization, userId, requestedModel))
                     .contentType(MediaType.APPLICATION_JSON)
-                    .bodyValue(request)
+                    .bodyValue(normalizePythonRequest(request))
                     .retrieve()
                     .bodyToMono(LlmChatResponse.class)
                     .timeout(Duration.ofSeconds(timeoutSeconds))
@@ -661,6 +672,57 @@ public class PythonAiProxyService {
 
     public Object convertPdf(MultipartFile file, String targetFormat, String authorization) {
         return convertPdf(file, targetFormat, authorization, "image");
+    }
+
+    public Object testFileContentTool(String toolName, MultipartFile file, String authorization) {
+        validateAuthorization(authorization);
+        String normalizedTool = String.valueOf(toolName == null ? "" : toolName).trim();
+        Set<String> allowedExtensions = FILE_CONTENT_TOOL_EXTENSIONS.get(normalizedTool);
+        if (allowedExtensions == null) {
+            throw new BusinessException(Result.BAD_REQUEST_CODE, "不支持的文件提取工具");
+        }
+        if (!isToolEnabled(normalizedTool, loadToolToggles())) {
+            throw new BusinessException(403, "该工具已在智能体设置中关闭");
+        }
+        if (file == null || file.isEmpty()) {
+            throw new BusinessException(Result.BAD_REQUEST_CODE, "请选择测试文件");
+        }
+        if (file.getSize() > FILE_CONTENT_TOOL_TEST_MAX_BYTES) {
+            throw new BusinessException(413, "测试文件不能超过 25MB");
+        }
+        String filename = StringUtils.hasText(file.getOriginalFilename())
+                ? StringUtils.cleanPath(file.getOriginalFilename())
+                : "document";
+        String lowerName = filename.toLowerCase(Locale.ROOT);
+        boolean extensionMatched = allowedExtensions.stream().anyMatch(lowerName::endsWith);
+        if (!extensionMatched) {
+            throw new BusinessException(Result.BAD_REQUEST_CODE,
+                    "文件格式与所选工具不匹配，支持格式: " + String.join("、", allowedExtensions));
+        }
+
+        String token = normalizeBearerToken(authorization);
+        Long userId = extractUserId(token);
+        try {
+            Map<String, Object> payload = Map.of(
+                    "toolName", normalizedTool,
+                    "fileName", filename,
+                    "contentBase64", Base64.getEncoder().encodeToString(file.getBytes())
+            );
+            return buildFileResponseWebClient()
+                    .post()
+                    .uri(buildUri("/internal/rag/tools/file-content/test"))
+                    .headers(headers -> applyPythonAuthHeaders(headers, authorization, userId))
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .bodyValue(payload)
+                    .retrieve()
+                    .bodyToMono(Object.class)
+                    .timeout(Duration.ofSeconds(timeoutSeconds))
+                    .block();
+        } catch (WebClientResponseException e) {
+            throw new BusinessException(e.getStatusCode().value(), "文件工具测试失败: " + extractRemoteMessage(e));
+        } catch (Exception e) {
+            throw new BusinessException(Result.ERROR_CODE, "文件工具测试失败: " + e.getMessage());
+        }
     }
 
     public Object convertPdf(MultipartFile file, String targetFormat, String authorization, String convertMode) {
@@ -1395,7 +1457,12 @@ public class PythonAiProxyService {
         if (StringUtils.hasText(requestedModel)) {
             return requestedModel.trim();
         }
-        return resolveAgentBoundModel(agentName);
+        String boundModel = resolveAgentBoundModel(agentName);
+        if (!StringUtils.hasText(boundModel)
+                && RESUME_POLISH_EXPAND_AGENT_NAME.equals(agentName)) {
+            return resolveAgentBoundModel(RESUME_EDIT_AGENT_NAME);
+        }
+        return boundModel;
     }
 
     private String resolveAgentBoundModel(String agentName) {

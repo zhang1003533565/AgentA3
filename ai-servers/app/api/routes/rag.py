@@ -48,7 +48,7 @@ from app.learning_workflow import (
     export_learning_resources,
     run_learning_workflow,
 )
-from app.rag.document_conversion import DocxConversionError, PdfConversionError, PptConversionError, convert_docx_to_pdf, convert_docx_to_ppt, convert_pdf, convert_ppt_to_docx, convert_ppt_to_pdf, export_generated_answer, export_text_to_file, materialize_generated_image_answer
+from app.rag.document_conversion import DocxConversionError, FileContentExtractionError, PdfConversionError, PptConversionError, convert_docx_to_pdf, convert_docx_to_ppt, convert_pdf, convert_ppt_to_docx, convert_ppt_to_pdf, export_generated_answer, export_text_to_file, extract_file_content, materialize_generated_image_answer
 from app.rag.document_conversion.generated_exporter import GeneratedExportAccessError, open_generated_export
 from app.rag.structured.text_to_sql import TextToSqlService
 from app.services.assistant_resource_builder import (
@@ -164,6 +164,79 @@ IMAGE_RECOGNITION_TOOL = {
     "configurable": True,
     "boundAgent": IMAGE_RECOGNITION_AGENT_NAME,
 }
+
+FILE_CONTENT_EXTRACTION_TOOLS = [
+    {
+        "name": "markdown_to_text_tool",
+        "zhName": "Markdown 转文本工具",
+        "displayName": "Markdown 转文本工具（markdown_to_text_tool）",
+        "category": "file_content_extraction",
+        "purpose": "提取 Markdown 文件内容：纯文本返回文本；包含图片时返回文本和图片；只有图片或扫描内容时返回图片。",
+        "trigger": "上传 .md/.markdown 文件并要求读取、提取、解析或转为可供智能体使用的内容。",
+        "inputFormats": ["md", "markdown"],
+        "contentModes": ["text", "text_with_images", "scanned_or_image_only"],
+        "outputs": ["text", "image"],
+        "status": "implemented",
+        "configurable": True,
+        "invocation": "file_parse_pipeline",
+    },
+    {
+        "name": "txt_to_text_tool",
+        "zhName": "TXT 转文本工具",
+        "displayName": "TXT 转文本工具（txt_to_text_tool）",
+        "category": "file_content_extraction",
+        "purpose": "读取 TXT 纯文本；存在随文件提交或引用的图片时同时保留图片，图片型内容则按图片输出。",
+        "trigger": "上传 .txt 文件并要求读取、提取、解析或转为可供智能体使用的内容。",
+        "inputFormats": ["txt"],
+        "contentModes": ["text", "text_with_images", "scanned_or_image_only"],
+        "outputs": ["text", "image"],
+        "status": "implemented",
+        "configurable": True,
+        "invocation": "file_parse_pipeline",
+    },
+    {
+        "name": "word_to_text_tool",
+        "zhName": "Word 转文本工具",
+        "displayName": "Word 转文本工具（word_to_text_tool）",
+        "category": "file_content_extraction",
+        "purpose": "提取 Word 段落、表格与图片：纯文本返回文本；图文文档返回文本和图片；扫描件返回页面图片。",
+        "trigger": "上传 .doc/.docx 文件并要求读取、提取、解析或转为可供智能体使用的内容。",
+        "inputFormats": ["doc", "docx"],
+        "contentModes": ["text", "text_with_images", "scanned_or_image_only"],
+        "outputs": ["text", "image"],
+        "status": "implemented",
+        "configurable": True,
+        "invocation": "file_parse_pipeline",
+    },
+    {
+        "name": "ppt_to_text_tool",
+        "zhName": "PPT 转文本工具",
+        "displayName": "PPT 转文本工具（ppt_to_text_tool）",
+        "category": "file_content_extraction",
+        "purpose": "按页提取 PPT 文本、表格与图片：纯文本返回文本；图文幻灯片返回文本和图片；扫描型幻灯片返回图片。",
+        "trigger": "上传 .ppt/.pptx 文件并要求读取、提取、解析或转为可供智能体使用的内容。",
+        "inputFormats": ["ppt", "pptx"],
+        "contentModes": ["text", "text_with_images", "scanned_or_image_only"],
+        "outputs": ["text", "image"],
+        "status": "implemented",
+        "configurable": True,
+        "invocation": "file_parse_pipeline",
+    },
+    {
+        "name": "pdf_to_text_tool",
+        "zhName": "PDF 转文本工具",
+        "displayName": "PDF 转文本工具（pdf_to_text_tool）",
+        "category": "file_content_extraction",
+        "purpose": "按页提取 PDF 文本与图片：文本 PDF 返回文本；图文 PDF 返回文本和图片；扫描 PDF 返回页面图片。",
+        "trigger": "上传 .pdf 文件并要求读取、提取、解析或转为可供智能体使用的内容。",
+        "inputFormats": ["pdf"],
+        "contentModes": ["text", "text_with_images", "scanned_or_image_only"],
+        "outputs": ["text", "image"],
+        "status": "implemented",
+        "configurable": True,
+        "invocation": "file_parse_pipeline",
+    },
+]
 
 
 class AgentExecutionError(Exception):
@@ -291,6 +364,7 @@ GENERATED_CONTENT_TOOLS = [
         "outputs": ["md", "txt", "docx"],
         "status": "implemented",
     },
+    *FILE_CONTENT_EXTRACTION_TOOLS,
 ]
 
 CAMPUS_SERVICE_TOOLS = [
@@ -437,6 +511,12 @@ class DocxConvertRequest(BaseModel):
     fileName: str = Field(min_length=1, max_length=255)
     contentBase64: str = Field(min_length=1)
     convertMode: str = Field(default="smart", max_length=16)
+
+
+class FileContentToolTestRequest(BaseModel):
+    toolName: str = Field(min_length=1, max_length=80)
+    fileName: str = Field(min_length=1, max_length=255)
+    contentBase64: str = Field(min_length=1)
 
 
 class AgentExampleInputUpdateRequest(BaseModel):
@@ -1337,6 +1417,9 @@ def _build_learning_error_payload(
 
 def _run_rag_query_core(request: RagQueryRequest, authorization: str) -> RagQueryResponse:
     request.input = _prepare_request_input(request)
+    direct_tool_response = _run_admin_direct_tool_test(request)
+    if direct_tool_response is not None:
+        return direct_tool_response
     requested_agent = _normalize_requested_agent(request)
     if request.agentName and not requested_agent:
         raise HTTPException(status_code=400, detail="智能体不存在")
@@ -1357,6 +1440,29 @@ def _run_rag_query_core(request: RagQueryRequest, authorization: str) -> RagQuer
         return _run_direct_agent(request, agent_profile)
 
     return _run_agent_without_local_retrieval(request, active_agent)
+
+
+def _run_admin_direct_tool_test(request: RagQueryRequest) -> Optional[RagQueryResponse]:
+    """Run an explicitly selected admin-console tool without Leader routing."""
+    metadata = request.metadata if isinstance(request.metadata, dict) else {}
+    if metadata.get("testFrom") != "admin_tool_console" or metadata.get("directToolTest") is not True:
+        return None
+    tool_name = str(metadata.get("expectedToolName") or "").strip()
+    if tool_name != TEXT_TO_FILE_TOOL_NAME:
+        raise HTTPException(status_code=400, detail="当前工具暂不支持直接测试。")
+    if not _is_tool_enabled(request, tool_name):
+        raise HTTPException(status_code=403, detail=f"工具 {_tool_display_name(tool_name)} 已在后台关闭，无法运行测试。")
+    plan = LeaderPlan(
+        intent="document_export",
+        target_agent=tool_name,
+        need_retrieval=False,
+        rag_strategy="",
+        action="call_tool",
+        tool_name=tool_name,
+        route_reason="管理台直接运行指定工具。",
+        route_mode="direct_tool_test",
+    )
+    return _run_text_to_file_tool(request, plan, direct_tool_test=True)
 
 
 def _normalize_requested_agent(request: RagQueryRequest) -> Optional[str]:
@@ -3335,7 +3441,7 @@ def _text_file_title(content: str) -> str:
     return "文本文件"
 
 
-def _run_text_to_file_tool(request: RagQueryRequest, leader_plan) -> RagQueryResponse:
+def _run_text_to_file_tool(request: RagQueryRequest, leader_plan, direct_tool_test: bool = False) -> RagQueryResponse:
     request_metadata = request.metadata if isinstance(request.metadata, dict) else {}
     requested_output_type = _normalize_requested_file_type(
         request_metadata.get("requestedOutputType")
@@ -3343,7 +3449,7 @@ def _run_text_to_file_tool(request: RagQueryRequest, leader_plan) -> RagQueryRes
         or "md"
     )
     metadata = {
-        "agentName": "leader_agent",
+        "agentName": TEXT_TO_FILE_TOOL_NAME if direct_tool_test else "leader_agent",
         "targetAgent": TEXT_TO_FILE_TOOL_NAME,
         "executedAgent": TEXT_TO_FILE_TOOL_NAME,
         "intent": leader_plan.intent,
@@ -3355,8 +3461,8 @@ def _run_text_to_file_tool(request: RagQueryRequest, leader_plan) -> RagQueryRes
         "toolDisplayName": _tool_display_name(leader_plan.tool_name),
         "routeReason": leader_plan.route_reason,
         "strategyLabel": "文本转文件工具",
-        "executionMode": "leader_call_tool",
-        "executionModeLabel": "Leader 调用文本转文件工具",
+        "executionMode": "direct_tool_test" if direct_tool_test else "leader_call_tool",
+        "executionModeLabel": "管理台直接运行文本转文件工具" if direct_tool_test else "Leader 调用文本转文件工具",
         "answerType": "document_export",
         "requestedOutputType": requested_output_type,
         "toolToggles": _tool_toggles_from_request(request),
@@ -3390,8 +3496,9 @@ def _run_text_to_file_tool(request: RagQueryRequest, leader_plan) -> RagQueryRes
         answer=answer,
         answerType="document_export",
         documents=[],
-        trace=[
+        trace=([] if direct_tool_test else [
             RagTraceResponse(stage="leader_route", detail=_leader_plan_detail(leader_plan)),
+        ]) + [
             RagTraceResponse(stage="tool_call", detail={
                 "toolName": TEXT_TO_FILE_TOOL_NAME,
                 "toolDisplayName": _tool_display_name(TEXT_TO_FILE_TOOL_NAME),
@@ -4071,6 +4178,22 @@ def _answer_type_for_agent(agent_name: str) -> str:
     if (agent_name or "").startswith("meeting_"):
         return "markdown"
     return mapping.get(agent_name or "", "text")
+
+
+@router.post("/tools/file-content/test")
+def test_file_content_tool(
+    request: FileContentToolTestRequest,
+    authorization: Optional[str] = Header(default=None, alias="Authorization"),
+) -> Dict[str, Any]:
+    _require_authorization(authorization)
+    try:
+        content = base64.b64decode(request.contentBase64, validate=True)
+    except (ValueError, base64.binascii.Error) as exc:
+        raise HTTPException(status_code=400, detail="文件内容不是合法 Base64") from exc
+    try:
+        return extract_file_content(request.toolName, request.fileName, content)
+    except FileContentExtractionError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.post("/pdf/convert")

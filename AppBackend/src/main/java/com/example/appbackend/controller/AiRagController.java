@@ -101,6 +101,15 @@ public class AiRagController {
         return Result.success(pythonAiProxyService.convertPdf(file, targetFormat, adminAuthorization(request)));
     }
 
+    @PostMapping(value = "/tools/{toolName}/test-file", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @Operation(summary = "手动上传文件测试内容提取工具")
+    public Result<Object> testFileContentTool(
+            @PathVariable String toolName,
+            @RequestParam("file") MultipartFile file,
+            HttpServletRequest request) {
+        return Result.success(pythonAiProxyService.testFileContentTool(toolName, file, adminAuthorization(request)));
+    }
+
     @PostMapping(value = "/ppt/convert", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     @Operation(summary = "PPTX 转换为 DOCX")
     public Result<Object> convertPpt(

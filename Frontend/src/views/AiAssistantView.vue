@@ -4,7 +4,9 @@ import { useRouter } from 'vue-router'
 
 import AppTabBar from '../components/AppTabBar.vue'
 import { deleteLeaderSession, getLeaderSessionDetail, getLeaderSessions, queryLeaderAgent, streamLeaderAgent } from '../api/aiGeneration'
+import { API_BASE_URL } from '../api/request'
 import { AI_RESOURCE_ACCEPT, uploadAiResource } from '../api/upload'
+import { getToken } from '../utils/auth'
 import pdfIcon from '../assets/file-icons/pdf.png'
 import pptIcon from '../assets/file-icons/ppt.png'
 import excelIcon from '../assets/file-icons/excel.png'
@@ -101,6 +103,9 @@ const pendingResources = ref([])
 const onlineSearch = ref(true)
 const deepThinking = ref(false)
 const messageList = ref(null)
+const timelineProgress = ref(0)
+const timelineHoverIndex = ref(-1)
+const timelineDragging = ref(false)
 const quickPrompts = ['查课表', '图书馆时间', '奖学金申请', '校园卡补办']
 const feedback = ref({})
 let activeStreamTask = null
@@ -263,6 +268,57 @@ async function scrollMessages() {
   messageList.value?.scrollTo({ top: messageList.value.scrollHeight, behavior: 'smooth' })
 }
 
+function syncTimelineProgress() {
+  const element = messageList.value
+  if (!element) return
+  const maximum = Math.max(0, element.scrollHeight - element.clientHeight)
+  timelineProgress.value = maximum ? element.scrollTop / maximum : 0
+}
+
+function scrollToTimelineProgress(progress) {
+  const element = messageList.value
+  if (!element) return
+  const maximum = Math.max(0, element.scrollHeight - element.clientHeight)
+  element.scrollTop = maximum * Math.max(0, Math.min(1, progress))
+}
+
+function timelineProgressFromPointer(event) {
+  const track = event.currentTarget?.closest?.('.conversation-timeline') || document.querySelector('.conversation-timeline')
+  if (!track) return 0
+  const bounds = track.getBoundingClientRect()
+  return (event.clientY - bounds.top) / bounds.height
+}
+
+function beginTimelineDrag(event) {
+  timelineDragging.value = true
+  scrollToTimelineProgress(timelineProgressFromPointer(event))
+  window.addEventListener('pointermove', moveTimelineDrag)
+  window.addEventListener('pointerup', endTimelineDrag, { once: true })
+}
+
+function moveTimelineDrag(event) {
+  if (!timelineDragging.value) return
+  const track = document.querySelector('.conversation-timeline')
+  if (!track) return
+  const bounds = track.getBoundingClientRect()
+  scrollToTimelineProgress((event.clientY - bounds.top) / bounds.height)
+}
+
+function endTimelineDrag() {
+  timelineDragging.value = false
+  window.removeEventListener('pointermove', moveTimelineDrag)
+}
+
+function jumpToMessage(index) {
+  const target = messageList.value?.querySelector(`[data-message-index="${index}"]`)
+  target?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+}
+
+onBeforeUnmount(() => {
+  window.removeEventListener('pointermove', moveTimelineDrag)
+  window.removeEventListener('pointerup', endTimelineDrag)
+})
+
 function createConversation() {
   activeStreamTask?.abort?.('conversation_changed')
   activeConversationId.value = ''
@@ -337,6 +393,49 @@ function attachmentUrl(item) {
 
 function attachmentName(item) {
   return item?.name || item?.fileName || item?.title || '上传图片'
+}
+
+async function loadAttachmentBlob(item) {
+  const source = attachmentUrl(item)
+  if (!source) throw new Error('该附件缺少可用地址')
+  const token = getToken()
+  const response = await fetch(source.startsWith('/') ? `${API_BASE_URL}${source}` : source, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  })
+  if (!response.ok) throw new Error(`读取附件失败（${response.status}）`)
+  return response.blob()
+}
+
+async function openAttachment(item) {
+  const previewWindow = window.open('about:blank', '_blank')
+  try {
+    const objectUrl = URL.createObjectURL(await loadAttachmentBlob(item))
+    if (previewWindow) {
+      previewWindow.opener = null
+      previewWindow.location.href = objectUrl
+    } else {
+      window.open(objectUrl, '_blank', 'noopener,noreferrer')
+    }
+    window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60000)
+  } catch (cause) {
+    previewWindow?.close()
+    showToast(cause.message || '打开附件失败')
+  }
+}
+
+async function downloadAttachment(item) {
+  try {
+    const objectUrl = URL.createObjectURL(await loadAttachmentBlob(item))
+    const link = document.createElement('a')
+    link.href = objectUrl
+    link.download = attachmentName(item)
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    URL.revokeObjectURL(objectUrl)
+  } catch (cause) {
+    showToast(cause.message || '下载附件失败')
+  }
 }
 
 function fileExtension(item) {
@@ -1062,9 +1161,9 @@ function handleUpload(event) {
 
       <section class="history-section">
         <div class="section-heading">
-          <span>最近记录</span>
-          <button type="button" title="新建对话" @click="createConversation(); selectModule('chat')">
-            <IconLine name="plus" :size="16" />
+          <span>对话</span>
+          <button type="button" title="新建对话" aria-label="新建对话" @click="createConversation(); selectModule('chat')">
+            <IconLine name="plus" :size="15" />
           </button>
         </div>
         <p v-if="historyError" class="history-error">{{ historyError }}</p>
@@ -1141,16 +1240,18 @@ function handleUpload(event) {
       <main class="main-content">
         <!-- 智能问答 -->
         <section v-if="activeModule === 'chat'" class="module-page chat-page page-enter">
-          <div ref="messageList" class="chat-scroll">
+          <div ref="messageList" class="chat-scroll" @scroll="syncTimelineProgress">
             <div v-if="isFreshChat" class="empty-chat-state">
-              <h1>你今天在想些什么？</h1>
+              <span class="empty-chat-logo"><IconLine name="logo" :size="28" /></span>
+              <h1>你想让校园 AI 帮你做什么？</h1>
             </div>
 
             <div v-else class="message-stream">
               <article
-                v-for="message in messages"
+                v-for="(message, messageIndex) in messages"
                 :key="message.id"
                 :class="['message-row', message.role]"
+                :data-message-index="messageIndex"
               >
                 <span v-if="message.role === 'assistant'" class="ai-avatar"><IconLine name="logo" :size="17" /></span>
                 <div class="message-wrap">
@@ -1163,18 +1264,25 @@ function handleUpload(event) {
                     <p>{{ message.content }}</p>
                     <div v-if="message.attachments?.length" class="message-attachments">
                       <template v-for="item in message.attachments" :key="item.id || item.url || item.name">
-                        <img
-                          v-if="isImageAttachment(item) && attachmentUrl(item)"
-                          class="message-image"
-                          :src="attachmentUrl(item)"
-                          :alt="attachmentName(item)"
-                          loading="lazy"
-                        />
-                        <span v-else class="message-file">
-                          <img v-if="fileIconAsset(item)" class="file-type-image" :src="fileIconAsset(item)" :alt="fileExtension(item)" />
-                          <i v-else :class="['file-type-icon', `file-type-icon--${fileIconClass(item)}`]">{{ fileExtension(item) }}</i>
-                          <span>{{ attachmentName(item) }}</span>
-                        </span>
+                        <div :class="['message-attachment-card', { 'is-image': isImageAttachment(item) }]">
+                          <img
+                            v-if="isImageAttachment(item) && attachmentUrl(item)"
+                            class="message-image"
+                            :src="attachmentUrl(item)"
+                            :alt="attachmentName(item)"
+                            loading="lazy"
+                            @click="openAttachment(item)"
+                          />
+                          <div v-else class="message-file">
+                            <img v-if="fileIconAsset(item)" class="file-type-image" :src="fileIconAsset(item)" :alt="fileExtension(item)" />
+                            <i v-else :class="['file-type-icon', `file-type-icon--${fileIconClass(item)}`]">{{ fileExtension(item) }}</i>
+                            <span :title="attachmentName(item)">{{ attachmentName(item) }}</span>
+                          </div>
+                          <div class="message-attachment-actions">
+                            <button type="button" @click="openAttachment(item)"><IconLine name="file" :size="14" />打开</button>
+                            <button type="button" @click="downloadAttachment(item)"><IconLine name="download" :size="14" />下载</button>
+                          </div>
+                        </div>
                       </template>
                     </div>
                     <pre v-if="message.code"><code>{{ message.code }}</code></pre>
@@ -1203,6 +1311,30 @@ function handleUpload(event) {
               </article>
             </div>
           </div>
+
+          <nav v-if="!isFreshChat && messages.length > 1" class="conversation-timeline" aria-label="对话时间轴" @pointerdown.prevent="beginTimelineDrag">
+            <button
+              v-for="(message, index) in messages"
+              :key="`timeline-${message.id}`"
+              class="timeline-mark"
+              type="button"
+              :style="{ top: `${messages.length === 1 ? 0 : index / (messages.length - 1) * 100}%` }"
+              :aria-label="`跳转到第 ${index + 1} 条消息`"
+              @pointerdown.stop
+              @click.stop="jumpToMessage(index)"
+              @mouseenter="timelineHoverIndex = index"
+              @mouseleave="timelineHoverIndex = -1"
+            ></button>
+            <span class="timeline-thumb" :class="{ dragging: timelineDragging }" :style="{ top: `${timelineProgress * 100}%` }"></span>
+            <aside
+              v-if="timelineHoverIndex >= 0"
+              class="timeline-preview"
+              :style="{ top: `${messages.length === 1 ? 0 : timelineHoverIndex / (messages.length - 1) * 100}%` }"
+            >
+              <small>{{ messages[timelineHoverIndex]?.role === 'user' ? '你' : '校园 AI' }}</small>
+              <strong>{{ messages[timelineHoverIndex]?.content?.slice(0, 34) || '附件消息' }}</strong>
+            </aside>
+          </nav>
 
           <div class="composer-zone">
             <div v-if="pendingResources.length" class="upload-queue">
@@ -1550,9 +1682,9 @@ function handleUpload(event) {
   inset: 60px auto 0 0;
   z-index: 30;
   display: flex;
-  width: 252px;
+  width: 286px;
   flex-direction: column;
-  padding: 22px 16px 106px;
+  padding: 20px 12px 14px;
   border-right: 1px solid var(--line);
   background: var(--surface);
   transition: width .24s ease, padding .24s ease;
@@ -1579,7 +1711,7 @@ function handleUpload(event) {
 .side-nav:not(.collapsed) .sidebar-toggle svg { transform: rotate(180deg); }
 .sidebar-toggle svg { transition: transform .24s ease; }
 
-.brand { display: flex; align-items: center; gap: 11px; padding: 0 8px 24px; }
+.brand { display: flex; align-items: center; gap: 10px; padding: 0 8px 22px; }
 .brand-mark {
   display: grid;
   width: 38px;
@@ -1619,24 +1751,40 @@ function handleUpload(event) {
 .module-nav button.active { color: var(--primary); background: var(--primary-soft); }
 .side-nav.collapsed .module-nav button { justify-content: center; padding: 0; }
 
-.history-section { min-height: 0; flex: 1; margin-top: 28px; }
-.section-heading { display: flex; align-items: center; justify-content: space-between; padding: 0 8px 9px; color: var(--subtle); font-size: 11px; font-weight: 700; }
+.history-section { display: flex; min-height: 0; flex: 1; flex-direction: column; margin-top: 4px; overflow: hidden; }
+.section-heading { display: flex; flex: none; align-items: center; justify-content: space-between; padding: 0 8px 8px; color: var(--subtle); font-size: 11px; font-weight: 700; }
 .section-heading button { display: grid; width: 26px; height: 26px; place-items: center; border-radius: 7px; background: transparent; }
 .section-heading button:hover { color: var(--primary); background: var(--primary-soft); }
-.history-list { display: grid; gap: 4px; }
+.history-list {
+  display: grid;
+  min-height: 0;
+  align-content: start;
+  flex: 1;
+  gap: 3px;
+  overflow-x: hidden;
+  overflow-y: scroll;
+  padding-right: 8px;
+  scrollbar-color: #b9bec5 transparent;
+  scrollbar-width: thin;
+}
+.history-list::-webkit-scrollbar { width: 7px; }
+.history-list::-webkit-scrollbar-track { background: transparent; }
+.history-list::-webkit-scrollbar-thumb { border: 2px solid transparent; border-radius: 999px; background: #b9bec5; background-clip: padding-box; }
+.history-list::-webkit-scrollbar-thumb:hover { background: #969da6; background-clip: padding-box; }
 .history-list button {
   display: flex;
   align-items: center;
   gap: 9px;
   min-width: 0;
-  min-height: 38px;
-  padding: 0 10px;
-  border-radius: 8px;
+  min-height: 36px;
+  padding: 0 9px;
+  border-radius: 7px;
   color: var(--muted);
   background: transparent;
   text-align: left;
 }
-.history-list button:hover, .history-list button.active { color: var(--primary); background: var(--surface-soft); }
+.history-list button:hover { color: var(--text); background: #f1f1f1; }
+.history-list button.active { color: var(--text); background: #e8e8e8; }
 .history-list button > span:nth-child(2) { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .history-delete {
   display: grid;
@@ -1659,7 +1807,8 @@ function handleUpload(event) {
   min-height: 42px;
   align-items: center;
   gap: 10px;
-  margin: 8px 0;
+  flex: none;
+  margin: 8px 0 2px;
   padding: 0 11px;
   border-radius: 9px;
   color: var(--muted);
@@ -1680,6 +1829,7 @@ function handleUpload(event) {
   border-top: 1px solid var(--line);
   background: transparent;
   text-align: left;
+  flex: none;
 }
 .sidebar-user > span:nth-child(2) { display: grid; gap: 2px; }
 .sidebar-user strong { font-size: 13px; }
@@ -1699,13 +1849,13 @@ function handleUpload(event) {
 }
 .avatar { width: 34px; height: 34px; }
 
-.app-area { min-height: calc(100vh - 60px); margin-left: 252px; transition: margin-left .24s ease; }
+.app-area { min-height: calc(100vh - 60px); margin-left: 286px; transition: margin-left .24s ease; }
 .app-area.sidebar-collapsed { margin-left: 76px; }
 .global-header {
   position: fixed;
-  inset: 60px 0 auto 252px;
+  inset: 60px 0 auto 286px;
   z-index: 20;
-  display: flex;
+  display: none;
   height: 68px;
   align-items: center;
   justify-content: center;
@@ -1766,14 +1916,76 @@ function handleUpload(event) {
 .user-popover button { display: flex; width: 100%; align-items: center; gap: 9px; padding: 9px; border-radius: 7px; background: transparent; text-align: left; font-size: 13px; }
 .user-popover button:hover { background: var(--primary-soft); }
 
-.main-content { min-height: calc(100vh - 60px); padding-top: 68px; }
-.module-page { min-height: calc(100vh - 128px); }
+.main-content { min-height: calc(100vh - 60px); padding-top: 0; }
+.module-page { min-height: calc(100vh - 60px); }
 .page-enter { animation: page-fade .28s ease both; }
 @keyframes page-fade { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: none; } }
 
-.chat-page { position: relative; height: calc(100vh - 128px); min-height: 600px; overflow: hidden; }
-.chat-scroll { height: 100%; overflow-y: auto; padding: 42px clamp(24px, 6vw, 88px) 230px; }
-.empty-chat-state { display: flex; min-height: 100%; align-items: center; justify-content: center; padding: 0 0 125px; }
+.chat-page { position: relative; height: calc(100vh - 60px); min-height: 600px; overflow: hidden; background: var(--surface); }
+.chat-scroll { height: 100%; overflow-y: auto; padding: 48px clamp(24px, 6vw, 88px) 220px; }
+.conversation-timeline {
+  position: absolute;
+  z-index: 8;
+  top: 82px;
+  bottom: 188px;
+  left: 18px;
+  width: 24px;
+  cursor: ns-resize;
+  touch-action: none;
+  user-select: none;
+}
+.conversation-timeline::before {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 7px;
+  width: 1px;
+  background: repeating-linear-gradient(to bottom, var(--line-strong) 0 3px, transparent 3px 10px);
+  content: '';
+}
+.timeline-mark {
+  position: absolute;
+  left: 4px;
+  width: 7px;
+  height: 1px;
+  padding: 0;
+  border: 0;
+  background: var(--subtle) !important;
+  transform: translateY(-50%);
+  transition: width .15s ease, background .15s ease;
+}
+.timeline-mark:hover { width: 14px; background: var(--text) !important; }
+.timeline-thumb {
+  position: absolute;
+  left: 0;
+  width: 16px;
+  height: 3px;
+  border-radius: 999px;
+  background: var(--text);
+  box-shadow: 0 0 0 4px var(--surface);
+  transform: translateY(-50%);
+  transition: height .15s ease;
+  pointer-events: none;
+}
+.timeline-thumb.dragging { height: 5px; }
+.timeline-preview {
+  position: absolute;
+  left: 30px;
+  display: grid;
+  width: 280px;
+  gap: 7px;
+  padding: 13px 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+  box-shadow: 0 10px 30px rgba(15, 23, 42, .12);
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+.timeline-preview small { color: var(--subtle); font-size: 11px; }
+.timeline-preview strong { overflow: hidden; color: var(--text); font-size: 13px; font-weight: 600; line-height: 1.55; }
+.empty-chat-state { display: flex; min-height: 100%; align-items: center; justify-content: center; flex-direction: column; gap: 24px; padding: 0 0 90px; }
+.empty-chat-logo { display: grid; width: 52px; height: 52px; place-items: center; border: 2px solid var(--line-strong); border-radius: 18px; color: var(--muted); }
 .empty-chat-state h1 { margin: 0; color: var(--text); font-size: clamp(24px, 2.4vw, 32px); font-weight: 500; letter-spacing: -.025em; }
 .welcome-block { width: min(860px, 100%); margin: 0 auto 38px; }
 .eyebrow { color: var(--accent); font-size: 11px; font-weight: 800; letter-spacing: .13em; }
@@ -1790,13 +2002,13 @@ function handleUpload(event) {
   transition: .18s ease;
 }
 .quick-prompts button:hover { border-color: var(--accent); color: var(--primary); background: var(--primary-soft); transform: scale(1.025); }
-.message-stream { width: min(860px, 100%); margin: 0 auto; }
+.message-stream { width: min(760px, 100%); margin: 0 auto; }
 .message-row { display: flex; align-items: flex-start; gap: 11px; margin: 26px 0; }
 .message-row.user { justify-content: flex-end; }
-.ai-avatar { display: grid; width: 32px; height: 32px; place-items: center; flex: none; border-radius: 9px; color: #fff; background: #1e3a5f; }
+.ai-avatar { display: grid; width: 32px; height: 32px; place-items: center; flex: none; border: 1px solid var(--line); border-radius: 10px; color: var(--text); background: var(--surface); }
 .message-wrap { max-width: min(720px, 82%); }
-.message-bubble { padding: 15px 17px; border: 1px solid var(--line); border-radius: 5px 16px 16px 16px; background: var(--surface); box-shadow: 0 4px 14px rgba(30, 58, 95, .045); line-height: 1.72; }
-.message-row.user .message-bubble { max-width: 620px; border: 0; border-radius: 16px 5px 16px 16px; color: #fff; background: #1e3a5f; }
+.message-bubble { padding: 4px 2px; border: 0; border-radius: 0; background: transparent; box-shadow: none; line-height: 1.72; }
+.message-row.user .message-bubble { max-width: 620px; padding: 11px 15px; border: 1px solid var(--line); border-radius: 18px; color: var(--text); background: #f1f1f1; }
 .thinking-steps { display: grid; gap: 5px; margin: 0 0 11px; padding-bottom: 10px; border-bottom: 1px solid var(--line); color: var(--muted); font-size: 12px; line-height: 1.5; }
 .thinking-step { display: flex; align-items: center; gap: 7px; }
 .thinking-step i { width: 6px; height: 6px; flex: 0 0 6px; border-radius: 50%; background: var(--accent); }
@@ -1821,10 +2033,10 @@ function handleUpload(event) {
 .composer-zone {
   position: absolute;
   inset: auto 0 0;
-  padding: 26px 28px 13px;
-  background: linear-gradient(0deg, var(--bg) 80%, color-mix(in srgb, var(--bg) 0%, transparent));
+  padding: 34px 28px 14px;
+  background: linear-gradient(0deg, var(--surface) 78%, color-mix(in srgb, var(--surface) 0%, transparent));
 }
-.composer-tools { display: flex; width: min(860px, 100%); gap: 8px; margin: 0 auto 8px; }
+.composer-tools { display: flex; width: min(740px, 100%); gap: 8px; margin: 0 auto 8px; }
 .composer-tools > button { display: flex; align-items: center; gap: 6px; min-height: 30px; padding: 0 9px; border-radius: 8px; color: var(--muted); background: var(--surface); font-size: 12px; }
 .composer-tools > button.active { color: var(--primary); background: var(--primary-soft); }
 .mini-switch { width: 24px; height: 14px; padding: 2px; border-radius: 99px; background: var(--line-strong); transition: .2s ease; }
@@ -1851,23 +2063,29 @@ function handleUpload(event) {
 .upload-item small { margin-top: 3px; color: var(--muted); font-size: 10px; }
 .upload-item > button { color: var(--primary); background: transparent; font-size: 11px; }
 .message-attachments { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 9px; }
+.message-attachment-card { display: flex; min-width: 250px; max-width: 430px; align-items: center; gap: 7px; padding: 5px 7px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+.message-attachment-card.is-image { display: block; max-width: 360px; padding: 0; overflow: hidden; }
 .message-image { display: block; width: min(346px, 100%); max-height: 300px; border-radius: 12px; object-fit: cover; cursor: zoom-in; }
-.message-file { display: inline-flex; align-items: center; gap: 5px; padding: 5px 8px; border: 1px solid var(--line); border-radius: 7px; font-size: 11px; }
+.message-file { display: inline-flex; min-width: 0; flex: 1; align-items: center; gap: 5px; padding: 2px; font-size: 11px; }
 .message-file > span { min-width: 0; max-width: 290px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .message-file .file-type-icon { width: 24px; height: 28px; font-size: 7px; }
 .message-file .file-type-image { width: 30px; height: 34px; }
+.message-attachment-actions { display: inline-flex; align-items: center; gap: 3px; }
+.message-attachment-card.is-image .message-attachment-actions { justify-content: flex-end; padding: 5px 7px; border-top: 1px solid var(--line); }
+.message-attachment-actions button { display: inline-flex; align-items: center; gap: 3px; padding: 4px 6px; border-radius: 5px; color: var(--primary); background: transparent; font-size: 10px; }
+.message-attachment-actions button:hover { background: var(--primary-soft); }
 .message-row.user .message-image { border: 1px solid rgba(255, 255, 255, .35); }
 .chat-composer {
   display: flex;
-  width: min(860px, 100%);
+  width: min(740px, 100%);
   align-items: flex-end;
   gap: 10px;
   margin: 0 auto;
   padding: 10px 10px 10px 14px;
   border: 1px solid var(--line-strong);
-  border-radius: 16px;
+  border-radius: 20px;
   background: var(--surface);
-  box-shadow: var(--shadow);
+  box-shadow: 0 8px 26px rgba(0, 0, 0, .08);
 }
 .chat-composer:focus-within { border-color: var(--accent); box-shadow: var(--shadow), 0 0 0 3px color-mix(in srgb, var(--accent) 10%, transparent); }
 .chat-input { min-height: 46px; max-height: 120px; flex: 1; resize: none; border: 0; outline: 0; color: var(--text); background: transparent; line-height: 1.55; }
@@ -1879,6 +2097,9 @@ function handleUpload(event) {
 .stop-button { background: #40546b; }
 .send-button:disabled { cursor: not-allowed; opacity: .4; }
 .composer-zone > small { display: block; margin-top: 7px; color: var(--subtle); font-size: 10px; text-align: center; }
+.campus-ai[data-theme="dark"] .history-list button:hover { background: #1d2937; }
+.campus-ai[data-theme="dark"] .history-list button.active { background: #263445; }
+.campus-ai[data-theme="dark"] .message-row.user .message-bubble { background: #263445; }
 
 .writing-page, .meeting-page { padding: 34px clamp(22px, 4vw, 56px) 44px; }
 .page-heading { display: flex; align-items: flex-end; justify-content: space-between; gap: 20px; }
@@ -2148,7 +2369,7 @@ function handleUpload(event) {
 @media (max-width: 760px) {
   .side-nav { display: none; }
   .app-area { margin-left: 0; }
-  .global-header { left: 0; height: 58px; justify-content: space-between; padding: 0 14px; }
+  .global-header { left: 0; display: flex; height: 58px; justify-content: space-between; padding: 0 14px; }
   .app-area.sidebar-collapsed { margin-left: 0; }
   .global-header.sidebar-collapsed { left: 0; }
   .mobile-brand { display: flex; align-items: center; gap: 8px; }
@@ -2175,6 +2396,7 @@ function handleUpload(event) {
   .mobile-tabs button.active { color: var(--primary); background: var(--primary-soft); }
   .chat-page { height: calc(100vh - 184px); min-height: 520px; }
   .chat-scroll { padding: 25px 14px 212px; }
+  .conversation-timeline { display: none; }
   .welcome-block { margin-bottom: 28px; }
   .welcome-block h1 { font-size: 26px; }
   .quick-prompts { gap: 7px; }

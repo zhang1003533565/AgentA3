@@ -12,6 +12,7 @@ from app.rag.document_conversion.generated_exporter import (
     materialize_generated_image_answer,
 )
 from app.rag.document_conversion.presentation_exporter import export_presentation
+from app.rag.document_conversion.file_content_extractor import FileContentExtractionError, extract_file_content
 
 __all__ = [
     "EXPORT_ROOT",
@@ -31,4 +32,6 @@ __all__ = [
     "materialize_generated_image_answer",
     "export_presentation",
     "export_python_code_lab",
+    "FileContentExtractionError",
+    "extract_file_content",
 ]
