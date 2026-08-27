@@ -39,6 +39,16 @@ public interface MeetingTaskRepository extends JpaRepository<MeetingTask, Long> 
     List<MeetingTask> findByAssigneeIdAndMeetingSessionId(@Param("userId") Long userId, @Param("meetingSessionId") Long meetingSessionId);
 
     /**
+     * 根据任务负责人用户 ID、状态和会议 ID 查询个人任务（三个条件组合）
+     */
+    @Query("SELECT t FROM MeetingTask t WHERE t.assigneeId = :userId AND t.status = :status AND t.meetingSessionId = :meetingSessionId ORDER BY t.createTime DESC")
+    List<MeetingTask> findByAssigneeIdAndStatusAndMeetingSessionId(
+            @Param("userId") Long userId,
+            @Param("status") TaskStatus status,
+            @Param("meetingSessionId") Long meetingSessionId
+    );
+
+    /**
      * 检查是否存在重复任务（同一会议、同一负责人、相同标题）
      */
     boolean existsByMeetingSessionIdAndAssigneeIdAndTitle(Long meetingSessionId, Long assigneeId, String title);
