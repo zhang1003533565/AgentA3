@@ -49,6 +49,40 @@ class StudyGoalServiceImplTest {
     private StudySubtaskRepository studySubtaskRepository;
 
     @Test
+    void saveGoalRejectsMoreThanOneHundredStagesBeforePersisting() {
+        StudyGoalDTO.GoalInput goalInput = new StudyGoalDTO.GoalInput();
+        goalInput.setTitle("学习计划");
+        StudyGoalDTO.SaveRequest request = new StudyGoalDTO.SaveRequest();
+        request.setGoal(goalInput);
+        List<StudyGoalDTO.TaskInput> tasks = new ArrayList<>();
+        for (int index = 0; index < 101; index++) {
+            tasks.add(task("阶段" + index, 1));
+        }
+        request.setTasks(tasks);
+
+        assertThrows(BusinessException.class, () -> service().saveGoal(7L, request));
+        verifyNoInteractions(studyGoalRepository, studyTaskRepository, studySubtaskRepository);
+    }
+
+    @Test
+    void saveGoalRejectsMoreThanSixSubtasksBeforePersisting() {
+        StudyGoalDTO.GoalInput goalInput = new StudyGoalDTO.GoalInput();
+        goalInput.setTitle("学习计划");
+        StudyGoalDTO.TaskInput parent = task("阶段", 1);
+        List<StudyGoalDTO.SubtaskInput> subtasks = new ArrayList<>();
+        for (int index = 0; index < 7; index++) {
+            subtasks.add(subtask("步骤" + index, 1));
+        }
+        parent.setSubtasks(subtasks);
+        StudyGoalDTO.SaveRequest request = new StudyGoalDTO.SaveRequest();
+        request.setGoal(goalInput);
+        request.setTasks(List.of(parent));
+
+        assertThrows(BusinessException.class, () -> service().saveGoal(7L, request));
+        verifyNoInteractions(studyGoalRepository, studyTaskRepository, studySubtaskRepository);
+    }
+
+    @Test
     void saveGoalSchedulesTasksSequentiallyFromStartDate() {
         StudyGoal goal = new StudyGoal();
         goal.setId(42L);

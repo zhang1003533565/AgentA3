@@ -421,6 +421,8 @@ const togglingIds = ref([])
 const statusOptions = ['未开始', '进行中', '受阻', '已跳过', '已完成']
 const expandingSubtasks = ref(false)
 const SUBTASK_AUTO_EXPAND_LIMIT = 3
+const MAX_PREVIEW_TASKS = 30
+const MAX_PREVIEW_SUBTASKS = 6
 const previewSubtaskExpansion = ref({})
 const executionSubtaskExpansion = ref({})
 
@@ -912,6 +914,10 @@ function reschedulePreview() {
 }
 
 function addPreviewTask() {
+  if (previewTasks.value.length >= MAX_PREVIEW_TASKS) {
+    uni.showToast({ title: `最多添加${MAX_PREVIEW_TASKS}个学习阶段`, icon: 'none' })
+    return
+  }
   previewTasks.value.push({
     orderNum: previewTasks.value.length + 1,
     taskName: '',
@@ -928,6 +934,10 @@ function addPreviewTask() {
 }
 
 function addPreviewSubtask(task) {
+  if (task.subtasks.length >= MAX_PREVIEW_SUBTASKS) {
+    uni.showToast({ title: `每个阶段最多${MAX_PREVIEW_SUBTASKS}个细分任务`, icon: 'none' })
+    return
+  }
   task.subtasks.push({
     orderNum: task.subtasks.length + 1,
     taskName: '',

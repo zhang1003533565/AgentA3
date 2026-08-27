@@ -47,6 +47,7 @@ import java.util.Map;
 public class StudyGoalServiceImpl implements StudyGoalService {
 
     private static final int MAX_TASKS = 100;
+    private static final int MAX_SUBTASKS = 6;
     private static final int MAX_TABLE_ROWS = 300;
     private static final int MAX_TABLE_COLS = 30;
     private static final int MAX_CONTENT_CHARS = 16000;
@@ -121,13 +122,17 @@ public class StudyGoalServiceImpl implements StudyGoalService {
                 if (input != null && StringUtils.hasText(input.getTaskName())) {
                     inputs.add(input);
                 }
-                if (inputs.size() >= MAX_TASKS) {
-                    break;
-                }
             }
         }
         if (inputs.isEmpty()) {
             throw new BusinessException(Result.BAD_REQUEST_CODE, "至少需要一条有效任务");
+        }
+
+        if (inputs.size() > MAX_TASKS) {
+            throw new BusinessException(Result.BAD_REQUEST_CODE, "学习计划最多支持" + MAX_TASKS + "个阶段");
+        }
+        for (StudyGoalDTO.TaskInput input : inputs) {
+            validSubtaskInputs(input.getSubtasks());
         }
 
         StudyGoal goal = new StudyGoal();
@@ -808,9 +813,10 @@ public class StudyGoalServiceImpl implements StudyGoalService {
             if (input != null && StringUtils.hasText(input.getTaskName())) {
                 valid.add(input);
             }
-            if (valid.size() >= 6) {
-                break;
-            }
+        }
+        if (valid.size() > MAX_SUBTASKS) {
+            throw new BusinessException(Result.BAD_REQUEST_CODE,
+                    "每个阶段最多支持" + MAX_SUBTASKS + "个细分任务");
         }
         return valid;
     }
