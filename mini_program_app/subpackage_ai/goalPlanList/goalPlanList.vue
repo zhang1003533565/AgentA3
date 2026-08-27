@@ -41,6 +41,10 @@
             <text class="meta-text">共 {{ item.totalTasks }} 项</text>
             <text class="plan-time">{{ formatTime(item.updatedAt) }}</text>
           </view>
+          <view class="plan-schedule">
+            <text>开始 {{ formatPlanDate(item.startDate) }}</text>
+            <text v-if="item.targetDate">目标 {{ formatPlanDate(item.targetDate) }}</text>
+          </view>
         </view>
 
         <view v-if="loading" class="state-text"><text>正在加载...</text></view>
@@ -63,6 +67,7 @@ import { ref } from 'vue'
 import { onShow, onLoad } from '@dcloudio/uni-app'
 import NavBar from '@/components/nav-bar/nav-bar.vue'
 import { listMyGoals } from '@/api/studyGoal.js'
+import { formatPlanDate, statusText } from '@/utils/studyPlan.js'
 
 const PAGE_SIZE = 10
 const summaries = ref([])
@@ -74,8 +79,7 @@ const loadingMore = ref(false)
 const initialized = ref(false)
 
 function statusLabel(status) {
-  const map = { pending: '未开始', in_progress: '进行中', completed: '已完成' }
-  return map[status] || ''
+  return statusText(status)
 }
 
 function formatTime(value) {
@@ -273,6 +277,14 @@ function goCreate() {
   margin-left: auto;
   font-size: 20rpx;
   color: #98A0B0;
+}
+
+.plan-schedule {
+  display: flex;
+  gap: 24rpx;
+  margin-top: 12rpx;
+  color: #8B93A6;
+  font-size: 20rpx;
 }
 
 .empty-state {

@@ -50,7 +50,7 @@ public class StudyTask {
     @Column(name = "order_num", nullable = false)
     private Integer orderNum = 0;
 
-    /** pending / completed */
+    /** pending / in_progress / blocked / skipped / completed */
     @Column(nullable = false, length = 20)
     private String status = "pending";
 
