@@ -48,6 +48,8 @@ public class PythonAiProxyService {
     private static final String ARCHITECTURE_AGENT_NAME = "diagram_architecture_agent";
     private static final String CODING_TUTOR_AGENT_NAME = "python_coding_tutor_agent";
     private static final String GENERATOR_AGENT_NAME = "python_problem_generator_agent";
+    private static final String RESUME_POLISH_EXPAND_AGENT_NAME = "resume_polish_expand_agent";
+    private static final String RESUME_EDIT_AGENT_NAME = "resume_edit_agent";
     private static final String AGENT_MODEL_BINDING_PREFIX = "ai.agent-bindings.";
     private static final String AGENT_ENABLED_PREFIX = "ai.agent-enabled.";
     private static final String TOOL_ENABLED_PREFIX = "ai.tool-enabled.";
@@ -124,7 +126,7 @@ public class PythonAiProxyService {
                     .uri(buildUri("/internal/chat"))
                     .headers(headers -> applyPythonHeaders(headers, authorization, userId, requestedModel))
                     .contentType(MediaType.APPLICATION_JSON)
-                    .bodyValue(request)
+                    .bodyValue(normalizePythonRequest(request))
                     .retrieve()
                     .bodyToMono(LlmChatResponse.class)
                     .timeout(Duration.ofSeconds(timeoutSeconds))
@@ -1328,7 +1330,12 @@ public class PythonAiProxyService {
         if (StringUtils.hasText(requestedModel)) {
             return requestedModel.trim();
         }
-        return resolveAgentBoundModel(agentName);
+        String boundModel = resolveAgentBoundModel(agentName);
+        if (!StringUtils.hasText(boundModel)
+                && RESUME_POLISH_EXPAND_AGENT_NAME.equals(agentName)) {
+            return resolveAgentBoundModel(RESUME_EDIT_AGENT_NAME);
+        }
+        return boundModel;
     }
 
     private String resolveAgentBoundModel(String agentName) {

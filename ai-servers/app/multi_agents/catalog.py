@@ -688,6 +688,7 @@ def normalize_leader_request_agent(agent_name: Optional[str]) -> Optional[str]:
         normalized == "leader_agent"
         or normalized in LEADER_CALLABLE_AGENT_ORDER
         or normalized in INTERNAL_ONLY_AGENT_NAMES
+        or normalized in RESUME_INTERNAL_AGENTS
     ):
         return normalized
     return None

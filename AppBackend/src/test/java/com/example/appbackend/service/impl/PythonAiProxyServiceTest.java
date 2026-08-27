@@ -121,6 +121,41 @@ class PythonAiProxyServiceTest {
         Assertions.assertTrue(reqJson.path("ragStrategy").isMissingNode() || reqJson.path("ragStrategy").isNull());
         Assertions.assertEquals("ppt_outline_agent", reqJson.path("agentName").asText());
         Assertions.assertEquals("哪个食堂有黄焖鸡", reqJson.path("input").asText());
+        Assertions.assertTrue(reqJson.path("attachments").isArray());
+        Assertions.assertTrue(reqJson.path("images").isArray());
+        Assertions.assertTrue(reqJson.path("imageUrls").isArray());
+    }
+
+    @Test
+    void chat_resumePolishAgentShouldReuseResumeEditModelBinding() throws Exception {
+        AtomicReference<String> aiModelRef = new AtomicReference<>();
+        AtomicReference<String> requestBodyRef = new AtomicReference<>();
+        server = HttpServer.create(new InetSocketAddress(0), 0);
+        server.createContext("/internal/chat", exchange -> {
+            aiModelRef.set(exchange.getRequestHeaders().getFirst("X-AI-Model"));
+            requestBodyRef.set(readBody(exchange));
+            writeJson(exchange, 200, """
+                    {"sessionId":"resume-session","sessionToken":"token","model":"qwen3.8-27b",
+                     "ragStrategy":"direct_agent","agentName":"resume_polish_expand_agent",
+                     "searchKeyword":"","matchedResults":[],"retrievalMeta":{},"trace":[],"answer":"优化结果"}
+                    """);
+        });
+        server.start();
+
+        LlmChatRequest request = new LlmChatRequest();
+        request.setAgentName("resume_polish_expand_agent");
+        request.setInput("润色个人优势");
+
+        LlmChatResponse response = newService(
+                server.getAddress().getPort(), new ResumePolishBindingSystemConfigService())
+                .chat(request, "Bearer " + buildJwtToken(1002L));
+
+        Assertions.assertEquals("优化结果", response.getAnswer());
+        Assertions.assertEquals("deepseek-v4-flash-0731", aiModelRef.get());
+        JsonNode requestJson = new ObjectMapper().readTree(requestBodyRef.get());
+        Assertions.assertTrue(requestJson.path("attachments").isArray());
+        Assertions.assertTrue(requestJson.path("images").isArray());
+        Assertions.assertTrue(requestJson.path("imageUrls").isArray());
     }
 
     @Test
@@ -995,6 +1030,19 @@ class PythonAiProxyServiceTest {
         public String getValue(String key, String defaultValue) {
             if (key.startsWith("ai.agent-bindings.") && key.endsWith(".model")) {
                 return "";
+            }
+            return super.getValue(key, defaultValue);
+        }
+    }
+
+    private static final class ResumePolishBindingSystemConfigService extends TestSystemConfigService {
+        @Override
+        public String getValue(String key, String defaultValue) {
+            if ("ai.agent-bindings.resume_polish_expand_agent.model".equals(key)) {
+                return "";
+            }
+            if ("ai.agent-bindings.resume_edit_agent.model".equals(key)) {
+                return "ai.service.text";
             }
             return super.getValue(key, defaultValue);
         }
