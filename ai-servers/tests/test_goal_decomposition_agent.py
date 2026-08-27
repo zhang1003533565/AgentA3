@@ -15,6 +15,45 @@ from app.multi_agents.goal_decomposition_agent.agent import (
     build_user_prompt,
     parse_goal_payload,
 )
+from app.services.goal_ai_service import GoalDecompositionAIService
+
+
+@pytest.fixture()
+def clean_llm_env(monkeypatch):
+    for field in ("provider", "base_url", "model", "api_key"):
+        monkeypatch.delenv(f"LLM_{field.upper()}", raising=False)
+    return monkeypatch
+
+
+def test_runtime_config_uses_env_fallback_when_headers_missing(clean_llm_env):
+    clean_llm_env.setenv("LLM_PROVIDER", "opencode")
+    clean_llm_env.setenv("LLM_BASE_URL", "https://example.test/v1")
+    clean_llm_env.setenv("LLM_MODEL", "deepseek-v4-flash")
+    clean_llm_env.setenv("LLM_API_KEY", "env-provided-key")
+    config = GoalDecompositionAIService()._runtime_config(None)
+    assert (config.provider, config.base_url, config.model) == (
+        "opencode", "https://example.test/v1", "deepseek-v4-flash",
+    )
+    assert config.api_key == "env-provided-key"
+
+
+def test_passthrough_headers_take_priority_over_env(clean_llm_env):
+    clean_llm_env.setenv("LLM_PROVIDER", "opencode")
+    clean_llm_env.setenv("LLM_BASE_URL", "https://env.example/v1")
+    clean_llm_env.setenv("LLM_MODEL", "env-model")
+    clean_llm_env.setenv("LLM_API_KEY", "env-key")
+    headers = {
+        "provider": "qwen", "base_url": "https://header.example/v1",
+        "model": "header-model", "api_key": "header-key",
+    }
+    config = GoalDecompositionAIService()._runtime_config(headers)
+    assert (config.provider, config.model, config.api_key) == ("qwen", "header-model", "header-key")
+
+
+def test_runtime_config_missing_model_is_none_even_with_partial_headers(clean_llm_env):
+    clean_llm_env.setenv("LLM_PROVIDER", "opencode")
+    headers = {"provider": "qwen"}
+    assert GoalDecompositionAIService()._runtime_config(headers) is None
 
 
 def _dumps(payload) -> str:
