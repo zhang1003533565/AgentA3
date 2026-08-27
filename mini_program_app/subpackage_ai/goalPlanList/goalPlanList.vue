@@ -44,6 +44,7 @@
           <view class="plan-schedule">
             <text>开始 {{ formatPlanDate(item.startDate) }}</text>
             <text v-if="item.targetDate">目标 {{ formatPlanDate(item.targetDate) }}</text>
+            <text>每天 {{ item.dailyStudyMinutes || 60 }} 分钟</text>
           </view>
         </view>
 

@@ -137,6 +137,7 @@ public class StudyGoalServiceImpl implements StudyGoalService {
         }
         goal.setStartDate(startDate);
         goal.setTargetDate(targetDate);
+        goal.setDailyStudyMinutes(normalizeDailyStudyMinutes(request.getGoal().getDailyStudyMinutes()));
         goal.setProgress(0);
         goal.setStatus("pending");
         goal = studyGoalRepository.save(goal);
@@ -319,6 +320,7 @@ public class StudyGoalServiceImpl implements StudyGoalService {
             summary.setStatus(goal.getStatus());
             summary.setStartDate(goal.getStartDate());
             summary.setTargetDate(goal.getTargetDate());
+            summary.setDailyStudyMinutes(goal.getDailyStudyMinutes());
             summary.setTotalTasks((int) count[0]);
             summary.setCompletedTasks((int) count[1]);
             summary.setRemainingTasks((int) (count[0] - count[1]));
@@ -358,7 +360,7 @@ public class StudyGoalServiceImpl implements StudyGoalService {
         task.setTaskName(trimToLength(StringUtils.trimWhitespace(input.getTaskName()), 120));
         task.setStage(trimToLength(StringUtils.trimWhitespace(input.getStage()), 60));
         task.setEstimatedDays(normalizeEstimatedDays(input.getEstimatedDays()));
-        task.setPriority(ALLOWED_PRIORITIES.contains(input.getPriority()) ? input.getPriority() : DEFAULT_PRIORITY);
+        task.setPriority(isAllowedPriority(input.getPriority()) ? input.getPriority() : DEFAULT_PRIORITY);
         task.setOrderNum(orderNum);
         int progress = normalizeProgress(input.getProgressPercent());
         boolean completed = Boolean.TRUE.equals(input.getIsCompleted()) || progress >= 100;
@@ -384,6 +386,16 @@ public class StudyGoalServiceImpl implements StudyGoalService {
             return 1;
         }
         return Math.min(estimatedDays, MAX_ESTIMATED_DAYS);
+    }
+
+    private Integer normalizeDailyStudyMinutes(Integer dailyStudyMinutes) {
+        if (dailyStudyMinutes == null) {
+            return 60;
+        }
+        if (dailyStudyMinutes < 15 || dailyStudyMinutes > 720) {
+            throw new BusinessException(Result.BAD_REQUEST_CODE, "每日学习时长必须在 15 到 720 分钟之间");
+        }
+        return dailyStudyMinutes;
     }
 
     private int normalizeProgress(Integer progressPercent) {
@@ -434,7 +446,7 @@ public class StudyGoalServiceImpl implements StudyGoalService {
                 view.setStage(StringUtils.trimWhitespace(agentTask.getStage()));
                 Integer days = agentTask.getEstimatedDays();
                 view.setEstimatedDays(days == null ? 1 : Math.max(1, Math.min(days, MAX_ESTIMATED_DAYS)));
-                view.setPriority(ALLOWED_PRIORITIES.contains(agentTask.getPriority())
+                view.setPriority(isAllowedPriority(agentTask.getPriority())
                         ? agentTask.getPriority() : DEFAULT_PRIORITY);
                 view.setOrderNum(orderNum++);
                 view.setStatus("pending");
@@ -457,6 +469,7 @@ public class StudyGoalServiceImpl implements StudyGoalService {
         view.setDescription(goal.getDescription());
         view.setStartDate(goal.getStartDate());
         view.setTargetDate(goal.getTargetDate());
+        view.setDailyStudyMinutes(goal.getDailyStudyMinutes());
         view.setProgress(goal.getProgress());
         view.setStatus(goal.getStatus());
         return view;
@@ -478,6 +491,10 @@ public class StudyGoalServiceImpl implements StudyGoalService {
         view.setProgressPercent(effectiveProgress(task));
         view.setDescription(task.getDescription());
         return view;
+    }
+
+    private boolean isAllowedPriority(String priority) {
+        return priority != null && ALLOWED_PRIORITIES.contains(priority);
     }
 
     private String resolveTableSuffix(String filename) {

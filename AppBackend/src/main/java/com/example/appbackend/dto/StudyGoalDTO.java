@@ -80,6 +80,8 @@ public final class StudyGoalDTO {
         private LocalDate startDate;
 
         private LocalDate targetDate;
+
+        private Integer dailyStudyMinutes;
     }
 
     @Data
@@ -152,6 +154,8 @@ public final class StudyGoalDTO {
 
         private LocalDate targetDate;
 
+        private Integer dailyStudyMinutes;
+
         private Integer totalTasks;
 
         private Integer completedTasks;
@@ -179,6 +183,8 @@ public final class StudyGoalDTO {
         private LocalDate startDate;
 
         private LocalDate targetDate;
+
+        private Integer dailyStudyMinutes;
     }
 
     /** 任务视图（前端勾选列表使用）。 */

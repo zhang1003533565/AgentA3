@@ -62,6 +62,7 @@ class StudyGoalServiceImplTest {
         StudyGoalDTO.GoalDetail detail = service.saveGoal(7L, request);
 
         assertEquals(LocalDate.of(2026, 8, 27), detail.getGoal().getStartDate());
+        assertEquals(60, detail.getGoal().getDailyStudyMinutes());
         assertEquals(LocalDate.of(2026, 8, 27), detail.getTasks().get(0).getPlannedStartDate());
         assertEquals(LocalDate.of(2026, 8, 28), detail.getTasks().get(0).getPlannedEndDate());
         assertEquals(LocalDate.of(2026, 8, 29), detail.getTasks().get(1).getPlannedStartDate());
@@ -112,7 +113,7 @@ class StudyGoalServiceImplTest {
         service.postponeTask(1L, 2, 7L);
 
         assertEquals(LocalDate.of(2026, 8, 29), selected.getPlannedStartDate());
-        assertEquals(LocalDate.of(2026, 8, 30), selected.getPlannedEndDate());
+        assertEquals(LocalDate.of(2026, 8, 29), selected.getPlannedEndDate());
         assertEquals(LocalDate.of(2026, 8, 30), later.getPlannedStartDate());
         assertEquals(LocalDate.of(2026, 8, 31), later.getPlannedEndDate());
         assertEquals(LocalDate.of(2026, 8, 30), completed.getPlannedStartDate());

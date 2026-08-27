@@ -79,6 +79,13 @@
                   <text class="date-value">{{ previewGoal.targetDate ? formatPlanDate(previewGoal.targetDate) : '不设置' }}</text>
                 </picker>
               </view>
+              <view class="date-setting capacity-setting">
+                <text class="date-label">每日学习容量</text>
+                <view class="capacity-line">
+                  <input class="capacity-input" type="number" v-model="previewGoal.dailyStudyMinutes" />
+                  <text class="date-value">分钟</text>
+                </view>
+              </view>
             </view>
             <view class="goal-meta-row">
               <text class="goal-meta">共 {{ previewTasks.length }} 个任务</text>
@@ -150,6 +157,7 @@
             <view class="schedule-summary">
               <text>计划开始 {{ formatPlanDate(goalDetail.goal.startDate) }}</text>
               <text v-if="goalDetail.goal.targetDate">目标 {{ formatPlanDate(goalDetail.goal.targetDate) }}</text>
+              <text>每天 {{ goalDetail.goal.dailyStudyMinutes || 60 }} 分钟</text>
             </view>
           </view>
 
@@ -255,7 +263,6 @@ import {
   getStudyGoalDetail
 } from '@/api/studyGoal.js'
 import {
-  addPlanDays,
   buildStudyGoalPayload,
   formatPlanDate,
   isPlanTaskToday,
@@ -391,7 +398,11 @@ function startDecompose() {
       if (!data || !data.goal || !Array.isArray(data.tasks) || data.tasks.length === 0) {
         throw new Error('智能体没有返回有效任务')
       }
-      previewGoal.value = { title: data.goal.title || '', description: data.goal.description || '' }
+      previewGoal.value = {
+        title: data.goal.title || '',
+        description: data.goal.description || '',
+        dailyStudyMinutes: 60
+      }
       previewGoal.value.startDate = todayDate()
       previewGoal.value.targetDate = ''
       previewTasks.value = schedulePlanTasks(data.tasks.map((task, index) => normalizePlanTask(task, index)), todayDate())
@@ -444,6 +455,7 @@ function confirmSave() {
 function toggleTask(task) {
   if (!task.id || togglingIds.value.includes(task.id)) return
   const nextValue = !task.isCompleted
+  const previousProgress = task.progressPercent
   // 乐观更新：勾选立即生效，失败回滚
   task.isCompleted = nextValue
   task.progressPercent = nextValue ? 100 : 0
@@ -459,6 +471,7 @@ function toggleTask(task) {
     })
     .catch(() => {
       task.isCompleted = !nextValue
+      task.progressPercent = previousProgress
       task.status = nextValue ? 'pending' : 'completed'
     })
     .finally(() => {
@@ -483,6 +496,7 @@ function changeTaskProgress(task, event) {
     .catch(() => {
       task.progressPercent = previous
       task.isCompleted = previous >= 100
+      task.status = previous >= 100 ? 'completed' : previous > 0 ? 'in_progress' : 'pending'
     })
     .finally(() => {
       togglingIds.value = togglingIds.value.filter((id) => id !== task.id)
@@ -490,7 +504,8 @@ function changeTaskProgress(task, event) {
 }
 
 function statusIndex(status) {
-  return ['pending', 'in_progress', 'blocked', 'skipped', 'completed'].indexOf(status)
+  const index = ['pending', 'in_progress', 'blocked', 'skipped', 'completed'].indexOf(status)
+  return index < 0 ? 0 : index
 }
 
 function changeTaskStatus(task, event) {
@@ -591,7 +606,8 @@ function applyGoalDetail(data) {
       progress: Number(data?.goal?.progress) || 0,
       status: data?.goal?.status || 'pending',
       startDate: data?.goal?.startDate || '',
-      targetDate: data?.goal?.targetDate || ''
+      targetDate: data?.goal?.targetDate || '',
+      dailyStudyMinutes: Number(data?.goal?.dailyStudyMinutes) || 60
     },
     tasks: Array.isArray(data?.tasks)
       ? data.tasks.map((task, index) => ({
@@ -908,6 +924,27 @@ function priorityLevel(priority) {
   padding: 14rpx 16rpx;
   border-radius: 12rpx;
   background: #F6F8FC;
+}
+
+.capacity-setting {
+  flex: 1.15;
+}
+
+.capacity-line {
+  display: flex;
+  align-items: center;
+  gap: 8rpx;
+}
+
+.capacity-input {
+  width: 86rpx;
+  height: 40rpx;
+  padding: 0 8rpx;
+  border: 1rpx solid #DADDE8;
+  border-radius: 8rpx;
+  color: #3D5773;
+  font-size: 23rpx;
+  text-align: right;
 }
 
 .date-label {

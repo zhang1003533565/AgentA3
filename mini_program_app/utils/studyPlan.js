@@ -69,7 +69,8 @@ export function buildStudyGoalPayload(goal, tasks) {
       title: String(goal?.title || '').trim(),
       description: String(goal?.description || '').trim(),
       startDate: toDateInputValue(goal?.startDate) || todayDate(),
-      targetDate: toDateInputValue(goal?.targetDate) || null
+      targetDate: toDateInputValue(goal?.targetDate) || null,
+      dailyStudyMinutes: Math.max(15, Math.min(720, Number(goal?.dailyStudyMinutes) || 60))
     },
     tasks: (Array.isArray(tasks) ? tasks : []).map((task, index) => ({
       taskName: String(task?.taskName || '').trim(),

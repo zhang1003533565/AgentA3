@@ -59,7 +59,7 @@ public class StudyTask {
     private Boolean isCompleted = false;
 
     /** 任务完成百分比 0-100，用于按预计天数加权计算目标进度。 */
-    @Column(name = "progress_percent", nullable = false)
+    @Column(name = "progress_percent", nullable = false, columnDefinition = "INT NOT NULL DEFAULT 0")
     private Integer progressPercent = 0;
 
     @Column(columnDefinition = "TEXT")

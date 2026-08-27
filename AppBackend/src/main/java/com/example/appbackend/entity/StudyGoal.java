@@ -39,6 +39,10 @@ public class StudyGoal {
     @Column(name = "target_date")
     private LocalDate targetDate;
 
+    /** 每日可投入学习时长（分钟），用于给用户确认排程容量。 */
+    @Column(name = "daily_study_minutes", nullable = false, columnDefinition = "INT NOT NULL DEFAULT 60")
+    private Integer dailyStudyMinutes = 60;
+
     /** 完成百分比 0-100，根据任务预计天数加权自动计算。 */
     @Column(nullable = false)
     private Integer progress = 0;

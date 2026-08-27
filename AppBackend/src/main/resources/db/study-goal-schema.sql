@@ -8,6 +8,7 @@ CREATE TABLE IF NOT EXISTS study_goal (
     description TEXT NULL COMMENT '目标描述',
     start_date DATE NULL COMMENT '排程开始日期',
     target_date DATE NULL COMMENT '目标完成日期',
+    daily_study_minutes INT NOT NULL DEFAULT 60 COMMENT '每日可投入学习时长（分钟）',
     progress INT NOT NULL DEFAULT 0 COMMENT '完成百分比 0-100，自动计算',
     status VARCHAR(20) NOT NULL DEFAULT 'pending' COMMENT '状态 pending/in_progress/completed',
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',

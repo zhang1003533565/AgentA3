@@ -14,9 +14,11 @@ class StudyGoalPersistenceContractTest {
     void goalStoresOptionalPlanningWindow() throws Exception {
         assertColumn(StudyGoal.class, "startDate", "start_date");
         assertColumn(StudyGoal.class, "targetDate", "target_date");
+        assertColumn(StudyGoal.class, "dailyStudyMinutes", "daily_study_minutes");
 
         assertEquals(LocalDate.class, StudyGoal.class.getDeclaredField("startDate").getType());
         assertEquals(LocalDate.class, StudyGoal.class.getDeclaredField("targetDate").getType());
+        assertEquals(Integer.class, StudyGoal.class.getDeclaredField("dailyStudyMinutes").getType());
     }
 
     @Test
