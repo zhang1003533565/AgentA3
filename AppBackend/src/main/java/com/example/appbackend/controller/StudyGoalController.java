@@ -3,6 +3,7 @@ package com.example.appbackend.controller;
 import com.example.appbackend.dto.PageResponse;
 import com.example.appbackend.dto.StudyGoalDTO;
 import com.example.appbackend.entity.Result;
+import com.example.appbackend.exception.BusinessException;
 import com.example.appbackend.service.StudyGoalService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -71,10 +72,10 @@ public class StudyGoalController {
     @PutMapping("/tasks/{taskId}/completion")
     @Operation(summary = "更新任务完成状态", description = "前端勾选 Checkbox 后调用，同步任务状态并自动重算 Goal 进度")
     public Result<StudyGoalDTO.GoalView> updateCompletion(@PathVariable("taskId") Long taskId,
-                                                           @RequestBody StudyGoalDTO.TaskCompletionRequest request,
+        @RequestBody StudyGoalDTO.TaskCompletionRequest request,
                                                            HttpServletRequest httpRequest) {
         Long userId = currentUserId(httpRequest);
-        boolean isCompleted = request != null && Boolean.TRUE.equals(request.getIsCompleted());
+        boolean isCompleted = requireCompletionValue(request);
         return Result.success(studyGoalService.updateTaskCompletion(taskId, isCompleted, userId));
     }
 
@@ -105,7 +106,7 @@ public class StudyGoalController {
             @RequestBody StudyGoalDTO.TaskCompletionRequest request,
             HttpServletRequest httpRequest) {
         Long userId = currentUserId(httpRequest);
-        boolean isCompleted = request != null && Boolean.TRUE.equals(request.getIsCompleted());
+        boolean isCompleted = requireCompletionValue(request);
         return Result.success(studyGoalService.updateSubtaskCompletion(subtaskId, isCompleted, userId));
     }
 
@@ -199,5 +200,12 @@ public class StudyGoalController {
 
     private Long currentUserId(HttpServletRequest request) {
         return (Long) request.getAttribute("userId");
+    }
+
+    private boolean requireCompletionValue(StudyGoalDTO.TaskCompletionRequest request) {
+        if (request == null || request.getIsCompleted() == null) {
+            throw new BusinessException(Result.BAD_REQUEST_CODE, "完成状态不能为空");
+        }
+        return request.getIsCompleted();
     }
 }
