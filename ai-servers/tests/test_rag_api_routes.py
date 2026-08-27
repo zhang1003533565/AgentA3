@@ -227,7 +227,7 @@ class RagApiRoutesTest(unittest.TestCase):
 
         self.assertIsNotNone(plan)
         self.assertEqual("call_tool", plan.action)
-        self.assertEqual("text_to_file_tool", plan.tool_name)
+        self.assertEqual("text_to_docx_tool", plan.tool_name)
         self.assertEqual("rules", plan.route_mode)
 
     def test_second_source_option_is_expanded_to_explicit_model_authorization(self):
@@ -354,7 +354,7 @@ class RagApiRoutesTest(unittest.TestCase):
                 "metadata": {
                     "testFrom": "admin_tool_console",
                     "directToolTest": True,
-                    "expectedToolName": "text_to_file_tool",
+                    "expectedToolName": "text_to_txt_tool",
                     "requestedOutputType": "txt",
                 },
             },
@@ -365,7 +365,7 @@ class RagApiRoutesTest(unittest.TestCase):
         self.assertEqual(["txt"], [item["ext"] for item in payload["attachments"]])
         self.assertEqual(["tool_call"], [item["stage"] for item in payload["trace"]])
         self.assertEqual("direct_tool_test", payload["metadata"]["executionMode"])
-        self.assertEqual("text_to_file_tool", payload["metadata"]["executedAgent"])
+        self.assertEqual("text_to_txt_tool", payload["metadata"]["executedAgent"])
 
     def test_free_text_word_export_skips_clarification_message_and_uses_previous_substantive_candidate(self):
         response = self.client.post(

@@ -64,7 +64,9 @@ const TOOL_TEST_PROMPTS = {
   java_secondhand_api: '请查询当前在售的二手商品。',
   tool_capability_query: '请列出当前系统已经启用并且可以调用的工具能力。',
   generated_export_tools: '请把以下内容整理为 Markdown 和 Word 文件并提供下载：校园二手交易应当当面验货、确认商品状态后再完成交易。',
-  text_to_file_tool: '请把以下内容按原文转成Markdown文件：校园二手交易应当当面验货、确认商品状态后再完成交易。',
+  text_to_markdown_tool: '请把以下内容按原文转成Markdown文件：校园二手交易应当当面验货、确认商品状态后再完成交易。',
+  text_to_txt_tool: '请把以下内容按原文转成纯文本文件：校园二手交易应当当面验货、确认商品状态后再完成交易。',
+  text_to_docx_tool: '请把以下内容按原文转成Word文件：校园二手交易应当当面验货、确认商品状态后再完成交易。',
   markdown_export_tool: '请把以下内容导出为 Markdown 文件：校园二手交易测试内容。',
   docx_export_tool: '请把以下内容导出为 Word 文档：校园二手交易测试内容。',
   excel_export_tool: '请把以下清单导出为 Excel：商品A，分类教材；商品B，分类数码。',
@@ -76,17 +78,12 @@ const TOOL_TEST_PROMPTS = {
 const getToolTestPrompt = (tool) => TOOL_TEST_PROMPTS[tool?.name]
   || `请执行${tool?.zhName || tool?.name || '当前工具'}测试，并返回可验证的输出。${tool?.trigger ? `触发要求：${tool.trigger}` : ''}`
 
-const TEXT_TO_FILE_FORMAT_OPTIONS = [
-  { value: 'md', label: 'Markdown (.md)' },
-  { value: 'txt', label: '纯文本 (.txt)' },
-  { value: 'docx', label: 'Word (.docx)' },
-]
-const TEXT_TO_FILE_SAMPLE_CONTENT = '校园二手交易应当当面验货、确认商品状态后再完成交易。'
-const TEXT_TO_FILE_PROMPT_BY_FORMAT = {
-  md: `请把以下内容按原文转成Markdown文件：${TEXT_TO_FILE_SAMPLE_CONTENT}`,
-  txt: `请把以下内容按原文转成纯文本文件：${TEXT_TO_FILE_SAMPLE_CONTENT}`,
-  docx: `请把以下内容按原文转成Word文件：${TEXT_TO_FILE_SAMPLE_CONTENT}`,
-}
+const TEXT_TO_FILE_TOOL_NAMES = new Set([
+  'text_to_markdown_tool',
+  'text_to_txt_tool',
+  'text_to_docx_tool',
+])
+const isTextToFileTool = (tool) => TEXT_TO_FILE_TOOL_NAMES.has(tool?.name)
 
 const readToolTestImage = (file) => new Promise((resolve, reject) => {
   const reader = new FileReader()
@@ -130,7 +127,7 @@ const getToolCategoryLabel = (category) => {
     campus_service: '系统能力',
     structured_query: '结构化查询',
     content_export: '内容整理',
-    file_content_extraction: '文件内容提取',
+    file_content_extraction: '文件内容识别',
     diagram_export: '图表导出',
     presentation_generation: 'PPT 生成',
     vision_understanding: '图片理解',
@@ -275,7 +272,6 @@ function AgentSettings() {
   const [toolTestName, setToolTestName] = useState('')
   const [toolTestMode, setToolTestMode] = useState('prompt')
   const [toolTestInput, setToolTestInput] = useState('')
-  const [toolTestOutputType, setToolTestOutputType] = useState('')
   const [toolTestImages, setToolTestImages] = useState([])
   const [toolTestFileList, setToolTestFileList] = useState([])
   const [toolTestLoading, setToolTestLoading] = useState(false)
@@ -650,7 +646,6 @@ function AgentSettings() {
     setToolTestImages([])
     setToolTestFileList([])
     setToolTestResult(null)
-    setToolTestOutputType(tool?.name === 'text_to_file_tool' ? 'md' : '')
   }, [allConfiguredTools])
 
   const changeToolTestMode = useCallback((mode) => {
@@ -661,7 +656,6 @@ function AgentSettings() {
     if (mode === 'manual' && !isFileContentTool(selectedToolTest)) {
       setToolTestName('')
       setToolTestInput('')
-      setToolTestOutputType('')
     }
   }, [selectedToolTest])
 
@@ -783,9 +777,8 @@ function AgentSettings() {
           expectedToolName: selectedToolTest.name,
         },
       }
-      if (selectedToolTest.name === 'text_to_file_tool') {
+      if (isTextToFileTool(selectedToolTest)) {
         payload.metadata.directToolTest = true
-        payload.metadata.requestedOutputType = toolTestOutputType || 'md'
       }
       const testedTextModel = llmModelOptions.find((option) => option.modality === 'text' && option.isDefault)
         || llmModelOptions.find((option) => option.modality === 'text')
@@ -1288,6 +1281,7 @@ function AgentSettings() {
   const enabledCampusServiceCount = campusServiceTools.filter((item) => item.enabled !== false).length
   const visualTools = allConfiguredTools.filter((item) => item.category === 'visual_generation')
   const contentCategoryTools = allConfiguredTools.filter((item) => item.category === 'content_export')
+  const fileContentTools = allConfiguredTools.filter((item) => item.category === 'file_content_extraction')
   const structuredTools = allConfiguredTools.filter((item) => item.category === 'structured_query')
   const mappedQuestionAgentCount = questionAgentRows.filter((item) => item.agentName && item.exists).length
   const validQuestionAgentCount = questionAgentRows.filter((item) => (
@@ -1301,7 +1295,9 @@ function AgentSettings() {
         ? visualTools
         : leaderObjectType === 'content'
           ? contentCategoryTools
-          : structuredTools
+          : leaderObjectType === 'file_content'
+            ? fileContentTools
+            : structuredTools
 
   const overviewIssues = [
     unboundAgentCount ? {
@@ -1442,6 +1438,7 @@ function AgentSettings() {
                         { label: `校园服务 ${enabledCampusServiceCount}/${campusServiceTools.length}`, value: 'campus' },
                         { label: `视觉能力 ${visualTools.filter((item) => item.enabled !== false).length}/${visualTools.length}`, value: 'visual' },
                         { label: `内容处理 ${contentCategoryTools.filter((item) => item.enabled !== false).length}/${contentCategoryTools.length}`, value: 'content' },
+                        { label: `文件内容识别 ${fileContentTools.filter((item) => item.enabled !== false).length}/${fileContentTools.length}`, value: 'file_content' },
                         { label: `结构化查询 ${structuredTools.filter((item) => item.enabled !== false).length}/${structuredTools.length}`, value: 'structured' },
                       ]}
                       onChange={(value) => {
@@ -1562,22 +1559,6 @@ function AgentSettings() {
                       </>
                     ) : null}
 
-                    {toolTestMode === 'prompt' && selectedToolTest?.name === 'text_to_file_tool' ? (
-                      <>
-                        <label className="agent-settings-field-label">输出格式</label>
-                        <Select
-                          value={toolTestOutputType || 'md'}
-                          options={TEXT_TO_FILE_FORMAT_OPTIONS}
-                          style={{ width: 280 }}
-                          onChange={(value) => {
-                            setToolTestOutputType(value)
-                            setToolTestInput(TEXT_TO_FILE_PROMPT_BY_FORMAT[value] || getToolTestPrompt(selectedToolTest))
-                          }}
-                        />
-                        <Text type="secondary">选择输出格式后运行测试，将按所选格式生成对应文件（Markdown / 纯文本 / Word）。</Text>
-                      </>
-                    ) : null}
-
                     {toolTestMode === 'prompt' ? (
                       <>
                         <label className="agent-settings-field-label">测试输入</label>
@@ -1592,11 +1573,7 @@ function AgentSettings() {
                         <Space.Compact block>
                           <Button
                             disabled={!selectedToolTest}
-                            onClick={() => setToolTestInput(
-                              selectedToolTest?.name === 'text_to_file_tool'
-                                ? (TEXT_TO_FILE_PROMPT_BY_FORMAT[toolTestOutputType] || getToolTestPrompt(selectedToolTest))
-                                : getToolTestPrompt(selectedToolTest)
-                            )}
+                            onClick={() => setToolTestInput(getToolTestPrompt(selectedToolTest))}
                           >
                             恢复测试示例
                           </Button>

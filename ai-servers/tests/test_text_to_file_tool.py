@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Tests for the text_to_file_tool (text -> md/txt/docx)."""
+"""Tests for text-to-file tools (text -> md/txt/docx)."""
 
 import importlib
 import os
@@ -67,10 +67,21 @@ class TextToFileExporterTest(unittest.TestCase):
         self.assertEqual("empty_answer", result.diagnostics["reason"])
 
     def test_disabled_toggle_skips_export(self):
-        result = export_text_to_file(SAMPLE_CONTENT, "md", {"toolToggles": {"text_to_file_tool": False}})
+        result = export_text_to_file(
+            SAMPLE_CONTENT,
+            "md",
+            {"toolToggles": {"text_to_markdown_tool": False}},
+        )
         self.assertEqual([], result.attachments)
         self.assertEqual("tool_disabled", result.diagnostics["reason"])
-        self.assertEqual("text_to_file_tool", result.diagnostics["disabledTool"])
+        self.assertEqual("text_to_markdown_tool", result.diagnostics["disabledTool"])
+
+        result = export_text_to_file(
+            SAMPLE_CONTENT,
+            "txt",
+            {"toolToggles": {"text_to_txt_tool": False}},
+        )
+        self.assertEqual("text_to_txt_tool", result.diagnostics["disabledTool"])
 
 
 class TextToFileRagRouteTest(unittest.TestCase):
@@ -103,33 +114,48 @@ class TextToFileRagRouteTest(unittest.TestCase):
         )
         self.assertEqual("校园二手交易应当当面验货。", content)
 
-    def test_transform_plan_routes_txt_md_docx_to_text_to_file_tool(self):
-        for output_type in ("txt", "md", "docx"):
+    def test_transform_plan_routes_txt_md_docx_to_format_tools(self):
+        expected = {
+            "txt": "text_to_txt_tool",
+            "md": "text_to_markdown_tool",
+            "docx": "text_to_docx_tool",
+        }
+        for output_type, tool_name in expected.items():
             with self.subTest(output_type=output_type):
                 plan = self._rag_routes._requested_file_transform_plan(self._transform_request(output_type))
                 self.assertIsNotNone(plan)
                 self.assertEqual("call_tool", plan.action)
-                self.assertEqual("text_to_file_tool", plan.tool_name)
+                self.assertEqual(tool_name, plan.tool_name)
                 self.assertEqual("rules", plan.route_mode)
 
-    def test_transform_plan_respects_text_to_file_tool_toggle(self):
+    def test_transform_plan_respects_format_tool_toggle(self):
         plan = self._rag_routes._requested_file_transform_plan(
-            self._transform_request("md", content="内容", toggles={"text_to_file_tool": False})
+            self._transform_request("md", content="内容", toggles={"text_to_markdown_tool": False})
         )
         self.assertEqual("direct_answer", plan.action)
         self.assertEqual("tool_disabled", plan.route_mode)
 
-    def test_catalog_advertises_text_to_file_tool_and_respects_toggle(self):
+    def test_catalog_advertises_split_text_to_file_tools_and_respects_toggle(self):
         catalog = self._rag_routes._build_leader_callable_catalog(None)
         names = {item["name"] for item in catalog["tools"]}
-        self.assertIn("text_to_file_tool", names)
-        tool = next(item for item in catalog["tools"] if item["name"] == "text_to_file_tool")
-        self.assertEqual("content_export", tool["category"])
-        self.assertEqual(["md", "txt", "docx"], tool["outputs"])
-        self.assertNotIn("pdf", tool["outputs"])
-        self.assertTrue(self._rag_routes._is_tool_enabled(SimpleNamespace(metadata={}), "text_to_file_tool"))
-        disabled_request = SimpleNamespace(metadata={"toolToggles": {"text_to_file_tool": False}})
-        self.assertFalse(self._rag_routes._is_tool_enabled(disabled_request, "text_to_file_tool"))
+        self.assertIn("text_to_markdown_tool", names)
+        self.assertIn("text_to_txt_tool", names)
+        self.assertIn("text_to_docx_tool", names)
+        self.assertNotIn("text_to_file_tool", names)
+
+        md_tool = next(item for item in catalog["tools"] if item["name"] == "text_to_markdown_tool")
+        self.assertEqual("content_export", md_tool["category"])
+        self.assertEqual(["md"], md_tool["outputs"])
+
+        txt_tool = next(item for item in catalog["tools"] if item["name"] == "text_to_txt_tool")
+        self.assertEqual(["txt"], txt_tool["outputs"])
+
+        docx_tool = next(item for item in catalog["tools"] if item["name"] == "text_to_docx_tool")
+        self.assertEqual(["docx"], docx_tool["outputs"])
+
+        self.assertTrue(self._rag_routes._is_tool_enabled(SimpleNamespace(metadata={}), "text_to_markdown_tool"))
+        disabled_request = SimpleNamespace(metadata={"toolToggles": {"text_to_markdown_tool": False}})
+        self.assertFalse(self._rag_routes._is_tool_enabled(disabled_request, "text_to_markdown_tool"))
 
     def test_transform_plan_keeps_generated_export_tool_for_pptx_and_xlsx(self):
         for output_type, expected in (("pptx", "generated_export_tools"), ("xlsx", "generated_export_tools")):
@@ -144,7 +170,13 @@ class TextToFileRagRouteTest(unittest.TestCase):
     def test_general_content_offers_md_txt_docx_choices(self):
         actions = self._rag_routes._file_format_follow_up_actions(
             "markdown",
-            {"toolToggles": {"text_to_file_tool": True}},
+            {
+                "toolToggles": {
+                    "text_to_markdown_tool": True,
+                    "text_to_txt_tool": True,
+                    "text_to_docx_tool": True,
+                },
+            },
             "textbook_knowledge_agent",
         )
         self.assertEqual(
@@ -153,13 +185,32 @@ class TextToFileRagRouteTest(unittest.TestCase):
         )
         self.assertEqual(["md", "txt", "docx"], [item["outputType"] for item in actions])
 
-    def test_general_format_choices_respect_text_to_file_tool_toggle(self):
+    def test_general_format_choices_respect_split_tool_toggles(self):
         actions = self._rag_routes._file_format_follow_up_actions(
             "markdown",
-            {"toolToggles": {"text_to_file_tool": False}},
+            {
+                "toolToggles": {
+                    "text_to_markdown_tool": False,
+                    "text_to_txt_tool": False,
+                    "text_to_docx_tool": False,
+                },
+            },
             "textbook_knowledge_agent",
         )
         self.assertEqual([], actions)
+
+        actions = self._rag_routes._file_format_follow_up_actions(
+            "markdown",
+            {
+                "toolToggles": {
+                    "text_to_markdown_tool": True,
+                    "text_to_txt_tool": False,
+                    "text_to_docx_tool": False,
+                },
+            },
+            "textbook_knowledge_agent",
+        )
+        self.assertEqual(["Markdown 文件"], [item["label"] for item in actions])
 
 
 class TextToFileLeaderRouteTest(unittest.TestCase):
@@ -178,33 +229,33 @@ class TextToFileLeaderRouteTest(unittest.TestCase):
     def _plan_for(self, query):
         return self._agent._plan_explicit_file_export_request(query)
 
-    def test_txt_md_word_requests_route_to_text_to_file_tool(self):
-        queries = [
-            "请把这段文字转成txt文件：校园二手交易应当当面验货",
-            "请把这段文字转成md：校园二手交易应当当面验货",
-            "请把这段文字转成Word文件：校园二手交易应当当面验货",
-            "请把这段文字转成Markdown文件：校园二手交易应当当面验货",
-            "请把这段话保存为纯文本文件",
+    def test_txt_md_word_requests_route_to_format_tools(self):
+        cases = [
+            ("请把这段文字转成txt文件：校园二手交易应当当面验货", "text_to_txt_tool"),
+            ("请把这段文字转成md：校园二手交易应当当面验货", "text_to_markdown_tool"),
+            ("请把这段文字转成Word文件：校园二手交易应当当面验货", "text_to_docx_tool"),
+            ("请把这段文字转成Markdown文件：校园二手交易应当当面验货", "text_to_markdown_tool"),
+            ("请把这段话保存为纯文本文件", "text_to_txt_tool"),
         ]
-        for query in queries:
+        for query, tool_name in cases:
             with self.subTest(query=query):
                 plan = self._plan_for(query)
                 self.assertIsNotNone(plan, query)
                 self.assertEqual("call_tool", plan.action, query)
-                self.assertEqual("text_to_file_tool", plan.tool_name, query)
+                self.assertEqual(tool_name, plan.tool_name, query)
                 self.assertEqual("rules", plan.route_mode, query)
 
     def test_admin_test_prompts_route_by_selected_format(self):
         prompts = {
-            "md": "请把以下内容按原文转成Markdown文件：校园二手交易应当当面验货、确认商品状态后再完成交易。",
-            "txt": "请把以下内容按原文转成纯文本文件：校园二手交易应当当面验货、确认商品状态后再完成交易。",
-            "docx": "请把以下内容按原文转成Word文件：校园二手交易应当当面验货、确认商品状态后再完成交易。",
+            "text_to_markdown_tool": "请把以下内容按原文转成Markdown文件：校园二手交易应当当面验货、确认商品状态后再完成交易。",
+            "text_to_txt_tool": "请把以下内容按原文转成纯文本文件：校园二手交易应当当面验货、确认商品状态后再完成交易。",
+            "text_to_docx_tool": "请把以下内容按原文转成Word文件：校园二手交易应当当面验货、确认商品状态后再完成交易。",
         }
-        for output_type, query in prompts.items():
-            with self.subTest(output_type=output_type):
+        for tool_name, query in prompts.items():
+            with self.subTest(tool_name=tool_name):
                 plan = self._plan_for(query)
                 self.assertIsNotNone(plan, query)
-                self.assertEqual("text_to_file_tool", plan.tool_name, query)
+                self.assertEqual(tool_name, plan.tool_name, query)
                 self.assertEqual("call_tool", plan.action, query)
 
     def test_word_requests_still_route_to_generated_export_tools(self):
