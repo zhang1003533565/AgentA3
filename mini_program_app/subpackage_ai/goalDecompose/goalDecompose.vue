@@ -139,7 +139,10 @@
                 </view>
                 <view class="subtask-collapse-trigger" @tap="togglePreviewSubtasks(task)">
                   <text>{{ isPreviewSubtasksExpanded(task) ? '收起' : '展开' }}</text>
-                  <text class="subtask-collapse-chevron">{{ isPreviewSubtasksExpanded(task) ? '⌃' : '⌄' }}</text>
+                  <view
+                    class="subtask-collapse-chevron"
+                    :class="{ 'subtask-collapse-chevron--expanded': isPreviewSubtasksExpanded(task) }"
+                  ></view>
                 </view>
               </view>
               <template v-if="isPreviewSubtasksExpanded(task)">
@@ -257,7 +260,10 @@
                   <view class="task-group-actions">
                     <view class="task-group-toggle" @tap.stop="toggleTaskGroup(task)">
                       <text>{{ isTaskGroupExpanded(task) ? '收起' : '展开' }}</text>
-                      <text class="subtask-collapse-chevron">{{ isTaskGroupExpanded(task) ? '⌃' : '⌄' }}</text>
+                      <view
+                        class="subtask-collapse-chevron"
+                        :class="{ 'subtask-collapse-chevron--expanded': isTaskGroupExpanded(task) }"
+                      ></view>
                     </view>
                     <text class="task-group-status">{{ statusText(task.status) }}</text>
                   </view>
@@ -2395,9 +2401,18 @@ function priorityLevel(priority) {
 }
 
 .study-plan-page .subtask-collapse-chevron {
-  color: #7890A8;
-  font-size: 22rpx;
-  line-height: 1;
+  width: 12rpx;
+  height: 12rpx;
+  flex-shrink: 0;
+  box-sizing: border-box;
+  border-right: 2rpx solid #7890A8;
+  border-bottom: 2rpx solid #7890A8;
+  transform: rotate(45deg);
+  transform-origin: center;
+}
+
+.study-plan-page .subtask-collapse-chevron--expanded {
+  transform: rotate(-135deg);
 }
 
 .study-plan-page .preview-subtask-head {

@@ -53,3 +53,9 @@ test('today view keeps the full matched stage visible as task context', () => {
   assert.match(source, /今日 .*阶段共/)
   assert.match(source, /function isTodaySubtask\(subtask\)/)
 })
+
+test('collapse arrows use a centered geometry instead of a font glyph', () => {
+  assert.match(source, /class="subtask-collapse-chevron"[^>]*:class="[^"]*subtask-collapse-chevron--expanded[^"]*"/)
+  assert.match(source, /\.study-plan-page \.subtask-collapse-chevron\s*\{[\s\S]*?width:\s*12rpx[\s\S]*?height:\s*12rpx[\s\S]*?border-right:/)
+  assert.match(source, /\.subtask-collapse-chevron--expanded\s*\{[\s\S]*?transform:\s*rotate\(-135deg\)/)
+})
