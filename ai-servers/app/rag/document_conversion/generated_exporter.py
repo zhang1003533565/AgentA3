@@ -124,7 +124,15 @@ EXCEL_EXPORT_TOOL_NAME = "excel_export_tool"
 PPTX_EXPORT_TOOL_NAME = "pptx_export_tool"
 ARCHIVE_EXPORT_TOOL_NAME = "content_archive_tool"
 DIAGRAM_SOURCE_EXPORT_TOOL_NAME = "diagram_source_export_tool"
-TEXT_TO_FILE_TOOL_NAME = "text_to_file_tool"
+TEXT_TO_MARKDOWN_TOOL_NAME = "text_to_markdown_tool"
+TEXT_TO_TXT_TOOL_NAME = "text_to_txt_tool"
+TEXT_TO_DOCX_TOOL_NAME = "text_to_docx_tool"
+TEXT_TO_FILE_TOOL_BY_FORMAT = {
+    "md": TEXT_TO_MARKDOWN_TOOL_NAME,
+    "txt": TEXT_TO_TXT_TOOL_NAME,
+    "docx": TEXT_TO_DOCX_TOOL_NAME,
+}
+TEXT_TO_FILE_TOOL_NAMES = frozenset(TEXT_TO_FILE_TOOL_BY_FORMAT.values())
 KNOWN_EXPORT_TOOL_NAMES = {
     GENERATED_EXPORT_TOOL_NAME,
     MARKDOWN_EXPORT_TOOL_NAME,
@@ -133,7 +141,7 @@ KNOWN_EXPORT_TOOL_NAMES = {
     PPTX_EXPORT_TOOL_NAME,
     ARCHIVE_EXPORT_TOOL_NAME,
     DIAGRAM_SOURCE_EXPORT_TOOL_NAME,
-    TEXT_TO_FILE_TOOL_NAME,
+    *TEXT_TO_FILE_TOOL_NAMES,
 }
 
 
@@ -790,33 +798,45 @@ def export_text_to_file(
     content: str,
     file_format: Optional[str] = None,
     metadata: Optional[Dict[str, Any]] = None,
+    tool_name: Optional[str] = None,
 ) -> GeneratedExportResult:
     """Export user-provided text verbatim into a downloadable file.
 
-    Supported formats: md, txt and docx. The tool never reorganizes or
-    rewrites the source text. Other formats are rejected as unsupported.
+    Supported formats: md, txt and docx. Each format maps to its own tool
+    toggle. The exporter never reorganizes or rewrites the source text.
     """
     cleanup_generated_exports()
     metadata = metadata or {}
     text = str(content or "")
     if not text.strip():
         return GeneratedExportResult(diagnostics={"skipped": True, "reason": "empty_answer"})
-    if not _is_export_tool_enabled(metadata, TEXT_TO_FILE_TOOL_NAME):
-        return GeneratedExportResult(diagnostics={
-            "skipped": True,
-            "reason": "tool_disabled",
-            "disabledTool": TEXT_TO_FILE_TOOL_NAME,
-        })
     requested = _normalize_text_file_format(file_format)
-    title = _title_from_markdown(text) or _title_from_metadata(metadata, "文本文件")
-    slug = _slugify(title or "text-file")
-    if requested not in {"md", "txt", "docx"}:
+    if requested not in TEXT_TO_FILE_TOOL_BY_FORMAT:
         return GeneratedExportResult(diagnostics={
             "skipped": True,
             "reason": "unsupported_format",
             "requestedFormat": requested or "none",
-            "supportedFormats": ["md", "txt", "docx"],
+            "supportedFormats": sorted(TEXT_TO_FILE_TOOL_BY_FORMAT),
         })
+    resolved_tool = str(tool_name or "").strip() or TEXT_TO_FILE_TOOL_BY_FORMAT[requested]
+    if resolved_tool not in TEXT_TO_FILE_TOOL_NAMES:
+        resolved_tool = TEXT_TO_FILE_TOOL_BY_FORMAT[requested]
+    if TEXT_TO_FILE_TOOL_BY_FORMAT[requested] != resolved_tool:
+        return GeneratedExportResult(diagnostics={
+            "skipped": True,
+            "reason": "unsupported_format",
+            "requestedFormat": requested,
+            "toolName": resolved_tool,
+            "supportedFormats": [fmt for fmt, name in TEXT_TO_FILE_TOOL_BY_FORMAT.items() if name == resolved_tool],
+        })
+    if not _is_export_tool_enabled(metadata, resolved_tool):
+        return GeneratedExportResult(diagnostics={
+            "skipped": True,
+            "reason": "tool_disabled",
+            "disabledTool": resolved_tool,
+        })
+    title = _title_from_markdown(text) or _title_from_metadata(metadata, "文本文件")
+    slug = _slugify(title or "text-file")
     paths: List[Path] = []
     attachments: List[Dict[str, Any]] = []
     if requested == "md":
@@ -829,7 +849,7 @@ def export_text_to_file(
         ext = path.suffix.lower().lstrip(".")
         attachments.append(_attachment_for_file(
             path,
-            TEXT_TO_FILE_TOOL_NAME,
+            resolved_tool,
             TEXT_TO_FILE_FORMAT_LABELS.get(ext, ext.upper()),
             title,
         ))
@@ -839,6 +859,7 @@ def export_text_to_file(
             "skipped": False,
             "contentKind": "text_file",
             "requestedFormat": requested,
+            "toolName": resolved_tool,
             "producedFormats": _formats_from_attachments(attachments),
             "disabledTools": _disabled_export_tools(metadata),
         },

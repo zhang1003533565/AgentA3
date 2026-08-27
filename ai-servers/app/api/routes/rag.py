@@ -355,13 +355,33 @@ GENERATED_CONTENT_TOOLS = [
         "status": "implemented",
     },
     {
-        "name": "text_to_file_tool",
-        "zhName": "文本转文件工具",
-        "displayName": "文本转文件工具（text_to_file_tool）",
+        "name": "text_to_markdown_tool",
+        "zhName": "文本转 Markdown 工具",
+        "displayName": "文本转 Markdown 工具（text_to_markdown_tool）",
         "category": "content_export",
-        "purpose": "把用户提供的文本按原文导出为文件，支持 Markdown/纯文本/Word 三种格式，并按用户选择的格式生成附件。",
-        "trigger": "用户要求把已提供的文本按原文转成 txt/md/word 文件，或对已生成消息选择导出格式时触发。",
-        "outputs": ["md", "txt", "docx"],
+        "purpose": "把用户提供的文本按原文导出为 Markdown 文件，不整理、不改写内容。",
+        "trigger": "用户要求把已提供的文本按原文转成 md/Markdown 文件时调用。",
+        "outputs": ["md"],
+        "status": "implemented",
+    },
+    {
+        "name": "text_to_txt_tool",
+        "zhName": "文本转 TXT 工具",
+        "displayName": "文本转 TXT 工具（text_to_txt_tool）",
+        "category": "content_export",
+        "purpose": "把用户提供的文本按原文导出为纯文本文件，不整理、不改写内容。",
+        "trigger": "用户要求把已提供的文本按原文转成 txt/纯文本文件时调用。",
+        "outputs": ["txt"],
+        "status": "implemented",
+    },
+    {
+        "name": "text_to_docx_tool",
+        "zhName": "文本转 Word 工具",
+        "displayName": "文本转 Word 工具（text_to_docx_tool）",
+        "category": "content_export",
+        "purpose": "把用户提供的文本按原文导出为 Word 文档，不整理、不改写内容。",
+        "trigger": "用户要求把已提供的文本按原文转成 word/docx 文件时调用。",
+        "outputs": ["docx"],
         "status": "implemented",
     },
     *FILE_CONTENT_EXTRACTION_TOOLS,
@@ -438,8 +458,21 @@ CAMPUS_SERVICE_TOOLS = [
 
 SERVICE_TOOL_NAMES = {tool["name"] for tool in CAMPUS_SERVICE_TOOLS}
 
-TEXT_TO_FILE_TOOL_NAME = "text_to_file_tool"
-TEXT_TO_FILE_FORMAT_NAMES = {"txt", "md", "docx"}
+TEXT_TO_MARKDOWN_TOOL_NAME = "text_to_markdown_tool"
+TEXT_TO_TXT_TOOL_NAME = "text_to_txt_tool"
+TEXT_TO_DOCX_TOOL_NAME = "text_to_docx_tool"
+TEXT_TO_FILE_TOOL_BY_FORMAT = {
+    "md": TEXT_TO_MARKDOWN_TOOL_NAME,
+    "txt": TEXT_TO_TXT_TOOL_NAME,
+    "docx": TEXT_TO_DOCX_TOOL_NAME,
+}
+TEXT_TO_FILE_TOOL_NAMES = frozenset(TEXT_TO_FILE_TOOL_BY_FORMAT.values())
+TEXT_TO_FILE_FORMAT_NAMES = frozenset(TEXT_TO_FILE_TOOL_BY_FORMAT)
+TEXT_TO_FILE_TOOL_LABELS = {
+    TEXT_TO_MARKDOWN_TOOL_NAME: "文本转 Markdown 工具",
+    TEXT_TO_TXT_TOOL_NAME: "文本转 TXT 工具",
+    TEXT_TO_DOCX_TOOL_NAME: "文本转 Word 工具",
+}
 TOOL_CAPABILITY_QUERY_NAME = "tool_capability_query"
 TOOL_CAPABILITY_QUERY = {
     "name": TOOL_CAPABILITY_QUERY_NAME,
@@ -481,13 +514,35 @@ LEADER_CALLABLE_TOOLS = [
         "configurable": True,
     },
     {
-        "name": "text_to_file_tool",
-        "zhName": "文本转文件工具",
-        "displayName": "文本转文件工具（text_to_file_tool）",
+        "name": "text_to_markdown_tool",
+        "zhName": "文本转 Markdown 工具",
+        "displayName": "文本转 Markdown 工具（text_to_markdown_tool）",
         "category": "content_export",
-        "purpose": "把用户提供的文本按原文导出为 Markdown/纯文本/Word 文件，不整理、不改写内容。",
-        "trigger": "用户要求把已提供的文本按原文转成 txt/md/word 文件时调用。",
-        "outputs": ["md", "txt", "docx"],
+        "purpose": "把用户提供的文本按原文导出为 Markdown 文件，不整理、不改写内容。",
+        "trigger": "用户要求把已提供的文本按原文转成 md/Markdown 文件时调用。",
+        "outputs": ["md"],
+        "status": "implemented",
+        "configurable": True,
+    },
+    {
+        "name": "text_to_txt_tool",
+        "zhName": "文本转 TXT 工具",
+        "displayName": "文本转 TXT 工具（text_to_txt_tool）",
+        "category": "content_export",
+        "purpose": "把用户提供的文本按原文导出为纯文本文件，不整理、不改写内容。",
+        "trigger": "用户要求把已提供的文本按原文转成 txt/纯文本文件时调用。",
+        "outputs": ["txt"],
+        "status": "implemented",
+        "configurable": True,
+    },
+    {
+        "name": "text_to_docx_tool",
+        "zhName": "文本转 Word 工具",
+        "displayName": "文本转 Word 工具（text_to_docx_tool）",
+        "category": "content_export",
+        "purpose": "把用户提供的文本按原文导出为 Word 文档，不整理、不改写内容。",
+        "trigger": "用户要求把已提供的文本按原文转成 word/docx 文件时调用。",
+        "outputs": ["docx"],
         "status": "implemented",
         "configurable": True,
     },
@@ -1448,7 +1503,7 @@ def _run_admin_direct_tool_test(request: RagQueryRequest) -> Optional[RagQueryRe
     if metadata.get("testFrom") != "admin_tool_console" or metadata.get("directToolTest") is not True:
         return None
     tool_name = str(metadata.get("expectedToolName") or "").strip()
-    if tool_name != TEXT_TO_FILE_TOOL_NAME:
+    if tool_name not in TEXT_TO_FILE_TOOL_NAMES:
         raise HTTPException(status_code=400, detail="当前工具暂不支持直接测试。")
     if not _is_tool_enabled(request, tool_name):
         raise HTTPException(status_code=403, detail=f"工具 {_tool_display_name(tool_name)} 已在后台关闭，无法运行测试。")
@@ -1758,15 +1813,17 @@ def _requested_file_transform_plan(request: RagQueryRequest) -> Optional[LeaderP
     ):
         return None
     if interaction_type == "transform" and requested_output_type in TEXT_TO_FILE_FORMAT_NAMES:
-        if not _is_tool_enabled(request, TEXT_TO_FILE_TOOL_NAME):
+        tool_name = TEXT_TO_FILE_TOOL_BY_FORMAT[requested_output_type]
+        tool_label = TEXT_TO_FILE_TOOL_LABELS.get(tool_name, "文本转文件工具")
+        if not _is_tool_enabled(request, tool_name):
             return LeaderPlan(
                 intent="document_export",
                 target_agent="leader_agent",
                 need_retrieval=False,
                 rag_strategy="",
-                answer="文本转文件工具当前已关闭，请先在后台开启后再试。",
+                answer=f"{tool_label}当前已关闭，请先在后台开启后再试。",
                 action="direct_answer",
-                route_reason="用户请求文本转文件，但文本转文件工具已关闭，未执行工具调用。",
+                route_reason=f"用户请求文本转文件，但{tool_label}已关闭，未执行工具调用。",
                 route_mode="tool_disabled",
             )
         return LeaderPlan(
@@ -1775,8 +1832,8 @@ def _requested_file_transform_plan(request: RagQueryRequest) -> Optional[LeaderP
             need_retrieval=False,
             rag_strategy="",
             action="call_tool",
-            tool_name=TEXT_TO_FILE_TOOL_NAME,
-            route_reason=f"用户选择将当前消息按原文生成 {requested_output_type} 文件，调用已启用的文本转文件工具。",
+            tool_name=tool_name,
+            route_reason=f"用户选择将当前消息按原文生成 {requested_output_type} 文件，调用已启用的{tool_label}。",
             route_mode="rules",
         )
     if not _is_tool_enabled(request, "generated_export_tools"):
@@ -2096,7 +2153,7 @@ def _execute_leader_plan(
             response = _run_generated_export_tool(request, plan)
         elif plan.tool_name == IMAGE_STITCHING_TOOL["name"]:
             response = _run_image_stitching_tool(request, plan)
-        elif plan.tool_name == TEXT_TO_FILE_TOOL_NAME:
+        elif plan.tool_name in TEXT_TO_FILE_TOOL_NAMES:
             response = _run_text_to_file_tool(request, plan)
         elif plan.tool_name == IMAGE_RECOGNITION_TOOL_NAME:
             response = _run_image_recognition_tool(request, plan)
@@ -3443,26 +3500,37 @@ def _text_file_title(content: str) -> str:
 
 def _run_text_to_file_tool(request: RagQueryRequest, leader_plan, direct_tool_test: bool = False) -> RagQueryResponse:
     request_metadata = request.metadata if isinstance(request.metadata, dict) else {}
+    tool_name = str(leader_plan.tool_name or "").strip()
+    if tool_name not in TEXT_TO_FILE_TOOL_NAMES:
+        raise HTTPException(status_code=400, detail="未识别的文本转文件工具。")
+    format_from_tool = next(
+        (fmt for fmt, name in TEXT_TO_FILE_TOOL_BY_FORMAT.items() if name == tool_name),
+        "",
+    )
     requested_output_type = _normalize_requested_file_type(
         request_metadata.get("requestedOutputType")
         or _requested_file_type_from_text(request.input)
+        or format_from_tool
         or "md"
     )
+    if TEXT_TO_FILE_TOOL_BY_FORMAT.get(requested_output_type) != tool_name:
+        requested_output_type = format_from_tool or requested_output_type
+    tool_label = TEXT_TO_FILE_TOOL_LABELS.get(tool_name, "文本转文件工具")
     metadata = {
-        "agentName": TEXT_TO_FILE_TOOL_NAME if direct_tool_test else "leader_agent",
-        "targetAgent": TEXT_TO_FILE_TOOL_NAME,
-        "executedAgent": TEXT_TO_FILE_TOOL_NAME,
+        "agentName": tool_name if direct_tool_test else "leader_agent",
+        "targetAgent": tool_name,
+        "executedAgent": tool_name,
         "intent": leader_plan.intent,
         "needRetrieval": False,
         "retrievalSkipped": True,
         "leaderAction": leader_plan.action,
         "leaderActionLabel": _leader_action_label(leader_plan.action),
-        "toolName": leader_plan.tool_name,
-        "toolDisplayName": _tool_display_name(leader_plan.tool_name),
+        "toolName": tool_name,
+        "toolDisplayName": _tool_display_name(tool_name),
         "routeReason": leader_plan.route_reason,
-        "strategyLabel": "文本转文件工具",
+        "strategyLabel": tool_label,
         "executionMode": "direct_tool_test" if direct_tool_test else "leader_call_tool",
-        "executionModeLabel": "管理台直接运行文本转文件工具" if direct_tool_test else "Leader 调用文本转文件工具",
+        "executionModeLabel": f"管理台直接运行{tool_label}" if direct_tool_test else f"Leader 调用{tool_label}",
         "answerType": "document_export",
         "requestedOutputType": requested_output_type,
         "toolToggles": _tool_toggles_from_request(request),
@@ -3476,23 +3544,23 @@ def _run_text_to_file_tool(request: RagQueryRequest, leader_plan, direct_tool_te
     metadata["sourceMessageOrigin"] = request_metadata.get("sourceMessageOrigin") or (
         "selected_message" if source_content else "user_request"
     )
-    export_result = export_text_to_file(export_content, requested_output_type, metadata)
+    export_result = export_text_to_file(export_content, requested_output_type, metadata, tool_name=tool_name)
     if not export_result.attachments:
         diagnostics = export_result.diagnostics if isinstance(export_result.diagnostics, dict) else {}
         reason = str(diagnostics.get("reason") or "").strip()
         if reason == "tool_disabled":
-            disabled_tool = str(diagnostics.get("disabledTool") or TEXT_TO_FILE_TOOL_NAME)
+            disabled_tool = str(diagnostics.get("disabledTool") or tool_name)
             raise HTTPException(status_code=403, detail=f"工具 {_tool_display_name(disabled_tool)} 已在后台关闭，Leader 本次不会调用。")
         if reason == "empty_answer":
             raise HTTPException(status_code=400, detail="未找到可导出的文本内容，请先提供需要导出的文本。")
         if reason == "unsupported_format":
-            raise HTTPException(status_code=400, detail="文本转文件工具仅支持 Markdown、纯文本和 Word 三种输出格式。")
+            raise HTTPException(status_code=400, detail=f"{tool_label}仅支持对应输出格式。")
         raise HTTPException(status_code=400, detail="当前文本无法导出为所选格式，请检查后台工具开关后重试。")
     metadata["generatedExports"] = export_result.diagnostics
     formats = "、".join(str(item.get("ext") or "").upper() for item in export_result.attachments if item.get("ext"))
     answer = f"已按原文生成文本文件，附件格式：{formats or '文件'}。"
     return _decorate_output_response(RagQueryResponse(
-        strategy="text_to_file_tool",
+        strategy=tool_name,
         answer=answer,
         answerType="document_export",
         documents=[],
@@ -3500,8 +3568,8 @@ def _run_text_to_file_tool(request: RagQueryRequest, leader_plan, direct_tool_te
             RagTraceResponse(stage="leader_route", detail=_leader_plan_detail(leader_plan)),
         ]) + [
             RagTraceResponse(stage="tool_call", detail={
-                "toolName": TEXT_TO_FILE_TOOL_NAME,
-                "toolDisplayName": _tool_display_name(TEXT_TO_FILE_TOOL_NAME),
+                "toolName": tool_name,
+                "toolDisplayName": _tool_display_name(tool_name),
                 **export_result.diagnostics,
             }),
         ],
@@ -3867,11 +3935,11 @@ def _file_format_follow_up_actions(answer_type: str, metadata: Dict[str, Any], a
             ("Markdown 题库", "请把当前消息原内容生成 Markdown 题库文件。", "md", "markdown_export_tool"),
         )
     else:
-        # 文本转文件工具：用户可在 Markdown / 纯文本 / Word 中任选一种输出格式。
+        # 文本转文件工具：按格式分别提供 Markdown / 纯文本 / Word。
         candidates = (
-            ("Markdown 文件", "请把当前消息原内容生成 Markdown 文件。", "md", TEXT_TO_FILE_TOOL_NAME),
-            ("纯文本文件", "请把当前消息原内容生成纯文本文件。", "txt", TEXT_TO_FILE_TOOL_NAME),
-            ("Word 文件", "请把当前消息原内容生成 Word 文件。", "docx", TEXT_TO_FILE_TOOL_NAME),
+            ("Markdown 文件", "请把当前消息原内容生成 Markdown 文件。", "md", TEXT_TO_MARKDOWN_TOOL_NAME),
+            ("纯文本文件", "请把当前消息原内容生成纯文本文件。", "txt", TEXT_TO_TXT_TOOL_NAME),
+            ("Word 文件", "请把当前消息原内容生成 Word 文件。", "docx", TEXT_TO_DOCX_TOOL_NAME),
         )
     return [
         _follow_up_action(label, prompt, output_type, "primary")
@@ -4105,7 +4173,7 @@ def _strategy_label(strategy_name: str) -> str:
         "java_facility_api": "设施位置查询工具",
         "java_secondhand_api": "旧物查询工具",
         "generated_export_tools": "内容导出工具",
-        TEXT_TO_FILE_TOOL_NAME: "文本转文件工具",
+        **TEXT_TO_FILE_TOOL_LABELS,
         "text_to_sql": "Text-to-SQL",
         IMAGE_RECOGNITION_TOOL_NAME: "图片识别工具",
         IMAGE_STITCHING_TOOL["name"]: "图片拼接工具",
@@ -4132,7 +4200,7 @@ def _tool_zh_name(tool_name: str) -> str:
         "java_facility_api": "设施位置查询工具",
         "java_secondhand_api": "旧物查询工具",
         "generated_export_tools": "内容整理工具",
-        TEXT_TO_FILE_TOOL_NAME: "文本转文件工具",
+        **TEXT_TO_FILE_TOOL_LABELS,
         "markdown_export_tool": "Markdown 导出工具",
         "docx_export_tool": "Word 导出工具",
         "excel_export_tool": "Excel 导出工具",

@@ -10,6 +10,7 @@ const CATEGORY_COLORS = {
   campus_service: 'blue',
   structured_query: 'cyan',
   content_export: 'green',
+  file_content_extraction: 'lime',
   diagram_export: 'purple',
   presentation_generation: 'orange',
   vision_understanding: 'magenta',

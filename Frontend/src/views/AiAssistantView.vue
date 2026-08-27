@@ -110,6 +110,47 @@ const quickPrompts = ['查课表', '图书馆时间', '奖学金申请', '校园
 const feedback = ref({})
 let activeStreamTask = null
 
+const workflowStageLabels = {
+  request_submitted: '请求已提交', session_ready: '会话已建立', leader_route: 'Leader 意图识别与路由',
+  leader_plan: 'Leader 制定执行计划', tool_start: '工具开始执行', tool_call: '调用工具',
+  tool_result_summary: '工具结果汇总', prompt_agent: '内容格式整理智能体', vision_agent: '图片识别智能体',
+  image_generation_tool: '图片生成工具', agent_answer: '智能体生成结果', direct_agent: '专业智能体处理',
+  generate_sql: '生成查询语句', retrieval: '检索相关资料', generation_start: '开始生成内容', completed: '处理完成',
+}
+
+function workflowDetailText(detail, fallback = '') {
+  if (typeof detail === 'string') return detail
+  if (!detail || typeof detail !== 'object') return fallback
+  return detail.message || detail.routeReason || detail.reason || detail.summary || detail.toolDisplayName || fallback
+}
+
+function normalizeWorkflowStep(entry, index, status = 'completed') {
+  const stage = String(entry?.stage || entry?.event || 'processing')
+  const detail = entry?.detail && typeof entry.detail === 'object' ? entry.detail : entry
+  const toolName = detail?.toolDisplayName || detail?.toolName || detail?.tool || ''
+  const agentName = detail?.agentDisplayName || detail?.agentName || detail?.targetAgent || detail?.executedAgent || ''
+  const intent = detail?.intent || ''
+  return {
+    id: `${stage}-${index}-${toolName || agentName}`,
+    stage,
+    title: workflowStageLabels[stage] || toolName || agentName || '执行处理',
+    description: workflowDetailText(entry?.detail, entry?.message || ''),
+    meta: [toolName, agentName, intent && `意图：${intent}`].filter(Boolean),
+    status,
+  }
+}
+
+function traceWorkflowSteps(trace) {
+  return (Array.isArray(trace) ? trace : []).map((entry, index) => normalizeWorkflowStep(entry, index))
+}
+
+function appendWorkflowStep(messageId, entry) {
+  const target = messages.value.find((item) => item.id === messageId)
+  if (!target) return
+  const current = (target.workflowSteps || []).map((step) => step.status === 'running' ? { ...step, status: 'completed' } : step)
+  target.workflowSteps = [...current, normalizeWorkflowStep(entry, current.length, 'running')]
+}
+
 const messages = ref([
   {
     id: 1,
@@ -137,9 +178,6 @@ function normalizeConversation(item) {
 function normalizeHistoryMessage(item, index) {
   const role = item?.role === 'user' ? 'user' : 'assistant'
   const trace = Array.isArray(item?.trace) ? item.trace : []
-  const steps = trace
-    .map((entry) => entry?.message || entry?.detail || entry?.stage || '')
-    .filter(Boolean)
   return {
     id: item?.id || `${role}-${index}`,
     role,
@@ -149,7 +187,8 @@ function normalizeHistoryMessage(item, index) {
     agentName: item?.agentName || 'leader_agent',
     resources: Array.isArray(item?.resources) ? item.resources : [],
     attachments: Array.isArray(item?.attachments) ? item.attachments : [],
-    steps,
+    workflowSteps: traceWorkflowSteps(trace),
+    workflowExpanded: false,
     streaming: false,
   }
 }
@@ -516,7 +555,11 @@ async function sendMessage(text) {
     role: 'assistant',
     content: attachments.length ? '正在读取并分析上传的资源…' : '正在思考…',
     streaming: true,
-    steps: [attachments.length ? '正在读取并分析上传的资源' : '已提交给智能助手，正在思考'],
+    workflowSteps: [normalizeWorkflowStep({
+      stage: 'request_submitted',
+      message: attachments.length ? `已提交请求，包含 ${attachments.length} 个附件` : '已提交给智能助手，等待分析',
+    }, 0, 'running')],
+    workflowExpanded: false,
   })
   chatBusy.value = true
   void scrollMessages()
@@ -541,16 +584,16 @@ async function sendMessage(text) {
         syncConversationSession(requestConversationId, payload?.sessionId)
         const current = messages.value.find((item) => item.id === assistantMessageId)
         if (eventName === 'generation_start') {
+          appendWorkflowStep(assistantMessageId, { stage: 'generation_start', message: payload?.answer || '已进入内容生成阶段' })
           updateChatMessage(assistantMessageId, {
             content: payload?.answer || current?.content || '',
             streaming: true,
-            steps: [...(current?.steps || []), '开始生成回答'],
           })
         } else if (eventName === 'tool_start' && payload?.message) {
+          appendWorkflowStep(assistantMessageId, { stage: 'tool_start', ...payload })
           updateChatMessage(assistantMessageId, {
             content: current?.receivedDelta ? current.content : '',
             streaming: true,
-            steps: [...(current?.steps || []), payload.message],
           })
         }
         void scrollMessages()
@@ -559,19 +602,24 @@ async function sendMessage(text) {
         streamTouched = true
         syncConversationSession(requestConversationId, payload?.sessionId)
         const current = messages.value.find((item) => item.id === assistantMessageId)
-        updateChatMessage(assistantMessageId, {
-          steps: [...(current?.steps || []), `已建立会话${payload?.agentName ? `，由 ${payload.agentName} 处理` : ''}${payload?.model ? ` · ${payload.model}` : ''}`],
+        appendWorkflowStep(assistantMessageId, {
+          stage: 'session_ready',
+          message: `会话已建立${payload?.agentName ? `，由 ${payload.agentName} 处理` : ''}${payload?.model ? `，模型 ${payload.model}` : ''}`,
         })
+        updateChatMessage(assistantMessageId, { workflowExpanded: current?.workflowExpanded || false })
       },
       onSearch(payload) {
         streamTouched = true
         const current = messages.value.find((item) => item.id === assistantMessageId)
         if (current?.streaming) {
+          appendWorkflowStep(assistantMessageId, {
+            stage: 'retrieval',
+            message: payload?.searchKeyword ? `检索关键词：${payload.searchKeyword}` : '正在检索相关资料',
+          })
           updateChatMessage(assistantMessageId, {
             content: payload?.searchKeyword
               ? `正在检索“${payload.searchKeyword}”…`
               : '正在检索相关资料…',
-            steps: [...(current.steps || []), payload?.searchKeyword ? `正在检索：${payload.searchKeyword}` : '正在检索相关资料'],
           })
         }
         void scrollMessages()
@@ -594,6 +642,10 @@ async function sendMessage(text) {
         syncConversationSession(requestConversationId, payload?.sessionId)
         const current = messages.value.find((item) => item.id === assistantMessageId)
         const finalContent = String(payload?.answer || current?.content || '').trim()
+        const finalWorkflow = traceWorkflowSteps(payload?.trace)
+        const workflowSteps = finalWorkflow.length
+          ? finalWorkflow
+          : [...(current?.workflowSteps || []).map((step) => ({ ...step, status: 'completed' })), normalizeWorkflowStep({ stage: 'completed', message: '所有处理步骤已完成' }, (current?.workflowSteps || []).length)]
         updateChatMessage(assistantMessageId, {
           content: finalContent || 'AI 已完成本次资源分析。',
           attachments: payload?.attachments || [],
@@ -601,7 +653,7 @@ async function sendMessage(text) {
           streaming: false,
           receivedDelta: false,
           answerType: payload?.answerType || 'text',
-          steps: [...(current?.steps || []), '回答完成'],
+          workflowSteps,
         })
         void scrollMessages()
       },
@@ -642,6 +694,9 @@ async function sendMessage(text) {
           attachments: response?.attachments || [],
           resources: response?.resources || [],
           streaming: false,
+          workflowSteps: traceWorkflowSteps(response?.trace).length
+            ? traceWorkflowSteps(response.trace)
+            : (messages.value.find((item) => item.id === assistantMessageId)?.workflowSteps || []).map((step) => ({ ...step, status: 'completed' })),
         })
       } catch (fallbackError) {
         updateChatMessage(assistantMessageId, {
@@ -1256,9 +1311,25 @@ function handleUpload(event) {
                 <span v-if="message.role === 'assistant'" class="ai-avatar"><IconLine name="logo" :size="17" /></span>
                 <div class="message-wrap">
                   <div class="message-bubble">
-                    <div v-if="message.role === 'assistant' && message.steps?.length" class="thinking-steps">
-                      <div v-for="(step, stepIndex) in message.steps" :key="`${message.id}-step-${stepIndex}`" class="thinking-step">
-                        <i></i><span>{{ step }}</span>
+                    <div v-if="message.role === 'assistant' && message.workflowSteps?.length" class="workflow-panel">
+                      <button class="workflow-summary" type="button" :aria-expanded="message.workflowExpanded" @click="message.workflowExpanded = !message.workflowExpanded">
+                        <span :class="['workflow-state-dot', { running: message.streaming }]"></span>
+                        <span class="workflow-summary-copy">
+                          <strong>{{ message.streaming ? '正在执行' : '执行流程已完成' }}</strong>
+                          <small>{{ message.workflowSteps[message.workflowSteps.length - 1]?.title }} · 共 {{ message.workflowSteps.length }} 步</small>
+                        </span>
+                        <span class="workflow-toggle">{{ message.workflowExpanded ? '收起' : '展开详情' }} <IconLine name="chevron" :size="13" /></span>
+                      </button>
+                      <div v-if="message.workflowExpanded" class="workflow-details">
+                        <div v-for="(step, stepIndex) in message.workflowSteps" :key="step.id || `${message.id}-workflow-${stepIndex}`" :class="['workflow-step', step.status]">
+                          <span class="workflow-step-index">{{ stepIndex + 1 }}</span>
+                          <div class="workflow-step-copy">
+                            <strong>{{ step.title }}</strong>
+                            <p v-if="step.description">{{ step.description }}</p>
+                            <div v-if="step.meta?.length" class="workflow-step-meta"><span v-for="meta in step.meta" :key="meta">{{ meta }}</span></div>
+                          </div>
+                          <span class="workflow-step-status">{{ step.status === 'running' ? '进行中' : '已完成' }}</span>
+                        </div>
                       </div>
                     </div>
                     <p>{{ message.content }}</p>
@@ -2009,10 +2080,28 @@ function handleUpload(event) {
 .message-wrap { max-width: min(720px, 82%); }
 .message-bubble { padding: 4px 2px; border: 0; border-radius: 0; background: transparent; box-shadow: none; line-height: 1.72; }
 .message-row.user .message-bubble { max-width: 620px; padding: 11px 15px; border: 1px solid var(--line); border-radius: 18px; color: var(--text); background: #f1f1f1; }
-.thinking-steps { display: grid; gap: 5px; margin: 0 0 11px; padding-bottom: 10px; border-bottom: 1px solid var(--line); color: var(--muted); font-size: 12px; line-height: 1.5; }
-.thinking-step { display: flex; align-items: center; gap: 7px; }
-.thinking-step i { width: 6px; height: 6px; flex: 0 0 6px; border-radius: 50%; background: var(--accent); }
-.thinking-step:last-child i { box-shadow: 0 0 0 3px var(--primary-soft); }
+.workflow-panel { width: min(620px, 100%); margin-bottom: 10px; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: var(--surface-soft); }
+.workflow-summary { display: flex; width: 100%; align-items: center; gap: 9px; padding: 9px 11px; color: var(--text); background: transparent; text-align: left; }
+.workflow-state-dot { width: 8px; height: 8px; flex: none; border-radius: 50%; background: #3a8a62; box-shadow: 0 0 0 3px color-mix(in srgb, #3a8a62 14%, transparent); }
+.workflow-state-dot.running { background: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 14%, transparent); animation: workflow-pulse 1.4s ease-in-out infinite; }
+.workflow-summary-copy { display: flex; min-width: 0; flex: 1; flex-direction: column; }
+.workflow-summary-copy strong { font-size: 12px; }
+.workflow-summary-copy small { overflow: hidden; color: var(--muted); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.workflow-toggle { display: inline-flex; flex: none; align-items: center; gap: 2px; color: var(--primary); font-size: 10px; }
+.workflow-summary[aria-expanded='true'] .workflow-toggle svg { transform: rotate(180deg); }
+.workflow-details { padding: 3px 10px 10px 15px; border-top: 1px solid var(--line); background: var(--surface); }
+.workflow-step { position: relative; display: grid; grid-template-columns: 22px minmax(0, 1fr) auto; gap: 8px; padding: 10px 0; }
+.workflow-step:not(:last-child)::after { position: absolute; top: 31px; bottom: -3px; left: 10px; width: 1px; background: var(--line-strong); content: ''; }
+.workflow-step-index { display: grid; z-index: 1; width: 21px; height: 21px; place-items: center; border: 1px solid var(--line-strong); border-radius: 50%; color: var(--muted); background: var(--surface); font-size: 9px; }
+.workflow-step.running .workflow-step-index { border-color: var(--accent); color: var(--accent); }
+.workflow-step-copy { min-width: 0; }
+.workflow-step-copy strong { display: block; font-size: 11px; }
+.workflow-step-copy p { margin: 2px 0 0; color: var(--muted); font-size: 10px; line-height: 1.45; }
+.workflow-step-meta { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 5px; }
+.workflow-step-meta span { padding: 2px 5px; border-radius: 4px; color: var(--muted); background: var(--surface-soft); font-size: 9px; }
+.workflow-step-status { align-self: start; color: #3a8a62; font-size: 9px; }
+.workflow-step.running .workflow-step-status { color: var(--accent); }
+@keyframes workflow-pulse { 50% { opacity: .45; } }
 .message-bubble > p { margin: 0; }
 .message-bubble pre { overflow-x: auto; margin: 15px 0; padding: 15px; border-radius: 10px; color: #dce8f4; background: #15283e; font: 12px/1.65 Consolas, monospace; }
 .response-table { overflow-x: auto; margin-top: 15px; }

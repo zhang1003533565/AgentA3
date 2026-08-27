@@ -348,7 +348,7 @@ class LeaderAgent:
     name = "leader_agent"
 
     def _plan_verbatim_text_to_file_request(self, input_text: str) -> Optional[LeaderPlan]:
-        """Route verbatim text-to-file requests (txt/md/word/ppt/pdf) to text_to_file_tool.
+        """Route verbatim text-to-file requests to the matching format-specific tool.
 
         Content-organization phrasing such as "整理成" and PDF input conversions
         ("把 pdf 转成 word") stay with generated_export_tools.
@@ -360,22 +360,38 @@ class LeaderAgent:
             return None
         if not any(token in normalized for token in _VERBATIM_EXPORT_ACTION_TOKENS):
             return None
-        if not any(token in normalized for token in ("txt", "纯文本", "md", "markdown", "word", "docx")):
-            return None
+
         if "txt" in normalized or "纯文本" in normalized:
-            return self._text_to_file_plan(input_text, "用户要求按原文导出 txt/纯文本文件，调用文本转文件工具。")
-        if any(token in normalized for token in _VERBATIM_TEXT_MARKERS):
-            return self._text_to_file_plan(input_text, "用户已提供原文并要求转成指定格式文件，调用文本转文件工具。")
+            return self._text_to_file_plan(
+                input_text,
+                "text_to_txt_tool",
+                "用户要求按原文导出 txt/纯文本文件，调用文本转 TXT 工具。",
+            )
+        has_verbatim_marker = any(token in normalized for token in _VERBATIM_TEXT_MARKERS)
+        if not has_verbatim_marker:
+            return None
+        if any(token in normalized for token in ("md", "markdown")):
+            return self._text_to_file_plan(
+                input_text,
+                "text_to_markdown_tool",
+                "用户已提供原文并要求转成 Markdown 文件，调用文本转 Markdown 工具。",
+            )
+        if any(token in normalized for token in ("word", "docx")):
+            return self._text_to_file_plan(
+                input_text,
+                "text_to_docx_tool",
+                "用户已提供原文并要求转成 Word 文件，调用文本转 Word 工具。",
+            )
         return None
 
-    def _text_to_file_plan(self, input_text: str, reason: str) -> LeaderPlan:
+    def _text_to_file_plan(self, input_text: str, tool_name: str, reason: str) -> LeaderPlan:
         return LeaderPlan(
             intent="document_export",
             target_agent="leader_agent",
             need_retrieval=False,
             rag_strategy="",
             action="call_tool",
-            tool_name="text_to_file_tool",
+            tool_name=tool_name,
             route_reason=reason,
             route_mode="rules",
         )
@@ -1426,7 +1442,7 @@ def build_leader_router_user_prompt(
             "profile_snapshot.outputPreferenceHints 只能用于提供后续图片版/文件版选项，不能凭偏好把普通学习、解释或问答请求改成生图任务。只有当前 user_input 明确要求图片、图解或具体图表时，才允许选择图片/图表智能体。",
             "如果任务既可做图片又可做文件且没有稳定偏好，先询问用户要图片形式还是文件形式。",
             "用户要求文件版/文档版/Excel/Word/打包下载时，调用已启用的 generated_export_tools；工具内部负责组织内容并生成附件，不要把长内容只当纯文字回复。",
-            "用户要求把已提供的文本按原文转成 txt/md/word 文件时，优先选择 text_to_file_tool，不整理、不改写内容；只有需要内容编排（如“整理成”）时才使用 generated_export_tools。",
+            "用户要求把已提供的文本按原文转成 txt/md/word 文件时，按目标格式分别选择 text_to_txt_tool、text_to_markdown_tool 或 text_to_docx_tool，不整理、不改写内容；只有需要内容编排（如“整理成”）时才使用 generated_export_tools。",
             "用户要求题库表格或题库 Excel 时，仍先选择对应题型智能体生成严格题库 JSON，再由导出工具转换为 md/docx/xlsx/zip。",
             "用户要求 Mermaid 源文件、图表源码或后续编辑图表时，图表智能体返回 Mermaid 后会自动生成 mmd/md/zip 附件。",
             "如果用户已经提供了要导出的 Markdown、普通文本或标准题库 JSON，且只要求转成文件，可以直接 call_tool: generated_export_tools。",
