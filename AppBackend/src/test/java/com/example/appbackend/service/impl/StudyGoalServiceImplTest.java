@@ -12,6 +12,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
+import org.mockito.InOrder;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.mock.web.MockMultipartFile;
 
@@ -25,6 +26,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
@@ -271,6 +273,32 @@ class StudyGoalServiceImplTest {
 
         assertThrows(BusinessException.class, () -> service.decompose(7L, file, null, null));
         verifyNoInteractions(pythonAiProxyService);
+    }
+
+    @Test
+    void deleteGoalRemovesOwnedSubtasksTasksAndGoalInOrder() {
+        StudyGoal goal = new StudyGoal();
+        goal.setId(42L);
+        StudyTask first = taskEntity(1L, 1, 0, "pending");
+        StudyTask second = taskEntity(2L, 2, 100, "completed");
+        List<StudyTask> tasks = List.of(first, second);
+        when(studyGoalRepository.findByIdAndUserId(42L, 7L)).thenReturn(Optional.of(goal));
+        when(studyTaskRepository.findByGoalIdOrderByOrderNumAscIdAsc(42L)).thenReturn(tasks);
+
+        service().deleteGoal(42L, 7L);
+
+        InOrder order = inOrder(studySubtaskRepository, studyTaskRepository, studyGoalRepository);
+        order.verify(studySubtaskRepository).deleteByTaskIdIn(List.of(1L, 2L));
+        order.verify(studyTaskRepository).deleteAllInBatch(tasks);
+        order.verify(studyGoalRepository).delete(goal);
+    }
+
+    @Test
+    void deleteGoalRejectsAnotherUsersGoalBeforeTouchingChildren() {
+        when(studyGoalRepository.findByIdAndUserId(42L, 7L)).thenReturn(Optional.empty());
+
+        assertThrows(BusinessException.class, () -> service().deleteGoal(42L, 7L));
+        verifyNoInteractions(studyTaskRepository, studySubtaskRepository);
     }
 
     private StudyGoalServiceImpl service() {

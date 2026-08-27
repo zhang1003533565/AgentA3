@@ -8,6 +8,7 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.MediaType;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -159,6 +160,15 @@ public class StudyGoalController {
             HttpServletRequest httpRequest) {
         Long userId = currentUserId(httpRequest);
         return Result.success(studyGoalService.listMyGoals(userId, page, size));
+    }
+
+    @DeleteMapping("/{goalId}")
+    @Operation(summary = "删除学习计划", description = "删除当前用户拥有的学习计划及其任务、细分任务，删除后不可恢复")
+    public Result<Void> delete(@PathVariable("goalId") Long goalId,
+                               HttpServletRequest httpRequest) {
+        Long userId = currentUserId(httpRequest);
+        studyGoalService.deleteGoal(goalId, userId);
+        return Result.success();
     }
 
     @GetMapping("/{goalId}")

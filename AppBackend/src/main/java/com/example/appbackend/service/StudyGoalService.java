@@ -68,4 +68,7 @@ public interface StudyGoalService {
      * 分页查询当前用户的学习计划列表（按更新时间倒序），用于退出后找回历史计划。
      */
     PageResponse<StudyGoalDTO.GoalSummary> listMyGoals(Long userId, Integer page, Integer size);
+
+    /** 删除当前用户拥有的学习计划及其任务、细分任务。 */
+    void deleteGoal(Long goalId, Long userId);
 }

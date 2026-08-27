@@ -39,6 +39,7 @@
             <text class="meta-text meta-text--remain">剩余 {{ item.remainingTasks }}</text>
             <text class="meta-split">·</text>
             <text class="meta-text">共 {{ item.totalTasks }} 个可执行任务</text>
+            <text class="delete-plan-link" @tap.stop="confirmDelete(item)">删除</text>
             <text class="plan-time">{{ formatTime(item.updatedAt) }}</text>
           </view>
           <view class="plan-schedule">
@@ -67,7 +68,7 @@
 import { ref } from 'vue'
 import { onShow, onLoad } from '@dcloudio/uni-app'
 import NavBar from '@/components/nav-bar/nav-bar.vue'
-import { listMyGoals } from '@/api/studyGoal.js'
+import { deleteStudyGoal, listMyGoals } from '@/api/studyGoal.js'
 import { formatPlanDate, statusText } from '@/utils/studyPlan.js'
 
 const PAGE_SIZE = 10
@@ -78,6 +79,7 @@ const hasMore = ref(false)
 const loading = ref(false)
 const loadingMore = ref(false)
 const initialized = ref(false)
+const deletingId = ref(null)
 
 function statusLabel(status) {
   return statusText(status)
@@ -125,6 +127,29 @@ onShow(() => {
 
 function openDetail(item) {
   uni.navigateTo({ url: `/subpackage_ai/goalDecompose/goalDecompose?goalId=${item.id}` })
+}
+
+function confirmDelete(item) {
+  if (deletingId.value != null) return
+  uni.showModal({
+    title: '删除学习计划',
+    content: `确定删除“${item.title}”？计划、任务和细分任务都将被删除，且无法恢复。`,
+    confirmText: '删除',
+    confirmColor: '#A14B46',
+    success: (result) => {
+      if (!result.confirm) return
+      deletingId.value = item.id
+      deleteStudyGoal(item.id).then(() => {
+        summaries.value = summaries.value.filter((row) => row.id !== item.id)
+        total.value = Math.max(0, total.value - 1)
+        const fetched = (page.value - 1) * PAGE_SIZE + summaries.value.length
+        hasMore.value = fetched < total.value
+        uni.showToast({ title: '计划已删除', icon: 'success' })
+      }).catch(() => {}).finally(() => {
+        deletingId.value = null
+      })
+    }
+  })
 }
 
 function goCreate() {
@@ -281,9 +306,16 @@ function goCreate() {
 }
 
 .plan-time {
-  margin-left: auto;
+  margin-left: 0;
   font-size: 20rpx;
   color: #98A0B0;
+}
+
+.delete-plan-link {
+  margin-left: auto;
+  flex-shrink: 0;
+  color: #A14B46;
+  font-size: 21rpx;
 }
 
 .plan-schedule {

@@ -489,6 +489,19 @@ public class StudyGoalServiceImpl implements StudyGoalService {
         return new PageResponse<>(summaries, goalPage.getTotalElements(), pageNo, pageSize);
     }
 
+    @Override
+    @Transactional
+    public void deleteGoal(Long goalId, Long userId) {
+        StudyGoal goal = requireOwnedGoal(goalId, userId);
+        List<StudyTask> tasks = studyTaskRepository.findByGoalIdOrderByOrderNumAscIdAsc(goalId);
+        if (!tasks.isEmpty()) {
+            List<Long> taskIds = tasks.stream().map(StudyTask::getId).toList();
+            studySubtaskRepository.deleteByTaskIdIn(taskIds);
+            studyTaskRepository.deleteAllInBatch(tasks);
+        }
+        studyGoalRepository.delete(goal);
+    }
+
     private StudyGoal requireOwnedGoal(Long goalId, Long userId) {
         return studyGoalRepository.findByIdAndUserId(goalId, userId)
                 .orElseThrow(() -> new BusinessException(Result.NOT_FOUND_CODE, "目标不存在或无权访问"));

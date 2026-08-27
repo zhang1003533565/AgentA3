@@ -157,6 +157,11 @@ export function listMyGoals(page = 1, size = 10) {
   return request({ url: '/api/study-goal/my', method: 'GET', data: { page, size } })
 }
 
+/** 删除学习计划及其任务、细分任务。 */
+export function deleteStudyGoal(goalId) {
+  return request({ url: `/api/study-goal/${goalId}`, method: 'DELETE' })
+}
+
 /**
  * 查询指定目标的剩余任务（is_completed=false）清单
  */
