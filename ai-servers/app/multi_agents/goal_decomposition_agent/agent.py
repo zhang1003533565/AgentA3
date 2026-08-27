@@ -74,7 +74,7 @@ SYSTEM_PROMPT = """你是一名资深学习规划师，负责把用户上传的�
 - description：补充说明，可为空字符串
 - subtasks：预计超过 1 天的父任务必须拆成 2~6 个可执行的叶子步骤；每个步骤应有明确动作和完成标准
 - subtasks[].task_name：具体到一次学习行动，不能只是重复父任务标题
-- subtasks[].description：完成标准或产出物，可为空字符串
+- subtasks[].description：必须写完成标准、练习结果或产出物
 - subtasks[].estimated_days：正整数天数，所有细分任务天数之和应与父任务工作量相符
 - subtasks[].order_num：从 1 开始连续编号
 

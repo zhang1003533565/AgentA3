@@ -59,7 +59,7 @@
 | tasks[].description | 补充说明，可为空字符串 |
 | tasks[].subtasks | 当前任务下的可执行细分任务数组；没有必要细分时为空数组 |
 | subtasks[].task_name | 一次学习行动，不能只是重复父任务标题 |
-| subtasks[].description | 完成标准或产出物，可为空字符串 |
+| subtasks[].description | 必须填写完成标准、练习结果或产出物 |
 | subtasks[].estimated_days | 正整数天数，所有细分任务天数之和构成父任务工作量 |
 | subtasks[].order_num | 从 1 开始连续编号 |
 
