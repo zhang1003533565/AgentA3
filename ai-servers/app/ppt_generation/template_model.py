@@ -205,8 +205,8 @@ class SlideLayoutModel:
     card_groups: Dict[str, List[Tuple[str, int]]] = field(default_factory=dict)
     # 匿名线条/向量到文本槽位的语义关系。未能可靠推断的装饰向量不进入此表。
     connector_targets: List[ConnectorRelation] = field(default_factory=list)
-    # flex/group 渲染后的有效盒子；保留原始 x/y 不变，避免把动态布局误报成
-    # 模板几何突变。键为 (name, occurrence)。
+    # flex/group 渲染后的有效盒子；保留原始 x/y 不变，供连接线等语义校验
+    # 使用。动态子元素的实际位置由渲染器按当前子项数量计算。
     effective_boxes: Dict[Tuple[str, int], Tuple[float, float, float, float]] = field(default_factory=dict)
     # 名称位于 grid/flex 重复组内时，填充器可以按实际内容裁剪组数量；
     # 这不是坐标漂移。几何校验仍会逐个检查保留下来的实例。

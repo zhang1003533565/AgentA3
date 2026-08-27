@@ -47,6 +47,8 @@ import ResumeWizard from '../views/ResumeWizard.vue'
 import CampusCourseView from '../views/CampusCourseView.vue'
 import CampusDiscountView from '../views/CampusDiscountView.vue'
 import DocumentConvertView from '../views/DocumentConvertView.vue'
+import CareerNebulaView from '../views/CareerNebulaView.vue'
+import CareerPlanetView from '../views/CareerPlanetView.vue'
 import { getToken } from '../utils/auth'
 
 const routes = [
@@ -101,6 +103,8 @@ const routes = [
   { path: '/resume', name: 'resume', component: ResumeView },
   { path: '/resume/designer', name: 'resume-designer', component: ResumeDesigner },
   { path: '/resume/wizard', name: 'resume-wizard', component: ResumeWizard },
+  { path: '/career/nebula/:careerId?', name: 'career-nebula', component: CareerNebulaView },
+  { path: '/career/nebula/:careerId/planet/:skillId', name: 'career-planet', component: CareerPlanetView },
   { path: '/convert', name: 'convert', component: DocumentConvertView },
 ]
 

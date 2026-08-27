@@ -343,3 +343,13 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+.agent-settings-tool-test-download {
+  color: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.agent-settings-tool-test-download:hover {
+  color: #1677ff;
+}

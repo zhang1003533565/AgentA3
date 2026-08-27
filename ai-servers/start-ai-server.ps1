@@ -3,6 +3,7 @@ $ErrorActionPreference = "Stop"
 $ProjectName = "smart-campus-ai"
 $AiServerHost = "127.0.0.1"
 $PythonServerPort = 8081
+$RootEnvFilePath = Join-Path (Split-Path $PSScriptRoot -Parent) ".env"
 
 for ($i = 0; $i -lt $args.Count; $i++) {
     switch ($args[$i]) {
@@ -38,6 +39,52 @@ if (-not $env:UV_LINK_MODE) {
 function Write-Log {
     param([string]$Message)
     Write-Host "[$ProjectName] $Message"
+}
+
+function Import-DotEnv {
+    param([string]$Path)
+
+    if (-not (Test-Path -LiteralPath $Path)) {
+        Write-Log "No root .env found at '$Path'. Using existing process environment."
+        return
+    }
+
+    $loadedKeys = New-Object System.Collections.Generic.List[string]
+    foreach ($rawLine in Get-Content -Encoding UTF8 -LiteralPath $Path) {
+        $line = $rawLine.Trim()
+        if (-not $line -or $line.StartsWith("#")) {
+            continue
+        }
+
+        $separatorIndex = $line.IndexOf("=")
+        if ($separatorIndex -le 0) {
+            continue
+        }
+
+        $name = $line.Substring(0, $separatorIndex).Trim()
+        $value = $line.Substring($separatorIndex + 1).Trim()
+        if (-not ($name -match "^[A-Za-z_][A-Za-z0-9_]*$")) {
+            continue
+        }
+
+        if (($value.StartsWith('"') -and $value.EndsWith('"')) -or ($value.StartsWith("'") -and $value.EndsWith("'"))) {
+            $value = $value.Substring(1, $value.Length - 2)
+        }
+
+        # LLM_* 必须以项目 .env 为准，避免旧 shell 环境让兜底配置失效；
+        # 其它变量保留现有进程环境优先级。
+        $existing = [Environment]::GetEnvironmentVariable($name, "Process")
+        if ($name.StartsWith("LLM_", [StringComparison]::OrdinalIgnoreCase) -or -not $existing) {
+            Set-Item -Path "Env:$name" -Value $value
+            $loadedKeys.Add($name) | Out-Null
+        }
+    }
+
+    if ($loadedKeys.Count -gt 0) {
+        Write-Log "Loaded root .env keys: $($loadedKeys -join ', ')"
+    } else {
+        Write-Log "Root .env found, but no environment keys were loaded."
+    }
 }
 
 function Stop-WithError {
@@ -91,6 +138,7 @@ function Start-AiServer {
     exit $LASTEXITCODE
 }
 
+Import-DotEnv $RootEnvFilePath
 Ensure-Uv
 Sync-Dependencies
 Start-AiServer

@@ -8,6 +8,7 @@ from app.rag.document_conversion.generated_exporter import (
     GeneratedExportResult,
     export_generated_answer,
     export_python_code_lab,
+    export_text_to_file,
     materialize_generated_image_answer,
 )
 from app.rag.document_conversion.presentation_exporter import export_presentation
@@ -26,6 +27,7 @@ __all__ = [
     "convert_docx_to_pdf",
     "convert_docx_to_ppt",
     "export_generated_answer",
+    "export_text_to_file",
     "materialize_generated_image_answer",
     "export_presentation",
     "export_python_code_lab",

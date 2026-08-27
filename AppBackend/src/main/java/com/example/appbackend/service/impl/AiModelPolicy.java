@@ -13,18 +13,23 @@ import java.util.Set;
 final class AiModelPolicy {
 
     private static final List<String> FREE_TEXT_MODEL_PRIORITY = List.of(
-            "qwen3.7-max-2026-06-08",
-            "qwen3.7-max-2026-05-17",
-            "qwen3.7-max-preview",
-            "kimi-k3",
             "deepseek-v4-flash-0731",
             "glm-5.2",
             "kimi-k2.7-code",
             "deepseek-v4-pro-0813",
-            // OpenCode Go and the official DeepSeek endpoint both expose this Flash model.
-            "deepseek-v4-flash",
             "qwen3.5-ocr",
-            "qwen3.7-plus-2026-05-26"
+            "qwen3.7-plus-2026-05-26",
+            "qwen3.8-2.4t-a95b",
+            "qwen3.8-max",
+            // Kimi K3 的 max 推理延迟最高，只作为这组百炼免费模型的最后兜底。
+            "kimi-k3",
+            // 保留历史模型名，避免已有绑定失效；它们不参与当前默认免费链首选。
+            "qwen3.7-max-2026-06-08",
+            "qwen3.7-max-2026-05-17",
+            "qwen3.7-max-preview",
+            // OpenCode Go and the official DeepSeek endpoint both expose this Flash model.
+            "deepseek-v4-flash-vision-exp",
+            "deepseek-v4-flash"
     );
 
     private static final Set<String> QWEN_PROVIDER_ALIASES = Set.of(

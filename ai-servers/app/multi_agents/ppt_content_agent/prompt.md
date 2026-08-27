@@ -34,6 +34,7 @@
 Presenton 内容生成约束：
 - 先分析原始资料，再分析 `selectedLayouts[].componentSchema` 中每个组件的 name、type、约束，最后按组件名称生成对应的 componentContent。
 - 组件的 `max_length`、`min_length`、`max_children`、`min_children` 是硬约束。不能为了满足长度截断半句话，应改写成更短的完整句子。
+- 如果重复容器声明了 `fixed_children=N`，对应的重复文本组件必须严格返回 N 项；只有未声明 `fixed_children` 的动态容器才可以在 `min_children`/`max_children` 范围内调整数量。
 - `type=text` 组件的值为文本字符串；`type=table` 组件的值为 `{"columns":[...], "rows":[[...],...]}`；`type=chart` 组件的值为 `{"categories":[...], "series":[...]}`。
 - 图表字段必须返回真实的分类、系列和数值；表格字段必须返回列名和行数据。没有原始依据时不要编造数字，宁可省略图表或改为文字说明。
 - 用户指定的语言、语气、详细程度和单页指令优先级高于默认值，但不能把这些控制指令输出为标题、正文、表格单元格或备注。

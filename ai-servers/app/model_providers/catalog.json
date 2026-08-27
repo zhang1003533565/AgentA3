@@ -1055,6 +1055,14 @@
           "status": "implemented",
           "models": [
             {
+              "id": "deepseek-v4-flash-vision-exp",
+              "features": [
+                "chat",
+                "vision",
+                "reasoning_optional"
+              ]
+            },
+            {
               "id": "deepseek-v4-flash",
               "features": [
                 "chat",

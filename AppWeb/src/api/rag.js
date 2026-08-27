@@ -35,3 +35,9 @@ export const convertPpt = (data) => request.post(`${base}/ppt/convert`, data, {
 export const getTextToSqlSchema = () => request.get(`${base}/text-to-sql/schema`)
 
 export const executeTextToSql = (data) => request.post(`${base}/text-to-sql/execute`, data)
+
+const toolMonitorBase = '/api/ai/tool-monitor'
+
+export const getToolMonitorTools = () => request.get(`${toolMonitorBase}/tools`)
+
+export const getToolMonitorRecords = (params) => request.get(`${toolMonitorBase}/records`, { params })

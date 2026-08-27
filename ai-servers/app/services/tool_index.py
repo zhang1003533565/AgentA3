@@ -23,6 +23,7 @@ TOOL_KEYWORDS: Dict[str, Sequence[str]] = {
     "java_facility_api": ("教学楼", "宿舍", "操场", "图书馆", "设施位置", "在哪里", "导航"),
     "java_secondhand_api": ("二手", "旧物", "闲置", "转让", "买卖物品"),
     "generated_export_tools": ("导出", "文件版", "文档版", "下载", "打包", "附件"),
+    "text_to_file_tool": ("文本转文件", "转成txt", "导出为txt", "txt文件", "纯文本", "纯文本文件", "保存为纯文本", "按原文导出", "文本导出"),
     "markdown_export_tool": ("markdown", "md文件", "markdown文件"),
     "docx_export_tool": ("word", "docx", "word文件"),
     "excel_export_tool": ("excel", "xlsx", "表格文件", "题库表格"),
@@ -46,6 +47,48 @@ def _tool_search_text(tool: Dict[str, Any]) -> str:
 
 class ToolIndex:
     """Scores only the tools supplied by the caller (normally enabled tools)."""
+
+    def score_all_tools(
+        self,
+        input_text: str,
+        tools: Iterable[Dict[str, Any]],
+        retrieval_profiles: Dict[str, Any] | None = None,
+    ) -> List[Dict[str, Any]]:
+        """Score every enabled tool and return sorted results (highest first).
+
+        Unlike ``search`` which only keeps tools that matched at least one keyword,
+        this method returns ALL tools with their scores (0.0 for non-matching ones).
+        Used by the monitoring page to show a complete scoring snapshot.
+        """
+        normalized = _normalize(input_text)
+        scored: List[Dict[str, Any]] = []
+        for tool in tools:
+            name = str(tool.get("name") or "").strip()
+            if not name:
+                continue
+            profile = (retrieval_profiles or {}).get(name) or {}
+            registered = list(TOOL_KEYWORDS.get(name, ()))
+            for field in ("keywords", "aliases", "constraints", "examples"):
+                values = profile.get(field) if isinstance(profile, dict) else []
+                if isinstance(values, list):
+                    registered.extend(str(item).strip() for item in values if str(item).strip())
+            matched = [item for item in registered if _normalize(item) in normalized]
+            if not matched:
+                text = _tool_search_text(tool)
+                matched = [token for token in _WORD_RE.findall(normalized) if len(token) > 1 and token in text]
+            score = sum(min(len(_normalize(item)), 12) for item in matched)
+            if name.lower() in normalized:
+                score += 20
+            scored.append({
+                "name": name,
+                "zhName": tool.get("zhName") or "",
+                "displayName": tool.get("displayName") or "",
+                "category": tool.get("category") or "",
+                "matchScore": round(score / 100, 3),
+                "matchedKeywords": matched[:8],
+            })
+        scored.sort(key=lambda item: (-float(item.get("matchScore") or 0), str(item.get("name") or "")))
+        return scored
 
     def search(
         self,

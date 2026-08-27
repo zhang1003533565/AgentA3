@@ -204,7 +204,7 @@ class RagApiRoutesTest(unittest.TestCase):
 
         self.assertIsNotNone(plan)
         self.assertEqual("call_tool", plan.action)
-        self.assertEqual("generated_export_tools", plan.tool_name)
+        self.assertEqual("text_to_file_tool", plan.tool_name)
         self.assertEqual("rules", plan.route_mode)
 
     def test_second_source_option_is_expanded_to_explicit_model_authorization(self):
@@ -377,7 +377,7 @@ class RagApiRoutesTest(unittest.TestCase):
         self.assertEqual([], decorated.attachments)
         self.assertEqual("output_format_not_selected", decorated.outputMeta["generatedExports"]["reason"])
         self.assertEqual(
-            ["docx", "xlsx", "md", "pptx"],
+            ["md", "txt", "docx"],
             [item["outputType"] for item in decorated.outputMeta["followUpActions"]],
         )
 

@@ -29,6 +29,8 @@ public interface DishReviewRepository extends JpaRepository<DishReview, Long> {
      */
     DishReview findByDishIdAndUserId(Long dishId, Long userId);
 
+    void deleteByDishIdIn(List<Long> dishIds);
+
     /**
      * 统计菜品的评价数量
      */

@@ -48,7 +48,7 @@ from app.learning_workflow import (
     export_learning_resources,
     run_learning_workflow,
 )
-from app.rag.document_conversion import DocxConversionError, PdfConversionError, PptConversionError, convert_docx_to_pdf, convert_docx_to_ppt, convert_pdf, convert_ppt_to_docx, convert_ppt_to_pdf, export_generated_answer, materialize_generated_image_answer
+from app.rag.document_conversion import DocxConversionError, PdfConversionError, PptConversionError, convert_docx_to_pdf, convert_docx_to_ppt, convert_pdf, convert_ppt_to_docx, convert_ppt_to_pdf, export_generated_answer, export_text_to_file, materialize_generated_image_answer
 from app.rag.document_conversion.generated_exporter import GeneratedExportAccessError, open_generated_export
 from app.rag.structured.text_to_sql import TextToSqlService
 from app.services.assistant_resource_builder import (
@@ -281,6 +281,16 @@ GENERATED_CONTENT_TOOLS = [
         "outputs": ["mmd", "md", "zip"],
         "status": "implemented",
     },
+    {
+        "name": "text_to_file_tool",
+        "zhName": "文本转文件工具",
+        "displayName": "文本转文件工具（text_to_file_tool）",
+        "category": "content_export",
+        "purpose": "把用户提供的文本按原文导出为文件，支持 Markdown/纯文本/Word 三种格式，并按用户选择的格式生成附件。",
+        "trigger": "用户要求把已提供的文本按原文转成 txt/md/word 文件，或对已生成消息选择导出格式时触发。",
+        "outputs": ["md", "txt", "docx"],
+        "status": "implemented",
+    },
 ]
 
 CAMPUS_SERVICE_TOOLS = [
@@ -354,6 +364,8 @@ CAMPUS_SERVICE_TOOLS = [
 
 SERVICE_TOOL_NAMES = {tool["name"] for tool in CAMPUS_SERVICE_TOOLS}
 
+TEXT_TO_FILE_TOOL_NAME = "text_to_file_tool"
+TEXT_TO_FILE_FORMAT_NAMES = {"txt", "md", "docx"}
 TOOL_CAPABILITY_QUERY_NAME = "tool_capability_query"
 TOOL_CAPABILITY_QUERY = {
     "name": TOOL_CAPABILITY_QUERY_NAME,
@@ -391,6 +403,17 @@ LEADER_CALLABLE_TOOLS = [
         "purpose": "先由文件内容编排智能体确定内容与结构，再调用指定格式工具生成真实附件。",
         "trigger": "用户明确要求 Word、Excel、Markdown、PPT 文件版，或打包下载。",
         "outputs": ["md", "docx", "xlsx", "pptx", "mmd", "zip"],
+        "status": "implemented",
+        "configurable": True,
+    },
+    {
+        "name": "text_to_file_tool",
+        "zhName": "文本转文件工具",
+        "displayName": "文本转文件工具（text_to_file_tool）",
+        "category": "content_export",
+        "purpose": "把用户提供的文本按原文导出为 Markdown/纯文本/Word 文件，不整理、不改写内容。",
+        "trigger": "用户要求把已提供的文本按原文转成 txt/md/word 文件时调用。",
+        "outputs": ["md", "txt", "docx"],
         "status": "implemented",
         "configurable": True,
     },
@@ -918,7 +941,7 @@ async def run_rag_query_stream(
                     yield build_sse("generation_start", _build_generation_start_payload(request, plan))
                     generation_started = True
                 execution_started_at = time.perf_counter()
-                response = await asyncio.to_thread(_execute_leader_plan, request, authorization or "", profile_context, plan)
+                response = await asyncio.to_thread(_execute_leader_plan, request, authorization or "", profile_context, plan, callable_catalog)
                 execution_ms = _elapsed_ms(execution_started_at)
             else:
                 if _should_emit_generation_start(request, active_agent):
@@ -1516,7 +1539,7 @@ def _run_leader_orchestration(request: RagQueryRequest, authorization: str) -> R
         )
     plan_ms = _elapsed_ms(planning_started_at)
     execution_started_at = time.perf_counter()
-    response = _execute_leader_plan(request, authorization, profile_context, plan)
+    response = _execute_leader_plan(request, authorization, profile_context, plan, callable_catalog=callable_catalog)
     execution_ms = _elapsed_ms(execution_started_at)
     _set_response_route_mode(response, plan)
     return _merge_response_performance(
@@ -1620,7 +1643,7 @@ def _requested_image_recognition_plan(request: RagQueryRequest) -> Optional[Lead
 def _requested_file_transform_plan(request: RagQueryRequest) -> Optional[LeaderPlan]:
     metadata = request.metadata if isinstance(request.metadata, dict) else {}
     interaction_type = str(metadata.get("interactionType") or "").strip().lower()
-    requested_output_type = str(metadata.get("requestedOutputType") or "").strip().lower()
+    requested_output_type = _normalize_requested_file_type(metadata.get("requestedOutputType") or "")
     supported_file_types = get_output_aliases()
     if requested_output_type not in supported_file_types:
         return None
@@ -1628,6 +1651,28 @@ def _requested_file_transform_plan(request: RagQueryRequest) -> Optional[LeaderP
         not metadata.get("sourceMessageId") or not str(metadata.get("sourceMessageContent") or "").strip()
     ):
         return None
+    if interaction_type == "transform" and requested_output_type in TEXT_TO_FILE_FORMAT_NAMES:
+        if not _is_tool_enabled(request, TEXT_TO_FILE_TOOL_NAME):
+            return LeaderPlan(
+                intent="document_export",
+                target_agent="leader_agent",
+                need_retrieval=False,
+                rag_strategy="",
+                answer="文本转文件工具当前已关闭，请先在后台开启后再试。",
+                action="direct_answer",
+                route_reason="用户请求文本转文件，但文本转文件工具已关闭，未执行工具调用。",
+                route_mode="tool_disabled",
+            )
+        return LeaderPlan(
+            intent="document_export",
+            target_agent="leader_agent",
+            need_retrieval=False,
+            rag_strategy="",
+            action="call_tool",
+            tool_name=TEXT_TO_FILE_TOOL_NAME,
+            route_reason=f"用户选择将当前消息按原文生成 {requested_output_type} 文件，调用已启用的文本转文件工具。",
+            route_mode="rules",
+        )
     if not _is_tool_enabled(request, "generated_export_tools"):
         return LeaderPlan(
             intent="document_export",
@@ -1926,29 +1971,49 @@ def _execute_leader_plan(
     authorization: str,
     profile_context: Optional[Dict[str, Any]],
     plan,
+    callable_catalog: Optional[Dict[str, Any]] = None,
 ) -> RagQueryResponse:
     if plan.action == "direct_answer":
-        return _run_leader_direct_answer(plan, profile_context=profile_context)
+        response = _run_leader_direct_answer(plan, profile_context=profile_context)
+        _inject_tool_selection_into_response(response, callable_catalog)
+        return response
     if plan.action == "call_tool":
         if not _is_tool_enabled(request, plan.tool_name):
             return _run_disabled_tool_response(request, plan.tool_name, leader_plan=plan)
         if plan.tool_name == TOOL_CAPABILITY_QUERY_NAME:
-            return _run_tool_capability_query(request, plan)
-        if plan.tool_name == "text_to_sql":
-            return _run_text_to_sql_tool(request, plan)
-        if plan.tool_name in SERVICE_TOOL_NAMES:
-            return _run_service_tool(request, authorization, plan)
-        if plan.tool_name == "generated_export_tools":
-            return _run_generated_export_tool(request, plan)
-        if plan.tool_name == IMAGE_STITCHING_TOOL["name"]:
-            return _run_image_stitching_tool(request, plan)
-        if plan.tool_name == IMAGE_RECOGNITION_TOOL_NAME:
-            return _run_image_recognition_tool(request, plan)
-        if plan.tool_name in VISUAL_GENERATION_TOOL_NAMES:
-            return _run_visual_generation_tool(request, plan)
-        raise HTTPException(status_code=502, detail=f"Leader 选择了未注册工具：{plan.tool_name or '空'}，已停止执行。")
+            response = _run_tool_capability_query(request, plan)
+        elif plan.tool_name == "text_to_sql":
+            response = _run_text_to_sql_tool(request, plan)
+        elif plan.tool_name in SERVICE_TOOL_NAMES:
+            response = _run_service_tool(request, authorization, plan)
+        elif plan.tool_name == "generated_export_tools":
+            response = _run_generated_export_tool(request, plan)
+        elif plan.tool_name == IMAGE_STITCHING_TOOL["name"]:
+            response = _run_image_stitching_tool(request, plan)
+        elif plan.tool_name == TEXT_TO_FILE_TOOL_NAME:
+            response = _run_text_to_file_tool(request, plan)
+        elif plan.tool_name == IMAGE_RECOGNITION_TOOL_NAME:
+            response = _run_image_recognition_tool(request, plan)
+        elif plan.tool_name in VISUAL_GENERATION_TOOL_NAMES:
+            response = _run_visual_generation_tool(request, plan)
+        else:
+            raise HTTPException(status_code=502, detail=f"Leader 选择了未注册工具：{plan.tool_name or '空'}，已停止执行。")
+        _inject_tool_selection_into_response(response, callable_catalog)
+        return response
 
     raise HTTPException(status_code=502, detail=f"Leader 只允许直接回答或调用系统工具，已拒绝动作：{plan.action}")
+
+
+def _inject_tool_selection_into_response(response: RagQueryResponse, callable_catalog: Optional[Dict[str, Any]]) -> None:
+    """Inject toolSelection (candidate tools with scores) into response metadata for monitoring."""
+    if not callable_catalog or not isinstance(callable_catalog, dict):
+        return
+    tool_selection = callable_catalog.get("toolSelection")
+    if not isinstance(tool_selection, dict):
+        return
+    if response.metadata is None:
+        response.metadata = {}
+    response.metadata["toolSelection"] = tool_selection
 
 
 def _should_emit_generation_start(request: RagQueryRequest, agent_name: Optional[str], plan=None) -> bool:
@@ -2138,6 +2203,7 @@ def _build_leader_callable_catalog(request: Optional[RagQueryRequest] = None) ->
         "candidateCount": len(available_tools),
         "topK": len(available_tools),
     }
+    all_tool_scores: List[Dict[str, Any]] = []
     if request is not None:
         intent_result = tool_intent_router_agent.extract(getattr(request, "input", ""))
         metadata = request.metadata if isinstance(request.metadata, dict) else {}
@@ -2170,6 +2236,12 @@ def _build_leader_callable_catalog(request: Optional[RagQueryRequest] = None) ->
             retrieval_profiles=metadata.get("toolRetrievalProfiles") if isinstance(metadata.get("toolRetrievalProfiles"), dict) else {},
             top_k=3,
         )
+        # 全量打分：给所有已启用工具打分（含 0 分），供监控页面展示完整快照
+        all_tool_scores = tool_index.score_all_tools(
+            getattr(request, "input", ""),
+            available_tools,
+            retrieval_profiles=metadata.get("toolRetrievalProfiles") if isinstance(metadata.get("toolRetrievalProfiles"), dict) else {},
+        )
     is_capability_inquiry = selection.get("intent") == "capability_inquiry"
     # 能力询问由系统固定工具路由，不把工具本身或业务工具清单发送给 Leader。
     # 普通问题仍只保留索引后的少量候选工具。
@@ -2183,7 +2255,9 @@ def _build_leader_callable_catalog(request: Optional[RagQueryRequest] = None) ->
             "entities": selection.get("entities") or {},
             "constraints": selection.get("constraints") or [],
             "queryVariants": selection.get("queryVariants") or [],
+            "candidateTools": tools,
             "candidateCount": len(tools),
+            "allToolScores": all_tool_scores,
             "fixedRoute": TOOL_CAPABILITY_QUERY_NAME if is_capability_inquiry else "",
         },
         "summary": {
@@ -3235,6 +3309,100 @@ def _run_generated_export_tool(request: RagQueryRequest, leader_plan) -> RagQuer
     ))
 
 
+
+
+_TEXT_EXPORT_INSTRUCTION_RE = re.compile(
+    r"^\s*(?:请|帮我|麻烦|谢谢)?\s*(?:把|将)?\s*"
+    r"(?:以下内容|下面内容|这段文字|这段话|这段文本|以下文字|以下文本|这份|这段内容)?\s*"
+    r"(?:转成|转换成|转换为|导出为|保存为|整理成|制作成|做成|生成)\s*"
+    r"(?:纯文本|txt|md|markdown|word|docx|ppt|pptx|pdf)\s*(?:文件|文档)?\s*(?:[：:]|\n)?",
+    re.IGNORECASE,
+)
+
+
+def _extract_text_content_from_export_request(input_text: str) -> str:
+    """Strip the leading export instruction so the remaining text is exported verbatim."""
+    text = str(input_text or "")
+    stripped = _TEXT_EXPORT_INSTRUCTION_RE.sub("", text, count=1)
+    return stripped.strip()
+
+
+def _text_file_title(content: str) -> str:
+    for line in str(content or "").splitlines():
+        match = re.match(r"^#\s+(.+)$", line.strip())
+        if match:
+            return match.group(1).strip()[:60]
+    return "文本文件"
+
+
+def _run_text_to_file_tool(request: RagQueryRequest, leader_plan) -> RagQueryResponse:
+    request_metadata = request.metadata if isinstance(request.metadata, dict) else {}
+    requested_output_type = _normalize_requested_file_type(
+        request_metadata.get("requestedOutputType")
+        or _requested_file_type_from_text(request.input)
+        or "md"
+    )
+    metadata = {
+        "agentName": "leader_agent",
+        "targetAgent": TEXT_TO_FILE_TOOL_NAME,
+        "executedAgent": TEXT_TO_FILE_TOOL_NAME,
+        "intent": leader_plan.intent,
+        "needRetrieval": False,
+        "retrievalSkipped": True,
+        "leaderAction": leader_plan.action,
+        "leaderActionLabel": _leader_action_label(leader_plan.action),
+        "toolName": leader_plan.tool_name,
+        "toolDisplayName": _tool_display_name(leader_plan.tool_name),
+        "routeReason": leader_plan.route_reason,
+        "strategyLabel": "文本转文件工具",
+        "executionMode": "leader_call_tool",
+        "executionModeLabel": "Leader 调用文本转文件工具",
+        "answerType": "document_export",
+        "requestedOutputType": requested_output_type,
+        "toolToggles": _tool_toggles_from_request(request),
+    }
+    metadata.update(_context_metadata_from_request(request))
+    source_content = str(request_metadata.get("sourceMessageContent") or "").strip()
+    export_content = source_content or _extract_text_content_from_export_request(request.input)
+    if not export_content.strip():
+        raise HTTPException(status_code=400, detail="未找到可导出的文本内容，请先提供需要导出的文本。")
+    metadata["sourceTitle"] = _text_file_title(export_content)
+    metadata["sourceMessageOrigin"] = request_metadata.get("sourceMessageOrigin") or (
+        "selected_message" if source_content else "user_request"
+    )
+    export_result = export_text_to_file(export_content, requested_output_type, metadata)
+    if not export_result.attachments:
+        diagnostics = export_result.diagnostics if isinstance(export_result.diagnostics, dict) else {}
+        reason = str(diagnostics.get("reason") or "").strip()
+        if reason == "tool_disabled":
+            disabled_tool = str(diagnostics.get("disabledTool") or TEXT_TO_FILE_TOOL_NAME)
+            raise HTTPException(status_code=403, detail=f"工具 {_tool_display_name(disabled_tool)} 已在后台关闭，Leader 本次不会调用。")
+        if reason == "empty_answer":
+            raise HTTPException(status_code=400, detail="未找到可导出的文本内容，请先提供需要导出的文本。")
+        if reason == "unsupported_format":
+            raise HTTPException(status_code=400, detail="文本转文件工具仅支持 Markdown、纯文本和 Word 三种输出格式。")
+        raise HTTPException(status_code=400, detail="当前文本无法导出为所选格式，请检查后台工具开关后重试。")
+    metadata["generatedExports"] = export_result.diagnostics
+    formats = "、".join(str(item.get("ext") or "").upper() for item in export_result.attachments if item.get("ext"))
+    answer = f"已按原文生成文本文件，附件格式：{formats or '文件'}。"
+    return _decorate_output_response(RagQueryResponse(
+        strategy="text_to_file_tool",
+        answer=answer,
+        answerType="document_export",
+        documents=[],
+        trace=[
+            RagTraceResponse(stage="leader_route", detail=_leader_plan_detail(leader_plan)),
+            RagTraceResponse(stage="tool_call", detail={
+                "toolName": TEXT_TO_FILE_TOOL_NAME,
+                "toolDisplayName": _tool_display_name(TEXT_TO_FILE_TOOL_NAME),
+                **export_result.diagnostics,
+            }),
+        ],
+        metadata=metadata,
+        attachments=export_result.attachments,
+    ))
+
+
 def _run_file_content_planner(request: RagQueryRequest, planner_payload: str, leader_plan) -> Tuple[str, Dict[str, Any]]:
     config_agent = (
         "file_content_planner_agent"
@@ -3260,22 +3428,37 @@ def _run_file_content_planner(request: RagQueryRequest, planner_payload: str, le
     return answer, model_metadata
 
 
+_STANDALONE_MD_RE = re.compile(r"(?:^|[^a-z0-9])md(?:$|[^a-z0-9])", re.IGNORECASE)
+
+
 def _requested_file_type_from_text(input_text: str) -> str:
     normalized = normalize_text(input_text)
     if "word" in normalized or "docx" in normalized or "文档版" in normalized:
         return "docx"
     if "excel" in normalized or "xlsx" in normalized or "表格版" in normalized:
         return "xlsx"
-    if "markdown" in normalized or "md文件" in normalized:
+    if "markdown" in normalized or "md文件" in normalized or _STANDALONE_MD_RE.search(normalized):
         return "md"
     if "pptx" in normalized or "ppt" in normalized or "幻灯片" in normalized:
         return "pptx"
+    if "pdf" in normalized:
+        return "pdf"
+    if "txt" in normalized or "纯文本" in normalized:
+        return "txt"
     return ""
 
 
 def _normalize_requested_file_type(value: Any) -> str:
     normalized = str(value or "").strip().lower()
-    aliases = {"word": "docx", "excel": "xlsx", "markdown": "md", "ppt": "pptx"}
+    aliases = {
+        "word": "docx",
+        "excel": "xlsx",
+        "markdown": "md",
+        "ppt": "pptx",
+        "纯文本": "txt",
+        "document": "",
+        "file": "",
+    }
     return aliases.get(normalized, normalized)
 
 
@@ -3559,27 +3742,29 @@ def _follow_up_actions_for_output(answer_type: str, metadata: Dict[str, Any], ou
 
 
 def _file_format_follow_up_actions(answer_type: str, metadata: Dict[str, Any], agent: str) -> List[Dict[str, Any]]:
-    if not _metadata_tool_enabled(metadata, "generated_export_tools"):
-        return []
     is_diagram = str(answer_type or "").startswith("mermaid") or agent.startswith("diagram_")
     is_question_bank = str(answer_type or "") == "question_bank" or agent.startswith("textbook_question_")
     if is_diagram:
+        if not _metadata_tool_enabled(metadata, "generated_export_tools"):
+            return []
         candidates = (
             ("Mermaid 源文件", "请把当前消息原内容生成 Mermaid 源文件。", "mmd", "diagram_source_export_tool"),
             ("Markdown 文件", "请把当前消息原内容生成 Markdown 文件。", "md", "markdown_export_tool"),
         )
     elif is_question_bank:
+        if not _metadata_tool_enabled(metadata, "generated_export_tools"):
+            return []
         candidates = (
             ("Excel 题库", "请把当前消息原内容生成 Excel 题库文件。", "xlsx", "excel_export_tool"),
             ("Word 题库", "请把当前消息原内容生成 Word 题库文件。", "docx", "docx_export_tool"),
             ("Markdown 题库", "请把当前消息原内容生成 Markdown 题库文件。", "md", "markdown_export_tool"),
         )
     else:
+        # 文本转文件工具：用户可在 Markdown / 纯文本 / Word 中任选一种输出格式。
         candidates = (
-            ("Word 文件", "请把当前消息原内容生成 Word 文件。", "docx", "docx_export_tool"),
-            ("Excel 表格", "请把当前消息原内容生成 Excel 表格。", "xlsx", "excel_export_tool"),
-            ("Markdown 文件", "请把当前消息原内容生成 Markdown 文件。", "md", "markdown_export_tool"),
-            ("PPT 文件", "请把当前消息原内容生成 PPT 文件。", "pptx", "pptx_export_tool"),
+            ("Markdown 文件", "请把当前消息原内容生成 Markdown 文件。", "md", TEXT_TO_FILE_TOOL_NAME),
+            ("纯文本文件", "请把当前消息原内容生成纯文本文件。", "txt", TEXT_TO_FILE_TOOL_NAME),
+            ("Word 文件", "请把当前消息原内容生成 Word 文件。", "docx", TEXT_TO_FILE_TOOL_NAME),
         )
     return [
         _follow_up_action(label, prompt, output_type, "primary")
@@ -3813,6 +3998,7 @@ def _strategy_label(strategy_name: str) -> str:
         "java_facility_api": "设施位置查询工具",
         "java_secondhand_api": "旧物查询工具",
         "generated_export_tools": "内容导出工具",
+        TEXT_TO_FILE_TOOL_NAME: "文本转文件工具",
         "text_to_sql": "Text-to-SQL",
         IMAGE_RECOGNITION_TOOL_NAME: "图片识别工具",
         IMAGE_STITCHING_TOOL["name"]: "图片拼接工具",
@@ -3839,6 +4025,7 @@ def _tool_zh_name(tool_name: str) -> str:
         "java_facility_api": "设施位置查询工具",
         "java_secondhand_api": "旧物查询工具",
         "generated_export_tools": "内容整理工具",
+        TEXT_TO_FILE_TOOL_NAME: "文本转文件工具",
         "markdown_export_tool": "Markdown 导出工具",
         "docx_export_tool": "Word 导出工具",
         "excel_export_tool": "Excel 导出工具",

@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Alert, Button, Card, Drawer, Empty, Input, Modal, Segmented, Select, Space, Switch, Table, Tabs, Tag, Typography, Upload, message } from 'antd'
-import { CheckCircleOutlined, ExclamationCircleOutlined, PlusOutlined, ReloadOutlined, RobotOutlined, SaveOutlined, SettingOutlined } from '@ant-design/icons'
+import { CheckCircleOutlined, DownloadOutlined, ExclamationCircleOutlined, PlusOutlined, ReloadOutlined, RobotOutlined, SaveOutlined, SettingOutlined } from '@ant-design/icons'
 import { getRagAgents, runRagQuery } from '../../../api/rag'
+import { API_BASE_URL } from '../../../config/apiBase'
 import { getSystemConfigList, upsertSystemConfig } from '../../../api/systemConfig'
 import {
   AGENT_ENABLED_CONFIG_PREFIX,
@@ -49,6 +50,7 @@ const TOOL_TEST_PROMPTS = {
   java_secondhand_api: '请查询当前在售的二手商品。',
   tool_capability_query: '请列出当前系统已经启用并且可以调用的工具能力。',
   generated_export_tools: '请把以下内容整理为 Markdown 和 Word 文件并提供下载：校园二手交易应当当面验货、确认商品状态后再完成交易。',
+  text_to_file_tool: '请把以下内容按原文转成Markdown文件：校园二手交易应当当面验货、确认商品状态后再完成交易。',
   markdown_export_tool: '请把以下内容导出为 Markdown 文件：校园二手交易测试内容。',
   docx_export_tool: '请把以下内容导出为 Word 文档：校园二手交易测试内容。',
   excel_export_tool: '请把以下清单导出为 Excel：商品A，分类教材；商品B，分类数码。',
@@ -59,6 +61,18 @@ const TOOL_TEST_PROMPTS = {
 
 const getToolTestPrompt = (tool) => TOOL_TEST_PROMPTS[tool?.name]
   || `请执行${tool?.zhName || tool?.name || '当前工具'}测试，并返回可验证的输出。${tool?.trigger ? `触发要求：${tool.trigger}` : ''}`
+
+const TEXT_TO_FILE_FORMAT_OPTIONS = [
+  { value: 'md', label: 'Markdown (.md)' },
+  { value: 'txt', label: '纯文本 (.txt)' },
+  { value: 'docx', label: 'Word (.docx)' },
+]
+const TEXT_TO_FILE_SAMPLE_CONTENT = '校园二手交易应当当面验货、确认商品状态后再完成交易。'
+const TEXT_TO_FILE_PROMPT_BY_FORMAT = {
+  md: `请把以下内容按原文转成Markdown文件：${TEXT_TO_FILE_SAMPLE_CONTENT}`,
+  txt: `请把以下内容按原文转成纯文本文件：${TEXT_TO_FILE_SAMPLE_CONTENT}`,
+  docx: `请把以下内容按原文转成Word文件：${TEXT_TO_FILE_SAMPLE_CONTENT}`,
+}
 
 const readToolTestImage = (file) => new Promise((resolve, reject) => {
   const reader = new FileReader()
@@ -255,6 +269,7 @@ function AgentSettings() {
   const [runtimeAgentFilter, setRuntimeAgentFilter] = useState('all')
   const [toolTestName, setToolTestName] = useState('')
   const [toolTestInput, setToolTestInput] = useState('')
+  const [toolTestOutputType, setToolTestOutputType] = useState('')
   const [toolTestImages, setToolTestImages] = useState([])
   const [toolTestLoading, setToolTestLoading] = useState(false)
   const [toolTestResult, setToolTestResult] = useState(null)
@@ -627,6 +642,7 @@ function AgentSettings() {
     setToolTestImages([])
     setToolTestResult(null)
     setToolTestPreview('')
+    setToolTestOutputType(tool?.name === 'text_to_file_tool' ? 'md' : '')
   }, [allConfiguredTools])
 
   const beforeToolTestImageUpload = useCallback(async (file) => {
@@ -704,9 +720,10 @@ function AgentSettings() {
           expectedToolName: selectedToolTest.name,
         },
       }
-      if (toolTestImages.length) {
-        payload.imageDataUrls = toolTestImages.map((item) => item.url)
-      }
+      const testedTextModel = llmModelOptions.find((option) => option.modality === 'text' && option.isDefault)
+        || llmModelOptions.find((option) => option.modality === 'text')
+      if (testedTextModel) payload.llmModel = testedTextModel.value
+      if (toolTestImages.length) payload.imageDataUrls = toolTestImages.map((item) => item.url)
       const res = await runRagQuery(payload)
       const durationMs = Math.round(performance.now() - startedAt)
       const matched = responseContainsTool(res.data, selectedToolTest.name)
@@ -729,7 +746,49 @@ function AgentSettings() {
     } finally {
       setToolTestLoading(false)
     }
-  }, [selectedToolTest, toolTestImages, toolTestInput])
+  }, [selectedToolTest, toolTestImages, toolTestInput, llmModelOptions])
+
+  const downloadToolTestAttachment = useCallback(async (item) => {
+    const hideLoading = message.loading('正在准备下载文件...', 0)
+    try {
+      if (!item?.storageKey || !item?.internalCapability) {
+        hideLoading()
+        message.warning('附件缺少下载凭据，请重新运行测试')
+        return
+      }
+      const fileName = item.fileName || item.name || item.type || 'ai-export'
+      const token = localStorage.getItem('token') || ''
+      const url = `${API_BASE_URL}/api/ai/rag/export?storageKey=${encodeURIComponent(item.storageKey)}&capability=${encodeURIComponent(item.internalCapability)}&filename=${encodeURIComponent(fileName)}`
+      const response = await fetch(url, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      })
+      if (!response.ok) {
+        let detail = `下载失败(${response.status})`
+        try {
+          const text = await response.text()
+          const parsed = text ? JSON.parse(text) : null
+          detail = parsed?.msg || parsed?.message || parsed?.detail || detail
+        } catch (parseError) {
+          // keep status fallback
+        }
+        throw new Error(detail)
+      }
+      const blob = await response.blob()
+      const objectUrl = window.URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = objectUrl
+      link.download = fileName
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      window.setTimeout(() => window.URL.revokeObjectURL(objectUrl), 1000)
+      hideLoading()
+      message.success(`已开始下载 ${fileName}`)
+    } catch (error) {
+      hideLoading()
+      message.error(error.message || '文件下载失败')
+    }
+  }, [])
 
   const modelColumns = useMemo(() => [
     {
@@ -1428,6 +1487,22 @@ function AgentSettings() {
                       </>
                     ) : null}
 
+                    {selectedToolTest?.name === 'text_to_file_tool' ? (
+                      <>
+                        <label className="agent-settings-field-label">输出格式</label>
+                        <Select
+                          value={toolTestOutputType || 'md'}
+                          options={TEXT_TO_FILE_FORMAT_OPTIONS}
+                          style={{ width: 280 }}
+                          onChange={(value) => {
+                            setToolTestOutputType(value)
+                            setToolTestInput(TEXT_TO_FILE_PROMPT_BY_FORMAT[value] || getToolTestPrompt(selectedToolTest))
+                          }}
+                        />
+                        <Text type="secondary">选择输出格式后运行测试，将按所选格式生成对应文件（Markdown / 纯文本 / Word）。</Text>
+                      </>
+                    ) : null}
+
                     {selectedToolTest?.name !== 'image_stitching_tool' ? (
                       <>
                         <label className="agent-settings-field-label">测试输入</label>
@@ -1445,7 +1520,11 @@ function AgentSettings() {
                       {selectedToolTest?.name !== 'image_stitching_tool' ? (
                         <Button
                           disabled={!selectedToolTest}
-                          onClick={() => setToolTestInput(getToolTestPrompt(selectedToolTest))}
+                          onClick={() => setToolTestInput(
+                            selectedToolTest?.name === 'text_to_file_tool'
+                              ? (TEXT_TO_FILE_PROMPT_BY_FORMAT[toolTestOutputType] || getToolTestPrompt(selectedToolTest))
+                              : getToolTestPrompt(selectedToolTest)
+                          )}
                         >
                           恢复测试示例
                         </Button>
@@ -1498,20 +1577,37 @@ function AgentSettings() {
                             <Text strong>生成附件</Text>
                             <Space size={[6, 6]} wrap>
                               {toolTestResult.response.attachments.map((item, index) => {
-                                const attachmentName = item.name || item.fileName || item.type || `附件 ${index + 1}`
-                                return item.previewDataUrl ? (
-                                  <Tag
-                                    color="blue"
-                                    key={`${item.url || attachmentName}-${index}`}
-                                    title="点击查看拼接结果"
-                                    style={{ cursor: 'pointer' }}
-                                    onClick={() => setToolTestPreview(item.previewDataUrl)}
-                                  >
-                                    {attachmentName}
-                                  </Tag>
-                                ) : (
-                                  <Tag color="blue" key={`${item.url || attachmentName}-${index}`}>
-                                    {attachmentName}
+                                const fileName = item.fileName || item.name || item.type || `附件 ${index + 1}`
+                                const downloadable = Boolean(item.storageKey && item.internalCapability)
+                                if (item.previewDataUrl) {
+                                  return (
+                                    <Tag
+                                      color="blue"
+                                      key={`${item.url || fileName}-${index}`}
+                                      title="点击查看拼接结果"
+                                      style={{ cursor: 'pointer' }}
+                                      onClick={() => setToolTestPreview(item.previewDataUrl)}
+                                    >
+                                      {fileName}
+                                    </Tag>
+                                  )
+                                }
+                                return (
+                                  <Tag color="blue" key={`${item.url || fileName}-${index}`}>
+                                    {downloadable ? (
+                                      <a
+                                        href="#"
+                                        onClick={(event) => {
+                                          event.preventDefault()
+                                          event.stopPropagation()
+                                          downloadToolTestAttachment(item)
+                                        }}
+                                        className="agent-settings-tool-test-download"
+                                        title="点击下载文件"
+                                      >
+                                        <DownloadOutlined /> {fileName}
+                                      </a>
+                                    ) : fileName}
                                   </Tag>
                                 )
                               })}
