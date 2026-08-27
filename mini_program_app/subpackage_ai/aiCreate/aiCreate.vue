@@ -133,6 +133,7 @@ const quickActions = ref([
 // 工具分类 Mock 数据
 const toolCategories = {
   hot: [
+    { name: '学习计划拆解', desc: '数据表一键拆成任务', icon: '/static/icons/ai create/plan.png', themeColor: '#2F6FED', lightColor: 'rgba(47, 111, 237, 0.35)' },
     { name: '试卷生成', desc: '智能生成标准化试卷', icon: '/static/icons/ai create/exam.png', themeColor: '#FF6B6B', lightColor: 'rgba(255, 107, 107, 0.35)' },
     { name: '题库生成', desc: '资料一键生成练习题', icon: '/static/icons/ai create/exam.png', themeColor: '#5E7387', lightColor: 'rgba(94, 115, 135, 0.35)' },
     { name: 'PPT生成', desc: '一键生成演示文稿', icon: '/static/icons/ai create/ppt-pdf.png', themeColor: '#FF9F43', lightColor: 'rgba(255, 159, 67, 0.35)' },

@@ -35,6 +35,7 @@ export function resolveAiToolDestination(tool = {}) {
   if (AI_DIAGRAM_ROUTES[name]) return AI_DIAGRAM_ROUTES[name]
   if (['PPT生成', 'AIPPT', 'PPT大纲'].includes(name)) return templateFirstPresentationRoute(name)
   if (name === '题库生成') return '/subpackage_ai/questionBankGenerate/questionBankGenerate'
+  if (name === '学习计划拆解') return '/subpackage_ai/goalDecompose/goalDecompose'
   if (['试卷生成', '学科出题', '考研题目'].includes(name)) return resourceRoute('practice_set', name)
   if (['Python个性化学习', 'Python课程学习'].includes(name)) return '/subpackage_learning/pythonHome/pythonHome'
   if (name === 'Python代码实验') return resourceRoute('code_lab', name)
