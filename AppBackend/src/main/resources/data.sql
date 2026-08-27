@@ -281,8 +281,10 @@ INSERT INTO sys_role (id, name) VALUES
 -- 2. 用户数据 (密码都是 admin123)
 -- =============================================
 INSERT INTO sys_user (id, username, password, real_name, phone, email, role_id, status, create_time, update_time,jwx_password,jwx_student_id,semester_start,share_code) VALUES
--- 管理员 (用户名: admin, 密码: admin123)
+-- 管理员 (用户名：admin, 密码：admin123)
 (1, 'admin', 'admin123', '系统管理员', '13800000001', 'admin@campus.edu.cn', 1, 1, NOW(), NOW(),'313','32132313','2026-02-24','SCH000001'),
+-- 新增测试管理员 (用户名：test_admin_20260821, 密码：admin123)
+(14, 'test_admin_20260821', 'admin123', '测试管理员', '13900000098', 'test_admin@campus.edu.cn', 1, 1, NOW(), NOW(),'313','32132313','2026-02-24','SCH000014'),
 -- 教师 (用户名: fjj, 密码: admin123)
 (2, 'fjj', 'admin123', '张老师', '13800000002', 'zhanglaoshi@campus.edu.cn', 2, 1, NOW(), NOW(),'313','32132313','2026-02-24','SCH000002'),
 -- 教师 (用户名: fjj2, 密码: admin123)

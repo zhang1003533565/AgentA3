@@ -83,6 +83,23 @@ LEARNING_WORKFLOW_AGENT_SPECS = {
     ),
 }
 
+RESUME_AGENT_SPECS = {
+    "resume_create_agent": (
+        "AI 简历生成智能体",
+        "resume_create",
+        "通过多轮对话收集用户个人信息、教育背景、工作经历等，最终输出结构化简历 JSON。",
+        "帮我写一份数据结构课程的简历",
+        ["resume_json"],
+    ),
+    "resume_edit_agent": (
+        "AI 一键改简历智能体",
+        "resume_edit",
+        "分析用户上传的现有简历问题，逐段优化完善，使简历更专业、更有竞争力。",
+        "帮我看一下这份简历哪里需要优化，如何改进？",
+        ["resume_optimization_json"],
+    ),
+}
+
 DIAGRAM_AGENT_SPECS = {
     "diagram_mind_map_agent": ("图表思维导图智能体", "diagram_mind_map", "把知识点层级、概念关系和学习路径整理成 Mermaid 思维导图。", "进程调度知识点思维导图材料"),
     "diagram_flowchart_agent": ("图表流程图智能体", "diagram_flowchart", "把算法步骤、业务过程和知识点流程整理成 Mermaid 流程图。", "括号匹配算法流程材料"),
@@ -106,6 +123,7 @@ AGENT_ORDER = [
     *QUESTION_AGENT_SPECS.keys(),
     *MEETING_AGENT_SPECS.keys(),
     *PPT_AGENT_SPECS.keys(),
+    *RESUME_AGENT_SPECS.keys(),
     *LEARNING_WORKFLOW_AGENT_SPECS.keys(),
 ]
 
@@ -127,6 +145,7 @@ INTERNAL_VISUAL_AGENTS = frozenset({
     "ppt_image_agent",
 })
 FILE_EXPORT_INTERNAL_AGENTS = frozenset({"file_content_planner_agent"})
+RESUME_INTERNAL_AGENTS = frozenset({"resume_create_agent", "resume_edit_agent"})
 LEADER_CALLABLE_AGENT_ORDER = tuple(
     agent_name
     for agent_name in AGENT_ORDER
@@ -135,6 +154,7 @@ LEADER_CALLABLE_AGENT_ORDER = tuple(
     and agent_name not in DIAGRAM_SOURCE_AGENTS
     and agent_name not in INTERNAL_VISUAL_AGENTS
     and agent_name not in FILE_EXPORT_INTERNAL_AGENTS
+    and agent_name not in RESUME_INTERNAL_AGENTS
 )
 
 
@@ -204,6 +224,29 @@ def _learning_workflow_agent_profile(
         "needRetrieval": False,
         "executionMode": "workflow_internal",
         "executionModeLabel": "仅由 Python 学习资源 DAG 内部调用",
+        "defaultRagStrategy": "",
+        "supportedRagStrategies": [],
+        "aliases": [intent, role, role.replace("智能体", ""), agent_name],
+        "exampleInput": example_input,
+        "requiredModelModalities": TEXT_MODEL_MODALITY,
+    }
+
+
+def _resume_agent_profile(agent_name: str, role: str, intent: str, purpose: str, example_input: str, outputs: list[str]) -> Dict[str, Any]:
+    input_map = {
+        "resume_create_agent": ["user_request", "conversation_context"],
+        "resume_edit_agent": ["uploaded_resume", "target_position", "conversation_context"],
+    }
+    return {
+        "role": role,
+        "purpose": purpose,
+        "inputs": input_map[agent_name],
+        "outputs": outputs,
+        "skills": ["resume generation", "resume optimization", intent],
+        "intent": intent,
+        "needRetrieval": False,
+        "executionMode": "direct_agent",
+        "executionModeLabel": f"直接{role.replace('智能体', '')}",
         "defaultRagStrategy": "",
         "supportedRagStrategies": [],
         "aliases": [intent, role, role.replace("智能体", ""), agent_name],
@@ -443,6 +486,10 @@ AGENT_PROFILES: Dict[str, Dict[str, Any]] = {
         "exampleInput": "为操作系统进程调度知识点生成 4 张课堂教学配图，风格为扁平教学插画，尺寸 1024x1024",
         "requiredModelModalities": IMAGE_MODEL_MODALITY,
     },
+    **{
+        agent_name: _resume_agent_profile(agent_name, *spec)
+        for agent_name, spec in RESUME_AGENT_SPECS.items()
+    },
 }
 
 AGENT_ALIASES = {
@@ -478,6 +525,17 @@ AGENT_ALIASES.update({
     "个人画像汇总": "profile_summary_agent",
     "画像汇总智能体": "profile_summary_agent",
     "个人画像汇总智能体": "profile_summary_agent",
+    "resume_create": "resume_create_agent",
+    "简历生成": "resume_create_agent",
+    "AI 生成简历": "resume_create_agent",
+    "AI 简历生成": "resume_create_agent",
+    "resume_create_agent": "resume_create_agent",
+    "resume_edit": "resume_edit_agent",
+    "简历修改": "resume_edit_agent",
+    "一键改简历": "resume_edit_agent",
+    "AI 改简历": "resume_edit_agent",
+    "AI 一键改简历": "resume_edit_agent",
+    "resume_edit_agent": "resume_edit_agent",
 })
 
 
@@ -516,6 +574,7 @@ def get_agent_catalog() -> Dict[str, Any]:
             "questionBank": ["leader_agent", "textbook_knowledge_agent", *QUESTION_AGENT_SPECS.keys()],
             "meeting": ["leader_agent", *MEETING_AGENT_SPECS.keys()],
             "ppt": ["leader_agent", "textbook_knowledge_agent", *PPT_AGENT_SPECS.keys()],
+            "resume": ["leader_agent", *RESUME_AGENT_SPECS.keys()],
             "image": ["leader_agent", "textbook_knowledge_agent", *DIAGRAM_AGENT_SPECS.keys()],
             "pythonLearningResources": [
                 "learning_path_agent",
