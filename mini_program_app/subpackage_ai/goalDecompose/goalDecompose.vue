@@ -530,7 +530,7 @@ function leafTasks(tasks) {
 function visibleSubtasks(task) {
   const subtasks = Array.isArray(task?.subtasks) ? task.subtasks : []
   if (activeFilter.value === 'today') {
-    return subtasks.some((subtask) => isPlanTaskToday(subtask)) ? subtasks : []
+    return subtasks.filter((subtask) => isPlanTaskToday(subtask))
   }
   if (activeFilter.value === 'pending') return subtasks.filter((subtask) => !subtask.isCompleted)
   if (activeFilter.value === 'completed') return subtasks.filter((subtask) => subtask.isCompleted)

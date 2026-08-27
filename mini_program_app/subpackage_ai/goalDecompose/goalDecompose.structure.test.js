@@ -47,8 +47,8 @@ test('preview and execution pages expose stage-level subtask collapse controls',
   assert.match(source, /class="[^"]*task-group-toggle[^"]*"/)
 })
 
-test('today view keeps the full matched stage visible as task context', () => {
-  assert.match(source, /if \(activeFilter\.value === 'today'\) return subtasks/)
+test('today view only exposes subtasks scheduled for today', () => {
+  assert.match(source, /if \(activeFilter\.value === 'today'\)\s*\{\s*return subtasks\.filter\(\(subtask\) => isPlanTaskToday\(subtask\)\)/)
   assert.match(source, /class="[^"]*task-item--today[^"]*"/)
   assert.match(source, /今日 .*阶段共/)
   assert.match(source, /function isTodaySubtask\(subtask\)/)
