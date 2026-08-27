@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Alert, Button, Card, Drawer, Empty, Input, Modal, Segmented, Select, Space, Switch, Table, Tabs, Tag, Typography, Upload, message } from 'antd'
 import { CheckCircleOutlined, DownloadOutlined, ExclamationCircleOutlined, PlusOutlined, ReloadOutlined, RobotOutlined, SaveOutlined, SettingOutlined } from '@ant-design/icons'
-import { getRagAgents, runRagQuery } from '../../../api/rag'
+import { getRagAgents, runRagQuery, testFileContentTool } from '../../../api/rag'
 import { API_BASE_URL } from '../../../config/apiBase'
 import { getSystemConfigList, upsertSystemConfig } from '../../../api/systemConfig'
 import {
@@ -29,6 +29,22 @@ import './AgentSettings.css'
 
 const { Text, Title } = Typography
 const TOOL_TEST_IMAGE_MAX_BYTES = 10 * 1024 * 1024
+const TOOL_TEST_FILE_MAX_BYTES = 25 * 1024 * 1024
+const FILE_CONTENT_TOOL_NAMES = new Set([
+  'markdown_to_text_tool',
+  'txt_to_text_tool',
+  'word_to_text_tool',
+  'ppt_to_text_tool',
+  'pdf_to_text_tool',
+])
+const FILE_CONTENT_TOOL_ACCEPT = {
+  markdown_to_text_tool: '.md,.markdown',
+  txt_to_text_tool: '.txt',
+  word_to_text_tool: '.docx',
+  ppt_to_text_tool: '.pptx',
+  pdf_to_text_tool: '.pdf',
+}
+const isFileContentTool = (tool) => FILE_CONTENT_TOOL_NAMES.has(tool?.name)
 
 const TOOL_TEST_PROMPTS = {
   recognize_image_tool: '请识别我上传的图片，概括主要内容并读取其中清晰可见的文字。',
@@ -114,6 +130,7 @@ const getToolCategoryLabel = (category) => {
     campus_service: '系统能力',
     structured_query: '结构化查询',
     content_export: '内容整理',
+    file_content_extraction: '文件内容提取',
     diagram_export: '图表导出',
     presentation_generation: 'PPT 生成',
     vision_understanding: '图片理解',
@@ -256,9 +273,11 @@ function AgentSettings() {
   const [selectedToolKeys, setSelectedToolKeys] = useState([])
   const [runtimeAgentFilter, setRuntimeAgentFilter] = useState('all')
   const [toolTestName, setToolTestName] = useState('')
+  const [toolTestMode, setToolTestMode] = useState('prompt')
   const [toolTestInput, setToolTestInput] = useState('')
   const [toolTestOutputType, setToolTestOutputType] = useState('')
   const [toolTestImages, setToolTestImages] = useState([])
+  const [toolTestFileList, setToolTestFileList] = useState([])
   const [toolTestLoading, setToolTestLoading] = useState(false)
   const [toolTestResult, setToolTestResult] = useState(null)
 
@@ -616,20 +635,35 @@ function AgentSettings() {
     [allConfiguredTools, toolTestName]
   )
 
-  const toolTestOptions = useMemo(() => allConfiguredTools.map((tool) => ({
-    value: tool.name,
-    label: `${tool.zhName || tool.name} · ${tool.name}`,
-    disabled: tool.enabled === false,
-  })), [allConfiguredTools])
+  const toolTestOptions = useMemo(() => allConfiguredTools
+    .filter((tool) => toolTestMode === 'prompt' || isFileContentTool(tool))
+    .map((tool) => ({
+      value: tool.name,
+      label: `${tool.zhName || tool.name} · ${tool.name}`,
+      disabled: tool.enabled === false,
+    })), [allConfiguredTools, toolTestMode])
 
   const selectToolForTest = useCallback((name) => {
     const tool = allConfiguredTools.find((item) => item.name === name)
     setToolTestName(name)
     setToolTestInput(getToolTestPrompt(tool))
     setToolTestImages([])
+    setToolTestFileList([])
     setToolTestResult(null)
     setToolTestOutputType(tool?.name === 'text_to_file_tool' ? 'md' : '')
   }, [allConfiguredTools])
+
+  const changeToolTestMode = useCallback((mode) => {
+    setToolTestMode(mode)
+    setToolTestImages([])
+    setToolTestFileList([])
+    setToolTestResult(null)
+    if (mode === 'manual' && !isFileContentTool(selectedToolTest)) {
+      setToolTestName('')
+      setToolTestInput('')
+      setToolTestOutputType('')
+    }
+  }, [selectedToolTest])
 
   const beforeToolTestImageUpload = useCallback(async (file) => {
     if (!file.type?.startsWith('image/')) {
@@ -654,6 +688,66 @@ function AgentSettings() {
     }
     return Upload.LIST_IGNORE
   }, [])
+
+  const beforeToolTestFileUpload = useCallback((file) => {
+    if (!selectedToolTest || !isFileContentTool(selectedToolTest)) {
+      message.error('请先选择文件内容提取工具')
+      return Upload.LIST_IGNORE
+    }
+    if (file.size > TOOL_TEST_FILE_MAX_BYTES) {
+      message.error('测试文件不能超过 25MB')
+      return Upload.LIST_IGNORE
+    }
+    const accepted = String(FILE_CONTENT_TOOL_ACCEPT[selectedToolTest.name] || '')
+      .split(',')
+      .filter(Boolean)
+    const lowerName = String(file.name || '').toLowerCase()
+    if (!accepted.some((extension) => lowerName.endsWith(extension))) {
+      message.error(`请选择 ${accepted.join('、')} 格式的文件`)
+      return Upload.LIST_IGNORE
+    }
+    setToolTestFileList([file])
+    setToolTestResult(null)
+    return false
+  }, [selectedToolTest])
+
+  const runManualToolTest = useCallback(async () => {
+    if (!selectedToolTest || !isFileContentTool(selectedToolTest)) {
+      message.warning('请选择支持文件上传测试的工具')
+      return
+    }
+    const file = toolTestFileList[0]?.originFileObj || toolTestFileList[0]
+    if (!file) {
+      message.warning('请先上传测试文件')
+      return
+    }
+    const startedAt = performance.now()
+    setToolTestLoading(true)
+    setToolTestResult(null)
+    try {
+      const formData = new FormData()
+      formData.append('file', file)
+      const res = await testFileContentTool(selectedToolTest.name, formData)
+      const durationMs = Math.round(performance.now() - startedAt)
+      setToolTestResult({
+        status: 'success',
+        mode: 'manual',
+        durationMs,
+        request: { toolName: selectedToolTest.name, fileName: file.name, size: file.size },
+        response: res.data,
+      })
+      message.success('文件解析测试通过')
+    } catch (error) {
+      setToolTestResult({
+        status: 'error',
+        mode: 'manual',
+        durationMs: Math.round(performance.now() - startedAt),
+        message: error.message || '文件解析测试失败',
+      })
+    } finally {
+      setToolTestLoading(false)
+    }
+  }, [selectedToolTest, toolTestFileList])
 
   const runToolTest = useCallback(async () => {
     if (!selectedToolTest) {
@@ -1395,16 +1489,30 @@ function AgentSettings() {
                   <section className="agent-settings-tool-test-input">
                     <div className="agent-settings-tool-test-heading">
                       <div>
-                        <Title level={4}>单工具链路测试</Title>
-                        <Text type="secondary">按工具类型填写测试材料，并检查实际输出和调用 trace。</Text>
+                        <Title level={4}>工具功能测试</Title>
+                        <Text type="secondary">
+                          {toolTestMode === 'prompt'
+                            ? '通过给模型输入指令，检查工具输出和调用 trace。'
+                            : '上传真实文件直接执行所选提取工具，不经过模型路由。'}
+                        </Text>
                       </div>
                     </div>
+
+                    <Segmented
+                      block
+                      value={toolTestMode}
+                      options={[
+                        { label: '指令测试', value: 'prompt' },
+                        { label: '手动测试（上传文件）', value: 'manual' },
+                      ]}
+                      onChange={changeToolTestMode}
+                    />
 
                     <label className="agent-settings-field-label">测试工具</label>
                     <Select
                       value={toolTestName || undefined}
                       options={toolTestOptions}
-                      placeholder="选择需要测试的工具"
+                      placeholder={toolTestMode === 'manual' ? '选择文件内容提取工具' : '选择需要测试的工具'}
                       showSearch
                       optionFilterProp="label"
                       onChange={selectToolForTest}
@@ -1425,7 +1533,7 @@ function AgentSettings() {
                       </div>
                     ) : null}
 
-                    {selectedToolTest?.name === 'recognize_image_tool' ? (
+                    {toolTestMode === 'prompt' && selectedToolTest?.name === 'recognize_image_tool' ? (
                       <>
                         <label className="agent-settings-field-label">测试图片</label>
                         <Upload
@@ -1450,7 +1558,7 @@ function AgentSettings() {
                       </>
                     ) : null}
 
-                    {selectedToolTest?.name === 'text_to_file_tool' ? (
+                    {toolTestMode === 'prompt' && selectedToolTest?.name === 'text_to_file_tool' ? (
                       <>
                         <label className="agent-settings-field-label">输出格式</label>
                         <Select
@@ -1466,43 +1574,84 @@ function AgentSettings() {
                       </>
                     ) : null}
 
-                    <label className="agent-settings-field-label">测试输入</label>
-                    <Input.TextArea
-                      rows={7}
-                      value={toolTestInput}
-                      disabled={!selectedToolTest}
-                      placeholder="选择工具后自动生成对应测试示例"
-                      onChange={(event) => setToolTestInput(event.target.value)}
-                    />
+                    {toolTestMode === 'prompt' ? (
+                      <>
+                        <label className="agent-settings-field-label">测试输入</label>
+                        <Input.TextArea
+                          rows={7}
+                          value={toolTestInput}
+                          disabled={!selectedToolTest}
+                          placeholder="选择工具后自动生成对应测试示例"
+                          onChange={(event) => setToolTestInput(event.target.value)}
+                        />
 
-                    <Space.Compact block>
-                      <Button
-                        disabled={!selectedToolTest}
-                        onClick={() => setToolTestInput(
-                          selectedToolTest?.name === 'text_to_file_tool'
-                            ? (TEXT_TO_FILE_PROMPT_BY_FORMAT[toolTestOutputType] || getToolTestPrompt(selectedToolTest))
-                            : getToolTestPrompt(selectedToolTest)
-                        )}
-                      >
-                        恢复测试示例
-                      </Button>
-                      <Button
-                        type="primary"
-                        icon={<RobotOutlined />}
-                        loading={toolTestLoading}
-                        disabled={!selectedToolTest || selectedToolTest.enabled === false}
-                        onClick={runToolTest}
-                      >
-                        运行工具测试
-                      </Button>
-                    </Space.Compact>
+                        <Space.Compact block>
+                          <Button
+                            disabled={!selectedToolTest}
+                            onClick={() => setToolTestInput(
+                              selectedToolTest?.name === 'text_to_file_tool'
+                                ? (TEXT_TO_FILE_PROMPT_BY_FORMAT[toolTestOutputType] || getToolTestPrompt(selectedToolTest))
+                                : getToolTestPrompt(selectedToolTest)
+                            )}
+                          >
+                            恢复测试示例
+                          </Button>
+                          <Button
+                            type="primary"
+                            icon={<RobotOutlined />}
+                            loading={toolTestLoading}
+                            disabled={!selectedToolTest || selectedToolTest.enabled === false}
+                            onClick={runToolTest}
+                          >
+                            运行指令测试
+                          </Button>
+                        </Space.Compact>
+                      </>
+                    ) : (
+                      <>
+                        <label className="agent-settings-field-label">测试文件</label>
+                        <Upload.Dragger
+                          accept={selectedToolTest ? FILE_CONTENT_TOOL_ACCEPT[selectedToolTest.name] : undefined}
+                          maxCount={1}
+                          fileList={toolTestFileList}
+                          beforeUpload={beforeToolTestFileUpload}
+                          onRemove={() => {
+                            setToolTestFileList([])
+                            setToolTestResult(null)
+                            return true
+                          }}
+                          disabled={!selectedToolTest || selectedToolTest.enabled === false}
+                        >
+                          <p className="ant-upload-drag-icon"><PlusOutlined /></p>
+                          <p className="ant-upload-text">点击或拖拽文件到这里</p>
+                          <p className="ant-upload-hint">
+                            {selectedToolTest
+                              ? `支持 ${FILE_CONTENT_TOOL_ACCEPT[selectedToolTest.name]}，单个文件不超过 25MB`
+                              : '请先选择文件内容提取工具'}
+                          </p>
+                        </Upload.Dragger>
+                        <Button
+                          type="primary"
+                          icon={<RobotOutlined />}
+                          loading={toolTestLoading}
+                          disabled={!selectedToolTest || selectedToolTest.enabled === false || !toolTestFileList.length}
+                          onClick={runManualToolTest}
+                        >
+                          运行手动测试
+                        </Button>
+                      </>
+                    )}
                   </section>
 
                   <section className="agent-settings-tool-test-result">
                     <div className="agent-settings-tool-test-heading">
                       <div>
                         <Title level={4}>测试结果</Title>
-                        <Text type="secondary">只有 trace 或附件明确记录目标工具时才判定为通过。</Text>
+                        <Text type="secondary">
+                          {toolTestMode === 'prompt'
+                            ? '只有 trace 或附件明确记录目标工具时才判定为通过。'
+                            : '展示文件实际提取出的文本、图片和解析统计。'}
+                        </Text>
                       </div>
                       {toolTestResult?.durationMs !== undefined ? <Tag>{toolTestResult.durationMs} ms</Tag> : null}
                     </div>
@@ -1515,7 +1664,7 @@ function AgentSettings() {
                           showIcon
                           type={toolTestResult.status === 'success' ? 'success' : toolTestResult.status === 'mismatch' || toolTestResult.status === 'unavailable' ? 'warning' : 'error'}
                           message={toolTestResult.status === 'success'
-                            ? '测试通过：目标工具已成功调用'
+                            ? toolTestResult.mode === 'manual' ? '测试通过：文件解析成功' : '测试通过：目标工具已成功调用'
                             : toolTestResult.status === 'mismatch'
                               ? '请求成功，但未在 trace 或附件中确认目标工具'
                               : toolTestResult.status === 'unavailable'
@@ -1528,6 +1677,37 @@ function AgentSettings() {
                             <Text strong>工具输出</Text>
                             <div>{toolTestResult.response.answer}</div>
                           </div>
+                        ) : null}
+                        {toolTestResult.mode === 'manual' && toolTestResult.response ? (
+                          <>
+                            <div className="agent-settings-tool-test-output">
+                              <Space size={[6, 6]} wrap>
+                                <Tag color="blue">模式：{toolTestResult.response.mode}</Tag>
+                                <Tag>文本 {toolTestResult.response.textLength || 0} 字</Tag>
+                                <Tag>图片 {toolTestResult.response.imageCount || 0} 张</Tag>
+                                <Tag>{toolTestResult.response.inputFormat?.toUpperCase()}</Tag>
+                              </Space>
+                            </div>
+                            {toolTestResult.response.text ? (
+                              <div className="agent-settings-tool-test-output">
+                                <Text strong>提取文本</Text>
+                                <div className="agent-settings-tool-test-extracted-text">{toolTestResult.response.text}</div>
+                              </div>
+                            ) : null}
+                            {toolTestResult.response.images?.length ? (
+                              <div className="agent-settings-tool-test-output">
+                                <Text strong>提取图片</Text>
+                                <div className="agent-settings-tool-test-image-grid">
+                                  {toolTestResult.response.images.map((item, index) => (
+                                    <figure key={`${item.name || 'image'}-${index}`}>
+                                      <img src={item.dataUrl} alt={item.name || `提取图片 ${index + 1}`} />
+                                      <figcaption>{item.name || `图片 ${index + 1}`}</figcaption>
+                                    </figure>
+                                  ))}
+                                </div>
+                              </div>
+                            ) : null}
+                          </>
                         ) : null}
                         {toolTestResult.response?.attachments?.length ? (
                           <div className="agent-settings-tool-test-output">

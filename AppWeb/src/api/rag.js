@@ -22,6 +22,11 @@ export const runRagQuery = (data) => request.post(`${base}/query`, data, {
   timeout: 120000,
 })
 
+export const testFileContentTool = (toolName, data) => request.post(`${base}/tools/${toolName}/test-file`, data, {
+  headers: { 'Content-Type': 'multipart/form-data' },
+  timeout: 120000,
+})
+
 export const convertPdf = (data) => request.post(`${base}/pdf/convert`, data, {
   headers: { 'Content-Type': 'multipart/form-data' },
   timeout: 120000,
