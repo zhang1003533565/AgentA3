@@ -24,6 +24,11 @@ test('plan list separates the current plan from history and keeps both actions v
   assert.match(source, /class="plan-action plan-action--delete"/)
 })
 
+test('current plan exposes a visible delete action with the same confirmation flow', () => {
+  assert.match(source, /class="plan-action plan-action--delete current-plan-delete"/)
+  assert.match(source, /@tap\.stop="confirmDelete\(currentPlan\)"/)
+})
+
 test('plan list actions use outlined surfaces instead of filled buttons', () => {
   assert.match(source, /\.plan-action--view\s*\{[\s\S]*?background:\s*#FFFFFF[\s\S]*?border:/)
   assert.match(source, /\.plan-action--delete\s*\{[\s\S]*?background:\s*#FFFFFF[\s\S]*?border:/)

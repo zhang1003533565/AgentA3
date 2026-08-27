@@ -45,8 +45,13 @@
               <text>开始 {{ formatPlanDate(currentPlan.startDate) }}</text>
               <text v-if="currentPlan.targetDate">目标 {{ formatPlanDate(currentPlan.targetDate) }}</text>
             </view>
-            <view class="primary-btn current-plan-btn" @tap.stop="openDetail(currentPlan)">
-              <text>{{ currentPlanActionLabel(currentPlan) }}</text>
+            <view class="current-plan-actions">
+              <view class="primary-btn current-plan-btn" @tap.stop="openDetail(currentPlan)">
+                <text>{{ currentPlanActionLabel(currentPlan) }}</text>
+              </view>
+              <view class="plan-action plan-action--delete current-plan-delete" @tap.stop="confirmDelete(currentPlan)">
+                <text>删除计划</text>
+              </view>
             </view>
           </view>
 
@@ -683,12 +688,28 @@ function goCreate() {
 }
 
 .study-plan-list-page .current-plan-btn {
-  width: 100%;
+  flex: 1;
+  width: auto;
+  min-width: 0;
   height: 78rpx;
-  margin-top: 20rpx;
+  margin-top: 0;
   border-radius: 14rpx;
   background: #5B7F80;
   font-size: 26rpx;
+}
+
+.study-plan-list-page .current-plan-actions {
+  display: flex;
+  align-items: stretch;
+  gap: 14rpx;
+  margin-top: 20rpx;
+}
+
+.study-plan-list-page .current-plan-delete {
+  flex: 0 0 150rpx;
+  height: 78rpx;
+  border-radius: 14rpx;
+  font-size: 22rpx;
 }
 
 .study-plan-list-page .history-section {
