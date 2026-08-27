@@ -46,6 +46,7 @@ public class PythonAiProxyService {
     private static final Logger log = LoggerFactory.getLogger(PythonAiProxyService.class);
     private static final String DEFAULT_AGENT_NAME = "leader_agent";
     private static final String ARCHITECTURE_AGENT_NAME = "diagram_architecture_agent";
+    private static final String GOAL_DECOMPOSITION_AGENT_NAME = "goal_decomposition_agent";
     private static final String CODING_TUTOR_AGENT_NAME = "python_coding_tutor_agent";
     private static final String GENERATOR_AGENT_NAME = "python_problem_generator_agent";
     private static final String AGENT_MODEL_BINDING_PREFIX = "ai.agent-bindings.";
@@ -875,6 +876,40 @@ public class PythonAiProxyService {
         }
     }
 
+    /**
+     * 调用 Python 学习计划拆解服务，返回 { goal, tasks } 纯 JSON。
+     * 模型优先级：ai.agent-bindings.goal_decomposition_agent.model -> 默认智能体绑定 -> 文本模型配置。
+     */
+    public Object generateGoalDecomposition(Map<String, Object> request, String authorization) {
+        validateAuthorization(authorization);
+        String token = normalizeBearerToken(authorization);
+        Long userId = extractUserId(token);
+        String requestedModel = resolveTextModelConfigPrefix(GOAL_DECOMPOSITION_AGENT_NAME);
+        if (!StringUtils.hasText(requestedModel)) {
+            throw new BusinessException(
+                    Result.ERROR_CODE,
+                    "AI 文本模型未配置，请在系统配置中维护 ai.service.text.* 或 ai.agent-bindings."
+                            + GOAL_DECOMPOSITION_AGENT_NAME + ".model"
+            );
+        }
+        try {
+            return webClientBuilder.build()
+                    .post()
+                    .uri(buildUri("/internal/goal-decomposition/decompose"))
+                    .headers(headers -> applyPythonHeaders(headers, authorization, userId, requestedModel))
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .bodyValue(request == null ? Map.of() : request)
+                    .retrieve()
+                    .bodyToMono(Object.class)
+                    .timeout(Duration.ofSeconds(timeoutSeconds))
+                    .block();
+        } catch (WebClientResponseException e) {
+            throw new BusinessException(Result.ERROR_CODE, "Python 目标拆解服务调用失败: " + extractRemoteMessage(e));
+        } catch (Exception e) {
+            throw new BusinessException(Result.ERROR_CODE, "Python 目标拆解服务调用失败: " + e.getMessage());
+        }
+    }
+
     public Object getVideoTask(String taskId, String authorization) {
         return getVideoObject("/internal/videos/tasks/" + taskId, authorization);
     }
@@ -1342,8 +1377,12 @@ public class PythonAiProxyService {
     }
 
     private String resolveArchitectureModelConfigPrefix() {
+        return resolveTextModelConfigPrefix(ARCHITECTURE_AGENT_NAME);
+    }
+
+    private String resolveTextModelConfigPrefix(String agentName) {
         return firstText(
-                resolveAgentBoundModel(ARCHITECTURE_AGENT_NAME),
+                resolveAgentBoundModel(agentName),
                 resolveAgentBoundModel(DEFAULT_AGENT_NAME),
                 firstTestedTextConfigPrefix(),
                 firstCompleteTextConfigPrefix(),
