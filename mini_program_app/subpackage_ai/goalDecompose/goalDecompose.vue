@@ -1,12 +1,12 @@
 <template>
-  <view class="page">
+  <view class="page study-plan-page">
     <nav-bar
       title="学习计划拆解"
       :showBack="true"
       :border="false"
     />
 
-    <scroll-view class="content" scroll-y :show-scrollbar="false">
+    <scroll-view class="content study-plan-content" scroll-y :show-scrollbar="false">
       <view class="content-inner">
         <!-- 第一步：输入学习计划 -->
         <view v-if="phase === 'input'" class="section-card input-card">
@@ -98,56 +98,64 @@
             </view>
           </view>
 
-          <view class="section-card task-table">
-            <view class="table-header task-row">
-              <text class="col-check">#</text>
-              <text class="col-name">任务（可编辑）</text>
-              <text class="col-stage">阶段</text>
-              <text class="col-days">天数</text>
-              <text class="col-priority">优先级</text>
-            </view>
+          <view class="section-card task-table preview-task-list">
             <template v-for="(task, index) in previewTasks" :key="task.orderNum">
-            <view class="task-row task-row--editable">
-              <text class="col-check">{{ task.orderNum }}</text>
-              <view class="col-name">
-                <input class="task-edit-input" v-model="task.taskName" maxlength="120" placeholder="任务名称" />
-                <input class="task-edit-desc" v-model="task.description" maxlength="500" placeholder="任务说明（可选）" />
-              </view>
-              <input class="stage-edit-input" v-model="task.stage" maxlength="60" placeholder="阶段" />
-              <input class="days-edit-input" type="number" v-model="task.estimatedDays" @input="reschedulePreview" />
-              <view class="col-priority">
+            <view class="preview-stage">
+              <view class="preview-stage-head">
+                <view class="preview-stage-number">{{ task.orderNum }}</view>
+                <view class="preview-stage-title">
+                  <text class="preview-stage-kicker">学习阶段</text>
+                  <input class="task-edit-input" v-model="task.taskName" maxlength="120" placeholder="阶段名称" />
+                </view>
                 <view class="priority-tag" :class="`priority-tag--${priorityLevel(task.priority)}`" @tap="cyclePriority(task)">
                   <text>{{ task.priority }}</text>
+                </view>
+              </view>
+              <input class="task-edit-desc preview-stage-desc" v-model="task.description" maxlength="500" placeholder="阶段说明（可选）" />
+              <view class="preview-stage-fields">
+                <view class="preview-field">
+                  <text class="preview-field-label">阶段类型</text>
+                  <input class="stage-edit-input" v-model="task.stage" maxlength="60" placeholder="例如：基础阶段" />
+                </view>
+                <view class="preview-field preview-field--days">
+                  <text class="preview-field-label">预计天数</text>
+                  <view class="preview-days-input">
+                    <input class="days-edit-input" type="number" v-model="task.estimatedDays" @input="reschedulePreview" />
+                    <text>天</text>
+                  </view>
                 </view>
               </view>
               <view class="row-actions">
                 <text @tap="movePreviewTask(index, -1)">上移</text>
                 <text @tap="movePreviewTask(index, 1)">下移</text>
-                <text class="row-action--danger" @tap="removePreviewTask(index)">删除</text>
+                <text class="row-action--danger" @tap="removePreviewTask(index)">删除阶段</text>
               </view>
             </view>
               <view v-if="task.subtasks.length" class="subtask-editor">
               <view class="subtask-editor__head">
-                <text class="subtask-editor__title">{{ task.taskName || '未命名任务' }} · 细分任务</text>
+                <text class="subtask-editor__title">{{ task.taskName || '未命名阶段' }} · 执行步骤</text>
                 <text class="subtask-editor__hint">按执行顺序完成</text>
               </view>
               <view v-for="(subtask, subtaskIndex) in task.subtasks" :key="`${task.orderNum}-${subtask.orderNum}`" class="subtask-row">
                 <text class="subtask-order">{{ subtask.orderNum }}</text>
                 <view class="subtask-name-col">
-                  <input class="task-edit-input" v-model="subtask.taskName" maxlength="120" placeholder="细分任务名称" />
+                  <input class="task-edit-input" v-model="subtask.taskName" maxlength="120" placeholder="执行步骤名称" />
                   <input class="task-edit-desc" v-model="subtask.description" maxlength="500" placeholder="完成标准（可选）" />
                 </view>
-                <input class="days-edit-input" type="number" v-model="subtask.estimatedDays" @input="reschedulePreview" />
+                <view class="subtask-days-input">
+                  <input class="days-edit-input" type="number" v-model="subtask.estimatedDays" @input="reschedulePreview" />
+                  <text>天</text>
+                </view>
                 <view class="subtask-actions">
                   <text @tap="movePreviewSubtask(task, subtaskIndex, -1)">上移</text>
                   <text @tap="movePreviewSubtask(task, subtaskIndex, 1)">下移</text>
                   <text class="row-action--danger" @tap="removePreviewSubtask(task, subtaskIndex)">删除</text>
                 </view>
               </view>
-              <view class="add-subtask-row" @tap="addPreviewSubtask(task)"><text>＋ 添加细分任务</text></view>
+              <view class="add-subtask-row" @tap="addPreviewSubtask(task)"><text>＋ 添加执行步骤</text></view>
               </view>
             </template>
-            <view class="add-task-row" @tap="addPreviewTask"><text>＋ 添加任务</text></view>
+            <view class="add-task-row" @tap="addPreviewTask"><text>＋ 添加学习阶段</text></view>
           </view>
 
           <view class="action-bar">
@@ -160,13 +168,13 @@
 
         <!-- 第三步：任务执行清单（可勾选） -->
         <template v-if="phase === 'saved' && goalDetail">
-          <view class="section-card goal-card">
+          <view class="section-card goal-card goal-summary-card">
             <view class="goal-head">
               <text class="goal-badge" :class="`goal-badge--${goalDetail.goal.status}`">{{ statusLabel }}</text>
               <text class="goal-title">{{ goalDetail.goal.title }}</text>
             </view>
             <text v-if="goalDetail.goal.description" class="goal-desc">{{ goalDetail.goal.description }}</text>
-            <view class="progress-line">
+            <view class="progress-line progress-summary">
               <view class="progress-track">
                 <view class="progress-fill" :style="{ width: `${goalDetail.goal.progress}%` }"></view>
               </view>
@@ -194,7 +202,7 @@
             </view>
           </view>
 
-          <view class="section-card filter-card">
+          <view class="section-card filter-card filter-card--compact">
             <view
               class="filter-tab"
               :class="{ 'filter-tab--active': activeFilter === 'today' }"
@@ -214,7 +222,7 @@
               :class="{ 'filter-tab--active': activeFilter === 'pending' }"
               @tap="activeFilter = 'pending'"
             >
-              <text>剩余任务 {{ remainingCount }}</text>
+              <text>剩余 {{ remainingCount }}</text>
             </view>
             <view
               class="filter-tab"
@@ -225,17 +233,18 @@
             </view>
           </view>
 
-          <view class="section-card task-table">
+          <view class="section-card task-table task-list-card">
             <view v-if="filteredTasks.length === 0" class="empty-state">
               <text class="empty-main">{{ emptyText }}</text>
               <text class="empty-sub">{{ emptySubText }}</text>
             </view>
-            <view v-for="task in filteredTasks" :key="task.id" class="task-group">
+            <view v-for="task in filteredTasks" :key="task.id" class="task-group task-group--rail">
               <template v-if="task.subtasks.length">
                 <view class="task-group-head">
                   <view class="task-group-title-wrap">
+                    <text class="task-group-kicker">学习阶段</text>
                     <text class="task-group-title">{{ task.taskName }}</text>
-              <text class="task-group-meta">{{ task.stage || '学习阶段' }} · {{ task.subtasks.length }} 个执行步骤 · {{ task.progressPercent }}%</text>
+                    <text class="task-group-meta">{{ task.stage || '学习阶段' }} · {{ task.subtasks.length }} 个执行步骤 · {{ task.progressPercent }}%</text>
                   </view>
                   <text class="task-group-status">{{ statusText(task.status) }}</text>
                 </view>
@@ -250,6 +259,7 @@
                     <view v-if="subtask.isCompleted" class="checkbox-mark"></view>
                   </view>
                   <view class="task-body">
+                    <text class="task-step-label">执行步骤 {{ subtask.orderNum }}</text>
                     <text class="task-name" :class="{ 'task-name--done': subtask.isCompleted }">{{ subtask.taskName }}</text>
                     <text v-if="subtask.description" class="task-desc">{{ subtask.description }}</text>
                     <view class="task-meta">
@@ -275,6 +285,7 @@
                   <view v-if="task.isCompleted" class="checkbox-mark"></view>
                 </view>
                 <view class="task-body">
+                  <text class="task-step-label">学习阶段</text>
                   <text class="task-name" :class="{ 'task-name--done': task.isCompleted }">{{ task.taskName }}</text>
                   <view class="task-meta">
                     <text v-if="task.stage" class="meta-text">{{ task.stage }}</text>
@@ -1730,5 +1741,354 @@ function priorityLevel(priority) {
 .empty-sub {
   font-size: 22rpx;
   color: #98A0B0;
+}
+/* 学习计划页面视觉基线：减少卡片噪音，突出阶段和执行步骤 */
+.study-plan-page {
+  background: #F5F7FA;
+}
+
+.study-plan-page .content-inner {
+  padding: 18rpx 28rpx calc(120rpx + env(safe-area-inset-bottom));
+}
+
+.study-plan-page .section-card {
+  border-color: #E6EBF2;
+  border-radius: 16rpx;
+  box-shadow: none;
+}
+
+.study-plan-page .section-card + .section-card {
+  margin-top: 16rpx;
+}
+
+.study-plan-page .goal-card {
+  padding: 22rpx 24rpx;
+}
+
+.study-plan-page .goal-head {
+  align-items: flex-start;
+}
+
+.study-plan-page .goal-title {
+  line-height: 1.35;
+}
+
+.study-plan-page .goal-desc {
+  margin-top: 10rpx;
+  color: #657287;
+}
+
+.study-plan-page .date-settings {
+  gap: 10rpx;
+  margin-top: 14rpx;
+}
+
+.study-plan-page .date-setting {
+  padding: 12rpx 14rpx;
+  border-radius: 10rpx;
+  background: #F6F8FB;
+}
+
+.study-plan-page .goal-meta-row {
+  gap: 8rpx;
+  margin-top: 14rpx;
+  flex-wrap: wrap;
+}
+
+.study-plan-page .goal-meta {
+  font-size: 21rpx;
+}
+
+.study-plan-page .preview-task-list,
+.study-plan-page .task-list-card {
+  padding: 0 24rpx;
+}
+
+.study-plan-page .preview-stage {
+  padding: 22rpx 0 20rpx;
+  border-bottom: 1rpx solid #EDF0F5;
+}
+
+.study-plan-page .preview-stage-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 12rpx;
+}
+
+.study-plan-page .preview-stage-number {
+  width: 42rpx;
+  height: 42rpx;
+  flex-shrink: 0;
+  border-radius: 12rpx;
+  background: #EAF0F7;
+  color: #55708C;
+  font-size: 22rpx;
+  font-weight: 600;
+  line-height: 42rpx;
+  text-align: center;
+}
+
+.study-plan-page .preview-stage-title {
+  flex: 1;
+  min-width: 0;
+}
+
+.study-plan-page .preview-stage-kicker,
+.study-plan-page .task-group-kicker,
+.study-plan-page .task-step-label {
+  display: block;
+  margin-bottom: 5rpx;
+  color: #8B97A8;
+  font-size: 19rpx;
+  line-height: 1.3;
+}
+
+.study-plan-page .preview-stage-title .task-edit-input {
+  height: 52rpx;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font-size: 27rpx;
+  font-weight: 600;
+}
+
+.study-plan-page .preview-stage-head > .priority-tag {
+  flex-shrink: 0;
+  margin-top: 18rpx;
+}
+
+.study-plan-page .preview-stage-desc {
+  display: block;
+  width: calc(100% - 54rpx);
+  height: 42rpx;
+  margin: 10rpx 0 0 54rpx;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+.study-plan-page .preview-stage-fields {
+  display: flex;
+  gap: 10rpx;
+  margin: 12rpx 0 0 54rpx;
+}
+
+.study-plan-page .preview-field {
+  flex: 1;
+  min-width: 0;
+  padding: 10rpx 12rpx;
+  border-radius: 10rpx;
+  background: #F7F9FC;
+}
+
+.study-plan-page .preview-field--days {
+  flex: 0 0 180rpx;
+}
+
+.study-plan-page .preview-field-label {
+  display: block;
+  margin-bottom: 5rpx;
+  color: #8B97A8;
+  font-size: 19rpx;
+}
+
+.study-plan-page .preview-field .stage-edit-input,
+.study-plan-page .preview-field .days-edit-input {
+  width: 100%;
+  height: 40rpx;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font-size: 22rpx;
+}
+
+.study-plan-page .preview-days-input,
+.study-plan-page .subtask-days-input {
+  display: flex;
+  align-items: center;
+  gap: 6rpx;
+  color: #64748B;
+  font-size: 21rpx;
+}
+
+.study-plan-page .preview-days-input .days-edit-input,
+.study-plan-page .subtask-days-input .days-edit-input {
+  width: 60rpx;
+}
+
+.study-plan-page .preview-stage .row-actions {
+  width: auto;
+  margin: 14rpx 0 0 54rpx;
+  justify-content: flex-start;
+  gap: 26rpx;
+}
+
+.study-plan-page .subtask-editor {
+  margin: 16rpx 0 0 54rpx;
+  padding: 14rpx 16rpx 4rpx;
+  border-left-width: 2rpx;
+  border-left-color: #B8C9DC;
+  border-radius: 0 10rpx 10rpx 0;
+  background: #F7F9FC;
+}
+
+.study-plan-page .subtask-editor__head {
+  margin-bottom: 8rpx;
+}
+
+.study-plan-page .subtask-row {
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10rpx;
+  padding: 12rpx 0;
+}
+
+.study-plan-page .subtask-name-col {
+  flex: 1;
+  min-width: 180rpx;
+}
+
+.study-plan-page .subtask-name-col .task-edit-input {
+  height: 42rpx;
+  padding: 0 8rpx;
+  background: #FFFFFF;
+}
+
+.study-plan-page .subtask-name-col .task-edit-desc {
+  padding-left: 8rpx;
+}
+
+.study-plan-page .subtask-days-input {
+  flex-shrink: 0;
+}
+
+.study-plan-page .subtask-actions {
+  margin-left: 40rpx;
+  gap: 18rpx;
+}
+
+.study-plan-page .add-task-row,
+.study-plan-page .add-subtask-row {
+  color: #55708C;
+}
+
+.study-plan-page .goal-summary-card {
+  padding-bottom: 20rpx;
+}
+
+.study-plan-page .progress-summary {
+  margin-top: 20rpx;
+}
+
+.study-plan-page .goal-stats {
+  margin-top: 14rpx;
+}
+
+.study-plan-page .schedule-summary {
+  gap: 14rpx;
+  margin-top: 14rpx;
+  flex-wrap: wrap;
+}
+
+.study-plan-page .filter-card--compact {
+  padding: 8rpx;
+  gap: 4rpx;
+}
+
+.study-plan-page .filter-tab {
+  height: 58rpx;
+  border-radius: 10rpx;
+  font-size: 21rpx;
+}
+
+.study-plan-page .task-group--rail {
+  position: relative;
+  padding-left: 14rpx;
+}
+
+.study-plan-page .task-group--rail::before {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 2rpx;
+  background: #DCE5F0;
+  content: '';
+}
+
+.study-plan-page .task-group-head {
+  align-items: flex-start;
+  padding: 20rpx 0 10rpx;
+}
+
+.study-plan-page .task-group-title-wrap {
+  gap: 3rpx;
+}
+
+.study-plan-page .task-group-title {
+  font-size: 26rpx;
+}
+
+.study-plan-page .task-group-status {
+  padding: 4rpx 10rpx;
+  border-radius: 7rpx;
+  background: #F3F6F9;
+  font-size: 20rpx;
+}
+
+.study-plan-page .task-item,
+.study-plan-page .task-item--subtask {
+  padding: 18rpx 0 18rpx 14rpx;
+  border-left: 0;
+}
+
+.study-plan-page .task-item--subtask {
+  position: relative;
+}
+
+.study-plan-page .task-item--subtask::before {
+  position: absolute;
+  top: 35rpx;
+  left: -1rpx;
+  width: 10rpx;
+  height: 2rpx;
+  background: #B8C9DC;
+  content: '';
+}
+
+.study-plan-page .task-step-label {
+  margin-bottom: 0;
+}
+
+.study-plan-page .task-name {
+  font-size: 25rpx;
+}
+
+.study-plan-page .task-body {
+  gap: 7rpx;
+}
+
+.study-plan-page .task-controls {
+  margin-top: 2rpx;
+}
+
+.study-plan-page .status-picker,
+.study-plan-page .postpone-link {
+  padding: 4rpx 0;
+  background: transparent;
+}
+
+.study-plan-page .status-picker {
+  color: #64748B;
+}
+
+.study-plan-page .postpone-link {
+  color: #55708C;
+}
+
+.study-plan-page .legacy-plan-notice {
+  margin-top: 16rpx;
+  padding: 14rpx 16rpx;
+  border-radius: 10rpx;
 }
 </style>

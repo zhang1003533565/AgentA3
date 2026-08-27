@@ -14,3 +14,12 @@ test('execution task rows do not expose an unexplained draggable progress contro
   assert.match(source, /AI 补全/)
   assert.match(source, /expandStudyGoalSubtasks/)
 })
+
+test('study plan workflow exposes a deliberate hierarchy for preview and execution layouts', () => {
+  assert.match(source, /class="[^"]*study-plan-page[^"]*"/)
+  assert.match(source, /class="[^"]*preview-task-list[^"]*"/)
+  assert.match(source, /class="[^"]*goal-summary-card[^"]*"/)
+  assert.match(source, /class="[^"]*task-list-card[^"]*"/)
+  assert.match(source, /class="task-group task-group--rail"/)
+  assert.match(source, /class="[^"]*filter-card--compact[^"]*"/)
+})

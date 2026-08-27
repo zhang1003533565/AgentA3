@@ -15,7 +15,7 @@
         </view>
 
         <view
-          class="section-card plan-card"
+          class="section-card plan-card plan-card--quiet"
           v-for="item in summaries"
           :key="item.id"
           @tap="openDetail(item)"
@@ -26,26 +26,30 @@
               <text>{{ statusLabel(item.status) }}</text>
             </view>
           </view>
-          <text v-if="item.description" class="plan-desc">{{ item.description }}</text>
-          <view class="progress-line">
-            <view class="progress-track">
-              <view class="progress-fill" :style="{ width: `${item.progress}%` }"></view>
+          <view class="plan-summary">
+            <text v-if="item.description" class="plan-desc">{{ item.description }}</text>
+            <view class="progress-line">
+              <view class="progress-track">
+                <view class="progress-fill" :style="{ width: `${item.progress}%` }"></view>
+              </view>
+              <text class="progress-num">{{ item.progress }}%</text>
             </view>
-            <text class="progress-num">{{ item.progress }}%</text>
-          </view>
-          <view class="plan-foot">
-            <text class="meta-text">已完成 {{ item.completedTasks }}</text>
-            <text class="meta-split">·</text>
-            <text class="meta-text meta-text--remain">剩余 {{ item.remainingTasks }}</text>
-            <text class="meta-split">·</text>
-            <text class="meta-text">共 {{ item.totalTasks }} 个可执行任务</text>
-            <text class="delete-plan-link" @tap.stop="confirmDelete(item)">删除</text>
-            <text class="plan-time">{{ formatTime(item.updatedAt) }}</text>
-          </view>
-          <view class="plan-schedule">
-            <text>开始 {{ formatPlanDate(item.startDate) }}</text>
-            <text v-if="item.targetDate">目标 {{ formatPlanDate(item.targetDate) }}</text>
-            <text>每天 {{ item.dailyStudyMinutes || 60 }} 分钟</text>
+            <view class="plan-foot">
+              <text class="meta-text">已完成 {{ item.completedTasks }}</text>
+              <text class="meta-split">·</text>
+              <text class="meta-text meta-text--remain">剩余 {{ item.remainingTasks }}</text>
+              <text class="meta-split">·</text>
+              <text class="meta-text">共 {{ item.totalTasks }} 个可执行任务</text>
+              <view class="plan-actions">
+                <text class="delete-plan-link delete-plan-link--quiet" @tap.stop="confirmDelete(item)">删除</text>
+                <text class="plan-time">{{ formatTime(item.updatedAt) }}</text>
+              </view>
+            </view>
+            <view class="plan-schedule">
+              <text>开始 {{ formatPlanDate(item.startDate) }}</text>
+              <text v-if="item.targetDate">目标 {{ formatPlanDate(item.targetDate) }}</text>
+              <text>每天 {{ item.dailyStudyMinutes || 60 }} 分钟</text>
+            </view>
           </view>
         </view>
 
@@ -428,5 +432,86 @@ function goCreate() {
   color: #FFFFFF;
   font-size: 25rpx;
   font-weight: 600;
+}
+
+/* 学习计划列表与详情保持同一套安静的阅读层级 */
+.page {
+  background: #F5F7FA;
+}
+
+.content-inner {
+  padding: 18rpx 28rpx calc(170rpx + env(safe-area-inset-bottom));
+}
+
+.section-card {
+  border-color: #E6EBF2;
+  border-radius: 16rpx;
+  box-shadow: none;
+}
+
+.section-card + .section-card {
+  margin-top: 16rpx;
+}
+
+.plan-card--quiet {
+  padding: 22rpx 24rpx;
+}
+
+.plan-head {
+  gap: 12rpx;
+}
+
+.plan-title {
+  font-size: 28rpx;
+}
+
+.plan-desc {
+  margin-top: 8rpx;
+  color: #657287;
+}
+
+.plan-summary .progress-line {
+  margin-top: 16rpx;
+}
+
+.plan-summary .progress-track {
+  height: 10rpx;
+}
+
+.plan-foot {
+  align-items: center;
+  gap: 8rpx;
+  margin-top: 14rpx;
+}
+
+.plan-actions {
+  display: flex;
+  align-items: center;
+  gap: 18rpx;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.delete-plan-link--quiet {
+  margin-left: 0;
+  color: #9A6570;
+}
+
+.plan-schedule {
+  gap: 14rpx;
+  margin-top: 12rpx;
+  flex-wrap: wrap;
+}
+
+.load-more {
+  border-color: #D7DFE9;
+  box-shadow: none;
+}
+
+.fab-create {
+  right: 28rpx;
+  bottom: calc(42rpx + env(safe-area-inset-bottom));
+  padding: 16rpx 26rpx;
+  box-shadow: 0 10rpx 22rpx rgba(61, 87, 137, 0.2);
 }
 </style>

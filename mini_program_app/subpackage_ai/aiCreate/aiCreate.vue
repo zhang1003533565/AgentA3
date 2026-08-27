@@ -85,7 +85,7 @@
             <text class="course-state-subtitle">管理员发布课程后会显示在这里</text>
           </view>
           <view v-else class="tools-grid">
-            <view class="tool-item" v-for="tool in currentTools" :key="tool.courseId || tool.name" @tap="handleToolTap(tool)">
+            <view class="tool-item" :class="{ 'tool-item--study-plan': tool.name === '学习计划拆解' }" v-for="tool in currentTools" :key="tool.courseId || tool.name" @tap="handleToolTap(tool)">
               <view v-if="tool.courseId" class="course-cover-wrapper">
                 <image class="course-cover-image" :src="tool.icon" mode="aspectFill"></image>
               </view>
@@ -617,6 +617,15 @@ const handleToolTap = (tool) => {
   font-size: 22rpx;
   color: #999999;
   line-height: 1.4;
+}
+
+.tool-item--study-plan {
+  background: #F7FAFD;
+}
+
+.tool-item--study-plan .tool-name {
+  color: #233047;
+  font-weight: 600;
 }
 .tool-emoji {
   font-size: 32rpx;
