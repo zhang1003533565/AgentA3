@@ -1,5 +1,5 @@
 <template>
-  <view class="page">
+  <view class="page study-plan-list-page">
     <nav-bar
       title="我的学习计划"
       :showBack="true"
@@ -14,44 +14,87 @@
           <view class="primary-btn empty-btn" @tap="goCreate"><text>去创建一份计划</text></view>
         </view>
 
-        <view
-          class="section-card plan-card plan-card--quiet"
-          v-for="item in summaries"
-          :key="item.id"
-          @tap="openDetail(item)"
-        >
-          <view class="plan-head">
-            <text class="plan-title">{{ item.title }}</text>
-            <view class="status-tag" :class="`status-tag--${item.status}`">
-              <text>{{ statusLabel(item.status) }}</text>
-            </view>
+        <template v-if="summaries.length > 0">
+          <view class="plan-section-heading">
+            <text class="section-title">当前计划</text>
           </view>
-          <view class="plan-summary">
-            <text v-if="item.description" class="plan-desc">{{ item.description }}</text>
-            <view class="progress-line">
+
+          <view v-if="currentPlan" class="section-card current-plan-card" @tap="openDetail(currentPlan)">
+            <view class="plan-head current-plan-head">
+              <text class="plan-title">{{ currentPlan.title }}</text>
+              <view class="status-tag" :class="`status-tag--${currentPlan.status}`">
+                <text>{{ statusLabel(currentPlan.status) }}</text>
+              </view>
+            </view>
+            <text v-if="currentPlan.description" class="plan-desc current-plan-desc">{{ currentPlan.description }}</text>
+            <view class="progress-line current-progress-line">
+              <text class="progress-label">进度</text>
               <view class="progress-track">
-                <view class="progress-fill" :style="{ width: `${item.progress}%` }"></view>
+                <view class="progress-fill" :style="{ width: `${currentPlan.progress}%` }"></view>
               </view>
-              <text class="progress-num">{{ item.progress }}%</text>
+              <text class="progress-num">{{ currentPlan.progress }}%</text>
             </view>
-            <view class="plan-foot">
-              <text class="meta-text">已完成 {{ item.completedTasks }}</text>
-              <text class="meta-split">·</text>
-              <text class="meta-text meta-text--remain">剩余 {{ item.remainingTasks }}</text>
-              <text class="meta-split">·</text>
-              <text class="meta-text">共 {{ item.totalTasks }} 个可执行任务</text>
-              <view class="plan-actions">
-                <text class="delete-plan-link delete-plan-link--quiet" @tap.stop="confirmDelete(item)">删除</text>
-                <text class="plan-time">{{ formatTime(item.updatedAt) }}</text>
+            <view class="current-next">
+              <view class="current-next-copy">
+                <text class="current-next-label">下一步</text>
+                <text class="current-next-title">{{ currentPlanNextAction(currentPlan) }}</text>
+                <text class="current-next-meta">每天学习 {{ currentPlan.dailyStudyMinutes || 60 }} 分钟</text>
               </view>
             </view>
-            <view class="plan-schedule">
-              <text>开始 {{ formatPlanDate(item.startDate) }}</text>
-              <text v-if="item.targetDate">目标 {{ formatPlanDate(item.targetDate) }}</text>
-              <text>每天 {{ item.dailyStudyMinutes || 60 }} 分钟</text>
+            <view class="current-plan-schedule">
+              <text>开始 {{ formatPlanDate(currentPlan.startDate) }}</text>
+              <text v-if="currentPlan.targetDate">目标 {{ formatPlanDate(currentPlan.targetDate) }}</text>
+            </view>
+            <view class="primary-btn current-plan-btn" @tap.stop="openDetail(currentPlan)">
+              <text>{{ currentPlanActionLabel(currentPlan) }}</text>
             </view>
           </view>
-        </view>
+
+          <view v-if="historyPlans.length > 0" class="history-section">
+            <view class="history-heading">
+              <text class="section-title">历史计划</text>
+              <view class="history-sort">
+                <text>按开始时间</text>
+                <text class="history-sort-chevron">⌄</text>
+                <text class="history-count">{{ historyPlans.length }} 项</text>
+              </view>
+            </view>
+            <view class="section-card history-list">
+              <view
+                class="history-plan"
+                v-for="item in historyPlans"
+                :key="item.id"
+                @tap="openDetail(item)"
+              >
+                <view class="plan-head history-plan-head">
+                  <text class="plan-title">{{ item.title }}</text>
+                  <view class="status-tag" :class="`status-tag--${item.status}`">
+                    <text>{{ statusLabel(item.status) }}</text>
+                  </view>
+                </view>
+                <text v-if="item.description" class="plan-desc">{{ item.description }}</text>
+                <view class="progress-line history-progress-line">
+                  <view class="progress-track">
+                    <view class="progress-fill" :style="{ width: `${item.progress}%` }"></view>
+                  </view>
+                  <text class="progress-num">{{ item.progress }}%</text>
+                </view>
+                <view class="history-plan-meta">
+                  <text>开始 {{ formatPlanDate(item.startDate) }}</text>
+                  <text>每天 {{ item.dailyStudyMinutes || 60 }} 分钟</text>
+                </view>
+                <view class="plan-actions history-plan-actions">
+                  <view class="plan-action plan-action--view" @tap.stop="openDetail(item)">
+                    <text>查看计划</text>
+                  </view>
+                  <view class="plan-action plan-action--delete" @tap.stop="confirmDelete(item)">
+                    <text>删除</text>
+                  </view>
+                </view>
+              </view>
+            </view>
+          </view>
+        </template>
 
         <view v-if="loading" class="state-text"><text>正在加载...</text></view>
         <view v-else-if="hasMore && summaries.length > 0" class="load-more" @tap="loadMore">
@@ -69,7 +112,7 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import { onShow, onLoad } from '@dcloudio/uni-app'
 import NavBar from '@/components/nav-bar/nav-bar.vue'
 import { deleteStudyGoal, listMyGoals } from '@/api/studyGoal.js'
@@ -85,6 +128,18 @@ const loadingMore = ref(false)
 const initialized = ref(false)
 const deletingId = ref(null)
 
+const currentPlan = computed(() => (
+  summaries.value.find((item) => item.status === 'in_progress')
+  || summaries.value.find((item) => item.status === 'pending')
+  || summaries.value[0]
+  || null
+))
+
+const historyPlans = computed(() => {
+  const currentId = currentPlan.value?.id
+  return summaries.value.filter((item) => item.id !== currentId)
+})
+
 function statusLabel(status) {
   return statusText(status)
 }
@@ -92,6 +147,18 @@ function statusLabel(status) {
 function formatTime(value) {
   if (!value) return ''
   return String(value).replace('T', ' ').slice(0, 16)
+}
+
+function currentPlanNextAction(item) {
+  if (item.status === 'in_progress') return '继续执行计划中的任务'
+  if (item.status === 'pending') return '开始第一项执行任务'
+  return '查看计划完成情况'
+}
+
+function currentPlanActionLabel(item) {
+  if (item.status === 'in_progress') return '继续学习'
+  if (item.status === 'pending') return '开始学习'
+  return '查看计划'
 }
 
 async function fetchPage(pageNo, isMore) {
@@ -513,5 +580,216 @@ function goCreate() {
   bottom: calc(42rpx + env(safe-area-inset-bottom));
   padding: 16rpx 26rpx;
   box-shadow: 0 10rpx 22rpx rgba(61, 87, 137, 0.2);
+}
+
+/* 计划列表按“当前计划—历史计划”重新分层，减少信息同时争抢注意力 */
+.study-plan-list-page .content-inner {
+  padding: 18rpx 28rpx calc(170rpx + env(safe-area-inset-bottom));
+}
+
+.study-plan-list-page .section-card {
+  border-color: #E6EBE9;
+  border-radius: 18rpx;
+  box-shadow: none;
+}
+
+.study-plan-list-page .plan-section-heading {
+  margin: 20rpx 16rpx 14rpx;
+}
+
+.study-plan-list-page .section-title {
+  color: #263B3D;
+  font-size: 27rpx;
+  font-weight: 600;
+}
+
+.study-plan-list-page .current-plan-card {
+  padding: 26rpx 24rpx 24rpx;
+}
+
+.study-plan-list-page .current-plan-head {
+  align-items: flex-start;
+}
+
+.study-plan-list-page .current-plan-head .plan-title {
+  font-size: 30rpx;
+  line-height: 1.35;
+}
+
+.study-plan-list-page .current-plan-desc {
+  margin-top: 10rpx;
+  color: #687779;
+}
+
+.study-plan-list-page .current-progress-line {
+  margin-top: 22rpx;
+}
+
+.study-plan-list-page .progress-label {
+  flex-shrink: 0;
+  color: #819091;
+  font-size: 21rpx;
+}
+
+.study-plan-list-page .progress-fill {
+  background: #5B7F80;
+}
+
+.study-plan-list-page .progress-num {
+  color: #527677;
+}
+
+.study-plan-list-page .current-next {
+  margin-top: 20rpx;
+  padding: 18rpx 20rpx;
+  border-radius: 14rpx;
+  background: #F0F4F3;
+}
+
+.study-plan-list-page .current-next-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 5rpx;
+  min-width: 0;
+}
+
+.study-plan-list-page .current-next-label {
+  color: #5B7F80;
+  font-size: 20rpx;
+}
+
+.study-plan-list-page .current-next-title {
+  color: #263B3D;
+  font-size: 24rpx;
+  line-height: 1.4;
+}
+
+.study-plan-list-page .current-next-meta {
+  color: #7E8B8C;
+  font-size: 20rpx;
+}
+
+.study-plan-list-page .current-plan-schedule,
+.study-plan-list-page .history-plan-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 18rpx;
+  color: #839091;
+  font-size: 20rpx;
+}
+
+.study-plan-list-page .current-plan-schedule {
+  margin-top: 18rpx;
+}
+
+.study-plan-list-page .current-plan-btn {
+  width: 100%;
+  height: 78rpx;
+  margin-top: 20rpx;
+  border-radius: 14rpx;
+  background: #5B7F80;
+  font-size: 26rpx;
+}
+
+.study-plan-list-page .history-section {
+  margin-top: 28rpx;
+}
+
+.study-plan-list-page .history-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18rpx;
+  margin: 0 16rpx 14rpx;
+}
+
+.study-plan-list-page .history-sort {
+  display: flex;
+  align-items: center;
+  gap: 8rpx;
+  color: #7D8A8B;
+  font-size: 20rpx;
+}
+
+.study-plan-list-page .history-sort-chevron {
+  color: #97A3A3;
+  font-size: 22rpx;
+  line-height: 1;
+}
+
+.study-plan-list-page .history-count {
+  padding-left: 10rpx;
+  border-left: 1rpx solid #DCE3E1;
+  color: #526E70;
+}
+
+.study-plan-list-page .history-list {
+  padding: 0;
+  overflow: hidden;
+}
+
+.study-plan-list-page .history-plan {
+  padding: 24rpx;
+}
+
+.study-plan-list-page .history-plan + .history-plan {
+  border-top: 1rpx solid #EDF1F0;
+}
+
+.study-plan-list-page .history-plan-head {
+  align-items: flex-start;
+}
+
+.study-plan-list-page .history-plan .plan-title {
+  font-size: 27rpx;
+}
+
+.study-plan-list-page .history-plan .plan-desc {
+  margin-top: 9rpx;
+  color: #718082;
+}
+
+.study-plan-list-page .history-progress-line {
+  margin-top: 16rpx;
+}
+
+.study-plan-list-page .history-plan-meta {
+  margin-top: 14rpx;
+}
+
+.study-plan-list-page .history-plan-actions {
+  display: flex;
+  gap: 14rpx;
+  margin-top: 18rpx;
+}
+
+.plan-action {
+  flex: 1;
+  min-width: 0;
+  height: 62rpx;
+  border: 1rpx solid;
+  border-radius: 10rpx;
+  background: #FFFFFF;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22rpx;
+}
+
+.plan-action--view {
+  background: #FFFFFF;
+  border: 1rpx solid #5B7F80;
+  color: #527677;
+}
+
+.plan-action--delete {
+  background: #FFFFFF;
+  border: 1rpx solid #C77B73;
+  color: #B76760;
+}
+
+.study-plan-list-page .fab-create {
+  background: #5B7F80;
+  box-shadow: 0 10rpx 22rpx rgba(91, 127, 128, 0.2);
 }
 </style>
