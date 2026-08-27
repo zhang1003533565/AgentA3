@@ -21,6 +21,7 @@
           <textarea
             class="plan-input"
             v-model="planText"
+            @input="onPlanTextInput"
             placeholder="粘贴你的学习计划或目标描述，例如：30天学会Python爬虫，从零基础到完成一个简单爬虫项目..."
             placeholder-class="plan-placeholder"
             :maxlength="8000"
@@ -62,38 +63,60 @@
           <view class="section-card goal-card">
             <view class="goal-head">
               <text class="goal-badge">预览</text>
-              <text class="goal-title">{{ previewGoal.title }}</text>
+              <input class="goal-title-input" v-model="previewGoal.title" maxlength="120" />
             </view>
-            <text v-if="previewGoal.description" class="goal-desc">{{ previewGoal.description }}</text>
+            <textarea class="goal-desc-input" v-model="previewGoal.description" maxlength="500" placeholder="补充目标说明（可选）" />
+            <view class="date-settings">
+              <view class="date-setting">
+                <text class="date-label">开始日期</text>
+                <picker mode="date" :value="previewGoal.startDate" @change="changePreviewDate('startDate', $event)">
+                  <text class="date-value">{{ formatPlanDate(previewGoal.startDate) }}</text>
+                </picker>
+              </view>
+              <view class="date-setting">
+                <text class="date-label">目标日期</text>
+                <picker mode="date" :value="previewGoal.targetDate" @change="changePreviewDate('targetDate', $event)">
+                  <text class="date-value">{{ previewGoal.targetDate ? formatPlanDate(previewGoal.targetDate) : '不设置' }}</text>
+                </picker>
+              </view>
+            </view>
             <view class="goal-meta-row">
               <text class="goal-meta">共 {{ previewTasks.length }} 个任务</text>
               <text class="goal-meta-split">·</text>
               <text class="goal-meta">预计 {{ totalEstimatedDays }} 天</text>
+              <text class="goal-meta-split">·</text>
+              <text class="goal-meta">排至 {{ formatPlanDate(previewTasks[previewTasks.length - 1]?.plannedEndDate) }}</text>
             </view>
           </view>
 
           <view class="section-card task-table">
             <view class="table-header task-row">
               <text class="col-check">#</text>
-              <text class="col-name">任务</text>
+              <text class="col-name">任务（可编辑）</text>
               <text class="col-stage">阶段</text>
               <text class="col-days">天数</text>
               <text class="col-priority">优先级</text>
             </view>
-            <view class="task-row" v-for="task in previewTasks" :key="task.orderNum">
+            <view class="task-row task-row--editable" v-for="(task, index) in previewTasks" :key="task.orderNum">
               <text class="col-check">{{ task.orderNum }}</text>
               <view class="col-name">
-                <text class="task-name">{{ task.taskName }}</text>
-                <text v-if="task.description" class="task-desc">{{ task.description }}</text>
+                <input class="task-edit-input" v-model="task.taskName" maxlength="120" placeholder="任务名称" />
+                <input class="task-edit-desc" v-model="task.description" maxlength="500" placeholder="任务说明（可选）" />
               </view>
-              <text class="col-stage">{{ task.stage }}</text>
-              <text class="col-days">{{ task.estimatedDays }}天</text>
+              <input class="stage-edit-input" v-model="task.stage" maxlength="60" placeholder="阶段" />
+              <input class="days-edit-input" type="number" v-model="task.estimatedDays" @input="reschedulePreview" />
               <view class="col-priority">
-                <view class="priority-tag" :class="`priority-tag--${priorityLevel(task.priority)}`">
+                <view class="priority-tag" :class="`priority-tag--${priorityLevel(task.priority)}`" @tap="cyclePriority(task)">
                   <text>{{ task.priority }}</text>
                 </view>
               </view>
+              <view class="row-actions">
+                <text @tap="movePreviewTask(index, -1)">上移</text>
+                <text @tap="movePreviewTask(index, 1)">下移</text>
+                <text class="row-action--danger" @tap="removePreviewTask(index)">删除</text>
+              </view>
             </view>
+            <view class="add-task-row" @tap="addPreviewTask"><text>＋ 添加任务</text></view>
           </view>
 
           <view class="action-bar">
@@ -108,7 +131,7 @@
         <template v-if="phase === 'saved' && goalDetail">
           <view class="section-card goal-card">
             <view class="goal-head">
-              <text class="goal-badge goal-badge--done">进行中</text>
+              <text class="goal-badge goal-badge--done">{{ statusLabel }}</text>
               <text class="goal-title">{{ goalDetail.goal.title }}</text>
             </view>
             <text v-if="goalDetail.goal.description" class="goal-desc">{{ goalDetail.goal.description }}</text>
@@ -124,9 +147,20 @@
               <text class="goal-stat goal-stat--remain">剩余 {{ remainingCount }} 项</text>
               <text class="goal-status-text">{{ statusLabel }}</text>
             </view>
+            <view class="schedule-summary">
+              <text>计划开始 {{ formatPlanDate(goalDetail.goal.startDate) }}</text>
+              <text v-if="goalDetail.goal.targetDate">目标 {{ formatPlanDate(goalDetail.goal.targetDate) }}</text>
+            </view>
           </view>
 
           <view class="section-card filter-card">
+            <view
+              class="filter-tab"
+              :class="{ 'filter-tab--active': activeFilter === 'today' }"
+              @tap="activeFilter = 'today'"
+            >
+              <text>今日 {{ todayCount }}</text>
+            </view>
             <view
               class="filter-tab"
               :class="{ 'filter-tab--active': activeFilter === 'all' }"
@@ -173,6 +207,25 @@
                   <view class="priority-tag priority-tag--small" :class="`priority-tag--${priorityLevel(task.priority)}`">
                     <text>{{ task.priority }}</text>
                   </view>
+                  <text class="meta-text">{{ formatPlanDate(task.plannedStartDate) }}-{{ formatPlanDate(task.plannedEndDate) }}</text>
+                </view>
+                <slider
+                  class="task-progress-slider"
+                  :value="task.progressPercent"
+                  min="0"
+                  max="100"
+                  step="5"
+                  activeColor="#5C7A99"
+                  backgroundColor="#EEF1F7"
+                  block-size="16"
+                  @changing.stop="previewTaskProgress(task, $event)"
+                  @change.stop="changeTaskProgress(task, $event)"
+                />
+                <view class="task-controls">
+                  <picker :range="statusOptions" :value="statusIndex(task.status)" @change.stop="changeTaskStatus(task, $event)">
+                    <text class="status-picker">状态：{{ statusText(task.status) }}</text>
+                  </picker>
+                  <text class="postpone-link" @tap.stop="postponeTask(task)">延期 1 天</text>
                 </view>
               </view>
             </view>
@@ -196,8 +249,21 @@ import {
   decomposeStudyText,
   saveStudyGoal,
   updateStudyTaskCompletion,
+  updateStudyTaskProgress,
+  updateStudyTaskStatus,
+  postponeStudyTask,
   getStudyGoalDetail
 } from '@/api/studyGoal.js'
+import {
+  addPlanDays,
+  buildStudyGoalPayload,
+  formatPlanDate,
+  isPlanTaskToday,
+  normalizePlanTask,
+  schedulePlanTasks,
+  statusText,
+  todayDate
+} from '@/utils/studyPlan.js'
 
 const phase = ref('input') // input -> preview -> saved
 const planText = ref('')
@@ -209,6 +275,7 @@ const previewTasks = ref([])
 const goalDetail = ref(null)
 const activeFilter = ref('all')
 const togglingIds = ref([])
+const statusOptions = ['未开始', '进行中', '受阻', '已跳过', '已完成']
 
 const canDecompose = computed(() => Boolean(planText.value.trim()) || Boolean(chosenFile.value))
 
@@ -251,6 +318,7 @@ const totalEstimatedDays = computed(
 
 const filteredTasks = computed(() => {
   if (!goalDetail.value) return []
+  if (activeFilter.value === 'today') return goalDetail.value.tasks.filter((task) => isPlanTaskToday(task))
   if (activeFilter.value === 'pending') return goalDetail.value.tasks.filter((task) => !task.isCompleted)
   if (activeFilter.value === 'completed') return goalDetail.value.tasks.filter((task) => task.isCompleted)
   return goalDetail.value.tasks
@@ -261,23 +329,30 @@ const completedCount = computed(() =>
 )
 
 const remainingCount = computed(() =>
-  goalDetail.value ? goalDetail.value.tasks.length - completedCount.value : 0
+  goalDetail.value ? goalDetail.value.tasks.filter((task) => !task.isCompleted).length : 0
+)
+
+const todayCount = computed(() =>
+  goalDetail.value ? goalDetail.value.tasks.filter((task) => isPlanTaskToday(task)).length : 0
 )
 
 const progressPercent = computed(() => Math.max(0, Math.min(100, Number(goalDetail.value?.goal.progress) || 0)))
 
 const statusLabel = computed(() => {
-  const map = { pending: '未开始', in_progress: '进行中', completed: '已全部完成' }
-  return map[goalDetail.value?.goal.status] || ''
+  return statusText(goalDetail.value?.goal.status)
 })
 
 const emptyText = computed(() =>
-  activeFilter.value === 'completed' ? '还没有完成的任务' : activeFilter.value === 'pending' ? '没有剩余任务了' : '暂无任务'
+  activeFilter.value === 'completed' ? '还没有完成的任务' : activeFilter.value === 'pending' ? '没有剩余任务了' : activeFilter.value === 'today' ? '今天没有排期任务' : '暂无任务'
 )
 
 const emptySubText = computed(() =>
-  activeFilter.value === 'pending' ? '恭喜，该目标下的任务已全部完成' : '换个筛选条件看看'
+  activeFilter.value === 'pending' ? '恭喜，该目标下的任务已全部完成' : activeFilter.value === 'today' ? '可以查看全部任务或调整排期' : '换个筛选条件看看'
 )
+
+function onPlanTextInput(event) {
+  if (event?.detail?.value?.trim()) chosenFile.value = null
+}
 
 function chooseFile() {
   const choose = uni.chooseMessageFile || uni.chooseFile
@@ -294,6 +369,7 @@ function chooseFile() {
         return
       }
       chosenFile.value = { path: file.path, name, size: file.size }
+      planText.value = ''
     }
   })
 }
@@ -316,15 +392,9 @@ function startDecompose() {
         throw new Error('智能体没有返回有效任务')
       }
       previewGoal.value = { title: data.goal.title || '', description: data.goal.description || '' }
-      previewTasks.value = data.tasks.map((task, index) => ({
-        orderNum: index + 1,
-        taskName: task.taskName,
-        stage: task.stage || '',
-        estimatedDays: Number(task.estimatedDays) || 1,
-        priority: ['高', '中', '低'].includes(task.priority) ? task.priority : '中',
-        description: task.description || '',
-        isCompleted: false
-      }))
+      previewGoal.value.startDate = todayDate()
+      previewGoal.value.targetDate = ''
+      previewTasks.value = schedulePlanTasks(data.tasks.map((task, index) => normalizePlanTask(task, index)), todayDate())
       phase.value = 'preview'
     })
     .catch(() => {})
@@ -334,27 +404,31 @@ function startDecompose() {
 }
 
 function backToInput() {
+  if (phase.value === 'saved') {
+    planText.value = ''
+    chosenFile.value = null
+    previewGoal.value = null
+    previewTasks.value = []
+    goalDetail.value = null
+  }
   phase.value = 'input'
 }
 
 function confirmSave() {
   if (saving.value) return
+  if (!previewGoal.value?.title?.trim() || !previewTasks.value.length || previewTasks.value.some((task) => !task.taskName.trim())) {
+    uni.showToast({ title: '请补全目标标题和任务名称', icon: 'none' })
+    return
+  }
+  const scheduledTasks = schedulePlanTasks(previewTasks.value, previewGoal.value.startDate)
+  const lastEnd = scheduledTasks[scheduledTasks.length - 1].plannedEndDate
+  if (previewGoal.value.targetDate && lastEnd > previewGoal.value.targetDate) {
+    uni.showToast({ title: '预计排期超过目标日期，请调整任务天数', icon: 'none' })
+    return
+  }
+  previewTasks.value = scheduledTasks
   saving.value = true
-  saveStudyGoal({
-    goal: {
-      title: previewGoal.value.title,
-      description: previewGoal.value.description
-    },
-    tasks: previewTasks.value.map((task) => ({
-      taskName: task.taskName,
-      stage: task.stage,
-      estimatedDays: task.estimatedDays,
-      priority: task.priority,
-      orderNum: task.orderNum,
-      isCompleted: false,
-      description: task.description
-    }))
-  })
+  saveStudyGoal(buildStudyGoalPayload(previewGoal.value, scheduledTasks))
     .then((response) => {
       applyGoalDetail(response?.data)
       activeFilter.value = 'all'
@@ -372,6 +446,7 @@ function toggleTask(task) {
   const nextValue = !task.isCompleted
   // 乐观更新：勾选立即生效，失败回滚
   task.isCompleted = nextValue
+  task.progressPercent = nextValue ? 100 : 0
   task.status = nextValue ? 'completed' : 'pending'
   togglingIds.value.push(task.id)
 
@@ -391,6 +466,122 @@ function toggleTask(task) {
     })
 }
 
+function previewTaskProgress(task, event) {
+  task.progressPercent = Number(event?.detail?.value ?? event?.target?.value ?? task.progressPercent)
+}
+
+function changeTaskProgress(task, event) {
+  if (!task.id || togglingIds.value.includes(task.id)) return
+  const previous = Number(task.progressPercent) || 0
+  const next = Math.max(0, Math.min(100, Number(event?.detail?.value ?? previous)))
+  task.progressPercent = next
+  task.isCompleted = next >= 100
+  task.status = next >= 100 ? 'completed' : next > 0 ? 'in_progress' : 'pending'
+  togglingIds.value.push(task.id)
+  updateStudyTaskProgress(task.id, next)
+    .then((response) => applyGoalProgress(response?.data))
+    .catch(() => {
+      task.progressPercent = previous
+      task.isCompleted = previous >= 100
+    })
+    .finally(() => {
+      togglingIds.value = togglingIds.value.filter((id) => id !== task.id)
+    })
+}
+
+function statusIndex(status) {
+  return ['pending', 'in_progress', 'blocked', 'skipped', 'completed'].indexOf(status)
+}
+
+function changeTaskStatus(task, event) {
+  if (!task.id || togglingIds.value.includes(task.id)) return
+  const statuses = ['pending', 'in_progress', 'blocked', 'skipped', 'completed']
+  const nextStatus = statuses[Number(event?.detail?.value) || 0]
+  const previous = { status: task.status, progressPercent: task.progressPercent, isCompleted: task.isCompleted }
+  task.status = nextStatus
+  if (nextStatus === 'completed') {
+    task.progressPercent = 100
+    task.isCompleted = true
+  } else {
+    task.isCompleted = false
+    if (nextStatus === 'pending' && task.progressPercent >= 100) task.progressPercent = 0
+  }
+  togglingIds.value.push(task.id)
+  updateStudyTaskStatus(task.id, nextStatus)
+    .then((response) => applyGoalProgress(response?.data))
+    .catch(() => Object.assign(task, previous))
+    .finally(() => {
+      togglingIds.value = togglingIds.value.filter((id) => id !== task.id)
+    })
+}
+
+function postponeTask(task) {
+  if (!task.id || togglingIds.value.includes(task.id) || task.isCompleted) return
+  togglingIds.value.push(task.id)
+  postponeStudyTask(task.id, 1)
+    .then((response) => applyGoalDetail(response?.data))
+    .catch(() => {})
+    .finally(() => {
+      togglingIds.value = togglingIds.value.filter((id) => id !== task.id)
+    })
+}
+
+function applyGoalProgress(goal) {
+  if (!goalDetail.value || !goal) return
+  goalDetail.value.goal.progress = goal.progress
+  goalDetail.value.goal.status = goal.status
+}
+
+function changePreviewDate(field, event) {
+  const value = event?.detail?.value
+  if (!value || !previewGoal.value) return
+  previewGoal.value[field] = value
+  if (field === 'startDate') {
+    previewTasks.value = schedulePlanTasks(previewTasks.value, value)
+  }
+}
+
+function reschedulePreview() {
+  if (previewGoal.value) previewTasks.value = schedulePlanTasks(previewTasks.value, previewGoal.value.startDate)
+}
+
+function addPreviewTask() {
+  previewTasks.value.push({
+    orderNum: previewTasks.value.length + 1,
+    taskName: '',
+    stage: '',
+    estimatedDays: 1,
+    priority: '中',
+    description: '',
+    progressPercent: 0,
+    isCompleted: false
+  })
+  reschedulePreview()
+}
+
+function removePreviewTask(index) {
+  if (previewTasks.value.length <= 1) {
+    uni.showToast({ title: '至少保留一个任务', icon: 'none' })
+    return
+  }
+  previewTasks.value.splice(index, 1)
+  reschedulePreview()
+}
+
+function movePreviewTask(index, offset) {
+  const nextIndex = index + offset
+  if (nextIndex < 0 || nextIndex >= previewTasks.value.length) return
+  const tasks = [...previewTasks.value]
+  const [current] = tasks.splice(index, 1)
+  tasks.splice(nextIndex, 0, current)
+  previewTasks.value = schedulePlanTasks(tasks, previewGoal.value?.startDate)
+}
+
+function cyclePriority(task) {
+  const priorities = ['高', '中', '低']
+  task.priority = priorities[(priorities.indexOf(task.priority) + 1) % priorities.length]
+}
+
 function applyGoalDetail(data) {
   goalDetail.value = {
     goal: {
@@ -398,19 +589,14 @@ function applyGoalDetail(data) {
       title: data?.goal?.title || '',
       description: data?.goal?.description || '',
       progress: Number(data?.goal?.progress) || 0,
-      status: data?.goal?.status || 'pending'
+      status: data?.goal?.status || 'pending',
+      startDate: data?.goal?.startDate || '',
+      targetDate: data?.goal?.targetDate || ''
     },
     tasks: Array.isArray(data?.tasks)
       ? data.tasks.map((task, index) => ({
           id: task.id,
-          orderNum: index + 1,
-          taskName: task.taskName,
-          stage: task.stage || '',
-          estimatedDays: task.estimatedDays,
-          priority: task.priority || '中',
-          description: task.description || '',
-          isCompleted: Boolean(task.isCompleted),
-          status: task.status || 'pending'
+          ...normalizePlanTask(task, index)
         }))
       : []
   }
@@ -686,6 +872,56 @@ function priorityLevel(priority) {
   flex: 1;
 }
 
+.goal-title-input {
+  flex: 1;
+  min-width: 0;
+  height: 54rpx;
+  padding: 0 14rpx;
+  border: 1rpx solid #DADDE8;
+  border-radius: 10rpx;
+  color: #172033;
+  font-size: 29rpx;
+  font-weight: 600;
+}
+
+.goal-desc-input {
+  width: 100%;
+  height: 86rpx;
+  margin-top: 16rpx;
+  padding: 14rpx 16rpx;
+  border: 1rpx solid #E2E5ED;
+  border-radius: 10rpx;
+  box-sizing: border-box;
+  color: #5C667A;
+  font-size: 23rpx;
+}
+
+.date-settings {
+  display: flex;
+  gap: 16rpx;
+  margin-top: 18rpx;
+}
+
+.date-setting {
+  flex: 1;
+  min-width: 0;
+  padding: 14rpx 16rpx;
+  border-radius: 12rpx;
+  background: #F6F8FC;
+}
+
+.date-label {
+  display: block;
+  margin-bottom: 6rpx;
+  color: #8B93A6;
+  font-size: 21rpx;
+}
+
+.date-value {
+  color: #3D5773;
+  font-size: 23rpx;
+}
+
 .goal-desc {
   display: block;
   margin-top: 12rpx;
@@ -733,6 +969,59 @@ function priorityLevel(priority) {
   align-items: center;
   gap: 14rpx;
   padding: 22rpx 0;
+}
+
+.task-row--editable {
+  flex-wrap: wrap;
+  align-items: flex-start;
+}
+
+.task-edit-input,
+.stage-edit-input,
+.days-edit-input {
+  width: 100%;
+  height: 48rpx;
+  padding: 0 10rpx;
+  border: 1rpx solid #E0E4EC;
+  border-radius: 8rpx;
+  box-sizing: border-box;
+  color: #233047;
+  font-size: 23rpx;
+}
+
+.task-edit-desc {
+  width: 100%;
+  color: #8B93A6;
+  font-size: 20rpx;
+}
+
+.stage-edit-input {
+  width: 120rpx;
+}
+
+.days-edit-input {
+  width: 70rpx;
+}
+
+.row-actions {
+  width: calc(100% - 62rpx);
+  margin-left: 62rpx;
+  display: flex;
+  gap: 22rpx;
+  color: #5C7A99;
+  font-size: 21rpx;
+}
+
+.row-action--danger {
+  color: #B04A44;
+}
+
+.add-task-row {
+  padding: 22rpx 0 14rpx;
+  border-top: 1rpx dashed #E4E7EF;
+  color: #5C7A99;
+  text-align: center;
+  font-size: 23rpx;
 }
 
 .col-check {
@@ -968,12 +1257,45 @@ function priorityLevel(priority) {
 .task-meta {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 14rpx;
 }
 
 .meta-text {
   font-size: 21rpx;
   color: #8B93A6;
+}
+
+.schedule-summary {
+  display: flex;
+  gap: 24rpx;
+  margin-top: 18rpx;
+  color: #8B93A6;
+  font-size: 21rpx;
+}
+
+.task-progress-slider {
+  margin: 2rpx 0 0;
+  padding: 0;
+}
+
+.task-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: #8B93A6;
+  font-size: 21rpx;
+}
+
+.status-picker,
+.postpone-link {
+  padding: 6rpx 12rpx;
+  border-radius: 999rpx;
+  background: #F2F5F9;
+}
+
+.postpone-link {
+  color: #5C7A99;
 }
 
 .empty-state {

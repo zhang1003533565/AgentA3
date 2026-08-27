@@ -80,8 +80,35 @@ export function updateStudyTaskCompletion(taskId, isCompleted) {
   })
 }
 
+/** 更新任务部分完成进度（0-100）。 */
+export function updateStudyTaskProgress(taskId, progressPercent) {
+  return request({
+    url: `/api/study-goal/tasks/${taskId}/progress`,
+    method: 'PUT',
+    data: { progressPercent }
+  })
+}
+
+/** 更新任务状态。 */
+export function updateStudyTaskStatus(taskId, status) {
+  return request({
+    url: `/api/study-goal/tasks/${taskId}/status`,
+    method: 'PUT',
+    data: { status }
+  })
+}
+
+/** 延后指定任务及其之后的未完成任务。 */
+export function postponeStudyTask(taskId, days = 1) {
+  return request({
+    url: `/api/study-goal/tasks/${taskId}/postpone`,
+    method: 'POST',
+    data: { days }
+  })
+}
+
 /**
- * 查询目标详情；filter 支持 all / pending（剩余）/ completed（已完成）
+ * 查询目标详情；filter 支持 all / today / pending（剩余）/ completed（已完成）
  */
 export function getStudyGoalDetail(goalId, filter = 'all') {
   return request({ url: `/api/study-goal/${goalId}`, method: 'GET', data: { filter } })
