@@ -926,6 +926,39 @@
 			]
 		},
 		{
+			"root": "subpackage_learning/pythonOnlineIDE",
+			"pages": [
+				{
+					"path": "questionBank/questionBank",
+					"style": {
+						"navigationBarTitleText": "题库",
+						"navigationStyle": "custom",
+						"navigationBarBackgroundColor": "#FFFFFF",
+						"navigationBarTextStyle": "black",
+						"enablePullDownRefresh": true
+					}
+				},
+				{
+					"path": "problemDetail/problemDetail",
+					"style": {
+						"navigationBarTitleText": "题目详情",
+						"navigationStyle": "custom",
+						"navigationBarBackgroundColor": "#FFFFFF",
+						"navigationBarTextStyle": "black"
+					}
+				},
+				{
+					"path": "practice/practice",
+					"style": {
+						"navigationBarTitleText": "Python 在线编程",
+						"navigationStyle": "custom",
+						"navigationBarBackgroundColor": "#FFFFFF",
+						"navigationBarTextStyle": "black"
+					}
+				}
+			]
+		},
+		{
 			"root": "subpackage_meeting",
 			"pages": [
 				{
@@ -1193,7 +1226,8 @@
 				"subpackage_ai",
 				"subpackage_meeting",
 				"subpackage_notice",
-				"subpackage_learning"
+				"subpackage_learning",
+				"subpackage_learning_pythonOnlineIDE"
 			]
 		}
 	},

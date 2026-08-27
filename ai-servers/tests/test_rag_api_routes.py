@@ -204,7 +204,7 @@ class RagApiRoutesTest(unittest.TestCase):
 
         self.assertIsNotNone(plan)
         self.assertEqual("call_tool", plan.action)
-        self.assertEqual("generated_export_tools", plan.tool_name)
+        self.assertEqual("text_to_file_tool", plan.tool_name)
         self.assertEqual("rules", plan.route_mode)
 
     def test_second_source_option_is_expanded_to_explicit_model_authorization(self):
@@ -377,7 +377,7 @@ class RagApiRoutesTest(unittest.TestCase):
         self.assertEqual([], decorated.attachments)
         self.assertEqual("output_format_not_selected", decorated.outputMeta["generatedExports"]["reason"])
         self.assertEqual(
-            ["docx", "xlsx", "md", "pptx"],
+            ["md", "txt", "docx"],
             [item["outputType"] for item in decorated.outputMeta["followUpActions"]],
         )
 
@@ -1413,6 +1413,20 @@ class RagApiRoutesTest(unittest.TestCase):
         )
 
         self.assertEqual(400, response.status_code)
+
+    def test_admin_agent_console_can_directly_test_registered_internal_visual_agent(self):
+        request = self._rag_routes.RagQueryRequest(
+            input="识别图片",
+            agentName="vision_agent",
+            metadata={"testFrom": "admin_agent_console"},
+        )
+        ordinary_request = self._rag_routes.RagQueryRequest(
+            input="识别图片",
+            agentName="vision_agent",
+        )
+
+        self.assertEqual("vision_agent", self._rag_routes._normalize_requested_agent(request))
+        self.assertIsNone(self._rag_routes._normalize_requested_agent(ordinary_request))
 
     def test_learning_workflow_internal_agents_cannot_be_directly_requested(self):
         for requested_agent in ("learning_path_agent", "Python 学习路径智能体"):

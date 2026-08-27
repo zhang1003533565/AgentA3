@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Alert, Button, Card, Drawer, Empty, Input, Segmented, Select, Space, Switch, Table, Tabs, Tag, Typography, message } from 'antd'
-import { CheckCircleOutlined, ExclamationCircleOutlined, ReloadOutlined, RobotOutlined, SaveOutlined, SettingOutlined } from '@ant-design/icons'
+import { Alert, Button, Card, Drawer, Empty, Input, Modal, Segmented, Select, Space, Switch, Table, Tabs, Tag, Typography, Upload, message } from 'antd'
+import { CheckCircleOutlined, DownloadOutlined, ExclamationCircleOutlined, PlusOutlined, ReloadOutlined, RobotOutlined, SaveOutlined, SettingOutlined } from '@ant-design/icons'
 import { getRagAgents, runRagQuery } from '../../../api/rag'
+import { API_BASE_URL } from '../../../config/apiBase'
 import { getSystemConfigList, upsertSystemConfig } from '../../../api/systemConfig'
 import {
   AGENT_ENABLED_CONFIG_PREFIX,
@@ -27,6 +28,80 @@ import {
 import './AgentSettings.css'
 
 const { Text, Title } = Typography
+const TOOL_TEST_IMAGE_MAX_BYTES = 10 * 1024 * 1024
+
+const TOOL_TEST_PROMPTS = {
+  recognize_image_tool: '请识别我上传的图片，概括主要内容并读取其中清晰可见的文字。',
+  generate_image_tool: '请生成一张简洁的智慧校园首页插图，浅色背景，蓝灰色调，不包含文字。',
+  generate_mind_map_image_tool: '请生成一张“校园二手交易流程”思维导图图片，包含发布、沟通、线下交易三个分支。',
+  generate_flowchart_image_tool: '请生成校园二手商品发布审核流程图图片。',
+  generate_activity_image_tool: '请生成学生、管理员、平台三方参与的二手交易活动图图片。',
+  generate_architecture_image_tool: '请生成校园二手交易平台的前端、后端、MySQL、Redis系统架构图图片。',
+  generate_knowledge_graph_image_tool: '请生成学生、商品、分类、订单之间关系的知识图谱图片。',
+  generate_ppt_image_tool: '请生成一张智慧校园主题的 PPT 封面配图，16:9，蓝灰色，留出标题区域。',
+  text_to_sql: '请统计当前系统中的二手商品数量，并返回查询结果。',
+  java_schedule_api: '请查询我本周的课程安排。',
+  java_activity_api: '请查询当前可报名的校园活动。',
+  java_meeting_api: '请查询我的会议列表和会议状态。',
+  java_canteen_api: '请查询食堂档口和菜品信息。',
+  java_facility_api: '请查询校园设施及其位置信息。',
+  java_secondhand_api: '请查询当前在售的二手商品。',
+  tool_capability_query: '请列出当前系统已经启用并且可以调用的工具能力。',
+  generated_export_tools: '请把以下内容整理为 Markdown 和 Word 文件并提供下载：校园二手交易应当当面验货、确认商品状态后再完成交易。',
+  text_to_file_tool: '请把以下内容按原文转成Markdown文件：校园二手交易应当当面验货、确认商品状态后再完成交易。',
+  markdown_export_tool: '请把以下内容导出为 Markdown 文件：校园二手交易测试内容。',
+  docx_export_tool: '请把以下内容导出为 Word 文档：校园二手交易测试内容。',
+  excel_export_tool: '请把以下清单导出为 Excel：商品A，分类教材；商品B，分类数码。',
+  pptx_export_tool: '请把以下内容生成并导出为 PPTX：校园二手交易平台介绍，包括发布、沟通、线下交易。',
+  content_archive_tool: '请把以下内容分别导出为 Markdown 和 Word，并将所有附件打包成 ZIP：校园二手交易测试内容。',
+  diagram_source_export_tool: '请生成校园二手交易流程的 Mermaid 流程图，并导出图表源码文件。',
+}
+
+const getToolTestPrompt = (tool) => TOOL_TEST_PROMPTS[tool?.name]
+  || `请执行${tool?.zhName || tool?.name || '当前工具'}测试，并返回可验证的输出。${tool?.trigger ? `触发要求：${tool.trigger}` : ''}`
+
+const TEXT_TO_FILE_FORMAT_OPTIONS = [
+  { value: 'md', label: 'Markdown (.md)' },
+  { value: 'txt', label: '纯文本 (.txt)' },
+  { value: 'docx', label: 'Word (.docx)' },
+]
+const TEXT_TO_FILE_SAMPLE_CONTENT = '校园二手交易应当当面验货、确认商品状态后再完成交易。'
+const TEXT_TO_FILE_PROMPT_BY_FORMAT = {
+  md: `请把以下内容按原文转成Markdown文件：${TEXT_TO_FILE_SAMPLE_CONTENT}`,
+  txt: `请把以下内容按原文转成纯文本文件：${TEXT_TO_FILE_SAMPLE_CONTENT}`,
+  docx: `请把以下内容按原文转成Word文件：${TEXT_TO_FILE_SAMPLE_CONTENT}`,
+}
+
+const readToolTestImage = (file) => new Promise((resolve, reject) => {
+  const reader = new FileReader()
+  reader.onload = () => resolve(String(reader.result || ''))
+  reader.onerror = () => reject(new Error('图片读取失败'))
+  reader.readAsDataURL(file)
+})
+
+const responseContainsTool = (response, toolName) => {
+  if (!response || !toolName) return false
+  const values = []
+  const visit = (value, depth = 0) => {
+    if (depth > 6 || value === null || value === undefined) return
+    if (typeof value === 'string') {
+      values.push(value)
+      return
+    }
+    if (Array.isArray(value)) {
+      value.forEach((item) => visit(item, depth + 1))
+      return
+    }
+    if (typeof value === 'object') {
+      Object.entries(value).forEach(([key, item]) => {
+        if (['toolName', 'tool', 'executedTool'].includes(key)) values.push(String(item || ''))
+        visit(item, depth + 1)
+      })
+    }
+  }
+  visit({ trace: response.trace, metadata: response.metadata, attachments: response.attachments })
+  return values.some((value) => value === toolName)
+}
 const getToolDisplayName = (tool) => {
   if (!tool) return ''
   if (tool.displayName) return tool.displayName
@@ -178,7 +253,14 @@ function AgentSettings() {
   const [activeTab, setActiveTab] = useState('overview')
   const [leaderObjectType, setLeaderObjectType] = useState('all')
   const [leaderToolFilter, setLeaderToolFilter] = useState('all')
+  const [selectedToolKeys, setSelectedToolKeys] = useState([])
   const [runtimeAgentFilter, setRuntimeAgentFilter] = useState('all')
+  const [toolTestName, setToolTestName] = useState('')
+  const [toolTestInput, setToolTestInput] = useState('')
+  const [toolTestOutputType, setToolTestOutputType] = useState('')
+  const [toolTestImages, setToolTestImages] = useState([])
+  const [toolTestLoading, setToolTestLoading] = useState(false)
+  const [toolTestResult, setToolTestResult] = useState(null)
 
   const fetchData = useCallback(async () => {
     setLoading(true)
@@ -319,8 +401,10 @@ function AgentSettings() {
         item.name === toolName ? { ...item, enabled } : item
       )))
       message.success(enabled ? '工具已开启，Leader 可调用' : '工具已关闭，Leader 不会调用')
+      return true
     } catch (error) {
       message.error(error.message || '工具开关保存失败')
+      return false
     } finally {
       setSavingKey('')
     }
@@ -352,6 +436,55 @@ function AgentSettings() {
       setSavingKey('')
     }
   }, [draftToolBindings])
+
+  const buildToolImpactText = useCallback((record) => {
+    const lines = []
+    if (record.name === 'generated_export_tools') {
+      lines.push('这是内容整理总开关，关闭后 Leader 不会调用导出整理能力，自动附件整理也会停止。')
+    }
+    if (record.boundAgent) {
+      const boundAgent = agents.find((item) => item.name === record.boundAgent)
+      lines.push(`绑定智能体：${boundAgent?.role || record.boundAgent}，其启用状态会影响本工具可用性。`)
+    }
+    if (record.trigger) {
+      lines.push(`触发条件：${record.trigger}`)
+    }
+    return lines.join('\n')
+  }, [agents])
+
+  const handleToolToggleChange = useCallback((record, checked) => {
+    if (checked) {
+      saveToolEnabled(record.name, true)
+      return
+    }
+    Modal.confirm({
+      title: '确认关闭工具',
+      content: buildToolImpactText(record) || '关闭后 Leader 将不再调用该工具。',
+      okText: '确认关闭',
+      cancelText: '取消',
+      onOk: () => saveToolEnabled(record.name, false),
+    })
+  }, [saveToolEnabled, buildToolImpactText])
+
+  const bulkSetToolsEnabled = useCallback(async (enabled) => {
+    const names = [...selectedToolKeys]
+    if (!names.length) return
+    Modal.confirm({
+      title: enabled ? '批量开启工具' : '批量关闭工具',
+      content: `将对选中的 ${names.length} 个工具执行${enabled ? '开启' : '关闭'}。`,
+      okText: '确认',
+      cancelText: '取消',
+      onOk: async () => {
+        let failed = 0
+        for (const name of names) {
+          const ok = await saveToolEnabled(name, enabled)
+          if (!ok) failed += 1
+        }
+        message.success(failed ? `已${enabled ? '开启' : '关闭'} ${names.length - failed}/${names.length} 个工具，${failed} 个失败` : `已${enabled ? '开启' : '关闭'} ${names.length} 个工具`)
+        setSelectedToolKeys([])
+      },
+    })
+  }, [selectedToolKeys, saveToolEnabled])
 
   const saveToolRetrievalProfile = useCallback(async (tool) => {
     const text = draftToolRetrievalProfiles[tool.name] || retrievalProfileText(tool, tool.retrievalProfile)
@@ -477,6 +610,154 @@ function AgentSettings() {
     configuredTools.forEach((tool) => map.set(tool.name, tool))
     return Array.from(map.values())
   }, [configuredLeaderTools, configuredTools])
+
+  const selectedToolTest = useMemo(
+    () => allConfiguredTools.find((tool) => tool.name === toolTestName) || null,
+    [allConfiguredTools, toolTestName]
+  )
+
+  const toolTestOptions = useMemo(() => allConfiguredTools.map((tool) => ({
+    value: tool.name,
+    label: `${tool.zhName || tool.name} · ${tool.name}`,
+    disabled: tool.enabled === false,
+  })), [allConfiguredTools])
+
+  const selectToolForTest = useCallback((name) => {
+    const tool = allConfiguredTools.find((item) => item.name === name)
+    setToolTestName(name)
+    setToolTestInput(getToolTestPrompt(tool))
+    setToolTestImages([])
+    setToolTestResult(null)
+    setToolTestOutputType(tool?.name === 'text_to_file_tool' ? 'md' : '')
+  }, [allConfiguredTools])
+
+  const beforeToolTestImageUpload = useCallback(async (file) => {
+    if (!file.type?.startsWith('image/')) {
+      message.error('只能上传图片文件')
+      return Upload.LIST_IGNORE
+    }
+    if (file.size > TOOL_TEST_IMAGE_MAX_BYTES) {
+      message.error('图片不能超过 10MB')
+      return Upload.LIST_IGNORE
+    }
+    try {
+      const dataUrl = await readToolTestImage(file)
+      setToolTestImages([{
+        uid: file.uid,
+        name: file.name,
+        status: 'done',
+        url: dataUrl,
+        thumbUrl: dataUrl,
+      }])
+    } catch (error) {
+      message.error(error.message || '图片读取失败')
+    }
+    return Upload.LIST_IGNORE
+  }, [])
+
+  const runToolTest = useCallback(async () => {
+    if (!selectedToolTest) {
+      message.warning('请先选择工具')
+      return
+    }
+    if (!toolTestInput.trim()) {
+      message.warning('请输入测试内容')
+      return
+    }
+    if (selectedToolTest.name === 'recognize_image_tool' && !toolTestImages.length) {
+      message.warning('图片识别工具需要先上传测试图片')
+      return
+    }
+    if (selectedToolTest.invocation === 'unwired' || selectedToolTest.status === 'registered') {
+      setToolTestResult({
+        status: 'unavailable',
+        message: '该工具目前只完成注册，尚未接入可执行链路。',
+      })
+      return
+    }
+
+    const startedAt = performance.now()
+    setToolTestLoading(true)
+    setToolTestResult(null)
+    try {
+      const payload = {
+        input: toolTestInput.trim(),
+        agentName: 'leader_agent',
+        intent: 'campus_search',
+        metadata: {
+          testFrom: 'admin_tool_console',
+          expectedToolName: selectedToolTest.name,
+        },
+      }
+      const testedTextModel = llmModelOptions.find((option) => option.modality === 'text' && option.isDefault)
+        || llmModelOptions.find((option) => option.modality === 'text')
+      if (testedTextModel) payload.llmModel = testedTextModel.value
+      if (toolTestImages.length) payload.imageDataUrls = toolTestImages.map((item) => item.url)
+      const res = await runRagQuery(payload)
+      const durationMs = Math.round(performance.now() - startedAt)
+      const matched = responseContainsTool(res.data, selectedToolTest.name)
+      setToolTestResult({
+        status: matched ? 'success' : 'mismatch',
+        matched,
+        durationMs,
+        request: payload,
+        response: res.data,
+      })
+      if (matched) message.success(`${selectedToolTest.zhName || selectedToolTest.name}测试通过`)
+      else message.warning('请求执行成功，但 trace 中未确认目标工具被调用')
+    } catch (error) {
+      setToolTestResult({
+        status: 'error',
+        durationMs: Math.round(performance.now() - startedAt),
+        message: error.message || '工具调用失败',
+      })
+      message.error(error.message || '工具调用失败')
+    } finally {
+      setToolTestLoading(false)
+    }
+  }, [selectedToolTest, toolTestImages, toolTestInput, llmModelOptions])
+
+  const downloadToolTestAttachment = useCallback(async (item) => {
+    const hideLoading = message.loading('正在准备下载文件...', 0)
+    try {
+      if (!item?.storageKey || !item?.internalCapability) {
+        hideLoading()
+        message.warning('附件缺少下载凭据，请重新运行测试')
+        return
+      }
+      const fileName = item.fileName || item.name || item.type || 'ai-export'
+      const token = localStorage.getItem('token') || ''
+      const url = `${API_BASE_URL}/api/ai/rag/export?storageKey=${encodeURIComponent(item.storageKey)}&capability=${encodeURIComponent(item.internalCapability)}&filename=${encodeURIComponent(fileName)}`
+      const response = await fetch(url, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      })
+      if (!response.ok) {
+        let detail = `下载失败(${response.status})`
+        try {
+          const text = await response.text()
+          const parsed = text ? JSON.parse(text) : null
+          detail = parsed?.msg || parsed?.message || parsed?.detail || detail
+        } catch (parseError) {
+          // keep status fallback
+        }
+        throw new Error(detail)
+      }
+      const blob = await response.blob()
+      const objectUrl = window.URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = objectUrl
+      link.download = fileName
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      window.setTimeout(() => window.URL.revokeObjectURL(objectUrl), 1000)
+      hideLoading()
+      message.success(`已开始下载 ${fileName}`)
+    } catch (error) {
+      hideLoading()
+      message.error(error.message || '文件下载失败')
+    }
+  }, [])
 
   const modelColumns = useMemo(() => [
     {
@@ -721,7 +1002,7 @@ function AgentSettings() {
     {
       title: '开关',
       dataIndex: 'enabled',
-      width: 100,
+      width: 80,
       render: (value, record) => (
         <Switch
           checked={record.configurable === false || value !== false}
@@ -729,31 +1010,31 @@ function AgentSettings() {
           loading={savingKey === `tool:${record.name}`}
           checkedChildren="开"
           unCheckedChildren="关"
-          onChange={(checked) => saveToolEnabled(record.name, checked)}
+          onChange={(checked) => handleToolToggleChange(record, checked)}
         />
       ),
     },
     {
       title: '工具',
       dataIndex: 'name',
-      width: 300,
+      width: 170,
       render: (value, record) => (
         <Space direction="vertical" size={4}>
-          <Tag color={record.category === 'campus_service' ? 'green' : 'cyan'}>{getToolDisplayName(record)}</Tag>
-          <Text type="secondary">{getToolCategoryLabel(record.category)}</Text>
+          <Tag color={record.category === 'campus_service' ? 'green' : 'cyan'}>{record.zhName || getToolDisplayName(record)}</Tag>
+          <Text type="secondary" style={{ fontSize: 12 }}>{record.name}</Text>
         </Space>
       ),
     },
     {
       title: '输出',
       dataIndex: 'outputs',
-      width: 190,
+      width: 130,
       render: renderOutputs,
     },
     {
       title: '绑定智能体',
       dataIndex: 'boundAgent',
-      width: 330,
+      width: 270,
       render: (value, record) => {
         const current = draftToolBindings[record.name] !== undefined ? draftToolBindings[record.name] : (value || '')
         const saved = toolBindings[record.name] !== undefined ? toolBindings[record.name] : (value || '')
@@ -781,7 +1062,7 @@ function AgentSettings() {
                   </div>
                 )}
                 popupMatchSelectWidth={false}
-                style={{ width: 200 }}
+                style={{ width: 175 }}
                 onChange={(selected) => setDraftToolBindings((prev) => ({ ...prev, [record.name]: selected || '' }))}
               />
               <Button
@@ -801,20 +1082,20 @@ function AgentSettings() {
       },
     },
     {
-      title: '触发条件',
-      dataIndex: 'trigger',
-      width: 320,
-      ellipsis: true,
-    },
-    {
       title: '说明',
       dataIndex: 'purpose',
-      ellipsis: true,
+      width: 170,
+      ellipsis: { showTitle: false },
+      render: (value, record) => (
+        <span title={`${value || ''}${record.trigger ? `\n触发：${record.trigger}` : ''}`}>
+          {value || '-'}
+        </span>
+      ),
     },
     {
       title: '检索说明（可编辑）',
       dataIndex: 'retrievalProfile',
-      width: 180,
+      width: 220,
       render: (value, record) => {
         return (
           <Button icon={<SettingOutlined />} onClick={() => openRetrievalDrawer(record)}>
@@ -823,7 +1104,7 @@ function AgentSettings() {
         )
       },
     },
-  ], [openRetrievalDrawer, saveToolEnabled, saveToolBinding, savingKey, agents, toolBindingOptions, draftToolBindings, toolBindings])
+  ], [openRetrievalDrawer, handleToolToggleChange, saveToolBinding, savingKey, agents, toolBindingOptions, draftToolBindings, toolBindings])
 
   const questionAgentOptions = useMemo(() => agents.map((agent) => ({
     value: agent.name,
@@ -1082,16 +1363,209 @@ function AgentSettings() {
                       onChange={setLeaderToolFilter}
                     />
                   </div>
+                  {selectedToolKeys.length > 0 && (
+                    <Space style={{ marginBottom: 8 }} size={8}>
+                      <Text type="secondary">已选 {selectedToolKeys.length} 项</Text>
+                      <Button size="small" onClick={() => bulkSetToolsEnabled(true)}>批量开启</Button>
+                      <Button size="small" danger onClick={() => bulkSetToolsEnabled(false)}>批量关闭</Button>
+                      <Button size="small" type="text" onClick={() => setSelectedToolKeys([])}>取消选择</Button>
+                    </Space>
+                  )}
                   <Table
                     className="agent-settings-clean-table"
                     rowKey="name"
                     loading={loading}
                     columns={leaderToolColumns}
                     dataSource={filteredLeaderTools}
-                    pagination={false}
+                    rowSelection={{
+                      selectedRowKeys: selectedToolKeys,
+                      onChange: setSelectedToolKeys,
+                    }}
+                    pagination={{ pageSize: 8 }}
                     size="middle"
-                    scroll={{ x: 1080 }}
                   />
+                </div>
+              ),
+            },
+            {
+              key: 'tool-test',
+              label: '工具测试',
+              children: (
+                <div className="agent-settings-tool-test">
+                  <section className="agent-settings-tool-test-input">
+                    <div className="agent-settings-tool-test-heading">
+                      <div>
+                        <Title level={4}>单工具链路测试</Title>
+                        <Text type="secondary">按工具类型填写测试材料，并检查实际输出和调用 trace。</Text>
+                      </div>
+                    </div>
+
+                    <label className="agent-settings-field-label">测试工具</label>
+                    <Select
+                      value={toolTestName || undefined}
+                      options={toolTestOptions}
+                      placeholder="选择需要测试的工具"
+                      showSearch
+                      optionFilterProp="label"
+                      onChange={selectToolForTest}
+                    />
+
+                    {selectedToolTest ? (
+                      <div className="agent-settings-tool-test-context">
+                        <Space size={[6, 6]} wrap>
+                          <Tag color="cyan">{getToolDisplayName(selectedToolTest)}</Tag>
+                          <Tag>{getToolCategoryLabel(selectedToolTest.category)}</Tag>
+                          <Tag color={selectedToolTest.enabled === false ? 'red' : 'green'}>
+                            {selectedToolTest.enabled === false ? '已关闭' : '已开启'}
+                          </Tag>
+                          {selectedToolTest.status === 'registered' ? <Tag color="orange">仅注册</Tag> : null}
+                        </Space>
+                        <Text type="secondary">{selectedToolTest.purpose}</Text>
+                        <Text type="secondary">预期输出：{(selectedToolTest.outputs || []).join('、') || '文本结果'}</Text>
+                      </div>
+                    ) : null}
+
+                    {selectedToolTest?.name === 'recognize_image_tool' ? (
+                      <>
+                        <label className="agent-settings-field-label">测试图片</label>
+                        <Upload
+                          accept="image/*"
+                          listType="picture-card"
+                          maxCount={1}
+                          fileList={toolTestImages}
+                          beforeUpload={beforeToolTestImageUpload}
+                          onRemove={() => {
+                            setToolTestImages([])
+                            return true
+                          }}
+                        >
+                          {!toolTestImages.length ? (
+                            <div>
+                              <PlusOutlined />
+                              <div className="agent-settings-tool-test-upload-label">上传图片</div>
+                            </div>
+                          ) : null}
+                        </Upload>
+                        <Text type="secondary">图片识别测试必须上传图片，单张不超过 10MB。</Text>
+                      </>
+                    ) : null}
+
+                    {selectedToolTest?.name === 'text_to_file_tool' ? (
+                      <>
+                        <label className="agent-settings-field-label">输出格式</label>
+                        <Select
+                          value={toolTestOutputType || 'md'}
+                          options={TEXT_TO_FILE_FORMAT_OPTIONS}
+                          style={{ width: 280 }}
+                          onChange={(value) => {
+                            setToolTestOutputType(value)
+                            setToolTestInput(TEXT_TO_FILE_PROMPT_BY_FORMAT[value] || getToolTestPrompt(selectedToolTest))
+                          }}
+                        />
+                        <Text type="secondary">选择输出格式后运行测试，将按所选格式生成对应文件（Markdown / 纯文本 / Word）。</Text>
+                      </>
+                    ) : null}
+
+                    <label className="agent-settings-field-label">测试输入</label>
+                    <Input.TextArea
+                      rows={7}
+                      value={toolTestInput}
+                      disabled={!selectedToolTest}
+                      placeholder="选择工具后自动生成对应测试示例"
+                      onChange={(event) => setToolTestInput(event.target.value)}
+                    />
+
+                    <Space.Compact block>
+                      <Button
+                        disabled={!selectedToolTest}
+                        onClick={() => setToolTestInput(
+                          selectedToolTest?.name === 'text_to_file_tool'
+                            ? (TEXT_TO_FILE_PROMPT_BY_FORMAT[toolTestOutputType] || getToolTestPrompt(selectedToolTest))
+                            : getToolTestPrompt(selectedToolTest)
+                        )}
+                      >
+                        恢复测试示例
+                      </Button>
+                      <Button
+                        type="primary"
+                        icon={<RobotOutlined />}
+                        loading={toolTestLoading}
+                        disabled={!selectedToolTest || selectedToolTest.enabled === false}
+                        onClick={runToolTest}
+                      >
+                        运行工具测试
+                      </Button>
+                    </Space.Compact>
+                  </section>
+
+                  <section className="agent-settings-tool-test-result">
+                    <div className="agent-settings-tool-test-heading">
+                      <div>
+                        <Title level={4}>测试结果</Title>
+                        <Text type="secondary">只有 trace 或附件明确记录目标工具时才判定为通过。</Text>
+                      </div>
+                      {toolTestResult?.durationMs !== undefined ? <Tag>{toolTestResult.durationMs} ms</Tag> : null}
+                    </div>
+
+                    {!toolTestResult ? (
+                      <Empty description="选择工具并运行测试后，在这里查看结果" />
+                    ) : (
+                      <Space direction="vertical" size={14} className="agent-settings-tool-test-result-body">
+                        <Alert
+                          showIcon
+                          type={toolTestResult.status === 'success' ? 'success' : toolTestResult.status === 'mismatch' || toolTestResult.status === 'unavailable' ? 'warning' : 'error'}
+                          message={toolTestResult.status === 'success'
+                            ? '测试通过：目标工具已成功调用'
+                            : toolTestResult.status === 'mismatch'
+                              ? '请求成功，但未在 trace 或附件中确认目标工具'
+                              : toolTestResult.status === 'unavailable'
+                                ? '该工具暂不可执行测试'
+                                : '工具测试失败'}
+                          description={toolTestResult.message}
+                        />
+                        {toolTestResult.response?.answer ? (
+                          <div className="agent-settings-tool-test-output">
+                            <Text strong>工具输出</Text>
+                            <div>{toolTestResult.response.answer}</div>
+                          </div>
+                        ) : null}
+                        {toolTestResult.response?.attachments?.length ? (
+                          <div className="agent-settings-tool-test-output">
+                            <Text strong>生成附件</Text>
+                            <Space size={[6, 6]} wrap>
+                              {toolTestResult.response.attachments.map((item, index) => {
+                                const fileName = item.fileName || item.name || item.type || `附件 ${index + 1}`
+                                const downloadable = Boolean(item.storageKey && item.internalCapability)
+                                return (
+                                  <Tag color="blue" key={`${item.url || item.name || 'attachment'}-${index}`}>
+                                    {downloadable ? (
+                                      <a
+                                        href="#"
+                                        onClick={(event) => {
+                                          event.preventDefault()
+                                          downloadToolTestAttachment(item)
+                                        }}
+                                        className="agent-settings-tool-test-download"
+                                        title="点击下载文件"
+                                      >
+                                        <DownloadOutlined /> {fileName}
+                                      </a>
+                                    ) : fileName}
+                                  </Tag>
+                                )
+                              })}
+                            </Space>
+                          </div>
+                        ) : null}
+                        {toolTestResult.response ? (
+                          <details className="agent-settings-tool-test-details">
+                            <summary>查看完整响应、trace 和请求参数</summary>
+                            <pre>{JSON.stringify({ request: toolTestResult.request, response: toolTestResult.response }, null, 2)}</pre>
+                          </details>
+                        ) : null}
+                      </Space>
+                    )}
+                  </section>
                 </div>
               ),
             },
@@ -1182,9 +1656,8 @@ function AgentSettings() {
                       { title: '可识别链接', dataIndex: 'canDetect', width: 120, render: (value) => <Tag color={value ? 'green' : 'default'}>{value ? '是' : '否'}</Tag> },
                       { title: '可导出', dataIndex: 'canExport', width: 100, render: (value) => <Tag color={value ? 'green' : 'default'}>{value ? '是' : '否'}</Tag> },
                       { title: '对应工具', dataIndex: 'tool', width: 220, render: (value) => <Text code>{value || '-'}</Text> },
-                      { title: '说明', dataIndex: 'description' },
+                      { title: '说明', dataIndex: 'description', width: 320, ellipsis: true },
                     ]}
-                    scroll={{ x: 1100 }}
                   />
                 </div>
               ),
