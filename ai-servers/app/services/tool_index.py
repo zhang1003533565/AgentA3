@@ -14,6 +14,7 @@ TOOL_KEYWORDS: Dict[str, Sequence[str]] = {
     "generate_architecture_image_tool": ("架构图", "系统架构", "技术架构", "模块依赖"),
     "generate_knowledge_graph_image_tool": ("知识图谱", "实体关系图", "概念关系图"),
     "generate_ppt_image_tool": ("ppt配图", "ppt图片", "课件配图", "页面插图", "ppt封面"),
+    "image_stitching_tool": ("图片拼接", "拼接图片", "图片合并", "合并图片", "横向拼接", "纵向拼接"),
     "text_to_sql": ("统计", "数量", "多少", "列表", "排名", "sql", "结构化查询"),
     "java_schedule_api": ("课表", "课程安排", "有什么课", "有课", "今日课程", "明天课程", "上课", "任课老师", "老师是谁", "课时", "几节课", "课程时间"),
     "java_activity_api": ("校园活动", "讲座", "比赛", "报名活动", "活动安排"),

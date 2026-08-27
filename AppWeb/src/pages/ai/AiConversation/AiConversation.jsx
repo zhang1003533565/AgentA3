@@ -46,6 +46,7 @@ function AiConversation() {
     const reader = new FileReader()
     reader.onload = () => {
       const dataUrl = String(reader.result || '')
+      const isImage = (file.type || '').toLowerCase().startsWith('image/')
       resolve({
         name: file.name,
         fileName: file.name,
@@ -53,6 +54,7 @@ function AiConversation() {
         mimeType: file.type || 'application/octet-stream',
         size: file.size,
         contentBase64: dataUrl.includes(',') ? dataUrl.split(',')[1] : dataUrl,
+        ...(isImage ? { url: dataUrl, previewDataUrl: dataUrl } : {}),
       })
     }
     reader.onerror = () => reject(new Error(`读取文件失败：${file.name}`))
@@ -120,7 +122,7 @@ function AiConversation() {
       return allowed.has(extension)
     })
     if (accepted.length !== files.length) message.error('包含暂不支持上传的文件格式')
-    setSelectedFiles((current) => [...current, ...accepted].slice(0, 8))
+    setSelectedFiles((current) => [...current, ...accepted])
     event.target.value = ''
   }
 
@@ -238,7 +240,18 @@ function AiConversation() {
               <div className="ai-conversation-bubble">
                 {item.role === 'assistant' && item.steps?.length ? <div className="ai-conversation-steps">{item.steps.map((step, stepIndex) => <div key={`${item.id}-step-${stepIndex}`} className="ai-conversation-step"><span className="ai-conversation-step-dot" />{step}</div>)}</div> : null}
                 {item.content || (item.status === 'running' ? '正在处理…' : '智能助手没有返回可用内容。')}
-                {item.attachments?.length ? <div className="ai-conversation-attachments">{item.attachments.map((attachment, attachmentIndex) => <div className="ai-conversation-attachment" key={`${item.id}-attachment-${attachmentIndex}`}><UploadOutlined /><span>{attachment.name || attachment.fileName || '文件'}</span></div>)}</div> : null}
+                {item.attachments?.length ? <div className="ai-conversation-attachments">{item.attachments.map((attachment, attachmentIndex) => {
+                  const imageType = String(attachment.type || attachment.mimeType || '').toLowerCase()
+                  const imageUrl = (imageType === 'image' || imageType.startsWith('image/'))
+                    ? (attachment.url || attachment.previewUrl)
+                    : ''
+                  return (
+                    <div className="ai-conversation-attachment" key={`${item.id}-attachment-${attachmentIndex}`}>
+                      {imageUrl ? <img className="ai-conversation-attachment-image" src={imageUrl} alt={attachment.name || attachment.fileName || '图片附件'} /> : <UploadOutlined />}
+                      <span>{attachment.name || attachment.fileName || '文件'}</span>
+                    </div>
+                  )
+                })}</div> : null}
               </div>
               {item.role === 'assistant' && item.agentName ? <Text type="secondary" className="ai-conversation-meta">{item.agentName}{item.model ? ` · ${item.model}` : ''}</Text> : null}
             </div>

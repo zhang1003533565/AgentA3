@@ -1,4 +1,5 @@
 import asyncio
+import base64
 import hashlib
 import json
 import os
@@ -40,6 +41,7 @@ from app.multi_agents.runner import run_specialist_agent
 from app.multi_agents.textbook_knowledge_agent import resolve_knowledge_source_mode
 from app.multi_agents.tool_intent_router_agent import TOOL_INTENT_ROUTER_TOOL, tool_intent_router_agent
 from app.services.tool_index import tool_index
+from app.services.image_stitching import ImageStitchingError, collect_stitch_images, stitch_images
 from app.services.file_format_registry import get_detectable_extensions, get_file_format_registry, get_output_aliases, resolve_file_format
 from app.learning_workflow import (
     LearningWorkflowRequest,
@@ -133,6 +135,18 @@ VISUAL_GENERATION_TOOLS = [
     }
     for tool_name, config in VISUAL_GENERATION_TOOL_CONFIG.items()
 ]
+IMAGE_STITCHING_TOOL = {
+    "name": "image_stitching_tool",
+    "zhName": "图片拼接工具",
+    "displayName": "图片拼接工具（image_stitching_tool）",
+    "category": "visual_generation",
+    "purpose": "将多张图片按上传顺序，以最多三列的自适应网格拼接，并在每张图片左侧标注序号。",
+    "trigger": "用户明确要求把两张或多张图片拼接或合并。",
+    "outputs": ["image"],
+    "status": "implemented",
+    "configurable": True,
+}
+VISUAL_GENERATION_TOOLS.insert(1, IMAGE_STITCHING_TOOL)
 VISUAL_GENERATION_TOOL_NAMES = frozenset(VISUAL_GENERATION_TOOL_CONFIG)
 IMAGE_RECOGNITION_TOOL_NAME = "recognize_image_tool"
 IMAGE_RECOGNITION_AGENT_NAME = "vision_agent"
@@ -863,7 +877,9 @@ async def run_rag_query_stream(
                 callable_catalog = _build_leader_callable_catalog(request)
                 conversation_context = _apply_conversation_context(request, authorization or "")
                 try:
-                    plan = _requested_image_recognition_plan(request)
+                    plan = _requested_image_stitching_plan(request)
+                    if plan is None:
+                        plan = _requested_image_recognition_plan(request)
                     if plan is None:
                         plan = _requested_file_transform_plan(request)
                     if plan is None:
@@ -1485,7 +1501,9 @@ def _run_leader_orchestration(request: RagQueryRequest, authorization: str) -> R
     profile_context = _profile_context_from_request(request)
     callable_catalog = _build_leader_callable_catalog(request)
     conversation_context = _apply_conversation_context(request, authorization)
-    plan = _requested_image_recognition_plan(request)
+    plan = _requested_image_stitching_plan(request)
+    if plan is None:
+        plan = _requested_image_recognition_plan(request)
     if plan is None:
         plan = _requested_file_transform_plan(request)
     if plan is None:
@@ -1507,6 +1525,67 @@ def _run_leader_orchestration(request: RagQueryRequest, authorization: str) -> R
         planMs=plan_ms,
         executionMs=execution_ms,
     )
+
+
+def _requested_image_stitching_plan(request: RagQueryRequest) -> Optional[LeaderPlan]:
+    image_count = len(collect_stitch_images(request))
+    if image_count < 2:
+        if _is_automatic_upload_request(request) and _has_image_container_attachment(request):
+            return LeaderPlan(
+                intent="image_stitching",
+                target_agent="leader_agent",
+                need_retrieval=False,
+                rag_strategy="",
+                answer="文件中未检测到至少两张可拼接的图片。",
+                action="direct_answer",
+                route_reason="已检查上传文件，但未找到至少两张可提取图片。",
+                route_mode="attachment",
+            )
+        return None
+    if not _is_tool_enabled(request, IMAGE_STITCHING_TOOL["name"]):
+        return LeaderPlan(
+            intent="image_stitching",
+            target_agent="leader_agent",
+            need_retrieval=False,
+            rag_strategy="",
+            answer="图片拼接工具当前已关闭，请先在后台开启后再试。",
+            action="direct_answer",
+            route_reason=f"检测到 {image_count} 个图片资源，但图片拼接工具已关闭。",
+            route_mode="tool_disabled",
+        )
+    return LeaderPlan(
+        intent="image_stitching",
+        target_agent="leader_agent",
+        need_retrieval=False,
+        rag_strategy="",
+        answer="正在按上传顺序拼接图片。",
+        action="call_tool",
+        tool_name=IMAGE_STITCHING_TOOL["name"],
+        route_reason=f"检测到 {image_count} 个图片资源，自动调用图片拼接工具。",
+        route_mode="attachment",
+    )
+
+
+def _is_automatic_upload_request(request: RagQueryRequest) -> bool:
+    metadata = request.metadata if isinstance(request.metadata, dict) else {}
+    return metadata.get("source") == "web_ai_conversation" and metadata.get("uploadOnly") is True
+
+
+def _has_image_container_attachment(request: RagQueryRequest) -> bool:
+    for raw in request.attachments or []:
+        if not isinstance(raw, dict):
+            continue
+        name = str(raw.get("name") or raw.get("fileName") or "").lower()
+        mime_type = str(raw.get("mimeType") or raw.get("contentType") or raw.get("type") or "").lower()
+        if (
+            mime_type in {"application/pdf", "application/zip"}
+            or "presentationml.presentation" in mime_type
+            or "wordprocessingml.document" in mime_type
+            or "spreadsheetml.sheet" in mime_type
+            or name.endswith((".pdf", ".pptx", ".docx", ".xlsx", ".zip"))
+        ):
+            return True
+    return False
 
 
 def _requested_image_recognition_plan(request: RagQueryRequest) -> Optional[LeaderPlan]:
@@ -1861,6 +1940,8 @@ def _execute_leader_plan(
             return _run_service_tool(request, authorization, plan)
         if plan.tool_name == "generated_export_tools":
             return _run_generated_export_tool(request, plan)
+        if plan.tool_name == IMAGE_STITCHING_TOOL["name"]:
+            return _run_image_stitching_tool(request, plan)
         if plan.tool_name == IMAGE_RECOGNITION_TOOL_NAME:
             return _run_image_recognition_tool(request, plan)
         if plan.tool_name in VISUAL_GENERATION_TOOL_NAMES:
@@ -2621,6 +2702,95 @@ def _run_visual_generation_tool(
         trace=trace,
         metadata=metadata,
         attachments=image_attachments,
+    ))
+
+
+def _run_image_stitching_tool(
+    request: RagQueryRequest,
+    leader_plan,
+) -> RagQueryResponse:
+    images = collect_stitch_images(request)
+    if len(images) < 2:
+        raise HTTPException(status_code=400, detail="图片拼接工具需要至少两张图片资源。")
+    try:
+        stitched = stitch_images(images, columns=3)
+    except ImageStitchingError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    encoded = base64.b64encode(stitched).decode("ascii")
+    _, attachments = materialize_generated_image_answer(
+        json.dumps({
+            "status": "success",
+            "message": "图片拼接完成",
+            "images": [{
+                "index": 0,
+                "status": "success",
+                "contentType": "image/png",
+                "base64": encoded,
+            }],
+        }, ensure_ascii=False),
+        display_stem="图片拼接结果",
+        tool_name=IMAGE_STITCHING_TOOL["name"],
+    )
+    # The admin tool console has no persisted session/message URL to download
+    # the generated export, so provide a preview only for that test response.
+    if (
+        isinstance(request.metadata, dict)
+        and request.metadata.get("testFrom") == "admin_agent_console"
+    ):
+        for attachment in attachments:
+            if attachment.get("type") == "image":
+                attachment["previewDataUrl"] = f"data:image/png;base64,{encoded}"
+    metadata = {
+        "agentName": "leader_agent",
+        "targetAgent": IMAGE_STITCHING_TOOL["name"],
+        "executedAgent": IMAGE_STITCHING_TOOL["name"],
+        "toolName": IMAGE_STITCHING_TOOL["name"],
+        "toolDisplayName": IMAGE_STITCHING_TOOL["displayName"],
+        "imageCount": len(images),
+        "sourceNames": [item.name for item in images],
+        "layout": "grid",
+        "columns": min(3, len(images)),
+        "numbered": True,
+        "intent": getattr(leader_plan, "intent", "") or "image_stitching",
+        "needRetrieval": False,
+        "retrievalSkipped": True,
+        "strategyLabel": "图片拼接工具",
+        "executionMode": "leader_call_tool",
+        "executionModeLabel": "Leader 调用图片拼接工具",
+        "answerType": "image_stitching",
+        "toolToggles": _tool_toggles_from_request(request),
+        "leaderAction": leader_plan.action,
+        "leaderActionLabel": _leader_action_label(leader_plan.action),
+        "routeReason": leader_plan.route_reason,
+    }
+    metadata.update(_context_metadata_from_request(request))
+    trace = [
+        RagTraceResponse(stage="leader_route", detail=_leader_plan_detail(leader_plan)),
+        RagTraceResponse(stage="tool_call", detail={
+            "toolName": IMAGE_STITCHING_TOOL["name"],
+            "toolDisplayName": IMAGE_STITCHING_TOOL["displayName"],
+            "imageCount": len(images),
+            "layout": metadata["layout"],
+            "columns": metadata["columns"],
+            "numbered": metadata["numbered"],
+        }),
+        RagTraceResponse(stage="image_stitching_tool", detail={
+            "imageCount": len(images),
+            "layout": metadata["layout"],
+            "columns": metadata["columns"],
+            "numbered": metadata["numbered"],
+            "outputCount": len(attachments),
+        }),
+    ]
+    return _decorate_output_response(RagQueryResponse(
+        strategy=IMAGE_STITCHING_TOOL["name"],
+        answer=f"已按上传顺序以最多 3 列的自适应网格拼接 {len(images)} 张图片，并在每张图片左侧标注顺序编号。",
+        answerType="image_stitching",
+        documents=[],
+        trace=trace,
+        metadata=metadata,
+        attachments=attachments,
     ))
 
 
@@ -3645,6 +3815,7 @@ def _strategy_label(strategy_name: str) -> str:
         "generated_export_tools": "内容导出工具",
         "text_to_sql": "Text-to-SQL",
         IMAGE_RECOGNITION_TOOL_NAME: "图片识别工具",
+        IMAGE_STITCHING_TOOL["name"]: "图片拼接工具",
         **{
             tool_name: config["zhName"]
             for tool_name, config in VISUAL_GENERATION_TOOL_CONFIG.items()
@@ -3659,6 +3830,7 @@ def _tool_zh_name(tool_name: str) -> str:
     labels = {
         TOOL_CAPABILITY_QUERY_NAME: "工具能力查询",
         IMAGE_RECOGNITION_TOOL_NAME: "图片识别工具",
+        IMAGE_STITCHING_TOOL["name"]: "图片拼接工具",
         "text_to_sql": "结构化查询工具",
         "java_schedule_api": "课表查询工具",
         "java_activity_api": "活动查询工具",

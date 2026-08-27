@@ -37,6 +37,7 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.regex.Pattern;
@@ -287,11 +288,13 @@ public class PythonAiProxyService {
 
     public Object queryRag(Map<String, Object> request, String authorization) {
         String requestedModel = resolveRequestedModel(request);
-        if (!StringUtils.hasText(requestedModel)) {
+        boolean localImageStitchingRequest = isLocalImageStitchingRequest(request);
+        if (!localImageStitchingRequest && !StringUtils.hasText(requestedModel)) {
             throw new BusinessException(Result.ERROR_CODE, "请选择已测试成功的模型后再执行智能体");
         }
         Map<String, Object> sanitized = sanitizeRagRequest(withAgentToggles(request));
-        return postRagObject("/internal/rag/query", sanitized, authorization, requestedModel);
+        return postRagObject("/internal/rag/query", sanitized, authorization,
+                localImageStitchingRequest ? null : requestedModel);
     }
 
     /**
@@ -558,7 +561,8 @@ public class PythonAiProxyService {
                                 String authorization,
                                 SseEventHandler eventHandler) {
         String requestedModel = resolveRequestedModel(request);
-        if (!StringUtils.hasText(requestedModel)) {
+        boolean localImageStitchingRequest = isLocalImageStitchingRequest(request);
+        if (!localImageStitchingRequest && !StringUtils.hasText(requestedModel)) {
             throw new BusinessException(Result.ERROR_CODE, "请选择已测试成功的模型后再执行智能体");
         }
         Map<String, Object> sanitized = sanitizeRagRequest(withAgentToggles(request));
@@ -566,9 +570,72 @@ public class PythonAiProxyService {
                 "/internal/rag/query/stream",
                 sanitized,
                 authorization,
-                requestedModel,
+                localImageStitchingRequest ? null : requestedModel,
                 eventHandler
         );
+    }
+
+    private boolean isLocalImageStitchingRequest(Map<String, Object> request) {
+        if (request == null) {
+            return false;
+        }
+        Object rawMetadata = request.get("metadata");
+        if (rawMetadata instanceof Map<?, ?> metadata
+                && "admin_agent_console".equals(String.valueOf(metadata.get("testFrom")))
+                && "image_stitching_tool".equals(String.valueOf(metadata.get("expectedToolName")))) {
+            return true;
+        }
+        for (String field : List.of("imageDataUrls", "images", "imageUrls")) {
+            Object rawImages = request.get(field);
+            if (rawImages instanceof List<?> images && images.size() >= 2) {
+                return true;
+            }
+        }
+        Object rawAttachments = request.get("attachments");
+        if (!(rawAttachments instanceof List<?> attachments)) {
+            return false;
+        }
+        long directImageCount = attachments.stream().filter(this::isImageAttachment).count();
+        return directImageCount >= 2 || attachments.stream().anyMatch(this::mayContainImages);
+    }
+
+    private boolean isImageAttachment(Object rawAttachment) {
+        if (!(rawAttachment instanceof Map<?, ?> attachment)) {
+            return false;
+        }
+        String mimeType = firstAttachmentText(attachment, "mimeType", "contentType", "type");
+        if (mimeType.toLowerCase(Locale.ROOT).startsWith("image/")) {
+            return true;
+        }
+        String name = firstAttachmentText(attachment, "name", "fileName");
+        return List.of(".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".tif", ".tiff")
+                .stream().anyMatch(name.toLowerCase(Locale.ROOT)::endsWith);
+    }
+
+    private boolean mayContainImages(Object rawAttachment) {
+        if (!(rawAttachment instanceof Map<?, ?> attachment)) {
+            return false;
+        }
+        String mimeType = firstAttachmentText(attachment, "mimeType", "contentType", "type")
+                .toLowerCase(Locale.ROOT);
+        String name = firstAttachmentText(attachment, "name", "fileName").toLowerCase(Locale.ROOT);
+        return mimeType.equals("application/pdf")
+                || mimeType.equals("application/zip")
+                || mimeType.contains("presentationml.presentation")
+                || mimeType.contains("wordprocessingml.document")
+                || mimeType.contains("spreadsheetml.sheet")
+                || List.of(".pdf", ".pptx", ".docx", ".xlsx", ".zip")
+                .stream().anyMatch(name::endsWith);
+    }
+
+    private String firstAttachmentText(Map<?, ?> attachment, String... keys) {
+        for (String key : keys) {
+            Object value = attachment.get(key);
+            if (value != null && StringUtils.hasText(String.valueOf(value))) {
+                return String.valueOf(value).trim();
+            }
+        }
+        return "";
     }
 
     /**
