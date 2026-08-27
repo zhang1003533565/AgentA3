@@ -267,14 +267,20 @@
                   class="task-item task-item--subtask"
                   v-for="subtask in visibleSubtasks(task)"
                   :key="`subtask-${subtask.id}`"
-                  :class="{ 'task-item--completed': subtask.isCompleted }"
+                  :class="{
+                    'task-item--completed': subtask.isCompleted,
+                    'task-item--today': isTodaySubtask(subtask)
+                  }"
                   @tap="toggleSubtask(subtask)"
                 >
                   <view class="checkbox" :class="{ 'checkbox--checked': subtask.isCompleted, 'checkbox--disabled': togglingIds.includes(subtaskBusyKey(subtask)) }">
                     <view v-if="subtask.isCompleted" class="checkbox-mark"></view>
                   </view>
                   <view class="task-body">
-                    <text class="task-step-label">执行步骤 {{ subtask.orderNum }}</text>
+                    <view class="task-step-label">
+                      <text>执行步骤 {{ subtask.orderNum }}</text>
+                      <text v-if="isTodaySubtask(subtask)" class="task-today-label">今日</text>
+                    </view>
                     <text class="task-name" :class="{ 'task-name--done': subtask.isCompleted }">{{ subtask.taskName }}</text>
                     <text v-if="subtask.description" class="task-desc">{{ subtask.description }}</text>
                     <view class="task-meta">
@@ -479,10 +485,21 @@ function leafTasks(tasks) {
 
 function visibleSubtasks(task) {
   const subtasks = Array.isArray(task?.subtasks) ? task.subtasks : []
-  if (activeFilter.value === 'today') return subtasks.filter((subtask) => isPlanTaskToday(subtask))
+  if (activeFilter.value === 'today') {
+    return subtasks.some((subtask) => isPlanTaskToday(subtask)) ? subtasks : []
+  }
   if (activeFilter.value === 'pending') return subtasks.filter((subtask) => !subtask.isCompleted)
   if (activeFilter.value === 'completed') return subtasks.filter((subtask) => subtask.isCompleted)
   return subtasks
+}
+
+function todaySubtaskCount(task) {
+  const subtasks = Array.isArray(task?.subtasks) ? task.subtasks : []
+  return subtasks.filter((subtask) => isPlanTaskToday(subtask)).length
+}
+
+function isTodaySubtask(subtask) {
+  return activeFilter.value === 'today' && isPlanTaskToday(subtask)
 }
 
 function subtaskExpansionKey(scope, task) {
@@ -518,7 +535,7 @@ function togglePreviewSubtasks(task) {
 
 function isTaskGroupExpanded(task) {
   const key = subtaskExpansionKey('execution', task)
-  const count = visibleSubtasks(task).length
+  const count = activeFilter.value === 'today' ? todaySubtaskCount(task) : visibleSubtasks(task).length
   return hasExpansionOverride(executionSubtaskExpansion.value, key)
     ? Boolean(executionSubtaskExpansion.value[key])
     : defaultSubtasksExpanded(count)
@@ -535,6 +552,9 @@ function toggleTaskGroup(task) {
 
 function taskSubtaskMeta(task) {
   const total = Array.isArray(task?.subtasks) ? task.subtasks.length : 0
+  if (activeFilter.value === 'today') {
+    return '今日 ' + todaySubtaskCount(task) + ' 项 · 阶段共 ' + total + ' 个执行步骤'
+  }
   const visible = visibleSubtasks(task).length
   return activeFilter.value === 'all'
     ? total + ' 个执行步骤'
@@ -2397,5 +2417,25 @@ function priorityLevel(priority) {
   padding: 2rpx 9rpx;
   background: transparent;
   font-size: 19rpx;
+}
+
+.study-plan-page .task-step-label {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8rpx;
+}
+
+.study-plan-page .task-today-label {
+  padding: 2rpx 8rpx;
+  border-radius: 999rpx;
+  background: #E8F3EC;
+  color: #3D7A52;
+  font-size: 18rpx;
+  font-weight: 500;
+}
+
+.study-plan-page .task-item--today {
+  background: #FBFDFB;
 }
 </style>
