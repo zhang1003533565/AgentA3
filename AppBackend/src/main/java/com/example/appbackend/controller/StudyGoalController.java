@@ -7,12 +7,17 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.MediaType;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
+
+import java.util.List;
 
 /**
  * 学习计划结构化拆解接口。
@@ -48,6 +53,33 @@ public class StudyGoalController {
                                                  HttpServletRequest httpRequest) {
         Long userId = currentUserId(httpRequest);
         return Result.success(studyGoalService.saveGoal(userId, request));
+    }
+
+    @PutMapping("/tasks/{taskId}/completion")
+    @Operation(summary = "更新任务完成状态", description = "前端勾选 Checkbox 后调用，同步任务状态并自动重算 Goal 进度")
+    public Result<StudyGoalDTO.GoalView> updateCompletion(@PathVariable("taskId") Long taskId,
+                                                           @RequestBody StudyGoalDTO.TaskCompletionRequest request,
+                                                           HttpServletRequest httpRequest) {
+        Long userId = currentUserId(httpRequest);
+        boolean isCompleted = request != null && Boolean.TRUE.equals(request.getIsCompleted());
+        return Result.success(studyGoalService.updateTaskCompletion(taskId, isCompleted, userId));
+    }
+
+    @GetMapping("/{goalId}")
+    @Operation(summary = "查询目标详情", description = "filter 支持 all/pending（剩余）/completed（已完成）")
+    public Result<StudyGoalDTO.GoalDetail> detail(@PathVariable("goalId") Long goalId,
+                                                   @RequestParam(value = "filter", required = false) String filter,
+                                                   HttpServletRequest httpRequest) {
+        Long userId = currentUserId(httpRequest);
+        return Result.success(studyGoalService.getGoalDetail(goalId, userId, filter));
+    }
+
+    @GetMapping("/{goalId}/remaining-tasks")
+    @Operation(summary = "查询剩余任务", description = "返回指定 Goal 下 is_completed = false 的任务")
+    public Result<List<StudyGoalDTO.TaskView>> remainingTasks(@PathVariable("goalId") Long goalId,
+                                                               HttpServletRequest httpRequest) {
+        Long userId = currentUserId(httpRequest);
+        return Result.success(studyGoalService.getRemainingTasks(goalId, userId));
     }
 
     private Long currentUserId(HttpServletRequest request) {

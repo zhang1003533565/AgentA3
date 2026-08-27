@@ -145,6 +145,53 @@ public class StudyGoalServiceImpl implements StudyGoalService {
         return detail;
     }
 
+    @Override
+    @Transactional
+    public StudyGoalDTO.GoalView updateTaskCompletion(Long taskId, Boolean isCompleted, Long userId) {
+        StudyTask task = studyTaskRepository.findById(taskId)
+                .orElseThrow(() -> new BusinessException(Result.NOT_FOUND_CODE, "任务不存在"));
+        requireOwnedGoal(task.getGoalId(), userId);
+        boolean completed = Boolean.TRUE.equals(isCompleted);
+        task.setIsCompleted(completed);
+        task.setStatus(completed ? "completed" : "pending");
+        studyTaskRepository.save(task);
+
+        StudyGoal goal = requireOwnedGoal(task.getGoalId(), userId);
+        applyProgress(goal, studyTaskRepository.findByGoalIdOrderByOrderNumAscIdAsc(goal.getId()));
+        return toGoalView(goal);
+    }
+
+    @Override
+    public StudyGoalDTO.GoalDetail getGoalDetail(Long goalId, Long userId, String filter) {
+        StudyGoal goal = requireOwnedGoal(goalId, userId);
+        List<StudyTask> tasks = switch (filter == null ? "all" : filter) {
+            case "pending" -> studyTaskRepository.findByGoalIdAndIsCompletedFalseOrderByOrderNumAscIdAsc(goalId);
+            case "completed" -> studyTaskRepository.findByGoalIdAndIsCompletedTrueOrderByOrderNumAscIdAsc(goalId);
+            default -> studyTaskRepository.findByGoalIdOrderByOrderNumAscIdAsc(goalId);
+        };
+        StudyGoalDTO.GoalDetail detail = new StudyGoalDTO.GoalDetail();
+        detail.setGoal(toGoalView(goal));
+        for (StudyTask task : tasks) {
+            detail.getTasks().add(toTaskView(task));
+        }
+        return detail;
+    }
+
+    @Override
+    public List<StudyGoalDTO.TaskView> getRemainingTasks(Long goalId, Long userId) {
+        requireOwnedGoal(goalId, userId);
+        List<StudyGoalDTO.TaskView> views = new ArrayList<>();
+        for (StudyTask task : studyTaskRepository.findByGoalIdAndIsCompletedFalseOrderByOrderNumAscIdAsc(goalId)) {
+            views.add(toTaskView(task));
+        }
+        return views;
+    }
+
+    private StudyGoal requireOwnedGoal(Long goalId, Long userId) {
+        return studyGoalRepository.findByIdAndUserId(goalId, userId)
+                .orElseThrow(() -> new BusinessException(Result.NOT_FOUND_CODE, "目标不存在或无权访问"));
+    }
+
     /**
      * 根据已完成任务数量重算目标进度与状态：0 条完成 -> pending，全部完成 -> completed，其余 in_progress。
      */

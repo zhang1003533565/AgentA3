@@ -3,6 +3,8 @@ package com.example.appbackend.service;
 import com.example.appbackend.dto.StudyGoalDTO;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.util.List;
+
 /**
  * 学习计划结构化拆解服务接口。
  */
@@ -22,4 +24,21 @@ public interface StudyGoalService {
      * 将拆解预览的 Goal 与 Tasks 一并写入数据库。
      */
     StudyGoalDTO.GoalDetail saveGoal(Long userId, StudyGoalDTO.SaveRequest request);
+
+    /**
+     * 勾选/取消勾选任务：同步任务 status 与 is_completed，并自动重算 Goal 进度。
+     *
+     * @return 更新后的最新目标进度信息
+     */
+    StudyGoalDTO.GoalView updateTaskCompletion(Long taskId, Boolean isCompleted, Long userId);
+
+    /**
+     * 查询指定目标详情，filter 支持 all / pending（剩余）/ completed（已完成）。
+     */
+    StudyGoalDTO.GoalDetail getGoalDetail(Long goalId, Long userId, String filter);
+
+    /**
+     * 查询指定目标下的剩余任务（is_completed = false）。
+     */
+    List<StudyGoalDTO.TaskView> getRemainingTasks(Long goalId, Long userId);
 }
