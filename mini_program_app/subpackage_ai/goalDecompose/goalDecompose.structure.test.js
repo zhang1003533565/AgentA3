@@ -23,3 +23,14 @@ test('study plan workflow exposes a deliberate hierarchy for preview and executi
   assert.match(source, /class="task-group task-group--rail"/)
   assert.match(source, /class="[^"]*filter-card--compact[^"]*"/)
 })
+
+test('preview layout gives long text explicit containers and natural wrapping rules', () => {
+  assert.match(source, /class="[^"]*preview-goal-card[^"]*"/)
+  assert.match(source, /class="[^"]*preview-goal-title-row[^"]*"/)
+  assert.match(source, /class="[^"]*preview-summary[^"]*"/)
+  assert.match(source, /class="subtask-editor__head preview-subtask-head"/)
+  assert.match(source, /class="task-edit-desc preview-stage-desc"[^>]*auto-height/)
+  assert.match(source, /class="task-edit-desc subtask-desc-input"[^>]*auto-height/)
+  assert.match(source, /overflow-wrap:\s*anywhere/)
+  assert.match(source, /white-space:\s*normal/)
+})

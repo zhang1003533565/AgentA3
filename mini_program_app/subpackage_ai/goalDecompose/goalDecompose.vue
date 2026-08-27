@@ -60,8 +60,8 @@
 
         <!-- 第二步：拆解预览（未入库） -->
         <template v-if="phase === 'preview'">
-          <view class="section-card goal-card">
-            <view class="goal-head">
+          <view class="section-card goal-card preview-goal-card">
+            <view class="goal-head preview-goal-title-row">
               <text class="goal-badge">预览</text>
               <input class="goal-title-input" v-model="previewGoal.title" maxlength="120" />
             </view>
@@ -87,7 +87,7 @@
                 </view>
               </view>
             </view>
-            <view class="goal-meta-row">
+            <view class="goal-meta-row preview-summary">
               <text class="goal-meta">{{ previewTasks.length }} 个阶段</text>
               <text class="goal-meta-split">·</text>
               <text class="goal-meta">{{ totalSubtaskCount }} 个执行步骤</text>
@@ -111,7 +111,7 @@
                   <text>{{ task.priority }}</text>
                 </view>
               </view>
-              <input class="task-edit-desc preview-stage-desc" v-model="task.description" maxlength="500" placeholder="阶段说明（可选）" />
+              <textarea class="task-edit-desc preview-stage-desc" v-model="task.description" maxlength="500" placeholder="阶段说明（可选）" auto-height />
               <view class="preview-stage-fields">
                 <view class="preview-field">
                   <text class="preview-field-label">阶段类型</text>
@@ -132,7 +132,7 @@
               </view>
             </view>
               <view v-if="task.subtasks.length" class="subtask-editor">
-              <view class="subtask-editor__head">
+              <view class="subtask-editor__head preview-subtask-head">
                 <text class="subtask-editor__title">{{ task.taskName || '未命名阶段' }} · 执行步骤</text>
                 <text class="subtask-editor__hint">按执行顺序完成</text>
               </view>
@@ -140,7 +140,7 @@
                 <text class="subtask-order">{{ subtask.orderNum }}</text>
                 <view class="subtask-name-col">
                   <input class="task-edit-input" v-model="subtask.taskName" maxlength="120" placeholder="执行步骤名称" />
-                  <input class="task-edit-desc" v-model="subtask.description" maxlength="500" placeholder="完成标准（可选）" />
+                  <textarea class="task-edit-desc subtask-desc-input" v-model="subtask.description" maxlength="500" placeholder="完成标准（可选）" auto-height />
                 </view>
                 <view class="subtask-days-input">
                   <input class="days-edit-input" type="number" v-model="subtask.estimatedDays" @input="reschedulePreview" />
@@ -2090,5 +2090,174 @@ function priorityLevel(priority) {
   margin-top: 16rpx;
   padding: 14rpx 16rpx;
   border-radius: 10rpx;
+}
+
+/* 预览编辑态：让长标题、说明和统计信息始终留在自己的容器内 */
+.study-plan-page .preview-goal-card,
+.study-plan-page .preview-task-list,
+.study-plan-page .preview-stage,
+.study-plan-page .preview-field,
+.study-plan-page .subtask-editor {
+  box-sizing: border-box;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+}
+
+.study-plan-page .preview-goal-title-row,
+.study-plan-page .preview-goal-title-row .goal-title-input {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.study-plan-page .preview-goal-title-row .goal-title-input {
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+.study-plan-page .preview-goal-card .goal-desc-input {
+  display: block;
+  box-sizing: border-box;
+  min-width: 0;
+  width: 100%;
+  max-width: 100%;
+  line-height: 1.5;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.study-plan-page .preview-goal-card .date-settings,
+.study-plan-page .preview-goal-card .date-setting,
+.study-plan-page .preview-goal-card .capacity-line {
+  min-width: 0;
+}
+
+.study-plan-page .preview-goal-card .date-setting {
+  overflow: hidden;
+}
+
+.study-plan-page .preview-goal-card .date-value,
+.study-plan-page .preview-summary .goal-meta,
+.study-plan-page .preview-summary .goal-meta-split {
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.study-plan-page .preview-goal-card .capacity-input {
+  box-sizing: border-box;
+  max-width: 100%;
+}
+
+.study-plan-page .preview-summary {
+  align-items: flex-start;
+  row-gap: 6rpx;
+}
+
+.study-plan-page .preview-stage-head,
+.study-plan-page .preview-stage-title {
+  min-width: 0;
+}
+
+.study-plan-page .preview-stage-title .task-edit-input {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+}
+
+.study-plan-page .preview-stage-head > .priority-tag {
+  max-width: 92rpx;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.study-plan-page .preview-stage-desc {
+  box-sizing: border-box;
+  width: calc(100% - 54rpx);
+  max-width: calc(100% - 54rpx);
+  min-height: 42rpx;
+  height: auto;
+  line-height: 1.45;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.study-plan-page .preview-stage-fields {
+  min-width: 0;
+  max-width: calc(100% - 54rpx);
+}
+
+.study-plan-page .preview-field .stage-edit-input,
+.study-plan-page .preview-field .days-edit-input {
+  box-sizing: border-box;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+}
+
+.study-plan-page .preview-subtask-head {
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+
+.study-plan-page .preview-subtask-head .subtask-editor__title {
+  flex: 1;
+  min-width: 0;
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.study-plan-page .preview-subtask-head .subtask-editor__hint {
+  max-width: 100%;
+  white-space: normal;
+}
+
+.study-plan-page .preview-task-list .subtask-row,
+.study-plan-page .preview-task-list .subtask-name-col {
+  min-width: 0;
+}
+
+.study-plan-page .preview-task-list .subtask-name-col {
+  max-width: 100%;
+}
+
+.study-plan-page .preview-task-list .subtask-name-col .task-edit-input {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.study-plan-page .preview-task-list .subtask-desc-input {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 100%;
+  min-height: 34rpx;
+  height: auto;
+  padding: 0 8rpx;
+  line-height: 1.45;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.study-plan-page .preview-task-list .subtask-days-input {
+  max-width: 92rpx;
+}
+
+.study-plan-page .preview-task-list .subtask-actions {
+  display: flex;
+  flex-wrap: wrap;
+  width: 100%;
+  max-width: 100%;
+  margin-left: 40rpx;
+  gap: 18rpx;
+}
+
+.study-plan-page .preview-task-list .row-actions {
+  flex-wrap: wrap;
 }
 </style>
