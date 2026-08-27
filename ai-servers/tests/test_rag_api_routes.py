@@ -192,6 +192,29 @@ class RagApiRoutesTest(unittest.TestCase):
         self.assertEqual("registered", content_tool["status"])
         self.assertIn("ai_ppt_generation_tool", {item["name"] for item in catalog["tools"]})
 
+    def test_file_content_extraction_tools_are_exposed_for_admin_toggles(self):
+        response = self.client.get("/internal/rag/agents", headers=self.headers)
+
+        self.assertEqual(200, response.status_code)
+        generated_tools = response.json()["generatedTools"]
+        tools_by_name = {item["name"]: item for item in generated_tools}
+        expected_formats = {
+            "markdown_to_text_tool": ["md", "markdown"],
+            "txt_to_text_tool": ["txt"],
+            "word_to_text_tool": ["doc", "docx"],
+            "ppt_to_text_tool": ["ppt", "pptx"],
+            "pdf_to_text_tool": ["pdf"],
+        }
+
+        for tool_name, input_formats in expected_formats.items():
+            with self.subTest(tool_name=tool_name):
+                tool = tools_by_name[tool_name]
+                self.assertEqual("file_content_extraction", tool["category"])
+                self.assertEqual(input_formats, tool["inputFormats"])
+                self.assertEqual(["text", "image"], tool["outputs"])
+                self.assertEqual("implemented", tool["status"])
+                self.assertTrue(tool["configurable"])
+
     def test_file_transform_action_forces_real_export_tool(self):
         request = SimpleNamespace(metadata={
             "interactionType": "transform",
