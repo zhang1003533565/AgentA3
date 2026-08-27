@@ -1325,11 +1325,21 @@ public class MeetingServiceImpl implements MeetingService {
         input.append("会议主题：").append(session.getTitle()).append("\n");
         input.append("会议状态：").append(statusLabel(session.getStatus())).append("\n");
         
-        // 2. 参会人信息
-        List<String> participantNames = participantRepository.findByMeetingSessionIdOrderBySortOrderAscIdAsc(session.getId()).stream()
-                .map(MeetingParticipant::getName)
-                .toList();
-        input.append("参会成员：").append(participantNames.isEmpty() ? "未填写" : String.join("、", participantNames)).append("\n\n");
+        // 2. 参会人信息（包含 userId 映射）
+        List<MeetingParticipant> participants = participantRepository.findByMeetingSessionIdOrderBySortOrderAscIdAsc(session.getId());
+        if (!participants.isEmpty()) {
+            input.append("参会成员及用户 ID 映射:\n");
+            for (MeetingParticipant p : participants) {
+                String userIdStr = p.getUserId() != null ? String.valueOf(p.getUserId()) : "(未登录/未注册)";
+                input.append("- ").append(p.getName()).append(" [userId=").append(userIdStr).append("]\n");
+            }
+            input.append("\n重要说明:\n");
+            input.append("当会议中出现‘张三负责 XXX’时，如果‘张三’在参会成员列表中有真实 userId，");
+            input.append("则创建个人任务时必须使用该 userId 作为 assigneeId。\n");
+            input.append("如果没有对应的真实 userId（标注为未登录/未注册），则不要创建任务。\n\n");
+        } else {
+            input.append("参会成员：未填写\n\n");
+        }
         
         // 3. 会议记录（实时转写优先）
         List<MeetingRecord> records = recordRepository.findByMeetingSessionIdOrderByCreateTimeAscIdAsc(session.getId());
