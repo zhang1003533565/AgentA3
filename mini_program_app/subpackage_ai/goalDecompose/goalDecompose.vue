@@ -106,7 +106,8 @@
               <text class="col-days">天数</text>
               <text class="col-priority">优先级</text>
             </view>
-            <view class="task-row task-row--editable" v-for="(task, index) in previewTasks" :key="task.orderNum">
+            <template v-for="(task, index) in previewTasks" :key="task.orderNum">
+            <view class="task-row task-row--editable">
               <text class="col-check">{{ task.orderNum }}</text>
               <view class="col-name">
                 <input class="task-edit-input" v-model="task.taskName" maxlength="120" placeholder="任务名称" />
@@ -125,7 +126,6 @@
                 <text class="row-action--danger" @tap="removePreviewTask(index)">删除</text>
               </view>
             </view>
-            <template v-for="task in previewTasks" :key="`subtasks-${task.orderNum}`">
               <view v-if="task.subtasks.length" class="subtask-editor">
               <view class="subtask-editor__head">
                 <text class="subtask-editor__title">{{ task.taskName || '未命名任务' }} · 细分任务</text>
