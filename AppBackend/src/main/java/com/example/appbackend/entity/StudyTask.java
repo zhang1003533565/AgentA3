@@ -3,12 +3,13 @@ package com.example.appbackend.entity;
 import jakarta.persistence.*;
 import lombok.Data;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 
 /**
  * 学习任务（隶属 study_goal，由智能体拆解生成）。
  *
- * status 与 is_completed 始终同步维护：is_completed=true 时 status=completed，反之为 pending。
+ * status 与 is_completed 保持兼容同步；progress_percent 是支持部分完成的真实进度。
  */
 @Data
 @Entity
@@ -34,6 +35,14 @@ public class StudyTask {
     @Column(name = "estimated_days", nullable = false)
     private Integer estimatedDays = 1;
 
+    /** 任务排程开始日期；历史任务允许为空。 */
+    @Column(name = "planned_start_date")
+    private LocalDate plannedStartDate;
+
+    /** 任务排程结束日期；历史任务允许为空。 */
+    @Column(name = "planned_end_date")
+    private LocalDate plannedEndDate;
+
     /** 高 / 中 / 低 */
     @Column(nullable = false, length = 10)
     private String priority = "中";
@@ -48,6 +57,10 @@ public class StudyTask {
     /** 前端勾选控制；变更时联动 status 并触发 Goal 进度重算。 */
     @Column(name = "is_completed", nullable = false)
     private Boolean isCompleted = false;
+
+    /** 任务完成百分比 0-100，用于按预计天数加权计算目标进度。 */
+    @Column(name = "progress_percent", nullable = false)
+    private Integer progressPercent = 0;
 
     @Column(columnDefinition = "TEXT")
     private String description;

@@ -3,6 +3,7 @@ package com.example.appbackend.dto;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.Data;
 
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -75,6 +76,10 @@ public final class StudyGoalDTO {
         private String title;
 
         private String description;
+
+        private LocalDate startDate;
+
+        private LocalDate targetDate;
     }
 
     @Data
@@ -85,11 +90,17 @@ public final class StudyGoalDTO {
 
         private Integer estimatedDays;
 
+        private LocalDate plannedStartDate;
+
+        private LocalDate plannedEndDate;
+
         private String priority;
 
         private Integer orderNum;
 
         private Boolean isCompleted;
+
+        private Integer progressPercent;
 
         private String description;
     }
@@ -106,6 +117,24 @@ public final class StudyGoalDTO {
         private Boolean isCompleted;
     }
 
+    /** 任务部分完成进度请求。 */
+    @Data
+    public static class TaskProgressRequest {
+        private Integer progressPercent;
+    }
+
+    /** 任务状态请求。 */
+    @Data
+    public static class TaskStatusRequest {
+        private String status;
+    }
+
+    /** 延后任务请求，单位为天。 */
+    @Data
+    public static class TaskPostponeRequest {
+        private Integer days;
+    }
+
     /** 「我的计划」列表项：目标摘要 + 任务计数。 */
     @Data
     public static class GoalSummary {
@@ -118,6 +147,10 @@ public final class StudyGoalDTO {
         private Integer progress;
 
         private String status;
+
+        private LocalDate startDate;
+
+        private LocalDate targetDate;
 
         private Integer totalTasks;
 
@@ -142,6 +175,10 @@ public final class StudyGoalDTO {
         private Integer progress;
 
         private String status;
+
+        private LocalDate startDate;
+
+        private LocalDate targetDate;
     }
 
     /** 任务视图（前端勾选列表使用）。 */
@@ -157,6 +194,10 @@ public final class StudyGoalDTO {
 
         private Integer estimatedDays;
 
+        private LocalDate plannedStartDate;
+
+        private LocalDate plannedEndDate;
+
         private String priority;
 
         private Integer orderNum;
@@ -164,6 +205,8 @@ public final class StudyGoalDTO {
         private String status;
 
         private Boolean isCompleted;
+
+        private Integer progressPercent;
 
         private String description;
     }
