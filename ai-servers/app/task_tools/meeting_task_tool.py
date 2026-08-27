@@ -309,6 +309,44 @@ class MeetingTaskHTTPClient:
             json_data=request_data
         )
 
+    async def agent_confirm_task_completion(
+        self,
+        authorization: str,
+        task_id: int,
+        assignee_id: int,
+        meeting_session_id: int,
+        evidence: str
+    ) -> MeetingTaskResult:
+        """
+        AI 确认任务完成（第五步）
+
+        仅当任务负责人本人在会议中明确表达完成后调用。
+        后端会强校验：assigneeId 必须等于任务真实负责人，
+        且该负责人是当前会议的真实参会人。
+
+        Args:
+            authorization: Bearer token
+            task_id: 任务 ID
+            assignee_id: 声称确认完成的负责人用户 ID（服务端与任务真实负责人比对）
+            meeting_session_id: 当前会议数字 ID
+            evidence: 负责人本人明确表达完成的会议原句
+
+        Returns:
+            MeetingTaskResult: 确认结果
+        """
+        request_data = {
+            "assigneeId": assignee_id,
+            "meetingSessionId": meeting_session_id,
+            "evidence": evidence,
+        }
+
+        return await self._make_request(
+            method="POST",
+            endpoint=f"{API_PREFIX}/{task_id}/agent-confirm",
+            authorization=authorization,
+            json_data=request_data
+        )
+
 
 # =========================
 # Tool Functions
@@ -339,30 +377,34 @@ async def meeting_task_tool_handler(
     - list_my_tasks: 查询我的任务
     - get_task: 查询任务详情
     - update_task_status: 更新任务状态
-    
+    - confirm_task_completion: AI 确认任务完成（第五步）
+
     Args:
         action: 操作类型
         authorization: Bearer token（从请求头获取）
         **kwargs: 操作所需的参数
-        
+
     Returns:
         Dict[str, Any]: 工具执行结果（符合项目规范）
     """
     client = _get_client()
-    
+
     try:
         if action == "create_task":
             return await _handle_create_task(client, authorization, kwargs)
-        
+
         elif action == "list_my_tasks":
             return await _handle_list_my_tasks(client, authorization, kwargs)
-        
+
         elif action == "get_task":
             return await _handle_get_task(client, authorization, kwargs)
-        
+
         elif action == "update_task_status":
             return await _handle_update_task_status(client, authorization, kwargs)
-        
+
+        elif action == "confirm_task_completion":
+            return await _handle_confirm_task_completion(client, authorization, kwargs)
+
         else:
             return MeetingTaskResult(
                 success=False,
@@ -491,7 +533,7 @@ async def _handle_update_task_status(
     params: Dict[str, Any]
 ) -> Dict[str, Any]:
     """处理 update_task_status 操作"""
-    
+
     # 验证必要的参数
     if "taskId" not in params:
         return MeetingTaskResult(
@@ -499,14 +541,14 @@ async def _handle_update_task_status(
             error="缺少必要参数：taskId",
             status_code=400
         ).to_dict()
-    
+
     if "status" not in params:
         return MeetingTaskResult(
             success=False,
             error="缺少必要参数：status",
             status_code=400
         ).to_dict()
-    
+
     # 验证 authorization
     if not authorization:
         return MeetingTaskResult(
@@ -514,12 +556,55 @@ async def _handle_update_task_status(
             error="缺少授权 token，无法调用后端 API",
             status_code=401
         ).to_dict()
-    
+
     # 调用后端 API
     result = await client.update_task_status(
         authorization=authorization,
         task_id=int(params["taskId"]),
         status=str(params["status"])
     )
-    
+
+    return result.to_dict()
+
+
+async def _handle_confirm_task_completion(
+    client: MeetingTaskHTTPClient,
+    authorization: Optional[str],
+    params: Dict[str, Any]
+) -> Dict[str, Any]:
+    """处理 confirm_task_completion 操作（第五步：AI 确认任务完成）"""
+
+    required_fields = [
+        "taskId",
+        "assigneeId",
+        "meetingSessionId",
+        "evidence",
+    ]
+
+    for field in required_fields:
+        if field not in params:
+            return MeetingTaskResult(
+                success=False,
+                error=f"缺少必要参数：{field}",
+                status_code=400
+            ).to_dict()
+
+    # 验证 authorization
+    if not authorization:
+        return MeetingTaskResult(
+            success=False,
+            error="缺少授权 token，无法调用后端 API",
+            status_code=401
+        ).to_dict()
+
+    # 调用后端 API（后端会校验 assigneeId 与任务真实负责人一致、
+    # 且该负责人是 meetingSessionId 会议的真实参会人）
+    result = await client.agent_confirm_task_completion(
+        authorization=authorization,
+        task_id=int(params["taskId"]),
+        assignee_id=int(params["assigneeId"]),
+        meeting_session_id=int(params["meetingSessionId"]),
+        evidence=str(params["evidence"])
+    )
+
     return result.to_dict()

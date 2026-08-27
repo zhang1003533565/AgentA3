@@ -20,9 +20,12 @@ import com.example.appbackend.repository.MeetingCommentRepository;
 import com.example.appbackend.repository.MeetingParticipantRepository;
 import com.example.appbackend.repository.MeetingRecordRepository;
 import com.example.appbackend.repository.MeetingSessionRepository;
+import com.example.appbackend.repository.MeetingTaskRepository;
 import com.example.appbackend.repository.SystemConfigRepository;
 import com.example.appbackend.repository.SystemConfigTestLogRepository;
 import com.example.appbackend.repository.UserRepository;
+import com.example.appbackend.entity.MeetingTask;
+import com.example.appbackend.entity.TaskStatus;
 import com.example.appbackend.service.LlmService;
 import com.example.appbackend.service.MeetingService;
 import com.example.appbackend.service.UserProfileService;
@@ -96,6 +99,7 @@ public class MeetingServiceImpl implements MeetingService {
     private final LlmService llmService;
     private final UserProfileService userProfileService;
     private final ObjectMapper objectMapper;
+    private final MeetingTaskRepository meetingTaskRepository;
 
     public MeetingServiceImpl(MeetingSessionRepository sessionRepository,
                               MeetingCommentRepository commentRepository,
@@ -107,7 +111,8 @@ public class MeetingServiceImpl implements MeetingService {
                               SystemConfigTestLogRepository systemConfigTestLogRepository,
                               LlmService llmService,
                               UserProfileService userProfileService,
-                              ObjectMapper objectMapper) {
+                              ObjectMapper objectMapper,
+                              MeetingTaskRepository meetingTaskRepository) {
         this.sessionRepository = sessionRepository;
         this.commentRepository = commentRepository;
         this.participantRepository = participantRepository;
@@ -119,6 +124,7 @@ public class MeetingServiceImpl implements MeetingService {
         this.llmService = llmService;
         this.userProfileService = userProfileService;
         this.objectMapper = objectMapper;
+        this.meetingTaskRepository = meetingTaskRepository;
     }
 
     @Override
@@ -271,7 +277,7 @@ public class MeetingServiceImpl implements MeetingService {
             displayName = request.getDisplayName();
         }
         if (StringUtils.hasText(displayName)) {
-            addParticipantIfMissing(session.getId(), displayName);
+            addParticipantIfMissing(session.getId(), displayName, userId);
         }
         refreshCounters(session);
         return buildDetail(session);
@@ -881,7 +887,7 @@ public class MeetingServiceImpl implements MeetingService {
         return "";
     }
 
-    private void addParticipantIfMissing(Long meetingSessionId, String displayName) {
+    private void addParticipantIfMissing(Long meetingSessionId, String displayName, Long userId) {
         String name = truncate(displayName.trim(), 80);
         if (!StringUtils.hasText(name)) {
             return;
@@ -897,6 +903,11 @@ public class MeetingServiceImpl implements MeetingService {
                 participant.setLeaveTime(null);
                 participantRepository.save(participant);
             }
+            // 身份回填（第五步）：已存在的参会人缺失 userId 时补写，用于说话人身份识别
+            if (participant.getUserId() == null && userId != null) {
+                participant.setUserId(userId);
+                participantRepository.save(participant);
+            }
             return;
         }
         if (participants.size() >= 20) {
@@ -907,6 +918,9 @@ public class MeetingServiceImpl implements MeetingService {
         participant.setName(name);
         participant.setSortOrder(participants.size());
         participant.setOnline(true);
+        if (userId != null) {
+            participant.setUserId(userId);
+        }
         participantRepository.save(participant);
     }
 
@@ -1330,7 +1344,19 @@ public class MeetingServiceImpl implements MeetingService {
         List<MeetingParticipant> participants = participantRepository.findByMeetingSessionIdOrderBySortOrderAscIdAsc(session.getId());
         if (!participants.isEmpty()) {
             input.append("参会成员及用户 ID 映射:\n");
+            List<Long> participantUserIds = new ArrayList<>();
             for (MeetingParticipant p : participants) {
+                // 身份回填（第五步）：缺失 userId 时按真实姓名唯一匹配回填；多人同名则不回填，保持未登录
+                if (p.getUserId() == null) {
+                    List<com.example.appbackend.entity.User> matched = userRepository.findByRealName(p.getName());
+                    if (matched.size() == 1) {
+                        p.setUserId(matched.get(0).getId());
+                        participantRepository.save(p);
+                    }
+                }
+                if (p.getUserId() != null) {
+                    participantUserIds.add(p.getUserId());
+                }
                 String userIdStr = p.getUserId() != null ? String.valueOf(p.getUserId()) : "(未登录/未注册)";
                 input.append("- ").append(p.getName()).append(" [userId=").append(userIdStr).append("]\n");
             }
@@ -1338,6 +1364,29 @@ public class MeetingServiceImpl implements MeetingService {
             input.append("当会议中出现‘张三负责 XXX’时，如果‘张三’在参会成员列表中有真实 userId，");
             input.append("则创建个人任务时必须使用该 userId 作为 assigneeId。\n");
             input.append("如果没有对应的真实 userId（标注为未登录/未注册），则不要创建任务。\n\n");
+
+            // 3. 历史待完成任务（第五步）：供 AI 识别"负责人本人确认完成"
+            if (!participantUserIds.isEmpty()) {
+                List<MeetingTask> pendingTasks = meetingTaskRepository.findByStatusAndAssigneeIdIn(TaskStatus.PENDING, participantUserIds);
+                if (!pendingTasks.isEmpty()) {
+                    input.append("=== 历史待完成任务（来自之前会议）===\n");
+                    for (MeetingTask task : pendingTasks) {
+                        String deadlineStr = task.getDeadline() != null ? task.getDeadline().toLocalDate().toString() : "未明确";
+                        input.append("- taskId=").append(task.getId())
+                                .append(" | 负责人：").append(task.getAssigneeName())
+                                .append(" [userId=").append(task.getAssigneeId()).append("]")
+                                .append(" | 任务：").append(task.getTitle())
+                                .append(" | 截止：").append(deadlineStr)
+                                .append("\n");
+                        if (StringUtils.hasText(task.getEvidence())) {
+                            input.append("  依据：").append(task.getEvidence()).append("\n");
+                        }
+                    }
+                    input.append("\n历史任务说明:\n");
+                    input.append("仅当某历史任务的负责人本人在本次会议中明确表达“该任务已经完成”时，才允许确认完成。\n");
+                    input.append("非负责人、部分完成、刚开始做、模糊表述均不得确认完成。\n\n");
+                }
+            }
         } else {
             input.append("参会成员：未填写\n\n");
         }

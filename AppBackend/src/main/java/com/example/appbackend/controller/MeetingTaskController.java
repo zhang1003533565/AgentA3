@@ -1,5 +1,6 @@
 package com.example.appbackend.controller;
 
+import com.example.appbackend.dto.AgentConfirmTaskRequest;
 import com.example.appbackend.dto.CreateTaskRequest;
 import com.example.appbackend.dto.TaskDetailVO;
 import com.example.appbackend.dto.UpdateTaskStatusRequest;
@@ -98,6 +99,29 @@ public class MeetingTaskController {
         }
 
         TaskDetailVO vo = taskService.updateTaskStatus(taskId, currentUserId, request);
+        return Result.success(vo);
+    }
+
+    /**
+     * AI 确认任务完成（第五步）：会议 AI 识别到任务负责人本人在会议中明确确认完成后调用。
+     * 服务端强校验 assigneeId 必须等于任务真实负责人，且该负责人是本会议真实参会人；
+     * completedBy 记录任务负责人本人。
+     */
+    @PostMapping("/{taskId}/agent-confirm")
+    @Operation(summary = "AI 确认任务完成",
+            description = "会议 AI 识别到任务负责人本人明确确认完成后调用；服务端校验负责人身份，不信任 AI 传入的其他身份")
+    public Result<TaskDetailVO> agentConfirmTaskCompletion(
+            @PathVariable Long taskId,
+            @RequestBody AgentConfirmTaskRequest request,
+            HttpServletRequest httpRequest) {
+
+        Long currentUserId = getCurrentUserId(httpRequest);
+
+        if (currentUserId == null) {
+            return Result.unauthorized("请先登录");
+        }
+
+        TaskDetailVO vo = taskService.agentConfirmTaskCompletion(taskId, request);
         return Result.success(vo);
     }
 

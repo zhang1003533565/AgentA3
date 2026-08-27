@@ -1,11 +1,14 @@
 package com.example.appbackend.service.impl;
 
+import com.example.appbackend.dto.AgentConfirmTaskRequest;
 import com.example.appbackend.dto.CreateTaskRequest;
 import com.example.appbackend.dto.TaskDetailVO;
 import com.example.appbackend.dto.UpdateTaskStatusRequest;
 import com.example.appbackend.entity.MeetingTask;
+import com.example.appbackend.entity.MeetingParticipant;
 import com.example.appbackend.entity.TaskStatus;
 import com.example.appbackend.exception.BusinessException;
+import com.example.appbackend.repository.MeetingParticipantRepository;
 import com.example.appbackend.repository.MeetingTaskRepository;
 import com.example.appbackend.service.MeetingTaskService;
 import org.springframework.stereotype.Service;
@@ -13,6 +16,8 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 import java.util.stream.Collectors;
@@ -24,9 +29,12 @@ import java.util.stream.Collectors;
 public class MeetingTaskServiceImpl implements MeetingTaskService {
 
     private final MeetingTaskRepository taskRepository;
+    private final MeetingParticipantRepository participantRepository;
 
-    public MeetingTaskServiceImpl(MeetingTaskRepository taskRepository) {
+    public MeetingTaskServiceImpl(MeetingTaskRepository taskRepository,
+                                  MeetingParticipantRepository participantRepository) {
         this.taskRepository = taskRepository;
+        this.participantRepository = participantRepository;
     }
 
     @Override
@@ -158,6 +166,53 @@ public class MeetingTaskServiceImpl implements MeetingTaskService {
             return convertToVO(task);
         }
 
+        task = taskRepository.save(task);
+        return convertToVO(task);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<TaskDetailVO> listPendingTasksByAssigneeIds(Collection<Long> assigneeIds) {
+        if (assigneeIds == null || assigneeIds.isEmpty()) {
+            return Collections.emptyList();
+        }
+        return taskRepository.findByStatusAndAssigneeIdIn(TaskStatus.PENDING, assigneeIds).stream()
+                .map(this::convertToVO)
+                .collect(Collectors.toList());
+    }
+
+    @Override
+    @Transactional
+    public TaskDetailVO agentConfirmTaskCompletion(Long taskId, AgentConfirmTaskRequest request) {
+        if (request == null || request.getAssigneeId() == null || request.getMeetingSessionId() == null) {
+            throw new BusinessException("缺少 assigneeId 或 meetingSessionId");
+        }
+        MeetingTask task = taskRepository.findById(taskId)
+                .orElseThrow(() -> new BusinessException("未找到该任务"));
+
+        // 幂等：已完成的任务不重复更新
+        if (task.getStatus() == TaskStatus.COMPLETED) {
+            return convertToVO(task);
+        }
+
+        // 权限二次保护：声称的负责人必须与任务真实负责人一致，不信任 AI 传入的其他身份
+        if (!Objects.equals(request.getAssigneeId(), task.getAssigneeId())) {
+            throw new BusinessException("确认失败：只有任务负责人本人确认完成才有效（assigneeId 与任务负责人不一致）");
+        }
+
+        // 身份校验：该负责人必须是当前会议的真实参会人（把说话人身份锚定到本会议）
+        boolean isParticipant = participantRepository
+                .findByMeetingSessionIdOrderBySortOrderAscIdAsc(request.getMeetingSessionId())
+                .stream()
+                .anyMatch(participant -> Objects.equals(participant.getUserId(), request.getAssigneeId()));
+        if (!isParticipant) {
+            throw new BusinessException("确认失败：该负责人不是本次会议的参会人，无法确认其发言身份");
+        }
+
+        task.setStatus(TaskStatus.COMPLETED);
+        task.setCompletedAt(LocalDateTime.now());
+        // completedBy 记录任务负责人本人，而不是调用方（主持人/AI）的 userId
+        task.setCompletedBy(task.getAssigneeId());
         task = taskRepository.save(task);
         return convertToVO(task);
     }

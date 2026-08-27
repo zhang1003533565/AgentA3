@@ -7,6 +7,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
+import java.util.Collection;
 import java.util.List;
 
 /**
@@ -19,6 +20,15 @@ public interface MeetingTaskRepository extends JpaRepository<MeetingTask, Long> 
      * 根据会议 Session ID 查询所有任务
      */
     List<MeetingTask> findByMeetingSessionIdOrderByCreateTimeDesc(Long meetingSessionId);
+
+    /**
+     * 根据负责人用户 ID 集合和状态查询任务（供会议 AI 读取参会人历史待完成任务）
+     */
+    @Query("SELECT t FROM MeetingTask t WHERE t.status = :status AND t.assigneeId IN :assigneeIds ORDER BY t.createTime DESC")
+    List<MeetingTask> findByStatusAndAssigneeIdIn(
+            @Param("status") TaskStatus status,
+            @Param("assigneeIds") Collection<Long> assigneeIds
+    );
 
     /**
      * 根据任务负责人用户 ID 查询个人任务（权限控制：只能查自己的）
