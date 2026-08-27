@@ -212,6 +212,12 @@ function goCreate() {
   color: #2F4468;
 }
 
+.status-tag--blocked,
+.status-tag--skipped {
+  background: #FBEAE9;
+  color: #A14B46;
+}
+
 .plan-desc {
   display: block;
   margin-top: 10rpx;

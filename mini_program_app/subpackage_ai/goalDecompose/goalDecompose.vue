@@ -138,7 +138,7 @@
         <template v-if="phase === 'saved' && goalDetail">
           <view class="section-card goal-card">
             <view class="goal-head">
-              <text class="goal-badge goal-badge--done">{{ statusLabel }}</text>
+              <text class="goal-badge" :class="`goal-badge--${goalDetail.goal.status}`">{{ statusLabel }}</text>
               <text class="goal-title">{{ goalDetail.goal.title }}</text>
             </view>
             <text v-if="goalDetail.goal.description" class="goal-desc">{{ goalDetail.goal.description }}</text>
@@ -879,6 +879,17 @@ function priorityLevel(priority) {
 .goal-badge--done {
   background: #E8F3EC;
   color: #3D7A52;
+}
+
+.goal-badge--in_progress,
+.goal-badge--completed {
+  background: #E8F3EC;
+  color: #3D7A52;
+}
+
+.goal-badge--pending {
+  background: #EEF1F6;
+  color: #64748B;
 }
 
 .goal-title {
