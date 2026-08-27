@@ -88,6 +88,13 @@ export function getStudyGoalDetail(goalId, filter = 'all') {
 }
 
 /**
+ * 分页查询「我的学习计划」列表（按更新时间倒序），用于退出后找回历史计划
+ */
+export function listMyGoals(page = 1, size = 10) {
+  return request({ url: '/api/study-goal/my', method: 'GET', data: { page, size } })
+}
+
+/**
  * 查询指定目标的剩余任务（is_completed=false）清单
  */
 export function getRemainingTasks(goalId) {

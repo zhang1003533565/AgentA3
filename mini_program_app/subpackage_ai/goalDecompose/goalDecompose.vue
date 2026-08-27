@@ -12,7 +12,10 @@
         <view v-if="phase === 'input'" class="section-card input-card">
           <view class="card-head">
             <text class="card-title">选择学习计划来源</text>
-            <text class="char-count">{{ planText.length }}/8000</text>
+            <view class="head-right">
+              <text class="my-plans-link" @tap="goMyPlans">我的计划</text>
+              <text class="char-count">{{ planText.length }}/8000</text>
+            </view>
           </view>
 
           <textarea
@@ -186,12 +189,14 @@
 
 <script setup>
 import { ref, computed } from 'vue'
+import { onLoad } from '@dcloudio/uni-app'
 import NavBar from '@/components/nav-bar/nav-bar.vue'
 import {
   decomposeStudyFile,
   decomposeStudyText,
   saveStudyGoal,
-  updateStudyTaskCompletion
+  updateStudyTaskCompletion,
+  getStudyGoalDetail
 } from '@/api/studyGoal.js'
 
 const phase = ref('input') // input -> preview -> saved
@@ -206,6 +211,28 @@ const activeFilter = ref('all')
 const togglingIds = ref([])
 
 const canDecompose = computed(() => Boolean(planText.value.trim()) || Boolean(chosenFile.value))
+
+/** 从「我的计划」带 goalId 进入：直接载入该目标详情回到可勾选的执行清单 */
+onLoad((options) => {
+  const goalId = options && options.goalId
+  if (goalId) {
+    loadGoalDetail(goalId)
+  }
+})
+
+function loadGoalDetail(goalId) {
+  getStudyGoalDetail(goalId, 'all')
+    .then((response) => {
+      applyGoalDetail(response?.data)
+      activeFilter.value = 'all'
+      phase.value = 'saved'
+    })
+    .catch(() => {})
+}
+
+function goMyPlans() {
+  uni.navigateTo({ url: '/subpackage_ai/goalPlanList/goalPlanList' })
+}
 
 const fileSuffixLabel = computed(() => {
   const name = chosenFile.value?.name || ''
@@ -440,6 +467,21 @@ function priorityLevel(priority) {
   align-items: center;
   justify-content: space-between;
   margin-bottom: 20rpx;
+}
+
+.head-right {
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+}
+
+.my-plans-link {
+  font-size: 24rpx;
+  color: #3D5789;
+  font-weight: 600;
+  padding: 6rpx 14rpx;
+  border-radius: 999rpx;
+  background: #EDF2FA;
 }
 
 .card-title {
