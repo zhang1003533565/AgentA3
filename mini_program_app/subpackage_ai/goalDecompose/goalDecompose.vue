@@ -217,18 +217,6 @@
                   </view>
                   <text class="meta-text">{{ formatPlanDate(task.plannedStartDate) }}-{{ formatPlanDate(task.plannedEndDate) }}</text>
                 </view>
-                <slider
-                  class="task-progress-slider"
-                  :value="task.progressPercent"
-                  min="0"
-                  max="100"
-                  step="5"
-                  activeColor="#5C7A99"
-                  backgroundColor="#EEF1F7"
-                  block-size="16"
-                  @changing.stop="previewTaskProgress(task, $event)"
-                  @change.stop="changeTaskProgress(task, $event)"
-                />
                 <view class="task-controls">
                   <picker :range="statusOptions" :value="statusIndex(task.status)" @change.stop="changeTaskStatus(task, $event)">
                     <text class="status-picker">状态：{{ statusText(task.status) }}</text>
@@ -257,7 +245,6 @@ import {
   decomposeStudyText,
   saveStudyGoal,
   updateStudyTaskCompletion,
-  updateStudyTaskProgress,
   updateStudyTaskStatus,
   postponeStudyTask,
   getStudyGoalDetail
@@ -473,30 +460,6 @@ function toggleTask(task) {
       task.isCompleted = !nextValue
       task.progressPercent = previousProgress
       task.status = nextValue ? 'pending' : 'completed'
-    })
-    .finally(() => {
-      togglingIds.value = togglingIds.value.filter((id) => id !== task.id)
-    })
-}
-
-function previewTaskProgress(task, event) {
-  task.progressPercent = Number(event?.detail?.value ?? event?.target?.value ?? task.progressPercent)
-}
-
-function changeTaskProgress(task, event) {
-  if (!task.id || togglingIds.value.includes(task.id)) return
-  const previous = Number(task.progressPercent) || 0
-  const next = Math.max(0, Math.min(100, Number(event?.detail?.value ?? previous)))
-  task.progressPercent = next
-  task.isCompleted = next >= 100
-  task.status = next >= 100 ? 'completed' : next > 0 ? 'in_progress' : 'pending'
-  togglingIds.value.push(task.id)
-  updateStudyTaskProgress(task.id, next)
-    .then((response) => applyGoalProgress(response?.data))
-    .catch(() => {
-      task.progressPercent = previous
-      task.isCompleted = previous >= 100
-      task.status = previous >= 100 ? 'completed' : previous > 0 ? 'in_progress' : 'pending'
     })
     .finally(() => {
       togglingIds.value = togglingIds.value.filter((id) => id !== task.id)
@@ -1320,11 +1283,6 @@ function priorityLevel(priority) {
   margin-top: 18rpx;
   color: #8B93A6;
   font-size: 21rpx;
-}
-
-.task-progress-slider {
-  margin: 2rpx 0 0;
-  padding: 0;
 }
 
 .task-controls {
