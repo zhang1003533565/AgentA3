@@ -1152,11 +1152,12 @@ public class PythonAiProxyService {
                 emitter.complete();
             } catch (Exception e) {
                 log.error("python stream relay failed path={} errorType={}", path, e.getClass().getSimpleName());
+                String userMessage = resolveStreamErrorMessage(e);
                 // Send error as JSON string to avoid Content-Type conflict
                 String errorMsg;
                 try {
                     errorMsg = objectMapper.writeValueAsString(Map.of(
-                        "message", "Python AI 流式服务暂时不可用，请稍后再试。"
+                        "message", userMessage
                     ));
                 } catch (JsonProcessingException jsonEx) {
                     errorMsg = "{\"message\":\"Python AI 流式服务暂时不可用，请稍后再试。\"}";
@@ -1164,7 +1165,9 @@ public class PythonAiProxyService {
                 boolean relay = eventHandler == null;
                 if (eventHandler != null) {
                     try {
-                        relay = eventHandler.handle("error", Map.of("message", "Python AI 流式服务暂时不可用，请稍后再试。"));
+                        Map<String, Object> errorPayload = new LinkedHashMap<>();
+                        errorPayload.put("message", resolveStreamErrorMessage(e));
+                        relay = eventHandler.handle("error", errorPayload);
                     } catch (Exception handlerError) {
                         log.error("python stream failure handler rejected errorType={}",
                                 handlerError.getClass().getSimpleName());
@@ -1449,6 +1452,31 @@ public class PythonAiProxyService {
             current = current.getCause();
         }
         return false;
+    }
+
+    private String resolveStreamErrorMessage(Exception error) {
+        if (error instanceof BusinessException businessException
+                && StringUtils.hasText(businessException.getMessage())) {
+            return businessException.getMessage();
+        }
+        Throwable current = error;
+        while (current != null) {
+            if (current instanceof BusinessException businessException
+                    && StringUtils.hasText(businessException.getMessage())) {
+                return businessException.getMessage();
+            }
+            String message = current.getMessage();
+            if (StringUtils.hasText(message)) {
+                if (message.contains("LocalDateTime")) {
+                    return "请求上下文包含无法序列化的时间字段，请刷新页面后重试。";
+                }
+                if (message.contains("DataBufferLimitException") || message.contains("max-in-memory-size")) {
+                    return "AI 响应体超过允许大小，请减少附件数量或尺寸后重试。";
+                }
+            }
+            current = current.getCause();
+        }
+        return "Python AI 流式服务暂时不可用，请稍后再试。";
     }
 
     private Object normalizePythonRequest(Object request) {
