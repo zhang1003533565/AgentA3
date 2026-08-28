@@ -111,14 +111,14 @@ class LeaderFastRouteTest(unittest.TestCase):
             chat_service=self.provider,
             callable_catalog={
                 "agents": [],
-                "tools": [{"name": "generate_flowchart_image_tool", "enabled": True}],
+                "tools": [{"name": "generate_flowchart_tool", "enabled": True}],
             },
         )
 
         self.assertEqual(0, self.provider.calls)
         self.assertEqual("diagram_flowchart", plan.intent)
         self.assertEqual("call_tool", plan.action)
-        self.assertEqual("generate_flowchart_image_tool", plan.tool_name)
+        self.assertEqual("generate_flowchart_tool", plan.tool_name)
         self.assertEqual("rules", plan.route_mode)
 
     def test_explicit_file_export_requests_use_content_export_tool_without_calling_router_model(self):
@@ -240,7 +240,7 @@ class LeaderFastRouteTest(unittest.TestCase):
             "need_retrieval": False,
             "rag_strategy": "",
             "action": "call_tool",
-            "tool_name": "generate_mind_map_image_tool",
+            "tool_name": "generate_mind_map_tool",
             "route_reason": "用户偏好图解，生成学习路线思维导图。",
             "answer": "正在生成思维导图。",
         }, "")
@@ -249,7 +249,7 @@ class LeaderFastRouteTest(unittest.TestCase):
         self.assertEqual("diagram_mind_map_image", plan.intent)
         self.assertEqual("leader_agent", plan.target_agent)
         self.assertEqual("call_tool", plan.action)
-        self.assertEqual("generate_mind_map_image_tool", plan.tool_name)
+        self.assertEqual("generate_mind_map_tool", plan.tool_name)
         self.assertEqual("llm", plan.route_mode)
 
     def test_every_catalogued_leader_callable_agent_passes_plan_validation(self):

@@ -57,11 +57,16 @@ from app.services.assistant_resource_builder import (
     finalize_assistant_response,
 )
 from app.services.data_store import data_store
-from app.security.internal_auth import require_internal_token
+from app.services.structured_diagram_service import (
+    generate_architecture as generate_structured_architecture,
+    generate_flowchart as generate_structured_flowchart,
+    generate_mind_map as generate_structured_mind_map,
+)
 from app.safety.learning_content_guard import (
     LearningContentGuardError,
     sanitize_learning_references,
 )
+from app.security.internal_auth import require_internal_token
 from app.utils.logger import get_logger
 from app.utils.sse import build_sse, chunk_answer
 from app.utils.text_utils import build_session_token, normalize_text
@@ -84,23 +89,35 @@ VISUAL_GENERATION_TOOL_CONFIG = {
         "trigger": "用户明确要求生成普通图片、插图、封面、海报或图片素材。",
         "promptAgent": "",
     },
-    "generate_mind_map_image_tool": {
-        "zhName": "思维导图图片生成工具",
-        "purpose": "先生成思维导图专用提示词，再统一调用图片生成入口。",
-        "trigger": "用户要求生成思维导图或脑图图片。",
-        "promptAgent": "mind_map_agent",
+}
+
+STRUCTURED_DIAGRAM_TOOL_CONFIG = {
+    "generate_mind_map_tool": {
+        "zhName": "思维导图生成工具",
+        "purpose": "根据用户输入生成可编辑的结构化思维导图 JSON，与 App AI Studio 同路线。",
+        "trigger": "用户要求生成思维导图、脑图或可编辑导图。",
+        "diagramType": "mind_map",
+        "answerType": "mind_map_json",
+        "output": "mind_map_json",
+        "boundAgent": "diagram_mind_map_agent",
     },
-    "generate_flowchart_image_tool": {
-        "zhName": "流程图图片生成工具",
-        "purpose": "先生成流程图专用提示词，再统一调用图片生成入口。",
-        "trigger": "用户要求生成流程图、算法流程或步骤流程图片。",
-        "promptAgent": "diagram_flowchart_prompt_agent",
+    "generate_flowchart_tool": {
+        "zhName": "流程图生成工具",
+        "purpose": "根据用户输入生成可编辑的结构化流程图 JSON，与 App AI Studio 同路线。",
+        "trigger": "用户要求生成流程图、算法流程或步骤流程。",
+        "diagramType": "flowchart",
+        "answerType": "flowchart_json",
+        "output": "flowchart_json",
+        "boundAgent": "diagram_flowchart_agent",
     },
-    "generate_architecture_image_tool": {
-        "zhName": "架构图图片生成工具",
-        "purpose": "先生成架构图专用提示词，再统一调用图片生成入口。",
+    "generate_architecture_tool": {
+        "zhName": "架构图生成工具",
+        "purpose": "根据用户输入生成可编辑的结构化架构图 JSON，与 App AI Studio 同路线。",
         "trigger": "用户要求生成系统架构图、技术架构图或模块依赖图。",
-        "promptAgent": "architecture_prompt_agent",
+        "diagramType": "architecture",
+        "answerType": "architecture_json",
+        "output": "architecture_json",
+        "boundAgent": "diagram_architecture_agent",
     },
 }
 
@@ -131,10 +148,29 @@ IMAGE_STITCHING_TOOL = {
 }
 VISUAL_GENERATION_TOOLS.insert(1, IMAGE_STITCHING_TOOL)
 VISUAL_GENERATION_TOOL_NAMES = frozenset(VISUAL_GENERATION_TOOL_CONFIG)
+STRUCTURED_DIAGRAM_TOOLS = [
+    {
+        "name": tool_name,
+        "zhName": config["zhName"],
+        "displayName": f"{config['zhName']}（{tool_name}）",
+        "category": "structured_diagram",
+        "purpose": config["purpose"],
+        "trigger": config["trigger"],
+        "outputs": [config["output"]],
+        "status": "implemented",
+        "configurable": True,
+        "boundAgent": config.get("boundAgent", ""),
+    }
+    for tool_name, config in STRUCTURED_DIAGRAM_TOOL_CONFIG.items()
+]
+STRUCTURED_DIAGRAM_TOOL_NAMES = frozenset(STRUCTURED_DIAGRAM_TOOL_CONFIG)
 REMOVED_TOOL_NAMES = frozenset({
     "generate_ppt_image_tool",
     "generate_activity_image_tool",
     "generate_knowledge_graph_image_tool",
+    "generate_mind_map_image_tool",
+    "generate_flowchart_image_tool",
+    "generate_architecture_image_tool",
 })
 IMAGE_RECOGNITION_TOOL_NAME = "recognize_image_tool"
 IMAGE_RECOGNITION_AGENT_NAME = "vision_agent"
@@ -559,6 +595,7 @@ TOOL_CAPABILITY_QUERY = {
 LEADER_CALLABLE_TOOLS = [
     IMAGE_RECOGNITION_TOOL,
     *VISUAL_GENERATION_TOOLS,
+    *STRUCTURED_DIAGRAM_TOOLS,
     # 个人任务管理工具（MEETING_TASK_TOOL）已登记在 CAMPUS_SERVICE_TOOLS 中，
     # 由下方 *CAMPUS_SERVICE_TOOLS 展开进入本列表；此处不再显式添加，
     # 否则后台工具列表会出现两条"个人任务管理工具"。Leader 仍可发现并调用它。
@@ -2878,6 +2915,8 @@ def _execute_leader_plan(
             response = _run_image_recognition_tool(request, plan)
         elif plan.tool_name in VISUAL_GENERATION_TOOL_NAMES:
             response = _run_visual_generation_tool(request, plan)
+        elif plan.tool_name in STRUCTURED_DIAGRAM_TOOL_NAMES:
+            response = _run_structured_diagram_tool(request, authorization, plan)
         elif plan.tool_name == MEETING_TASK_TOOL_NAME:
             response = _run_meeting_task_tool(request, authorization, plan)
         else:
@@ -3347,7 +3386,7 @@ def _leader_agent_category(agent_name: str) -> str:
         return "meeting"
     if agent_name.startswith("ppt_"):
         return "ppt"
-    if agent_name.startswith("diagram_") or agent_name in {"mind_map_agent", "architecture_prompt_agent"}:
+    if agent_name.startswith("diagram_"):
         return "diagram"
     if agent_name == "image_agent":
         return "image"
@@ -3758,6 +3797,87 @@ def _run_visual_generation_tool(
         trace=trace,
         metadata=metadata,
         attachments=image_attachments,
+    ))
+
+
+def _llm_headers_from_request(request: RagQueryRequest) -> Dict[str, str]:
+    metadata = request.metadata if isinstance(request.metadata, dict) else {}
+    headers = metadata.get("llmHeaders") if isinstance(metadata.get("llmHeaders"), dict) else {}
+    return {
+        key: str(value or "").strip()
+        for key, value in {
+            "provider": headers.get("provider") or metadata.get("provider"),
+            "base_url": headers.get("baseUrl") or headers.get("base_url") or metadata.get("baseUrl"),
+            "api_key": headers.get("apiKey") or headers.get("api_key") or metadata.get("apiKey"),
+            "model": headers.get("model") or metadata.get("model"),
+        }.items()
+        if str(value or "").strip()
+    }
+
+
+def _run_structured_diagram_tool(
+    request: RagQueryRequest,
+    authorization: str,
+    leader_plan,
+) -> RagQueryResponse:
+    tool_name = str(getattr(leader_plan, "tool_name", "") or "").strip()
+    config = STRUCTURED_DIAGRAM_TOOL_CONFIG.get(tool_name)
+    if not config:
+        raise HTTPException(status_code=502, detail=f"未注册的结构化图表工具：{tool_name or '空'}")
+    input_text = str(request.input or "").strip()
+    if tool_name == "generate_mind_map_tool":
+        diagram = generate_structured_mind_map(authorization, input_text)
+    elif tool_name == "generate_flowchart_tool":
+        diagram = generate_structured_flowchart(authorization, input_text)
+    elif tool_name == "generate_architecture_tool":
+        diagram = generate_structured_architecture(authorization, input_text)
+    else:
+        raise HTTPException(status_code=502, detail=f"未实现的结构化图表工具：{tool_name}")
+    title = str(diagram.get("title") or config.get("zhName") or "结构化图表").strip()
+    answer_type = str(config.get("answerType") or "diagram_json")
+    diagram_type = str(config.get("diagramType") or "")
+    answer = f"已为你生成「{title}」，可在下方查看和编辑。"
+    metadata = {
+        "agentName": "leader_agent",
+        "targetAgent": tool_name,
+        "executedAgent": tool_name,
+        "toolName": tool_name,
+        "boundAgent": config.get("boundAgent") or "",
+        "boundAgentLabel": _tool_display_name(config.get("boundAgent") or ""),
+        "diagram": diagram,
+        "studioPath": f"/ai-studio/{diagram_type}" if diagram_type else "",
+        "intent": getattr(leader_plan, "intent", "") or f"{diagram_type}_generation",
+        "needRetrieval": False,
+        "retrievalSkipped": True,
+        "strategyLabel": config.get("purpose") or _tool_display_name(tool_name),
+        "executionMode": "leader_call_tool",
+        "executionModeLabel": "Leader 调用结构化图表工具",
+        "answerType": answer_type,
+        "outputType": answer_type,
+        "leaderAction": leader_plan.action,
+        "leaderActionLabel": _leader_action_label(leader_plan.action),
+        "routeReason": leader_plan.route_reason,
+    }
+    metadata.update(_context_metadata_from_request(request))
+    trace = [
+        RagTraceResponse(stage="leader_route", detail=_leader_plan_detail(leader_plan)),
+        RagTraceResponse(stage="structured_diagram_tool", detail={
+            "toolName": tool_name,
+            "toolDisplayName": _tool_display_name(tool_name),
+            "diagramType": diagram_type,
+            "title": title,
+            "nodeCount": len(diagram.get("nodes") or []),
+            "layerCount": len(diagram.get("layers") or []),
+            "message": "已生成结构化图表 JSON",
+        }),
+    ]
+    return _decorate_output_response(RagQueryResponse(
+        strategy=tool_name,
+        answer=answer,
+        answerType=answer_type,
+        documents=[],
+        trace=trace,
+        metadata=metadata,
     ))
 
 
@@ -5216,7 +5336,6 @@ def _answer_type_for_agent(agent_name: str) -> str:
         "leader_agent": "text",
         "profile_summary_agent": "profile_summary_json",
         IMAGE_RECOGNITION_AGENT_NAME: "image_analysis",
-        "mind_map_agent": "image_prompt",
         "diagram_mind_map_agent": "mermaid_mindmap",
         "diagram_flowchart_agent": "mermaid_flowchart",
         "diagram_architecture_agent": "mermaid_architecture",

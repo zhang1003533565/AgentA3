@@ -71,7 +71,10 @@ public class PythonAiProxyService {
     private static final Set<String> REMOVED_TOOL_NAMES = Set.of(
             "generate_ppt_image_tool",
             "generate_activity_image_tool",
-            "generate_knowledge_graph_image_tool"
+            "generate_knowledge_graph_image_tool",
+            "generate_mind_map_image_tool",
+            "generate_flowchart_image_tool",
+            "generate_architecture_image_tool"
     );
 
     private final WebClient.Builder webClientBuilder;
@@ -996,11 +999,11 @@ public class PythonAiProxyService {
         validateAuthorization(authorization);
         String token = normalizeBearerToken(authorization);
         Long userId = extractUserId(token);
-        String requestedModel = resolveArchitectureModelConfigPrefix();
+        String requestedModel = requireStrictAgentModelConfigPrefix(ARCHITECTURE_AGENT_NAME);
         if (!StringUtils.hasText(requestedModel)) {
             throw new BusinessException(
                     Result.ERROR_CODE,
-                    "AI 文本模型未配置，请在系统配置中维护 ai.service.text.* 或 ai.agent-bindings."
+                    "架构图智能体未绑定文本模型，请在系统配置中维护 ai.agent-bindings."
                             + ARCHITECTURE_AGENT_NAME + ".model"
             );
         }
@@ -1625,7 +1628,15 @@ public class PythonAiProxyService {
     }
 
     private String resolveArchitectureModelConfigPrefix() {
-        return resolveTextModelConfigPrefix(ARCHITECTURE_AGENT_NAME);
+        return requireStrictAgentModelConfigPrefix(ARCHITECTURE_AGENT_NAME);
+    }
+
+    private String requireStrictAgentModelConfigPrefix(String agentName) {
+        String configPrefix = resolveAgentBoundModel(agentName);
+        if (!StringUtils.hasText(configPrefix) || !hasCompleteTextConfig(configPrefix)) {
+            return "";
+        }
+        return configPrefix;
     }
 
     private String resolveTextModelConfigPrefix(String agentName) {

@@ -109,6 +109,46 @@ class JavaBackendRetriever:
             )
             return {}
 
+    def post_json(
+        self,
+        path: str,
+        authorization: str,
+        body: Optional[Dict[str, Any]] = None,
+        *,
+        timeout_seconds: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        if not self._can_call():
+            return {}
+
+        payload = body or {}
+        url = f"{self.java_base_url}{path}"
+        data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        req = Request(url, data=data, method="POST")
+        req.add_header("Authorization", authorization)
+        req.add_header("Content-Type", "application/json; charset=utf-8")
+        req.add_header("Accept", "application/json")
+
+        started = time.perf_counter()
+        timeout = timeout_seconds or max(self.timeout_seconds, 65)
+        try:
+            with urlopen(req, timeout=timeout) as resp:
+                body_text = resp.read().decode("utf-8")
+                elapsed_ms = int((time.perf_counter() - started) * 1000)
+                logger.info("java api ok path=%s method=POST elapsed_ms=%s", path, elapsed_ms)
+                parsed = json.loads(body_text)
+                self._record_success()
+                return parsed if isinstance(parsed, dict) else {}
+        except Exception:
+            elapsed_ms = int((time.perf_counter() - started) * 1000)
+            self._record_failure()
+            logger.exception(
+                "java api failed path=%s method=POST elapsed_ms=%s circuit_open_seconds=%s",
+                path,
+                elapsed_ms,
+                self.circuit_open_seconds,
+            )
+            return {}
+
     def _can_call(self) -> bool:
         if not self.enabled:
             return False

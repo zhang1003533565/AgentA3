@@ -354,12 +354,9 @@ const CALL_DETAIL_STATUS_LABELS = {
 const AGENT_LABELS = {
   leader_agent: '智能助手',
   profile_summary_agent: '个人画像汇总智能体',
-  mind_map_agent: '思维导图图片提示词智能体',
-  diagram_mind_map_agent: '思维导图图片生成智能体',
+  diagram_mind_map_agent: '图表思维导图智能体',
   diagram_flowchart_agent: '图表流程图智能体',
   diagram_architecture_agent: '图表架构图智能体',
-  diagram_flowchart_prompt_agent: '流程图提示词智能体',
-  architecture_prompt_agent: '架构图提示词智能体',
   textbook_knowledge_agent: '教材知识点智能体',
   image_agent: '图片智能体',
   ppt_outline_agent: 'PPT 大纲智能体',

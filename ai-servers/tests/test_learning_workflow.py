@@ -669,7 +669,7 @@ def test_existing_leader_rule_routes_remain_unchanged():
     assert leader_agent._plan_with_rules("帮我生成 Python 课件").target_agent == "ppt_outline_agent"
     mind_map_plan = leader_agent._plan_with_rules("画一个进程调度思维导图")
     assert mind_map_plan.action == "call_tool"
-    assert mind_map_plan.tool_name == "generate_mind_map_image_tool"
+    assert mind_map_plan.tool_name == "generate_mind_map_tool"
     schedule = leader_agent._plan_with_rules("我今天有什么课")
     assert schedule.action == "call_tool"
     assert schedule.tool_name == "java_schedule_api"
