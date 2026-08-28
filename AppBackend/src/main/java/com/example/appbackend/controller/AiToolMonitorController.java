@@ -130,8 +130,6 @@ public class AiToolMonitorController {
                     "diagram_export", "图表导出", "生成流程图图片"),
             new ToolDefinition("generate_architecture_image_tool", "架构图生成工具", "架构图生成工具（generate_architecture_image_tool）",
                     "diagram_export", "图表导出", "生成系统架构图图片"),
-            new ToolDefinition("generate_ppt_image_tool", "PPT配图生成工具", "PPT配图生成工具（generate_ppt_image_tool）",
-                    "presentation_generation", "PPT 生成", "生成 PPT 封面或页面配图"),
             new ToolDefinition("java_schedule_api", "课表查询工具", "课表查询工具（java_schedule_api）",
                     "campus_service", "系统能力", "查询用户课程安排"),
             new ToolDefinition("java_activity_api", "活动查询工具", "活动查询工具（java_activity_api）",

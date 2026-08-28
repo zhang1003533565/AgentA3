@@ -30,6 +30,7 @@ class DiagramAgentsTest(unittest.TestCase):
         self.assertNotIn("diagram_activity_agent", catalog)
         self.assertNotIn("diagram_activity_prompt_agent", catalog)
         self.assertNotIn("knowledge_graph_prompt_agent", catalog)
+        self.assertNotIn("ppt_image_agent", catalog)
 
     def test_aliases_route_to_prefixed_agents(self):
         self.assertEqual("diagram_mind_map_agent", normalize_agent_name("思维导图"))
@@ -46,7 +47,7 @@ class DiagramAgentsTest(unittest.TestCase):
             "生成系统架构图": "generate_architecture_image_tool",
             "生成操作系统知识图谱": "generate_image_tool",
             "生成一张教学配图": "generate_image_tool",
-            "生成 PPT 封面配图": "generate_ppt_image_tool",
+            "生成 PPT 封面配图": "generate_image_tool",
         }
         for query, tool_name in cases.items():
             plan = leader_agent._plan_with_rules(query)
@@ -62,7 +63,6 @@ class DiagramAgentsTest(unittest.TestCase):
             "app.multi_agents.diagram_mind_map_agent.agent",
             "app.multi_agents.diagram_flowchart_agent.agent",
             "app.multi_agents.diagram_architecture_agent.agent",
-            "app.multi_agents.ppt_image_agent.agent",
         ):
             module = importlib.import_module(module_name)
             self.assertFalse(hasattr(module, "get_qwen_image_provider"), module_name)
@@ -74,7 +74,6 @@ class DiagramAgentsTest(unittest.TestCase):
             "generate_mind_map_image_tool": "mind_map_agent",
             "generate_flowchart_image_tool": "diagram_flowchart_prompt_agent",
             "generate_architecture_image_tool": "architecture_prompt_agent",
-            "generate_ppt_image_tool": "ppt_image_agent",
         }
         self.assertEqual(
             expected,

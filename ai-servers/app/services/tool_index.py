@@ -7,11 +7,10 @@ from typing import Any, Dict, Iterable, List, Sequence
 # 工具检索词注册表。工具的完整说明仍来自工具定义，这里只维护用户常用说法。
 TOOL_KEYWORDS: Dict[str, Sequence[str]] = {
     "recognize_image_tool": ("识别图片", "图片识别", "图片理解", "截图", "ocr", "图片内容", "图表分析", "看图"),
-    "generate_image_tool": ("生成图片", "画图", "配图", "插图", "封面", "海报", "图片素材", "文生图", "活动图", "泳道图", "角色任务流程", "知识图谱", "实体关系图", "概念关系图"),
+    "generate_image_tool": ("生成图片", "画图", "配图", "插图", "封面", "海报", "图片素材", "文生图", "活动图", "泳道图", "角色任务流程", "知识图谱", "实体关系图", "概念关系图", "ppt配图", "ppt图片", "课件配图", "页面插图", "ppt封面"),
     "generate_mind_map_image_tool": ("思维导图", "脑图", "导图图片"),
     "generate_flowchart_image_tool": ("流程图", "算法流程", "步骤流程"),
     "generate_architecture_image_tool": ("架构图", "系统架构", "技术架构", "模块依赖"),
-    "generate_ppt_image_tool": ("ppt配图", "ppt图片", "课件配图", "页面插图", "ppt封面"),
     "image_stitching_tool": ("图片拼接", "拼接图片", "图片合并", "合并图片", "横向拼接", "纵向拼接"),
     "java_schedule_api": ("课表", "课程安排", "有什么课", "有课", "今日课程", "明天课程", "上课", "任课老师", "老师是谁", "课时", "几节课", "课程时间"),
     "java_activity_api": ("校园活动", "讲座", "比赛", "报名活动", "活动安排"),

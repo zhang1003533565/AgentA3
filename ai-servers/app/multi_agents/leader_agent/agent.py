@@ -26,7 +26,6 @@ LEADER_OUTPUT_PUSH_STRATEGIES = [
             "generate_mind_map_image_tool",
             "generate_flowchart_image_tool",
             "generate_architecture_image_tool",
-            "generate_ppt_image_tool",
         ],
         "display_policy": "返回图片 URL 或图片生成 JSON 时，App 会话页以图片卡片展示，支持点击预览。",
     },
@@ -58,7 +57,6 @@ VISUAL_GENERATION_TOOL_NAMES = {
     "generate_mind_map_image_tool",
     "generate_flowchart_image_tool",
     "generate_architecture_image_tool",
-    "generate_ppt_image_tool",
 }
 
 # Set to false/0/off to restore the original model-only routing path immediately.
@@ -685,7 +683,7 @@ class LeaderAgent:
                 and any(token in normalized for token in ("图片", "配图", "插图", "封面图", "封面"))
             )
         ):
-            return LeaderPlan("ppt_image", "leader_agent", False, "", action="call_tool", tool_name="generate_ppt_image_tool", route_reason="命中 PPT 图片/配图意图，调用 PPT 配图生成工具。")
+            return LeaderPlan("ppt_image", "leader_agent", False, "", action="call_tool", tool_name="generate_image_tool", route_reason="命中 PPT 图片/配图意图，调用通用图片生成工具。")
         if any(token in normalized for token in ("ppt", "幻灯片", "课件", "演示文稿")):
             return LeaderPlan("ppt_outline", "ppt_outline_agent", False, "", route_reason="命中 PPT/课件生成意图，默认分发给 PPT 大纲智能体。")
         if any(token in normalized for token in ("md", "markdown", "知识点提取", "提取知识点", "知识点整理")):

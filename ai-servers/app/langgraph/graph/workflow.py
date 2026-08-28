@@ -112,7 +112,6 @@ def _answer_type_for_agent(agent_name: str) -> str:
         "ppt_outline_agent": "ppt_outline",
         "ppt_structure_agent": "ppt_structure",
         "ppt_review_agent": "ppt_review",
-        "ppt_image_agent": "ppt_image_prompt",
         "ppt_to_docx_agent": "document_conversion",
         "image_agent": "image_prompt",
     }

@@ -4,7 +4,6 @@ from app.multi_agents.diagram_flowchart_agent.agent import diagram_flowchart_age
 from app.multi_agents.diagram_mind_map_agent.agent import diagram_mind_map_agent
 from app.multi_agents.leader_agent.agent import leader_agent
 from app.multi_agents.mind_map_agent.agent import mind_map_agent
-from app.multi_agents.ppt_image_agent.agent import ppt_image_agent
 from app.multi_agents.ppt_outline_agent.agent import ppt_outline_agent
 from app.multi_agents.ppt_structure_agent.agent import ppt_structure_agent
 from app.multi_agents.ppt_review_agent.agent import ppt_review_agent
@@ -19,7 +18,6 @@ __all__ = [
     "diagram_mind_map_agent",
     "leader_agent",
     "mind_map_agent",
-    "ppt_image_agent",
     "ppt_outline_agent",
     "ppt_structure_agent",
     "ppt_review_agent",

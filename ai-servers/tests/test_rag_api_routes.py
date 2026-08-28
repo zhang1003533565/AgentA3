@@ -720,7 +720,7 @@ class RagApiRoutesTest(unittest.TestCase):
         self.assertIn("ppt_outline_agent", names)
         self.assertIn("ppt_structure_agent", names)
         self.assertIn("ppt_review_agent", names)
-        self.assertIn("ppt_image_agent", names)
+        self.assertNotIn("ppt_image_agent", names)
         self.assertNotIn("textbook_question_bank_agent", names)
         self.assertNotIn("md_knowledge_agent", names)
         self.assertNotIn("answer_agent", names)
@@ -749,7 +749,6 @@ class RagApiRoutesTest(unittest.TestCase):
             "mind_map_agent",
             "architecture_prompt_agent",
             "diagram_flowchart_prompt_agent",
-            "ppt_image_agent",
         }.isdisjoint(leader_callable_names))
         leader_tool_names = {item["name"] for item in payload["leaderCallableCatalog"]["tools"]}
         self.assertGreaterEqual(leader_tool_names, set(self._rag_routes.VISUAL_GENERATION_TOOL_NAMES))

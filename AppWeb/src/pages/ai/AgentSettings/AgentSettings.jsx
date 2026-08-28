@@ -68,7 +68,6 @@ const TOOL_TEST_PROMPTS = {
   generate_mind_map_image_tool: '请生成一张“校园二手交易流程”思维导图图片，包含发布、沟通、线下交易三个分支。',
   generate_flowchart_image_tool: '请生成校园二手商品发布审核流程图图片。',
   generate_architecture_image_tool: '请生成校园二手交易平台的前端、后端、MySQL、Redis系统架构图图片。',
-  generate_ppt_image_tool: '请生成一张智慧校园主题的 PPT 封面配图，16:9，蓝灰色，留出标题区域。',
   image_stitching_tool: '请将我上传的图片按照上传顺序拼接成一张图片。',
   java_schedule_api: '请查询我本周的课程安排。',
   java_activity_api: '请查询当前可报名的校园活动。',

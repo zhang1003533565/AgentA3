@@ -395,7 +395,6 @@ class JavaReuseIntegrationTest(unittest.TestCase):
             "mind_map_agent",
             "diagram_flowchart_prompt_agent",
             "architecture_prompt_agent",
-            "ppt_image_agent",
         ):
             with self.subTest(agent_name=agent_name):
                 req = ChatRequest(sessionId=f"internal-{agent_name}", agentName=agent_name, input="生成图片")

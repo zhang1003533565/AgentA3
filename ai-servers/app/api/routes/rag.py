@@ -102,12 +102,6 @@ VISUAL_GENERATION_TOOL_CONFIG = {
         "trigger": "用户要求生成系统架构图、技术架构图或模块依赖图。",
         "promptAgent": "architecture_prompt_agent",
     },
-    "generate_ppt_image_tool": {
-        "zhName": "PPT 配图生成工具",
-        "purpose": "先生成 PPT 配图专用提示词，再统一调用图片生成入口。",
-        "trigger": "用户要求生成 PPT 封面、课件配图或页面插图。",
-        "promptAgent": "ppt_image_agent",
-    },
 }
 
 VISUAL_GENERATION_TOOLS = [
@@ -4993,7 +4987,6 @@ def _answer_type_for_agent(agent_name: str) -> str:
         "ppt_outline_agent": "ppt_outline",
         "ppt_structure_agent": "ppt_structure",
         "ppt_review_agent": "ppt_review",
-        "ppt_image_agent": "ppt_image_prompt",
         "ppt_to_docx_agent": "document_conversion",
         "image_agent": "image_generation",
     }

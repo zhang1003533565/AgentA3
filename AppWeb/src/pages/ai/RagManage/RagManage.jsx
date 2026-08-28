@@ -266,7 +266,6 @@ const agentExampleInputs = {
   ppt_outline_agent: '数据结构：栈与队列\n\n课程重点包括栈的后进先出、队列的先进先出、循环队列的队空队满条件，以及括号匹配和任务调度等应用。',
   ppt_structure_agent: '数据结构栈与队列 PPT 结构选择\n\n根据 Presenton 模板组件 Schema 为每页选择合适的 layoutId。',
   ppt_review_agent: 'PPT 大纲：数据结构栈与队列\n\n第 1 页课程导入；第 2 页栈；第 3 页队列；第 4 页循环队列；第 5 页应用案例；第 6 页课堂练习。',
-  ppt_image_agent: 'PPT 插图素材：数据结构栈与队列\n\n封面包含栈容器和队列队伍。栈图体现入栈出栈，队列图体现入队出队，循环队列图体现 front 和 rear。',
   ppt_to_docx_agent: 'PPTX 转 DOCX 转换需求\n\n请上传一个 .pptx 文件，将每页幻灯片按顺序整理成 Word 文档。要求保留可提取的文字、表格和图片；内容可以根据 Word 文档重新排版。',
   image_agent: '操作系统：进程调度配图素材\n\n画面元素包括就绪队列、CPU、调度器、进程卡片、时间片和优先级标记。',
 }
