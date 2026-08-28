@@ -572,10 +572,13 @@ public class PythonAiProxyService {
     public SseEmitter streamRag(Map<String, Object> request,
                                 String authorization,
                                 SseEventHandler eventHandler) {
-        String requestedModel = resolveRequestedModel(request);
+        String requestedModel = resolveStreamRagModel(request);
         boolean modelOptional = isModelOptionalRagQuery(request);
         if (!modelOptional && !StringUtils.hasText(requestedModel)) {
-            throw new BusinessException(Result.ERROR_CODE, "请选择已测试成功的模型后再执行智能体");
+            throw new BusinessException(
+                    Result.ERROR_CODE,
+                    "Leader 未配置可用文本模型，请在后台为 leader_agent 绑定已测试模型，或配置默认文本模型。"
+            );
         }
         Map<String, Object> sanitized = sanitizeRagRequest(withAgentToggles(request));
         return streamPythonObject(
@@ -1153,20 +1156,18 @@ public class PythonAiProxyService {
             } catch (Exception e) {
                 log.error("python stream relay failed path={} errorType={}", path, e.getClass().getSimpleName());
                 String userMessage = resolveStreamErrorMessage(e);
+                Map<String, Object> structuredError = buildStreamErrorPayload(e);
                 // Send error as JSON string to avoid Content-Type conflict
                 String errorMsg;
                 try {
-                    errorMsg = objectMapper.writeValueAsString(Map.of(
-                        "message", userMessage
-                    ));
+                    errorMsg = objectMapper.writeValueAsString(structuredError);
                 } catch (JsonProcessingException jsonEx) {
                     errorMsg = "{\"message\":\"Python AI 流式服务暂时不可用，请稍后再试。\"}";
                 }
                 boolean relay = eventHandler == null;
                 if (eventHandler != null) {
                     try {
-                        Map<String, Object> errorPayload = new LinkedHashMap<>();
-                        errorPayload.put("message", resolveStreamErrorMessage(e));
+                        Map<String, Object> errorPayload = buildStreamErrorPayload(e);
                         relay = eventHandler.handle("error", errorPayload);
                     } catch (Exception handlerError) {
                         log.error("python stream failure handler rejected errorType={}",
@@ -1452,6 +1453,45 @@ public class PythonAiProxyService {
             current = current.getCause();
         }
         return false;
+    }
+
+    private String resolveStreamFailurePhase(Exception error) {
+        String message = resolveStreamErrorMessage(error).toLowerCase(Locale.ROOT);
+        if (message.contains("模型") || message.contains("model")) {
+            return "模型配置";
+        }
+        if (message.contains("localdatetime") || message.contains("序列化")) {
+            return "请求序列化";
+        }
+        if (message.contains("buffer") || message.contains("响应体")) {
+            return "响应传输";
+        }
+        return "Java 代理";
+    }
+
+    private Map<String, Object> buildStreamErrorPayload(Exception error) {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("message", resolveStreamErrorMessage(error));
+        payload.put("failurePhase", resolveStreamFailurePhase(error));
+        payload.put("failureLocation", "java_proxy");
+        payload.put("failureStage", "java_proxy");
+        payload.put("agentName", DEFAULT_AGENT_NAME);
+        payload.put("failedAgent", DEFAULT_AGENT_NAME);
+        payload.put("stage", "failed");
+        payload.put("status", "failed");
+        return payload;
+    }
+
+    private String resolveStreamRagModel(Map<String, Object> request) {
+        String resolved = resolveRequestedModel(request);
+        if (StringUtils.hasText(resolved)) {
+            return resolved;
+        }
+        String agentName = DEFAULT_AGENT_NAME;
+        if (request != null && request.get("agentName") != null) {
+            agentName = String.valueOf(request.get("agentName")).trim();
+        }
+        return resolveTextModelConfigPrefix(agentName);
     }
 
     private String resolveStreamErrorMessage(Exception error) {

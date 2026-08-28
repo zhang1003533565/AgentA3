@@ -128,24 +128,70 @@ const workflowTriggerLabels = {
   workflow_dependency: '工作流依赖触发',
 }
 
+const workflowFailureLocationLabels = {
+  java_proxy: 'Java 代理层',
+  web_client: '前端请求',
+  python_runtime: 'Python 执行层',
+}
+
 function workflowDetailText(detail, fallback = '') {
   if (typeof detail === 'string') return detail
   if (!detail || typeof detail !== 'object') return fallback
-  return detail.message || detail.routeReason || detail.reason || detail.summary || detail.toolDisplayName || fallback
+  return detail.message
+    || detail.failureReason
+    || detail.rawMessage
+    || detail.routeReason
+    || detail.reason
+    || detail.summary
+    || detail.toolDisplayName
+    || fallback
+}
+
+function buildWorkflowFailureDescription(entry, detail, fallback = '') {
+  const lines = []
+  const failurePhase = entry?.failurePhase || detail?.failurePhase || detail?.failureStage || entry?.failureStage || ''
+  const failureLocation = entry?.failureLocation || detail?.failureLocation || ''
+  const toolName = detail?.toolDisplayName || detail?.toolName || entry?.toolDisplayName || entry?.toolName || ''
+  const agentName = detail?.agentDisplayName || detail?.agentName || detail?.failedAgent || detail?.targetAgent || entry?.agentName || ''
+  const stage = entry?.stage || detail?.stage || ''
+  const message = workflowDetailText(detail, entry?.message || fallback)
+  const locationLabel = workflowFailureLocationLabels[failureLocation] || failureLocation
+  if (locationLabel) lines.push(`失败位置：${locationLabel}`)
+  if (failurePhase) lines.push(`失败阶段：${failurePhase}`)
+  if (stage && stage !== 'failed') lines.push(`步骤：${workflowStageLabels[stage] || stage}`)
+  if (toolName) lines.push(`工具：${toolName}`)
+  if (agentName) lines.push(`智能体：${agentName}`)
+  if (message) lines.push(message)
+  return lines.join('\n')
 }
 
 function normalizeWorkflowStep(entry, index, status = 'completed') {
   const stage = String(entry?.stage || entry?.event || 'processing')
   const detail = entry?.detail && typeof entry.detail === 'object' ? entry.detail : entry
-  const toolName = detail?.toolDisplayName || detail?.toolName || detail?.tool || ''
-  const agentName = detail?.agentDisplayName || detail?.agentName || detail?.targetAgent || detail?.executedAgent || ''
-  const intent = detail?.intent || ''
+  const toolName = detail?.toolDisplayName || detail?.toolName || detail?.tool || entry?.toolDisplayName || entry?.toolName || ''
+  const agentName = detail?.agentDisplayName || detail?.agentName || detail?.targetAgent || detail?.executedAgent || detail?.failedAgent || entry?.agentName || ''
+  const intent = detail?.intent || entry?.intent || ''
+  const failurePhase = detail?.failurePhase || entry?.failurePhase || detail?.failureStage || entry?.failureStage || ''
+  const isFailed = status === 'failed' || stage === 'failed'
+  const title = isFailed
+    ? `执行失败${failurePhase ? ` · ${failurePhase}` : ''}`
+    : (workflowStageLabels[stage] || toolName || agentName || '执行处理')
+  const description = isFailed
+    ? buildWorkflowFailureDescription(entry, detail, entry?.message || '')
+    : workflowDetailText(entry?.detail, entry?.message || '')
   return {
     id: `${stage}-${index}-${toolName || agentName}`,
     stage,
-    title: workflowStageLabels[stage] || toolName || agentName || '执行处理',
-    description: workflowDetailText(entry?.detail, entry?.message || ''),
-    meta: [workflowTriggerLabels[detail?.triggerType], toolName, agentName, intent && `意图：${intent}`].filter(Boolean),
+    title,
+    description,
+    meta: [
+      workflowTriggerLabels[detail?.triggerType || entry?.triggerType],
+      failurePhase && `阶段：${failurePhase}`,
+      toolName && `工具：${toolName}`,
+      agentName && `智能体：${agentName}`,
+      intent && `意图：${intent}`,
+      detail?.routeReason || entry?.routeReason,
+    ].filter(Boolean),
     status,
   }
 }
@@ -616,11 +662,21 @@ async function sendMessage(text) {
             content: payload?.answer || current?.content || '',
             streaming: true,
           })
-        } else if (eventName === 'tool_start' && payload?.message) {
+        } else if (eventName === 'tool_start') {
           appendWorkflowStep(assistantMessageId, { stage: 'tool_start', ...payload })
           updateChatMessage(assistantMessageId, {
-            content: current?.receivedDelta ? current.content : '',
+            content: current?.receivedDelta ? current.content : (payload?.message || current?.content || ''),
             streaming: true,
+            workflowExpanded: true,
+          })
+        } else if (eventName === 'error') {
+          const failureContent = buildWorkflowFailureDescription(payload, payload, payload?.message || '执行失败')
+          appendWorkflowStep(assistantMessageId, { stage: 'failed', ...payload }, 'failed')
+          updateChatMessage(assistantMessageId, {
+            content: failureContent,
+            streaming: false,
+            workflowExpanded: true,
+            workflowStatus: 'failed',
           })
         }
         void scrollMessages()
@@ -686,8 +742,17 @@ async function sendMessage(text) {
         void scrollMessages()
       },
       onError(payload) {
+        const failureContent = buildWorkflowFailureDescription(payload, payload, payload?.message || '流式请求失败')
+        appendWorkflowStep(assistantMessageId, { stage: 'failed', ...payload }, 'failed')
+        updateChatMessage(assistantMessageId, {
+          content: failureContent,
+          streaming: false,
+          workflowExpanded: true,
+          workflowStatus: 'failed',
+        })
         const error = new Error(payload?.message || '流式请求失败')
         error.payload = payload
+        error.handled = true
         throw error
       },
     })
@@ -737,10 +802,22 @@ async function sendMessage(text) {
         })
       }
     } else {
-      appendWorkflowStep(assistantMessageId, { stage: 'failed', message: cause.message || 'AI 请求失败' }, 'failed')
+      if (!cause?.handled) {
+        appendWorkflowStep(assistantMessageId, {
+          stage: 'failed',
+          message: cause.message || 'AI 请求失败',
+          failurePhase: cause?.payload?.failurePhase || '前端请求',
+          failureLocation: cause?.payload?.failureLocation || 'web_client',
+          ...cause?.payload,
+        }, 'failed')
+      }
+      const failureContent = cause?.handled
+        ? (messages.value.find((item) => item.id === assistantMessageId)?.content || cause.message || 'AI 请求失败，请稍后重试。')
+        : buildWorkflowFailureDescription(cause?.payload || {}, {}, cause.message || 'AI 请求失败，请稍后重试。')
       updateChatMessage(assistantMessageId, {
-        content: cause.message || 'AI 请求失败，请稍后重试。',
+        content: failureContent,
         streaming: false,
+        workflowExpanded: true,
         workflowStatus: 'failed',
       })
     }
@@ -1362,7 +1439,7 @@ function handleUpload(event) {
                             <p v-if="step.description">{{ step.description }}</p>
                             <div v-if="step.meta?.length" class="workflow-step-meta"><span v-for="meta in step.meta" :key="meta">{{ meta }}</span></div>
                           </div>
-                          <span class="workflow-step-status">{{ step.status === 'running' ? '进行中' : '已完成' }}</span>
+                          <span class="workflow-step-status">{{ step.status === 'running' ? '进行中' : step.status === 'failed' ? '失败' : '已完成' }}</span>
                         </div>
                       </div>
                     </div>
@@ -2131,7 +2208,7 @@ function handleUpload(event) {
 .workflow-step.running .workflow-step-index { border-color: var(--accent); color: var(--accent); }
 .workflow-step-copy { min-width: 0; }
 .workflow-step-copy strong { display: block; font-size: 11px; }
-.workflow-step-copy p { margin: 2px 0 0; color: var(--muted); font-size: 10px; line-height: 1.45; }
+.workflow-step-copy p { margin: 2px 0 0; color: var(--muted); font-size: 10px; line-height: 1.45; white-space: pre-line; }
 .workflow-step-meta { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 5px; }
 .workflow-step-meta span { padding: 2px 5px; border-radius: 4px; color: var(--muted); background: var(--surface-soft); font-size: 9px; }
 .workflow-step-status { align-self: start; color: #3a8a62; font-size: 9px; }
