@@ -1,5 +1,5 @@
 <script setup>
-import { computed, h, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, h, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 
 import AppTabBar from '../components/AppTabBar.vue'
@@ -109,12 +109,14 @@ const timelineHoverIndex = ref(-1)
 const timelineDragging = ref(false)
 const quickPrompts = ['查课表', '图书馆时间', '奖学金申请', '校园卡补办']
 const feedback = ref({})
+const attachmentPreviewUrls = ref({})
 let activeStreamTask = null
 
 const workflowStageLabels = {
   request_submitted: '请求已提交', session_ready: '会话已建立', leader_route: 'Leader 意图识别与路由',
-  leader_plan: 'Leader 制定执行计划', tool_start: '工具开始执行', tool_call: '调用工具',
-  tool_result_summary: '工具结果汇总', prompt_agent: '内容格式整理智能体', vision_agent: '图片识别智能体',
+  leader_plan: 'Leader 制定执行计划', leader_visual_prompt: 'Leader 汇总生图提示词',
+  tool_start: '工具开始执行', tool_call: '调用工具',
+  tool_result_summary: '工具结果汇总', prompt_agent: '专业提示词智能体', vision_agent: '图片识别智能体',
   image_generation_tool: '图片生成工具', agent_answer: '智能体生成结果', direct_agent: '专业智能体处理',
   generate_sql: '生成查询语句', retrieval: '检索相关资料', generation_start: '开始生成内容', completed: '处理完成',
   input_pipeline: '附件输入预处理', input_image_collected: '收集上传图片',
@@ -139,6 +141,8 @@ function workflowDetailText(detail, fallback = '') {
   if (typeof detail === 'string') return detail
   if (!detail || typeof detail !== 'object') return fallback
   return detail.message
+    || detail.summary
+    || detail.promptPreview
     || detail.failureReason
     || detail.rawMessage
     || detail.routeReason
@@ -498,6 +502,48 @@ function handleResourceSelect(event) {
   entries.forEach((entry) => void uploadEntry(entry))
   event.target.value = ''
 }
+
+function attachmentPreviewKey(message, item) {
+  return `${message?.exportMessageId || message?.id || 'message'}:${item?.storageKey || item?.fileName || item?.url || ''}`
+}
+
+function needsAuthenticatedImagePreview(item) {
+  return isImageAttachment(item) && Boolean(item?.serverGenerated || item?.storageKey)
+}
+
+async function ensureAuthenticatedImagePreview(message, item) {
+  if (!needsAuthenticatedImagePreview(item)) return
+  const key = attachmentPreviewKey(message, item)
+  if (attachmentPreviewUrls.value[key]) return
+  try {
+    const blob = await loadAttachmentBlob(item, message)
+    attachmentPreviewUrls.value = {
+      ...attachmentPreviewUrls.value,
+      [key]: URL.createObjectURL(blob),
+    }
+  } catch {
+    // Preview is optional; open/download actions still work.
+  }
+}
+
+function resolvedImageSrc(item, message) {
+  if (needsAuthenticatedImagePreview(item)) {
+    return attachmentPreviewUrls.value[attachmentPreviewKey(message, item)] || ''
+  }
+  return attachmentUrl(item, message)
+}
+
+watch(
+  messages,
+  (list) => {
+    list.forEach((message) => {
+      (message.attachments || []).forEach((item) => {
+        if (isImageAttachment(item)) void ensureAuthenticatedImagePreview(message, item)
+      })
+    })
+  },
+  { deep: true },
+)
 
 function removeResource(localId) {
   const item = pendingResources.value.find((entry) => entry.localId === localId)
@@ -1324,7 +1370,12 @@ async function startMicrophone() {
 }
 
 onBeforeUnmount(stopMicrophone)
-onBeforeUnmount(() => activeStreamTask?.abort?.('page_unload'))
+onBeforeUnmount(() => {
+  activeStreamTask?.abort?.('page_unload')
+  Object.values(attachmentPreviewUrls.value).forEach((url) => {
+    if (String(url).startsWith('blob:')) URL.revokeObjectURL(url)
+  })
+})
 
 function createMeeting() {
   const item = {
@@ -1498,9 +1549,9 @@ function handleUpload(event) {
                       <template v-for="item in message.attachments" :key="item.id || item.url || item.name">
                         <div :class="['message-attachment-card', { 'is-image': isImageAttachment(item) }]">
                           <img
-                            v-if="isImageAttachment(item) && attachmentUrl(item, message)"
+                            v-if="isImageAttachment(item) && resolvedImageSrc(item, message)"
                             class="message-image"
-                            :src="attachmentUrl(item, message)"
+                            :src="resolvedImageSrc(item, message)"
                             :alt="attachmentName(item)"
                             loading="lazy"
                             @click="openAttachment(item, message)"
