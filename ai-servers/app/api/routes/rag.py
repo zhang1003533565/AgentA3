@@ -2420,7 +2420,7 @@ def _compose_visual_generation_prompt(request: RagQueryRequest, input_text: str)
     context = metadata.get("conversationContext") if isinstance(metadata.get("conversationContext"), dict) else {}
     if not _needs_visual_prompt_composition(text, context):
         return text
-    from app.model_providers.runtime import get_chat_model_provider
+    from app.model_providers.factory import get_chat_model_provider
 
     provider = get_chat_model_provider()
     payload = {
