@@ -133,7 +133,8 @@ class TextToFileRagRouteTest(unittest.TestCase):
             self._transform_request("md", content="内容", toggles={"text_to_markdown_tool": False})
         )
         self.assertEqual("direct_answer", plan.action)
-        self.assertEqual("tool_disabled", plan.route_mode)
+        self.assertEqual("capability_unavailable", plan.route_mode)
+        self.assertNotIn("text_to_markdown_tool", plan.answer)
 
     def test_catalog_advertises_split_text_to_file_tools_and_respects_toggle(self):
         catalog = self._rag_routes._build_leader_callable_catalog(None)

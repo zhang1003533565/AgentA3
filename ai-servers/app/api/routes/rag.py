@@ -1097,6 +1097,7 @@ async def run_rag_query_stream(
                                 profile_context=profile_context,
                                 callable_catalog=callable_catalog,
                                 conversation_context=conversation_context,
+                                routing_input_text=_routing_input_from_request(request),
                             )
                     except AgentExecutionError:
                         raise
@@ -1847,6 +1848,7 @@ def _run_leader_orchestration(request: RagQueryRequest, authorization: str) -> R
             profile_context=profile_context,
             callable_catalog=callable_catalog,
             conversation_context=conversation_context,
+            routing_input_text=_routing_input_from_request(request),
         )
     plan_ms = _elapsed_ms(planning_started_at)
     execution_started_at = time.perf_counter()
@@ -1951,6 +1953,12 @@ def _requested_image_recognition_plan(request: RagQueryRequest) -> Optional[Lead
     )
 
 
+def _routing_input_from_request(request: RagQueryRequest) -> str:
+    metadata = request.metadata if isinstance(request.metadata, dict) else {}
+    original = str(metadata.get("contextOriginalInput") or "").strip()
+    return original or str(request.input or "").strip()
+
+
 def _requested_file_transform_plan(request: RagQueryRequest) -> Optional[LeaderPlan]:
     metadata = request.metadata if isinstance(request.metadata, dict) else {}
     interaction_type = str(metadata.get("interactionType") or "").strip().lower()
@@ -1966,16 +1974,18 @@ def _requested_file_transform_plan(request: RagQueryRequest) -> Optional[LeaderP
         tool_name = TEXT_TO_FILE_TOOL_BY_FORMAT[requested_output_type]
         tool_label = TEXT_TO_FILE_TOOL_LABELS.get(tool_name, "文本转文件工具")
         if not _is_tool_enabled(request, tool_name):
-            return LeaderPlan(
-                intent="document_export",
-                target_agent="leader_agent",
-                need_retrieval=False,
-                rag_strategy="",
-                answer=f"{tool_label}当前已关闭，请先在后台开启后再试。",
-                action="direct_answer",
-                route_reason=f"用户请求文本转文件，但{tool_label}已关闭，未执行工具调用。",
-                route_mode="tool_disabled",
-            )
+            if interaction_type == "transform":
+                return LeaderPlan(
+                    intent="document_export",
+                    target_agent="leader_agent",
+                    need_retrieval=False,
+                    rag_strategy="",
+                    answer="当前暂不支持生成该格式文件，我可以先用文字为你说明内容。",
+                    action="direct_answer",
+                    route_reason="用户请求文本转文件，但对应导出能力当前不可用。",
+                    route_mode="capability_unavailable",
+                )
+            return None
         return LeaderPlan(
             intent="document_export",
             target_agent="leader_agent",
@@ -1987,16 +1997,18 @@ def _requested_file_transform_plan(request: RagQueryRequest) -> Optional[LeaderP
             route_mode="rules",
         )
     if not _is_tool_enabled(request, "generated_export_tools"):
-        return LeaderPlan(
-            intent="document_export",
-            target_agent="leader_agent",
-            need_retrieval=False,
-            rag_strategy="",
-            answer="内容导出工具当前已关闭，请先在后台开启后再试。",
-            action="direct_answer",
-            route_reason="用户请求文件导出，但内容导出工具已关闭，未执行工具调用。",
-            route_mode="tool_disabled",
-        )
+        if interaction_type == "transform":
+            return LeaderPlan(
+                intent="document_export",
+                target_agent="leader_agent",
+                need_retrieval=False,
+                rag_strategy="",
+                answer="当前暂不支持生成该格式文件，我可以先用文字为你说明内容。",
+                action="direct_answer",
+                route_reason="用户请求文件导出，但对应导出能力当前不可用。",
+                route_mode="capability_unavailable",
+            )
+        return None
     return LeaderPlan(
         intent="document_export",
         target_agent="leader_agent",
@@ -2220,7 +2232,9 @@ def _run_attachment_input_pipeline(
     leader_request.imageDataUrls = []
     leader_plan = leader_agent.plan(
         leader_request.input, "", profile_context=profile_context,
-        callable_catalog=callable_catalog, conversation_context=(request.metadata or {}).get("conversationContext") or {},
+        callable_catalog=callable_catalog,
+        conversation_context=(request.metadata or {}).get("conversationContext") or {},
+        routing_input_text=original_input or _routing_input_from_request(request),
     )
     response = _execute_leader_plan(
         leader_request, authorization, profile_context, leader_plan, callable_catalog=callable_catalog,
@@ -2523,7 +2537,14 @@ def _execute_leader_plan(
         return response
     if plan.action == "call_tool":
         if not _is_tool_enabled(request, plan.tool_name):
-            return _run_disabled_tool_response(request, plan.tool_name, leader_plan=plan)
+            return _run_disabled_tool_response(
+                request,
+                plan.tool_name,
+                leader_plan=plan,
+                callable_catalog=callable_catalog,
+                profile_context=profile_context,
+                authorization=authorization,
+            )
         if plan.tool_name == TOOL_CAPABILITY_QUERY_NAME:
             response = _run_tool_capability_query(request, plan)
         elif plan.tool_name == "text_to_sql":
@@ -4101,23 +4122,42 @@ def _normalize_requested_file_type(value: Any) -> str:
     return aliases.get(normalized, normalized)
 
 
-def _run_disabled_tool_response(request: RagQueryRequest, tool_name: str, leader_plan) -> RagQueryResponse:
-    normalized = str(tool_name or "").strip()
-    display_name = _tool_display_name(normalized) or "目标工具"
-    answer = f"{display_name}当前已在后台关闭，本次未执行。如需使用该能力，请先在管理后台开启对应工具。"
-    disabled_plan = LeaderPlan(
-        intent=str(getattr(leader_plan, "intent", "") or "tool_disabled"),
-        target_agent="leader_agent",
-        need_retrieval=False,
-        rag_strategy="",
-        action="direct_answer",
-        route_reason=(
-            f"Leader 计划调用 {display_name}（{normalized}），但该工具已在后台关闭，未执行工具调用。"
-        ),
-        answer=answer,
-        route_mode="tool_disabled",
+def _run_disabled_tool_response(
+    request: RagQueryRequest,
+    tool_name: str,
+    leader_plan,
+    callable_catalog: Optional[Dict[str, Any]] = None,
+    profile_context: Optional[Dict[str, Any]] = None,
+    authorization: str = "",
+) -> RagQueryResponse:
+    metadata = request.metadata if isinstance(request.metadata, dict) else {}
+    conversation_context = metadata.get("conversationContext") if isinstance(metadata.get("conversationContext"), dict) else {}
+    replan = leader_agent._plan_with_llm(
+        request.input,
+        "",
+        profile_context=profile_context,
+        callable_catalog=callable_catalog,
+        conversation_context=conversation_context,
     )
-    return _run_leader_direct_answer(disabled_plan)
+    if replan.action == "call_tool" and not _is_tool_enabled(request, replan.tool_name):
+        replan = LeaderPlan(
+            intent=replan.intent or "campus_search",
+            target_agent="leader_agent",
+            need_retrieval=False,
+            rag_strategy="",
+            action="direct_answer",
+            tool_name="",
+            route_reason="所选能力当前不可用，改为直接回答用户问题。",
+            answer=replan.answer,
+            route_mode="llm_fallback",
+        )
+    return _execute_leader_plan(
+        request,
+        authorization,
+        profile_context,
+        replan,
+        callable_catalog=callable_catalog,
+    )
 
 
 def _run_service_tool(request: RagQueryRequest, authorization: str, leader_plan) -> RagQueryResponse:
