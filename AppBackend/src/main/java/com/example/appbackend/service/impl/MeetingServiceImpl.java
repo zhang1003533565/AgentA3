@@ -1199,9 +1199,37 @@ public class MeetingServiceImpl implements MeetingService {
         return normalized;
     }
 
-    private String resolveMeetingLlmModel(String requestedModel) {
+    /**
+     * 会后纪要（Agent 2）专属模型绑定键。
+     *
+     * <p>刻意与 {@code ai.agent-bindings.meeting_summary_agent.model} 区分：Agent 1（会中实时总结）
+     * 与 Agent 2 共用同一个 agentName，读的是通用 {@code .model} 键；实时总结对延迟敏感，
+     * 因此升级会后纪要模型时必须用独立键，避免连带改变 Agent 1 的行为。
+     */
+    static final String AI_MINUTES_MODEL_BINDING_KEY = "ai.agent-bindings.meeting_summary_agent.minutes-model";
+
+    String resolveMeetingLlmModel(String requestedModel) {
+        return resolveMeetingLlmModel(requestedModel, null);
+    }
+
+    /**
+     * 会议链路文本模型选择优先级：
+     * <ol>
+     *   <li>请求显式指定的模型（保持既有行为）；</li>
+     *   <li>该会议流程的专属模型绑定（如会后纪要的 {@link #AI_MINUTES_MODEL_BINDING_KEY}）；</li>
+     *   <li>最近一次测试成功的文本模型；</li>
+     *   <li>确定性的首个完整文本模型配置。</li>
+     * </ol>
+     * 专属绑定指向的配置若不完整、或模型不在可用免费清单内，则视为该绑定不可用并继续向下兜底，
+     * 不会因为绑定写错而让整条会议链路失败。
+     */
+    String resolveMeetingLlmModel(String requestedModel, String bindingKey) {
         if (StringUtils.hasText(requestedModel)) {
             return requestedModel.trim();
+        }
+        String boundPrefix = boundTextModelPrefix(bindingKey);
+        if (StringUtils.hasText(boundPrefix)) {
+            return boundPrefix;
         }
         String testedPrefix = latestTestedTextModelPrefix();
         if (StringUtils.hasText(testedPrefix)) {
@@ -1217,6 +1245,39 @@ public class MeetingServiceImpl implements MeetingService {
         );
     }
 
+    /**
+     * 读取并校验一个模型绑定配置键：只有指向完整、且运行期不会被改写的文本模型配置时才返回该前缀。
+     *
+     * <p>判定口径与 {@code PythonAiProxyService.applyPythonHeaders} 对齐：配置模型经
+     * {@link AiModelPolicy#effectiveFreeTextModel} 处理后必须仍是它自己。否则绑定虽然写了、
+     * 实际发出去的却是别的模型（例如不在免费清单内的模型会被统一改写成默认免费模型），
+     * 这种"名义生效、实际失效"的绑定不如不用，直接判定不可用并继续向下兜底。
+     */
+    String boundTextModelPrefix(String bindingKey) {
+        if (!StringUtils.hasText(bindingKey)) {
+            return "";
+        }
+        String prefix = systemConfigValue(bindingKey);
+        if (!StringUtils.hasText(prefix) || !prefix.startsWith("ai.service.text.") || !isCompleteAiModelConfig(prefix)) {
+            return "";
+        }
+        String configuredModel = systemConfigValue(prefix + ".model");
+        String effectiveModel = AiModelPolicy.effectiveFreeTextModel(
+                systemConfigValue(prefix + ".provider"), configuredModel);
+        boolean honoredAsConfigured = StringUtils.hasText(effectiveModel)
+                && effectiveModel.trim().equalsIgnoreCase(configuredModel.trim());
+        return honoredAsConfigured ? prefix : "";
+    }
+
+    /** 读取启用状态的系统配置值，缺失或空白时返回空串。 */
+    private String systemConfigValue(String configKey) {
+        return systemConfigRepository.findByConfigKeyAndStatus(configKey, 1)
+                .map(SystemConfig::getConfigValue)
+                .map(String::trim)
+                .filter(StringUtils::hasText)
+                .orElse("");
+    }
+
     private String latestTestedTextModelPrefix() {
         List<SystemConfigTestLog> logs = systemConfigTestLogRepository
                 .findByConfigKeyStartingWithAndSuccessOrderByCreateTimeDescIdDesc("ai.service.text.", true, Pageable.ofSize(50));
@@ -1228,7 +1289,15 @@ public class MeetingServiceImpl implements MeetingService {
                 .orElse("");
     }
 
-    private String firstCompleteTextModelPrefix() {
+    /**
+     * 兜底默认文本模型：收集所有字段完整的 {@code ai.service.text.*} 配置后，
+     * 按项目既有的免费模型优先级（{@link AiModelPolicy#priority}）排序，优先级相同再按配置前缀字典序。
+     *
+     * <p>原实现直接 {@code HashMap.entrySet().stream().findFirst()}，存在多个完整配置时
+     * 选中哪个模型取决于哈希遍历顺序，会让会议智能体的模型无声漂移；这里改为确定性排序，
+     * 同样配置 + 同样输入必定得到同一个结果，且不硬编码任何具体模型。
+     */
+    String firstCompleteTextModelPrefix() {
         Map<String, Set<String>> fieldsByPrefix = new HashMap<>();
         systemConfigRepository.findByConfigKeyStartingWithAndStatus("ai.service.text.", 1).forEach(config -> {
             String prefix = extractAiModelConfigPrefix(config.getConfigKey());
@@ -1240,6 +1309,9 @@ public class MeetingServiceImpl implements MeetingService {
         return fieldsByPrefix.entrySet().stream()
                 .filter(entry -> entry.getValue().containsAll(AI_MODEL_CONFIG_FIELDS))
                 .map(Map.Entry::getKey)
+                .sorted(java.util.Comparator
+                        .comparingInt((String prefix) -> AiModelPolicy.priority(systemConfigValue(prefix + ".model")))
+                        .thenComparing(java.util.Comparator.naturalOrder()))
                 .findFirst()
                 .orElse("");
     }
@@ -1348,7 +1420,7 @@ public class MeetingServiceImpl implements MeetingService {
         LlmChatRequest chatRequest = new LlmChatRequest();
         chatRequest.setSessionId(buildAgentChatSessionId(session.getSessionId(), "ai-minutes", ""));
         chatRequest.setAgentName("meeting_summary_agent");
-        chatRequest.setLlmModel(resolveMeetingLlmModel(null));
+        chatRequest.setLlmModel(resolveMeetingLlmModel(null, AI_MINUTES_MODEL_BINDING_KEY));
         chatRequest.setInput(truncate(meetingContent, LLM_INPUT_LIMIT));
         chatRequest.setAttachments(new ArrayList<>());
         
