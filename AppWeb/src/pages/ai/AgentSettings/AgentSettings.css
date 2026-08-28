@@ -279,6 +279,18 @@
   white-space: pre-wrap;
 }
 
+.agent-settings-tool-test-diagram {
+  gap: 0;
+  padding: 0;
+  overflow: hidden;
+  background: #fff;
+  white-space: normal;
+}
+
+.agent-settings-tool-test-diagram > .ant-typography {
+  padding: 12px 12px 0;
+}
+
 .agent-settings-tool-test-extracted-text {
   max-height: 360px;
   overflow: auto;

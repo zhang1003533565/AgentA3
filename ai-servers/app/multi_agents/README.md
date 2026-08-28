@@ -32,9 +32,9 @@
 | --- | --- | --- | --- |
 | Leader 自动分发 | 留空或 `leader_agent` | Java 后端负责第三方知识库接入 | `input` |
 | 架构图提示词 | `architecture_prompt_agent` | 直接处理输入上下文 | `input` 为系统说明、模块依赖或数据流材料 |
-| 思维导图图片 | `generate_mind_map_image_tool` | 工具编排 | 工具内部调用 `mind_map_agent` 生成提示词，再调用唯一图片入口 |
-| 流程图图片 | `generate_flowchart_image_tool` | 工具编排 | 工具内部调用 `diagram_flowchart_prompt_agent` 生成提示词，再调用唯一图片入口 |
-| 架构图图片 | `generate_architecture_image_tool` | 工具编排 | 工具内部调用 `architecture_prompt_agent` 生成提示词，再调用唯一图片入口 |
+| 思维导图 | `generate_mind_map_tool` | 工具编排 | 调用 App 同路线的结构化 JSON 生成，前端可编辑渲染 |
+| 流程图 | `generate_flowchart_tool` | 工具编排 | 调用 App 同路线的结构化 JSON 生成，前端可编辑渲染 |
+| 架构图 | `generate_architecture_tool` | 工具编排 | 调用 App 同路线的结构化 JSON 生成，前端可编辑渲染 |
 | 教材知识点 | `textbook_knowledge_agent` | Java 后端负责第三方知识库接入 | `input` 为章节、知识点问题或 Markdown 教材文本 |
 | 选择题 | `textbook_question_single_choice_agent` | 直接处理输入上下文 | `input` 为出题范围 |
 | 填空题 | `textbook_question_fill_blank_agent` | 直接处理输入上下文 | `input` 为出题范围 |

@@ -209,8 +209,17 @@ class RagApiRoutesTest(unittest.TestCase):
             "generate_ppt_image_tool",
             "generate_activity_image_tool",
             "generate_knowledge_graph_image_tool",
+            "generate_mind_map_image_tool",
+            "generate_flowchart_image_tool",
+            "generate_architecture_image_tool",
         ):
             self.assertNotIn(removed_tool, leader_tool_names)
+        for tool_name in (
+            "generate_mind_map_tool",
+            "generate_flowchart_tool",
+            "generate_architecture_tool",
+        ):
+            self.assertIn(tool_name, leader_tool_names)
         generated_tools = response.json()["generatedTools"]
         tools_by_name = {item["name"]: item for item in generated_tools}
         expected_formats = {
@@ -901,7 +910,7 @@ class RagApiRoutesTest(unittest.TestCase):
                                 "need_retrieval": False,
                                 "rag_strategy": "",
                                 "action": "call_tool",
-                                "tool_name": "generate_flowchart_image_tool",
+                                "tool_name": "generate_flowchart_tool",
                                 "route_reason": "LLM 根据 Leader 可调用清单选择流程图图片生成工具。",
                                 "answer": "",
                             },
@@ -914,8 +923,22 @@ class RagApiRoutesTest(unittest.TestCase):
         provider = RecordingLeaderProvider()
         old_get_chat_model_provider = leader_module.get_chat_model_provider
         old_search_service_tool = rag_routes.data_store.search_service_tool_with_meta
+        old_generate_flowchart = rag_routes.generate_structured_flowchart
         try:
             leader_module.get_chat_model_provider = lambda: provider
+            rag_routes.generate_structured_flowchart = lambda authorization, input_text: {
+                "title": "Python 循环流程图",
+                "type": "FLOWCHART",
+                "nodes": [
+                    {"id": "start", "label": "开始", "type": "start"},
+                    {"id": "loop", "label": "循环体", "type": "process"},
+                    {"id": "end", "label": "结束", "type": "end"},
+                ],
+                "edges": [
+                    {"source": "start", "target": "loop"},
+                    {"source": "loop", "target": "end"},
+                ],
+            }
             rag_routes.data_store.search_service_tool_with_meta = lambda *_args: ([
                     {
                         "type": "course_schedule_summary",
@@ -968,6 +991,7 @@ class RagApiRoutesTest(unittest.TestCase):
         finally:
             leader_module.get_chat_model_provider = old_get_chat_model_provider
             rag_routes.data_store.search_service_tool_with_meta = old_search_service_tool
+            rag_routes.generate_structured_flowchart = old_generate_flowchart
 
         self.assertEqual(200, schedule_response.status_code)
         self.assertEqual("java_schedule_api", schedule_response.json()["metadata"]["toolName"])
@@ -976,16 +1000,13 @@ class RagApiRoutesTest(unittest.TestCase):
         self.assertEqual(["pptx"], [item["ext"] for item in ppt_response.json()["attachments"]])
         self.assertEqual(200, diagram_response.status_code)
         diagram_payload = diagram_response.json()
-        self.assertEqual("generate_flowchart_image_tool", diagram_payload["metadata"]["targetAgent"])
-        self.assertEqual("generate_flowchart_image_tool", diagram_payload["metadata"]["executedAgent"])
-        self.assertEqual("generate_flowchart_image_tool", diagram_payload["metadata"]["toolName"])
-        self.assertEqual("diagram_flowchart_prompt_agent", diagram_payload["metadata"]["promptAgent"])
-        self.assertEqual("generate_flowchart_image_tool", diagram_payload["strategy"])
-        self.assertEqual(1, len(FakeImageProvider.requests))
-        self.assertEqual(
-            "专业流程图图片提示词：蓝白教学风格，清晰展示开始、处理步骤、判断分支和结束节点。",
-            FakeImageProvider.requests[0].prompt,
-        )
+        self.assertEqual("generate_flowchart_tool", diagram_payload["metadata"]["targetAgent"])
+        self.assertEqual("generate_flowchart_tool", diagram_payload["metadata"]["executedAgent"])
+        self.assertEqual("generate_flowchart_tool", diagram_payload["metadata"]["toolName"])
+        self.assertEqual("flowchart_json", diagram_payload["metadata"]["answerType"])
+        self.assertEqual("generate_flowchart_tool", diagram_payload["strategy"])
+        self.assertEqual("Python 循环流程图", diagram_payload["metadata"]["diagram"]["title"])
+        self.assertEqual(0, len(FakeImageProvider.requests))
         # 明确的课表和文件格式请求走规则快速路由；流程图仍由模型读取可调用清单后路由。
         self.assertEqual(1, len(provider.callable_catalogs))
         for catalog in provider.callable_catalogs:
@@ -996,7 +1017,7 @@ class RagApiRoutesTest(unittest.TestCase):
                 callable_names,
                 {"ppt_outline_agent"},
             )
-            self.assertIn("generate_flowchart_image_tool", callable_tools)
+            self.assertIn("generate_flowchart_tool", callable_tools)
             self.assertNotIn("diagram_flowchart_prompt_agent", callable_names)
             self.assertNotIn("image_agent", callable_names)
 

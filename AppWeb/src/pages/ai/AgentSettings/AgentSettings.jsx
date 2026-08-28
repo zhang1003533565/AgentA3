@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Alert, Button, Card, Drawer, Empty, Input, Modal, Segmented, Select, Space, Switch, Table, Tabs, Tag, Typography, Upload, message } from 'antd'
 import { ApiOutlined, CheckCircleOutlined, DownloadOutlined, ExclamationCircleOutlined, PlusOutlined, ReloadOutlined, RobotOutlined, SaveOutlined, SettingOutlined } from '@ant-design/icons'
 import { getRagAgents, runRagQuery, testFileContentTool } from '../../../api/rag'
+import DiagramWorkspace from '../../../components/DiagramWorkspace/DiagramWorkspace'
+import { extractDiagramFromResponse } from '../../../utils/diagramUtils'
 import { getSystemConfigList, upsertSystemConfig } from '../../../api/systemConfig'
 import axios from 'axios'
 import { API_BASE_URL } from '../../../config/apiBase'
@@ -34,6 +36,7 @@ const TOOL_TAB_GROUPS = [
   { key: 'campus', label: '校园服务', categories: ['campus_service'] },
   { key: 'vision', label: '图片理解', categories: ['vision_understanding'] },
   { key: 'visual', label: '视觉生成', categories: ['visual_generation'] },
+  { key: 'diagram', label: '结构化图表', categories: ['structured_diagram'] },
   { key: 'content', label: '内容导出', categories: ['content_export'] },
   { key: 'presentation', label: 'PPT 生成', categories: ['presentation_generation'] },
   { key: 'diagram', label: '图表导出', categories: ['diagram_export'] },
@@ -94,9 +97,9 @@ const renderToolTriggerType = (value) => {
 const TOOL_TEST_PROMPTS = {
   recognize_image_tool: '请识别我上传的图片，概括主要内容并读取其中清晰可见的文字。',
   generate_image_tool: '请生成一张简洁的智慧校园首页插图，浅色背景，蓝灰色调，不包含文字。',
-  generate_mind_map_image_tool: '请生成一张“校园二手交易流程”思维导图图片，包含发布、沟通、线下交易三个分支。',
-  generate_flowchart_image_tool: '请生成校园二手商品发布审核流程图图片。',
-  generate_architecture_image_tool: '请生成校园二手交易平台的前端、后端、MySQL、Redis系统架构图图片。',
+  generate_mind_map_tool: '请生成“校园二手交易流程”思维导图，包含发布、沟通、线下交易三个分支。',
+  generate_flowchart_tool: '请生成校园二手商品发布审核流程图。',
+  generate_architecture_tool: '请生成校园二手交易平台的前端、后端、MySQL、Redis 系统架构图。',
   image_stitching_tool: '请将我上传的图片按照上传顺序拼接成一张图片。',
   java_schedule_api: '请查询我本周的课程安排。',
   java_activity_api: '请查询当前可报名的校园活动。',
@@ -189,7 +192,7 @@ const responseContainsTool = (response, toolName) => {
       })
     }
   }
-  visit({ trace: response.trace, metadata: response.metadata, attachments: response.attachments })
+  visit({ trace: response.trace, metadata: response.metadata, retrievalMeta: response.retrievalMeta, attachments: response.attachments })
   return values.some((value) => value === toolName)
 }
 const getToolDisplayName = (tool) => {
@@ -209,6 +212,7 @@ const getToolCategoryLabel = (category) => {
     file_content_extraction: '文件识别',
     diagram_export: '图表导出',
     presentation_generation: 'PPT 生成',
+    structured_diagram: '结构化图表',
     capability_query: '能力查询',
   }
   return labels[category] || category || '-'
@@ -776,6 +780,11 @@ function AgentSettings() {
       label: `${tool.zhName || tool.name} · ${tool.name}`,
       disabled: tool.enabled === false,
     })), [allConfiguredTools, toolTestMode])
+
+  const toolTestDiagramPreview = useMemo(
+    () => extractDiagramFromResponse(toolTestResult?.response),
+    [toolTestResult?.response]
+  )
 
   const selectToolForTest = useCallback((name) => {
     const tool = allConfiguredTools.find((item) => item.name === name)
@@ -1890,6 +1899,15 @@ function AgentSettings() {
                           <div className="agent-settings-tool-test-output">
                             <Text strong>工具输出</Text>
                             <div>{toolTestResult.response.answer}</div>
+                          </div>
+                        ) : null}
+                        {toolTestDiagramPreview ? (
+                          <div className="agent-settings-tool-test-output agent-settings-tool-test-diagram">
+                            <Text strong>结构化图表预览</Text>
+                            <DiagramWorkspace
+                              type={toolTestDiagramPreview.type}
+                              result={toolTestDiagramPreview.result}
+                            />
                           </div>
                         ) : null}
                         {toolTestResult.mode === 'manual' && toolTestResult.response ? (

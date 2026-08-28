@@ -6,6 +6,7 @@ import AppTabBar from '../components/AppTabBar.vue'
 import ChatImageAttachment from '../components/ChatImageAttachment.vue'
 import ChatMarkdown from '../components/ChatMarkdown.vue'
 import ImageGenerationCanvas from '../components/ImageGenerationCanvas.vue'
+import DiagramWorkspace from '../components/DiagramWorkspace.vue'
 import { deleteLeaderSession, getLeaderSessionDetail, getLeaderSessions, queryLeaderAgent, streamLeaderAgent } from '../api/aiGeneration'
 import { API_BASE_URL } from '../api/request'
 import { AI_RESOURCE_ACCEPT, uploadAiResource } from '../api/upload'
@@ -264,6 +265,7 @@ function normalizeConversation(item) {
 function normalizeHistoryMessage(item, index) {
   const role = item?.role === 'user' ? 'user' : 'assistant'
   const trace = Array.isArray(item?.trace) ? item.trace : []
+  const retrievalMeta = item?.retrievalMeta && typeof item.retrievalMeta === 'object' ? item.retrievalMeta : {}
   return {
     id: item?.id || `${role}-${index}`,
     role,
@@ -279,6 +281,9 @@ function normalizeHistoryMessage(item, index) {
     exportMessageId: item?.messageId || item?.id || '',
     workflowStatus: 'completed',
     streaming: false,
+    retrievalMeta,
+    diagram: retrievalMeta.diagram || null,
+    diagramType: retrievalMeta.diagramType || '',
   }
 }
 
@@ -575,6 +580,25 @@ function isImageAttachment(item) {
   return String(item?.type || '').toLowerCase() === 'image'
     || String(item?.mimeType || '').toLowerCase().startsWith('image/')
     || /\.(jpe?g|png|webp|gif)$/i.test(String(item?.name || item?.fileName || item?.title || item?.url || ''))
+}
+
+const DIAGRAM_ANSWER_TYPES = new Set(['mind_map_json', 'flowchart_json', 'architecture_json'])
+
+function diagramTypeFromMessage(message) {
+  const answerType = String(message?.answerType || '')
+  if (answerType === 'mind_map_json') return 'mind_map'
+  if (answerType === 'flowchart_json') return 'flowchart'
+  if (answerType === 'architecture_json') return 'architecture'
+  return String(message?.diagramType || message?.retrievalMeta?.diagramType || '').trim()
+}
+
+function diagramResultFromMessage(message) {
+  const diagram = message?.diagram || message?.retrievalMeta?.diagram
+  return diagram && typeof diagram === 'object' ? diagram : null
+}
+
+function isDiagramMessage(message) {
+  return Boolean(diagramTypeFromMessage(message) && diagramResultFromMessage(message))
 }
 
 function looksLikeImageResultJson(content) {
@@ -911,6 +935,7 @@ async function sendMessage(text) {
           : finalWorkflow.length
             ? finalWorkflow
             : [...markWorkflowStepsCompleted(current?.workflowSteps || []), normalizeWorkflowStep({ stage: 'completed', message: '所有处理步骤已完成' }, (current?.workflowSteps || []).length)]
+        const retrievalMeta = payload?.retrievalMeta || payload?.metadata || {}
         updateChatMessage(assistantMessageId, {
           content: finalContent || 'AI 已完成本次资源分析。',
           attachments: normalizeMessageAttachments(payload?.attachments, payload?.resources),
@@ -919,6 +944,9 @@ async function sendMessage(text) {
           receivedDelta: false,
           imageGenerating: false,
           answerType: payload?.answerType || 'text',
+          diagram: retrievalMeta?.diagram || null,
+          diagramType: retrievalMeta?.diagramType || '',
+          retrievalMeta,
           exportSessionId: payload?.sessionId || conversationSessionIds.value[requestConversationId] || requestConversationId || '',
           exportMessageId: payload?.messageId || '',
           workflowSteps,
@@ -1633,7 +1661,13 @@ function handleUpload(event) {
                       :content="displayAssistantContent(message)"
                       :streaming="Boolean(message.streaming)"
                     />
-                    <p v-else-if="message.content">{{ message.content }}</p>
+                    <div v-if="message.role === 'assistant' && isDiagramMessage(message)" class="assistant-diagram-canvas">
+                      <DiagramWorkspace
+                        :type="diagramTypeFromMessage(message)"
+                        :result="diagramResultFromMessage(message)"
+                      />
+                    </div>
+                    <p v-else-if="message.content && !displayAssistantContent(message)">{{ message.content }}</p>
                     <ImageGenerationCanvas
                       v-if="message.role === 'assistant' && message.imageGenerating && !message.attachments?.length"
                       :label="message.imageGeneratingLabel || '正在生成更详细的图片，请稍等。'"
@@ -2459,6 +2493,7 @@ function handleUpload(event) {
 .upload-item small { margin-top: 3px; color: var(--muted); font-size: 10px; }
 .upload-item > button { color: var(--primary); background: transparent; font-size: 11px; }
 .message-attachments { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 9px; }
+.assistant-diagram-canvas { margin-top: 10px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); overflow: hidden; }
 .message-attachment-card { display: flex; min-width: 250px; max-width: 430px; align-items: center; gap: 7px; padding: 5px 7px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
 .message-attachment-card.is-image { display: block; max-width: 360px; padding: 0; overflow: hidden; }
 .message-image { display: block; width: min(346px, 100%); max-height: 300px; border-radius: 12px; object-fit: cover; cursor: zoom-in; }

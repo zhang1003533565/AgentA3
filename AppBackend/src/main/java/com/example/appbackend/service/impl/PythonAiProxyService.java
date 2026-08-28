@@ -71,7 +71,10 @@ public class PythonAiProxyService {
     private static final Set<String> REMOVED_TOOL_NAMES = Set.of(
             "generate_ppt_image_tool",
             "generate_activity_image_tool",
-            "generate_knowledge_graph_image_tool"
+            "generate_knowledge_graph_image_tool",
+            "generate_mind_map_image_tool",
+            "generate_flowchart_image_tool",
+            "generate_architecture_image_tool"
     );
 
     private final WebClient.Builder webClientBuilder;

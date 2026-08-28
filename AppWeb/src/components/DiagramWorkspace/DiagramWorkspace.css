@@ -1,0 +1,436 @@
+.diagram-workspace {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid #dce5ee;
+  border-radius: 12px;
+  background: #fff;
+}
+
+.diagram-workspace__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border-bottom: 1px solid #e6edf3;
+}
+
+.diagram-workspace__head strong,
+.diagram-workspace__head span {
+  display: block;
+}
+
+.diagram-workspace__head strong {
+  color: #253d58;
+}
+
+.diagram-workspace__head span {
+  max-width: 450px;
+  margin-top: 3px;
+  overflow: hidden;
+  color: #7b8ca0;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.diagram-workspace__actions {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.diagram-workspace__actions button {
+  min-width: 30px;
+  height: 30px;
+  border: 1px solid #dbe4ec;
+  border-radius: 6px;
+  color: #48647f;
+  background: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.diagram-workspace__actions .diagram-workspace__secondary {
+  padding: 0 10px;
+  background: #f7fafc;
+}
+
+.diagram-workspace__viewport {
+  min-height: 420px;
+  overflow: auto;
+  background-color: #f9fbfd;
+  background-image: radial-gradient(#dbe5ef 1px, transparent 1px);
+  background-size: 14px 14px;
+}
+
+.diagram-workspace__stage {
+  min-width: 650px;
+  min-height: 420px;
+  padding: 24px;
+  transform-origin: top left;
+}
+
+.flow-canvas {
+  display: block;
+  width: 100%;
+  min-height: 560px;
+}
+
+.flow-lane-label {
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.flow-node-group {
+  cursor: pointer;
+}
+
+.flow-node {
+  stroke-width: 2;
+}
+
+.flow-node--process {
+  fill: #f7fbff;
+  stroke: #5181ad;
+}
+
+.flow-node--terminal {
+  fill: #edf8f3;
+  stroke: #5eaa7c;
+}
+
+.flow-node--decision {
+  fill: #fff8e8;
+  stroke: #e0a841;
+}
+
+.flow-node-label {
+  fill: #28425e;
+  font-size: 13px;
+  font-weight: 700;
+  pointer-events: none;
+}
+
+.flow-edge-label {
+  fill: #8b671f;
+  font-size: 11px;
+  font-weight: 700;
+  paint-order: stroke;
+  stroke: #fff;
+  stroke-width: 4px;
+}
+
+.architecture-canvas {
+  display: grid;
+  min-height: 420px;
+  gap: 14px;
+  padding: 20px;
+  border: 1px solid #dce6ee;
+  border-radius: 10px;
+  background: #f8fbfd;
+}
+
+.architecture-canvas__caption {
+  color: #668098;
+  font-size: 11px;
+  font-weight: 700;
+  text-align: right;
+}
+
+.architecture-layer {
+  display: grid;
+  grid-template-columns: 105px minmax(0, 1fr);
+  gap: 12px;
+  align-items: stretch;
+}
+
+.architecture-layer__name {
+  display: grid;
+  place-items: center;
+  padding: 12px;
+  border: 1px solid #bdd3e5;
+  border-radius: 8px;
+  color: #355d7f;
+  background: #eaf3fa;
+  font-weight: 800;
+}
+
+.architecture-layer__nodes {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  gap: 10px;
+  padding: 10px;
+  border: 1px solid #d9e4ed;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.architecture-group {
+  display: flex;
+  flex: 1;
+  flex-wrap: wrap;
+  gap: 7px;
+  min-width: 200px;
+  padding: 8px;
+  border: 1px dashed #b9cede;
+  border-radius: 7px;
+  background: #fbfdff;
+}
+
+.architecture-group > b {
+  width: 100%;
+  color: #56738d;
+  font-size: 11px;
+}
+
+.architecture-node {
+  min-width: 115px;
+  flex: 1;
+  padding: 10px;
+  border: 1px solid #a9cad7;
+  border-radius: 7px;
+  color: #2f5365;
+  background: #f3fbfa;
+  cursor: pointer;
+}
+
+.architecture-node:hover {
+  border-color: #6caa9f;
+  background: #eaf8f4;
+}
+
+.architecture-node strong,
+.architecture-node span {
+  display: block;
+}
+
+.architecture-node span {
+  margin-top: 4px;
+  color: #6e8796;
+  font-size: 11px;
+}
+
+.architecture-empty {
+  color: #7e94a5;
+  font-size: 12px;
+}
+
+.architecture-third-party,
+.architecture-features {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-left: 117px;
+  padding: 10px;
+  color: #556f85;
+  font-size: 12px;
+}
+
+.architecture-third-party span,
+.architecture-features span {
+  padding: 4px 7px;
+  border: 1px solid #d5e2eb;
+  border-radius: 5px;
+  background: #fff;
+}
+
+.architecture-features span {
+  color: #3f786f;
+  background: #eef9f6;
+}
+
+.mind-canvas {
+  display: grid;
+  place-items: center;
+  min-height: 420px;
+  gap: 28px;
+  padding: 36px 20px;
+  background: #fff;
+}
+
+.mind-root {
+  padding: 14px 22px;
+  border: 2px solid #7c5ce0;
+  border-radius: 999px;
+  color: #4c348f;
+  background: #f1edff;
+  font-weight: 800;
+  box-shadow: 0 8px 16px rgba(102, 75, 187, 0.14);
+  cursor: pointer;
+}
+
+.mind-branches {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 18px;
+  max-width: 800px;
+}
+
+.mind-empty {
+  color: #7c8da1;
+}
+
+.mind-node {
+  position: relative;
+  min-width: 180px;
+  color: #334960;
+}
+
+.mind-node__body {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 11px 12px;
+  border: 1px solid hsl(calc(var(--branch-index) * 49 + 202), 40%, 74%);
+  border-left: 4px solid hsl(calc(var(--branch-index) * 49 + 202), 58%, 57%);
+  border-radius: 8px;
+  background: #fff;
+  cursor: pointer;
+}
+
+.mind-node__body:hover {
+  background: #f8fafc;
+}
+
+.mind-node__body strong {
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.mind-node__body button {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
+  border: 1px solid #d8e0e8;
+  border-radius: 50%;
+  color: #5e7287;
+  background: #f8fafc;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.mind-node__children {
+  position: relative;
+  display: grid;
+  gap: 7px;
+  margin: 8px 0 0 18px;
+  padding-left: 15px;
+  border-left: 1px solid #d8e1ea;
+}
+
+.mind-node__children::before {
+  content: '';
+  position: absolute;
+  top: -8px;
+  left: -1px;
+  width: 14px;
+  height: 1px;
+  background: #d8e1ea;
+}
+
+.mind-node--depth-2 .mind-node__body {
+  padding: 9px 10px;
+  background: #fbfcfe;
+}
+
+.mind-node--depth-3 .mind-node__body,
+.mind-node--depth-4 .mind-node__body {
+  padding: 7px 9px;
+  background: #fff;
+}
+
+.mind-node--depth-3 .mind-node__body strong,
+.mind-node--depth-4 .mind-node__body strong {
+  font-size: 11px;
+}
+
+.mind-node--collapsed > .mind-node__body {
+  background: #f5f7fa;
+}
+
+.diagram-inspector {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  display: flex;
+  gap: 12px;
+  max-width: min(340px, calc(100% - 24px));
+  padding: 12px;
+  border: 1px solid #cbdce9;
+  border-radius: 9px;
+  color: #344f6a;
+  background: rgba(255, 255, 255, 0.97);
+  box-shadow: 0 8px 22px rgba(41, 68, 92, 0.16);
+}
+
+.diagram-inspector span,
+.diagram-inspector strong,
+.diagram-inspector p,
+.diagram-inspector small {
+  display: block;
+}
+
+.diagram-inspector span {
+  color: #6b8499;
+  font-size: 11px;
+}
+
+.diagram-inspector strong {
+  margin-top: 3px;
+}
+
+.diagram-inspector p {
+  margin: 5px 0;
+  color: #60778e;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.diagram-inspector small {
+  color: #557a95;
+}
+
+.diagram-inspector > button {
+  align-self: flex-start;
+  color: #71869b;
+  background: transparent;
+  border: none;
+  font-size: 18px;
+  cursor: pointer;
+}
+
+@media (max-width: 800px) {
+  .diagram-workspace__head {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .diagram-workspace__actions {
+    flex-wrap: wrap;
+  }
+
+  .diagram-workspace__viewport {
+    min-height: 320px;
+  }
+
+  .diagram-workspace__stage {
+    padding: 15px;
+  }
+
+  .architecture-layer {
+    grid-template-columns: 85px minmax(0, 1fr);
+  }
+
+  .architecture-third-party,
+  .architecture-features {
+    margin-left: 97px;
+  }
+}

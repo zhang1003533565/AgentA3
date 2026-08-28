@@ -41,10 +41,10 @@ class DiagramAgentsTest(unittest.TestCase):
 
     def test_rule_router_uses_visual_tools_instead_of_agent_delegation(self):
         cases = {
-            "生成进程调度思维导图": "generate_mind_map_image_tool",
-            "生成括号匹配流程图": "generate_flowchart_image_tool",
+            "生成进程调度思维导图": "generate_mind_map_tool",
+            "生成括号匹配流程图": "generate_flowchart_tool",
             "生成会议任务活动图": "generate_image_tool",
-            "生成系统架构图": "generate_architecture_image_tool",
+            "生成系统架构图": "generate_architecture_tool",
             "生成操作系统知识图谱": "generate_image_tool",
             "生成一张教学配图": "generate_image_tool",
             "生成 PPT 封面配图": "generate_image_tool",
@@ -67,23 +67,35 @@ class DiagramAgentsTest(unittest.TestCase):
             module = importlib.import_module(module_name)
             self.assertFalse(hasattr(module, "get_qwen_image_provider"), module_name)
 
-    def test_all_visual_generation_is_registered_as_tools_with_internal_agents_hidden(self):
+    def test_structured_diagram_tools_are_registered_without_prompt_agents(self):
         rag_routes = importlib.import_module("app.api.routes.rag")
-        expected = {
-            "generate_image_tool": "",
-            "generate_mind_map_image_tool": "mind_map_agent",
-            "generate_flowchart_image_tool": "diagram_flowchart_prompt_agent",
-            "generate_architecture_image_tool": "architecture_prompt_agent",
-        }
         self.assertEqual(
-            expected,
-            {name: config["promptAgent"] for name, config in rag_routes.VISUAL_GENERATION_TOOL_CONFIG.items()},
+            {"generate_image_tool"},
+            set(rag_routes.VISUAL_GENERATION_TOOL_CONFIG),
+        )
+        self.assertEqual(
+            {
+                "generate_mind_map_tool",
+                "generate_flowchart_tool",
+                "generate_architecture_tool",
+            },
+            set(rag_routes.STRUCTURED_DIAGRAM_TOOL_CONFIG),
         )
         callable_catalog = rag_routes._build_leader_callable_catalog()
         callable_agents = {item["name"] for item in callable_catalog["agents"]}
         callable_tools = {item["name"] for item in callable_catalog["tools"]}
-        self.assertGreaterEqual(callable_tools, set(expected))
-        self.assertTrue((set(expected.values()) - {""}).isdisjoint(callable_agents))
+        self.assertGreaterEqual(
+            callable_tools,
+            {
+                "generate_image_tool",
+                "generate_mind_map_tool",
+                "generate_flowchart_tool",
+                "generate_architecture_tool",
+            },
+        )
+        self.assertNotIn("mind_map_agent", callable_agents)
+        self.assertNotIn("diagram_flowchart_prompt_agent", callable_agents)
+        self.assertNotIn("architecture_prompt_agent", callable_agents)
         self.assertNotIn("image_agent", callable_agents)
 
     def test_diagram_agents_only_return_mermaid_text(self):

@@ -23,11 +23,11 @@ LEADER_OUTPUT_PUSH_STRATEGIES = [
         "target_agents": [],
         "target_tools": [
             "generate_image_tool",
-            "generate_mind_map_image_tool",
-            "generate_flowchart_image_tool",
-            "generate_architecture_image_tool",
+            "generate_mind_map_tool",
+            "generate_flowchart_tool",
+            "generate_architecture_tool",
         ],
-        "display_policy": "返回图片 URL 或图片生成 JSON 时，App 会话页以图片卡片展示，支持点击预览。",
+        "display_policy": "图片请求返回图片卡片；思维导图/流程图/架构图返回可编辑结构化图表。",
     },
     {
         "push_type": "document",
@@ -54,9 +54,12 @@ CAMPUS_SERVICE_TOOL_NAMES = {
 
 VISUAL_GENERATION_TOOL_NAMES = {
     "generate_image_tool",
-    "generate_mind_map_image_tool",
-    "generate_flowchart_image_tool",
-    "generate_architecture_image_tool",
+}
+
+STRUCTURED_DIAGRAM_TOOL_NAMES = {
+    "generate_mind_map_tool",
+    "generate_flowchart_tool",
+    "generate_architecture_tool",
 }
 
 # Set to false/0/off to restore the original model-only routing path immediately.
@@ -620,19 +623,19 @@ class LeaderAgent:
         if any(token in normalized for token in ("知识图谱", "实体关系图", "概念关系图", "knowledge graph")):
             return LeaderPlan("knowledge_graph_image", "leader_agent", False, "", action="call_tool", tool_name="generate_image_tool", route_reason="命中知识图谱生成意图，调用通用图片生成工具。")
         if "架构图" in normalized and "提示词" in normalized:
-            return LeaderPlan("architecture_diagram_prompt", "leader_agent", False, "", action="call_tool", tool_name="generate_architecture_image_tool", route_reason="命中架构图生成意图，调用架构图图片生成工具。")
+            return LeaderPlan("architecture_diagram_prompt", "leader_agent", False, "", action="call_tool", tool_name="generate_architecture_tool", route_reason="命中架构图生成意图，调用架构图生成工具。")
         if any(token in normalized for token in ("架构图", "系统架构图", "architecture diagram", "architecture")):
-            return LeaderPlan("diagram_architecture", "leader_agent", False, "", action="call_tool", tool_name="generate_architecture_image_tool", route_reason="命中架构图生成意图，调用架构图图片生成工具。")
+            return LeaderPlan("diagram_architecture", "leader_agent", False, "", action="call_tool", tool_name="generate_architecture_tool", route_reason="命中架构图生成意图，调用架构图生成工具。")
         if "活动图" in normalized and "提示词" in normalized:
             return LeaderPlan("diagram_activity_prompt", "leader_agent", False, "", action="call_tool", tool_name="generate_image_tool", route_reason="命中活动图生成意图，调用通用图片生成工具。")
         if any(token in normalized for token in ("活动图", "泳道图", "activity diagram", "任务活动图")):
             return LeaderPlan("diagram_activity", "leader_agent", False, "", action="call_tool", tool_name="generate_image_tool", route_reason="命中活动图生成意图，调用通用图片生成工具。")
         if "流程图" in normalized and "提示词" in normalized:
-            return LeaderPlan("diagram_flowchart_prompt", "leader_agent", False, "", action="call_tool", tool_name="generate_flowchart_image_tool", route_reason="命中流程图生成意图，调用流程图图片生成工具。")
+            return LeaderPlan("diagram_flowchart_prompt", "leader_agent", False, "", action="call_tool", tool_name="generate_flowchart_tool", route_reason="命中流程图生成意图，调用流程图生成工具。")
         if any(token in normalized for token in ("流程图", "flowchart", "流程")):
-            return LeaderPlan("diagram_flowchart", "leader_agent", False, "", action="call_tool", tool_name="generate_flowchart_image_tool", route_reason="命中流程图生成意图，调用流程图图片生成工具。")
+            return LeaderPlan("diagram_flowchart", "leader_agent", False, "", action="call_tool", tool_name="generate_flowchart_tool", route_reason="命中流程图生成意图，调用流程图生成工具。")
         if any(token in normalized for token in ("思维导图", "mindmap", "mind map", "脑图")):
-            return LeaderPlan("diagram_mind_map", "leader_agent", False, "", action="call_tool", tool_name="generate_mind_map_image_tool", route_reason="命中思维导图生成意图，调用思维导图图片生成工具。")
+            return LeaderPlan("diagram_mind_map", "leader_agent", False, "", action="call_tool", tool_name="generate_mind_map_tool", route_reason="命中思维导图生成意图，调用思维导图生成工具。")
         if (
             any(token in normalized for token in ("生成图片", "画一张", "画张", "配图", "插图", "封面图", "海报", "图片素材", "文生图"))
             and not any(token in normalized for token in ("ppt", "课件", "幻灯片"))
@@ -1498,7 +1501,7 @@ def _leader_profile_usage_policy(callable_catalog: Optional[Dict[str, Any]]) -> 
         "能力查询工具返回结果后，面向普通用户说明可完成的事情，不要主动输出内部 agent/tool 标识；只有用户明确询问技术名称时才可给出。",
         "某项能力未出现在启用清单中时，必须明确回答当前不可用或尚未完成配置，不得声称可以生成后再执行失败，也不得向用户暴露已关闭工具的内部名称。",
         "leader_output_push_strategies 只是已启用能力的输出路由提示，不能单独证明某种生成能力当前可用。",
-        "所有图片、思维导图、流程图、活动图、架构图、知识图谱和 PPT 配图请求都必须 action=call_tool，并从 leader_callable_catalog.tools 选择对应 generate_*_image_tool；不要单独委派任何智能体。",
+        "所有图片、活动图、知识图谱和 PPT 配图请求都必须 action=call_tool，并从 leader_callable_catalog.tools 选择 generate_image_tool；思维导图、流程图、架构图必须选择对应的 generate_*_tool 结构化图表工具；不要单独委派任何智能体。",
         "target_agent 固定为 leader_agent；call_tool 时 tool_name 必须来自 leader_callable_catalog.tools.name。",
         "action=call_tool 时，answer 必须是一句简短自然的进行中回复，例如“正在为你查询今日课表。”；最终结果会在工具返回后再由模型整理。",
         "用户要求生成图片/海报/配图，且出现「这样的」「类似」「同款」等指代时，必须先结合 conversation_context 与最近识图/讨论结果整理完整画面需求，再调用 generate_image_tool；不要只把用户最后一句话直接交给图片工具。",
