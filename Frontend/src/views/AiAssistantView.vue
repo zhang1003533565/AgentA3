@@ -1,8 +1,9 @@
 <script setup>
-import { computed, h, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, h, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 
 import AppTabBar from '../components/AppTabBar.vue'
+import ChatImageAttachment from '../components/ChatImageAttachment.vue'
 import ChatMarkdown from '../components/ChatMarkdown.vue'
 import { deleteLeaderSession, getLeaderSessionDetail, getLeaderSessions, queryLeaderAgent, streamLeaderAgent } from '../api/aiGeneration'
 import { API_BASE_URL } from '../api/request'
@@ -109,7 +110,6 @@ const timelineHoverIndex = ref(-1)
 const timelineDragging = ref(false)
 const quickPrompts = ['查课表', '图书馆时间', '奖学金申请', '校园卡补办']
 const feedback = ref({})
-const attachmentPreviewUrls = ref({})
 let activeStreamTask = null
 
 const workflowStageLabels = {
@@ -247,7 +247,7 @@ function normalizeHistoryMessage(item, index) {
     outputType: item?.outputType || '',
     agentName: item?.agentName || 'leader_agent',
     resources: Array.isArray(item?.resources) ? item.resources : [],
-    attachments: Array.isArray(item?.attachments) ? item.attachments : [],
+    attachments: normalizeMessageAttachments(item?.attachments, item?.resources),
     workflowSteps: traceWorkflowSteps(trace),
     workflowExpanded: false,
     exportSessionId: item?.sessionId || '',
@@ -503,47 +503,42 @@ function handleResourceSelect(event) {
   event.target.value = ''
 }
 
-function attachmentPreviewKey(message, item) {
-  return `${message?.exportMessageId || message?.id || 'message'}:${item?.storageKey || item?.fileName || item?.url || ''}`
-}
-
-function needsAuthenticatedImagePreview(item) {
-  return isImageAttachment(item) && Boolean(item?.serverGenerated || item?.storageKey)
-}
-
-async function ensureAuthenticatedImagePreview(message, item) {
-  if (!needsAuthenticatedImagePreview(item)) return
-  const key = attachmentPreviewKey(message, item)
-  if (attachmentPreviewUrls.value[key]) return
-  try {
-    const blob = await loadAttachmentBlob(item, message)
-    attachmentPreviewUrls.value = {
-      ...attachmentPreviewUrls.value,
-      [key]: URL.createObjectURL(blob),
-    }
-  } catch {
-    // Preview is optional; open/download actions still work.
-  }
-}
-
-function resolvedImageSrc(item, message) {
-  if (needsAuthenticatedImagePreview(item)) {
-    return attachmentPreviewUrls.value[attachmentPreviewKey(message, item)] || ''
-  }
-  return attachmentUrl(item, message)
-}
-
-watch(
-  messages,
-  (list) => {
-    list.forEach((message) => {
-      (message.attachments || []).forEach((item) => {
-        if (isImageAttachment(item)) void ensureAuthenticatedImagePreview(message, item)
-      })
+function normalizeMessageAttachments(attachments = [], resources = []) {
+  const direct = Array.isArray(attachments) ? attachments.filter(Boolean).map((item) => ({ ...item })) : []
+  if (direct.length) return direct
+  return (Array.isArray(resources) ? resources : [])
+    .filter((item) => {
+      const kind = String(item?.kind || '').toLowerCase()
+      const mimeType = String(item?.mimeType || '').toLowerCase()
+      return kind === 'image' || mimeType.startsWith('image/')
     })
-  },
-  { deep: true },
-)
+    .map((item) => ({
+      name: item?.title || item?.fileName || '生成图片',
+      fileName: item?.title || item?.fileName || '生成图片.png',
+      type: 'image',
+      mimeType: item?.mimeType || 'image/png',
+      url: item?.url || '',
+      previewUrl: item?.previewUrl || '',
+      storageKey: item?.storageKey || '',
+      serverGenerated: true,
+    }))
+}
+
+function buildAttachmentFetchUrl(item, message = null) {
+  const direct = item?.previewUrl || item?.url || item?.sourceUrl || item?.downloadUrl || ''
+  if (direct) {
+    if (direct.startsWith('http://') || direct.startsWith('https://')) return direct
+    if (direct.startsWith('/')) return `${API_BASE_URL}${direct}`
+    return `${API_BASE_URL}/${direct}`
+  }
+  const storageKey = String(item?.storageKey || '').trim()
+  const sessionId = String(message?.exportSessionId || message?.sessionId || activeConversationId.value || '').trim()
+  const messageId = message?.exportMessageId || message?.messageId
+  if (storageKey && sessionId && messageId) {
+    return `${API_BASE_URL}/api/ai/leader/sessions/${encodeURIComponent(sessionId)}/messages/${messageId}/exports/${encodeURIComponent(storageKey)}`
+  }
+  return ''
+}
 
 function removeResource(localId) {
   const item = pendingResources.value.find((entry) => entry.localId === localId)
@@ -578,30 +573,22 @@ function displayAssistantContent(message) {
 }
 
 function attachmentUrl(item, message = null) {
-  const direct = item?.previewUrl || item?.url || item?.sourceUrl || item?.downloadUrl || ''
-  if (direct) return direct.startsWith('/') ? `${API_BASE_URL}${direct}` : direct
-  const storageKey = String(item?.storageKey || '').trim()
-  const sessionId = String(message?.exportSessionId || message?.sessionId || activeConversationId.value || '').trim()
-  const messageId = message?.exportMessageId || message?.messageId
-  if (storageKey && sessionId && messageId) {
-    return `${API_BASE_URL}/api/ai/leader/sessions/${encodeURIComponent(sessionId)}/messages/${messageId}/exports/${encodeURIComponent(storageKey)}`
-  }
-  return ''
-}
-
-function attachmentName(item) {
-  return item?.name || item?.fileName || item?.title || '上传图片'
+  return buildAttachmentFetchUrl(item, message)
 }
 
 async function loadAttachmentBlob(item, message = null) {
-  const source = attachmentUrl(item, message)
+  const source = buildAttachmentFetchUrl(item, message)
   if (!source) throw new Error('该附件缺少可用地址')
   const token = getToken()
-  const response = await fetch(source.startsWith('/') ? `${API_BASE_URL}${source}` : source, {
+  const response = await fetch(source, {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   })
   if (!response.ok) throw new Error(`读取附件失败（${response.status}）`)
   return response.blob()
+}
+
+function attachmentName(item) {
+  return item?.name || item?.fileName || item?.title || '上传图片'
 }
 
 async function openAttachment(item, message = null) {
@@ -820,7 +807,7 @@ async function sendMessage(text) {
           : [...(current?.workflowSteps || []).map((step) => ({ ...step, status: 'completed' })), normalizeWorkflowStep({ stage: 'completed', message: '所有处理步骤已完成' }, (current?.workflowSteps || []).length)]
         updateChatMessage(assistantMessageId, {
           content: finalContent || 'AI 已完成本次资源分析。',
-          attachments: payload?.attachments || [],
+          attachments: normalizeMessageAttachments(payload?.attachments, payload?.resources),
           resources: payload?.resources || [],
           streaming: false,
           receivedDelta: false,
@@ -876,7 +863,7 @@ async function sendMessage(text) {
         syncConversationSession(requestConversationId, response?.sessionId)
         updateChatMessage(assistantMessageId, {
           content: response?.answer || response?.content || 'AI 已完成本次资源分析。',
-          attachments: response?.attachments || [],
+          attachments: normalizeMessageAttachments(response?.attachments, response?.resources),
           resources: response?.resources || [],
           streaming: false,
           workflowSteps: traceWorkflowSteps(response?.trace).length
@@ -1370,12 +1357,7 @@ async function startMicrophone() {
 }
 
 onBeforeUnmount(stopMicrophone)
-onBeforeUnmount(() => {
-  activeStreamTask?.abort?.('page_unload')
-  Object.values(attachmentPreviewUrls.value).forEach((url) => {
-    if (String(url).startsWith('blob:')) URL.revokeObjectURL(url)
-  })
-})
+onBeforeUnmount(() => activeStreamTask?.abort?.('page_unload'))
 
 function createMeeting() {
   const item = {
@@ -1546,17 +1528,17 @@ function handleUpload(event) {
                     />
                     <p v-else-if="message.content">{{ message.content }}</p>
                     <div v-if="message.attachments?.length" class="message-attachments">
-                      <template v-for="item in message.attachments" :key="item.id || item.url || item.name">
-                        <div :class="['message-attachment-card', { 'is-image': isImageAttachment(item) }]">
-                          <img
-                            v-if="isImageAttachment(item) && resolvedImageSrc(item, message)"
-                            class="message-image"
-                            :src="resolvedImageSrc(item, message)"
-                            :alt="attachmentName(item)"
-                            loading="lazy"
-                            @click="openAttachment(item, message)"
-                          />
-                          <div v-else class="message-file">
+                      <template v-for="item in message.attachments" :key="item.storageKey || item.url || item.id || item.name">
+                        <ChatImageAttachment
+                          v-if="isImageAttachment(item)"
+                          :item="item"
+                          :message="message"
+                          :session-id="message.exportSessionId || activeConversationId"
+                          @open="openAttachment(item, message)"
+                          @download="downloadAttachment(item, message)"
+                        />
+                        <div v-else class="message-attachment-card">
+                          <div class="message-file">
                             <img v-if="fileIconAsset(item)" class="file-type-image" :src="fileIconAsset(item)" :alt="fileExtension(item)" />
                             <i v-else :class="['file-type-icon', `file-type-icon--${fileIconClass(item)}`]">{{ fileExtension(item) }}</i>
                             <span :title="attachmentName(item)">{{ attachmentName(item) }}</span>
