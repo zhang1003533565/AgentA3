@@ -300,10 +300,97 @@ def process_task_calls(
     return cleaned, results or []
 
 
+MAX_TASK_BLOCK_RETRY = 1
+
+# retry 时追加到用户输入末尾的提示：只提醒"按既有协议补块"，不改变任何识别规则。
+TASK_BLOCK_RETRY_HINT = """
+
+---
+
+【系统复检提示】
+请重新检查上一份会议分析结果。
+如果会议原文中存在符合任务创建或历史任务完成规则的内容，必须按照既有工具调用输出协议
+生成对应的 meeting_tasks 或 meeting_task_completions JSON 块（放在纪要最末尾）。
+如果不存在符合规则的内容，则不要生成任务块。
+不要凭空创建任务。
+不要改变任务负责人判断规则。
+不要推测负责人。
+不要推测截止时间。
+必须继续遵守："谁说了什么 ≠ 谁负责什么"；只有任务负责人本人明确表达完成才能确认完成。
+"""
+
+# 会议输入中"应当存在任务块"的信号：命中任意一条即认为值得复检一次。
+# 只做保守的词法判断，宁可漏触发也不引入新业务规则。
+_TASK_SIGNAL_PATTERNS = (
+    re.compile(r"我(?:来|会)?负责"),
+    re.compile(r"由\s*[\w\u4e00-\u9fa5]{1,20}\s*(?:负责|处理|跟进|整理|完成)"),
+    re.compile(r"[\w\u4e00-\u9fa5]{1,20}\s*负责"),
+    re.compile(r"(?:安排|指派|分工)\s*[\w\u4e00-\u9fa5]{1,20}"),
+    re.compile(r"(?:完成了|已经完成|已完成|做完|整理完|处理完|搞定)"),
+)
+
+# Java buildAiMinutesInput 的转写区起点：只扫描真实发言内容。
+_TRANSCRIPT_START_RE = re.compile(r"===\s*(?:会议记录|弹幕/聊天)")
+
+# 历史 PENDING 任务清单段本身就是强信号（负责人本人可能在会上确认完成）
+_HISTORY_TASK_SECTION_MARKER = "历史待完成任务"
+
+
+def has_task_signals(input_text: str) -> bool:
+    """
+    会议输入中是否明显包含任务分工 / 负责人 / 完成表达等信息。
+
+    只扫描转写区与历史任务清单段：Java 注入的「重要说明」「历史任务说明」等指导文字
+    本身含有"负责""完成"字样，若扫描全文会让普通会议也误触发 retry。
+    """
+    text = str(input_text or "")
+    if _HISTORY_TASK_SECTION_MARKER in text:
+        return True
+    transcript = _TRANSCRIPT_START_RE.search(text)
+    region = text[transcript.start():] if transcript else text
+    return any(pattern.search(region) for pattern in _TASK_SIGNAL_PATTERNS)
+
+
+def inspect_task_blocks(answer: str) -> Dict[str, Any]:
+    """
+    统计 Agent 2 输出的诊断信息（第八步可观测性）。
+
+    只返回长度、存在性与条数等指标，绝不返回会议原文或模型原文内容。
+    """
+    text = str(answer or "")
+    tasks = _parse_json_blocks(text, _BLOCK_RE, "meeting_tasks")
+    completions = _parse_json_blocks(text, _COMPLETIONS_BLOCK_RE, "meeting_task_completions")
+    has_tasks = MEETING_TASKS_MARKER in text
+    has_completions = COMPLETIONS_MARKER in text
+    marker_present = has_tasks or has_completions
+    return {
+        "response_length": len(text),
+        "has_tasks_block": has_tasks,
+        "has_completions_block": has_completions,
+        "tasks_count": len(tasks),
+        "completions_count": len(completions),
+        # 标记存在但一条都没解析出来 => 模型输出了块但结构不合法
+        "malformed_block": marker_present and not (tasks or completions),
+    }
+
+
+def format_block_report_for_log(report: Dict[str, Any]) -> str:
+    """把诊断结果格式化为固定字段日志片段（不含任何正文内容）。"""
+    return (
+        "responseLength={response_length} tasksBlock={has_tasks_block} completionsBlock={has_completions_block} "
+        "tasksCount={tasks_count} completionsCount={completions_count} malformed={malformed_block}"
+    ).format(**report)
+
+
 __all__ = [
     "MEETING_TASKS_MARKER",
     "COMPLETIONS_MARKER",
+    "MAX_TASK_BLOCK_RETRY",
+    "TASK_BLOCK_RETRY_HINT",
     "extract_meeting_session_id",
+    "format_block_report_for_log",
+    "has_task_signals",
+    "inspect_task_blocks",
     "process_task_calls",
     "process_task_calls_async",
     "safe_visible_length",
