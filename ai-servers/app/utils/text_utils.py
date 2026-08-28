@@ -160,14 +160,18 @@ def parse_schedule_course_keyword(text: str) -> Optional[str]:
         r"第?\d+(?:[-到至]\d+)?节",
         r"周[一二三四五六日天]",
         r"星期[一二三四五六日天]",
+        r"\d{1,2}月(?:份)?",
+        r"[一二三四五六七八九十]{1,3}月(?:份)?",
+        r"这个月",
+        r"本月",
     ]
     for pattern in cleanup_patterns:
         candidate = re.sub(pattern, "", candidate)
     noise_tokens = (
-        "请问", "帮我查一下", "查一下", "查询", "想知道", "一下",
+        "请问", "帮我", "帮我查一下", "查一下", "查询", "想知道", "一下",
         "这个学期", "这学期", "本学期", "当前学期", "所有学期", "全部学期",
-        "今天", "明天", "后天", "本周", "这周",
-        "有几节课", "几节课", "多少节课", "有几节", "几节", "多少节",
+        "今天", "明天", "后天", "本周", "这周", "我有",
+        "有多少节", "有几节课", "几节课", "多少节课", "有几节", "几节", "多少节",
         "几次课", "多少次课", "上几次", "上多少次", "课时", "多少课时",
         "都有什么课", "有什么课", "有哪些课", "什么课程", "有课吗",
         "课程安排", "课程列表", "全部课程", "所有课程", "课表",
@@ -314,6 +318,38 @@ def parse_requested_date(text: str) -> Optional[date]:
         except ValueError:
             return None
     return None
+
+
+def parse_requested_month(text: str) -> Optional[tuple[int, int]]:
+    compact = re.sub(r"\s+", "", text or "")
+    if not compact:
+        return None
+    # 单日日期("X月X日/X月X号/五月十日")不算月份,交给 parse_requested_date
+    if re.search(r"\d{1,2}月\d{1,2}(?:日|号)?", compact):
+        return None
+    if re.search(r"[一二三四五六七八九十]{1,3}月[一二三四五六七八九十]{1,3}日?", compact):
+        return None
+
+    month = None
+    match = re.search(r"(\d{1,2})月(?:份)?", compact)
+    if match:
+        candidate = int(match.group(1))
+        if 1 <= candidate <= 12:
+            month = candidate
+    if month is None:
+        numerals = {
+            "一": 1, "二": 2, "三": 3, "四": 4, "五": 5, "六": 6,
+            "七": 7, "八": 8, "九": 9, "十": 10, "十一": 11, "十二": 12,
+        }
+        match = re.search(r"([一二三四五六七八九十]{1,3})月(?:份)?", compact)
+        if match:
+            month = numerals.get(match.group(1))
+    if month is None:
+        if "本月" in compact or "这个月" in compact:
+            month = date.today().month
+    if month is None:
+        return None
+    return (date.today().year, month)
 
 
 def week_in_range(week_range: Optional[str], week: int) -> bool:

@@ -6,7 +6,7 @@ import os
 import re
 import time
 from collections import OrderedDict, deque
-from datetime import date
+from datetime import date, timedelta
 from threading import RLock
 from typing import Any, Dict, List, Optional
 from urllib.parse import urlencode
@@ -19,6 +19,7 @@ from app.utils.text_utils import (
     is_semester_schedule_query,
     normalize_text,
     parse_requested_date,
+    parse_requested_month,
     parse_requested_session,
     parse_requested_week,
     parse_requested_weekday,
@@ -471,11 +472,13 @@ class JavaBackendRetriever:
 
         requested_week = parse_requested_week(input_text)
         requested_date = parse_requested_date(input_text)
+        requested_month = parse_requested_month(input_text)
         requested_weekday = parse_requested_weekday(input_text)
         requested_session = parse_requested_session(input_text)
         course_keyword = parse_schedule_course_keyword(input_text)
         all_semester_scope = is_all_semester_schedule_query(input_text)
         semester_scope = all_semester_scope or is_semester_schedule_query(input_text)
+        month_scope = requested_month is not None
         # Explicit dates are schedule lookups even when the natural-language
         # course-keyword parser sees the trailing “有什么课”. Do not widen such
         # requests to all semesters or collapse them into course summaries.
@@ -491,7 +494,7 @@ class JavaBackendRetriever:
             payload = self._get_json("/api/schedule", authorization, params={"allSemesters": "true"})
         elif requested_week is not None:
             payload = self._get_json(f"/api/schedule/week/{requested_week}", authorization)
-        elif semester_scope or course_lookup_scope:
+        elif semester_scope or course_lookup_scope or month_scope:
             payload = self._get_json("/api/schedule", authorization)
         else:
             payload = self._get_json("/api/schedule/current-week", authorization)
@@ -516,9 +519,18 @@ class JavaBackendRetriever:
             schedules = [item for item in schedules if week_in_range(item.get("weekRange"), requested_week)]
         if requested_session is not None:
             schedules = [item for item in schedules if self._session_matches(item.get("classSessions"), requested_session)]
+        if month_scope:
+            month_week_range = self._month_week_range(authorization, requested_month)
+            if month_week_range is None:
+                return []
+            month_start, month_end = month_week_range
+            schedules = [
+                item for item in schedules
+                if any(week_in_range(item.get("weekRange"), w) for w in range(month_start, month_end + 1))
+            ]
 
         schedules.sort(key=lambda item: ((item.get("weekday") or 99), parse_session_start(item.get("classSessions"))))
-        if semester_scope or course_lookup_scope:
+        if semester_scope or course_lookup_scope or month_scope:
             results = self._semester_course_results(
                 schedules,
                 include_semester=all_semester_scope or query_scope == "all_semesters_fallback",
@@ -574,6 +586,34 @@ class JavaBackendRetriever:
         if target_date < semester_start:
             return None
         return (target_date - semester_start).days // 7 + 1
+
+    def _month_week_range(self, authorization: str, requested_month: tuple[int, int]) -> Optional[tuple[int, int]]:
+        """把"X月"换算成该月覆盖的周次范围 (start_week, end_week);整月都在开学前返回 None。"""
+        payload = self._get_json("/api/schedule/settings", authorization)
+        settings = self._extract_result_data(payload)
+        if not isinstance(settings, dict):
+            return None
+        semester_start_text = str(settings.get("semesterStart") or "").strip()
+        if not semester_start_text:
+            return None
+        try:
+            semester_start = date.fromisoformat(semester_start_text)
+        except ValueError:
+            return None
+        year, month = requested_month
+        try:
+            first_day = date(year, month, 1)
+        except ValueError:
+            return None
+        if month == 12:
+            last_day = date(year, 12, 31)
+        else:
+            last_day = date(year, month + 1, 1) - timedelta(days=1)
+        start_week = (first_day - semester_start).days // 7 + 1
+        end_week = (last_day - semester_start).days // 7 + 1
+        if end_week < 1:
+            return None
+        return (max(1, start_week), end_week)
 
     def _session_matches(self, class_sessions: Any, requested_session: tuple[int, int]) -> bool:
         text = str(class_sessions or "")
