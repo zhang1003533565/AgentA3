@@ -57,6 +57,25 @@ class AssistantEnvelopeServiceTest {
     }
 
     @Test
+    void generationProgressKeepsVisualGenerationFields() {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("phase", "leader_visual_prompt");
+        payload.put("status", "completed");
+        payload.put("imageGenerating", true);
+        payload.put("content", "## 生图方案\n\n排球招新海报");
+        payload.put("promptPreview", "must-not-leak");
+
+        service.sanitizeSseEventPayload("generation_progress", payload, Set.of());
+
+        assertThat(payload).containsExactlyInAnyOrderEntriesOf(Map.of(
+                "phase", "leader_visual_prompt",
+                "status", "completed",
+                "imageGenerating", true,
+                "content", "## 生图方案\n\n排球招新海报"
+        ));
+    }
+
+    @Test
     void learningProgressUsesClosedScalarAllowlistWithoutChangingCampusContract() {
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("workflowId", "wf-1");
