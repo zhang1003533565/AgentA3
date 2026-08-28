@@ -337,6 +337,29 @@ class VisionAgentTest(unittest.TestCase):
         self.assertEqual([9, 1], grouping.detail["groupImageCounts"])
         self.assertEqual("system", grouping.detail["triggerType"])
 
+    def test_attachment_pipeline_skips_image_payload_for_leader_when_recognition_disabled(self):
+        tiny_png = base64.b64decode(
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+        )
+        encoded = base64.b64encode(tiny_png).decode("ascii")
+        request = RagQueryRequest(
+            input="这个图片有什么",
+            attachments=[{
+                "name": "photo.png",
+                "mimeType": "image/png",
+                "contentBase64": f"data:image/png;base64,{encoded}",
+            }],
+            metadata={"contextOriginalInput": "这个图片有什么"},
+        )
+        with patch.object(self.rag_routes, "_is_tool_enabled", return_value=False), \
+                patch.object(self.rag_routes.leader_agent, "plan") as leader_plan, \
+                patch.object(self.rag_routes, "_run_specialist_agent_with_bound_model") as vision:
+            response = self.rag_routes._run_attachment_input_pipeline(request, "Bearer test", {}, {"tools": []})
+
+        vision.assert_not_called()
+        leader_plan.assert_not_called()
+        self.assertIn("图片识别能力当前未启用", response.answer)
+
 
 if __name__ == "__main__":
     unittest.main()

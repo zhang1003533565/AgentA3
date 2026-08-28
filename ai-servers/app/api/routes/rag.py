@@ -1955,8 +1955,14 @@ def _requested_image_recognition_plan(request: RagQueryRequest) -> Optional[Lead
 
 def _routing_input_from_request(request: RagQueryRequest) -> str:
     metadata = request.metadata if isinstance(request.metadata, dict) else {}
-    original = str(metadata.get("contextOriginalInput") or "").strip()
-    return original or str(request.input or "").strip()
+    original = str(metadata.get("contextOriginalInput") or request.input or "").strip()
+    cleaned, _ = extract_image_references(original)
+    return cleaned.strip() or original
+
+
+def _text_without_image_references(text: str) -> str:
+    cleaned, _ = extract_image_references(str(text or ""))
+    return cleaned.strip()
 
 
 def _requested_file_transform_plan(request: RagQueryRequest) -> Optional[LeaderPlan]:
@@ -2092,7 +2098,7 @@ def _run_attachment_input_pipeline(
     callable_catalog: Optional[Dict[str, Any]],
 ) -> RagQueryResponse:
     """Normalize uploaded files/images before Leader performs business routing."""
-    original_input = str((request.metadata or {}).get("contextOriginalInput") or request.input or "").strip()
+    original_input = _routing_input_from_request(request)
     trace: List[RagTraceResponse] = []
     extracted_blocks: List[str] = []
     images: List[StitchImage] = []
@@ -2218,6 +2224,33 @@ def _run_attachment_input_pipeline(
     if vision_answer:
         context_parts.append("图片识别结果：\n" + vision_answer)
     enriched_input = "\n\n".join(part for part in context_parts if part).strip()
+    leader_text = _text_without_image_references(enriched_input or original_input)
+    if images and not vision_answer:
+        if not _is_tool_enabled(request, IMAGE_RECOGNITION_TOOL_NAME):
+            leader_plan = LeaderPlan(
+                intent="image_understanding",
+                target_agent="leader_agent",
+                need_retrieval=False,
+                rag_strategy="",
+                action="direct_answer",
+                answer="我已收到你上传的图片，但图片识别能力当前未启用，暂时无法直接分析画面内容。你可以先用文字描述想了解的重点。",
+                route_reason="图片识别工具未启用，未向文本模型发送图片。",
+                route_mode="capability_unavailable",
+            )
+            response = _run_leader_direct_answer(leader_plan, profile_context=profile_context)
+            response.trace = trace + list(response.trace or [])
+            response.metadata = {
+                **dict(response.metadata or {}),
+                "inputPipelineApplied": True,
+                "inputPipelineImageCount": len(images),
+                "inputPipelineFileCount": len(extracted_blocks),
+            }
+            _set_response_route_mode(response, leader_plan)
+            return response
+        raise HTTPException(
+            status_code=502,
+            detail="图片识别工具已启用，但本次未能生成可用的图片理解结果，请检查 vision_agent 的视觉模型配置。",
+        )
     trace.append(RagTraceResponse(stage="multimodal_context_merged", detail={
         "triggerType": "system", "fileTextCount": len(extracted_blocks),
         "sourceImageCount": len(images), "visionResultAvailable": bool(vision_answer),
@@ -2225,7 +2258,7 @@ def _run_attachment_input_pipeline(
     }))
 
     leader_request = request.model_copy(deep=True)
-    leader_request.input = enriched_input or original_input
+    leader_request.input = leader_text or original_input
     leader_request.attachments = []
     leader_request.imageUrls = []
     leader_request.images = []
@@ -3676,6 +3709,12 @@ def _exception_message(exc: Exception) -> str:
 def _friendly_agent_failure_message(raw_message: str, agent_name: str = "") -> str:
     message = str(raw_message or "").strip()
     lowered = message.lower()
+    if "does not support image" in lowered:
+        if agent_name in {IMAGE_RECOGNITION_AGENT_NAME, "leader_agent"}:
+            return (
+                "当前绑定的模型不支持图片输入。请在后台为「图片识别智能体（vision_agent）」绑定视觉模型，"
+                "例如 Qwen-VL 或 deepseek-v4-flash-vision-exp，不要复用纯文本模型。"
+            )
     is_image_agent = agent_name == "image_agent"
     if is_image_agent and "api.deepseek.com" in lowered and "services/aigc" in lowered:
         return (

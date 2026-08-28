@@ -6,7 +6,7 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import HTTPException
 
-from app.multi_agents.catalog import LEADER_CALLABLE_AGENT_ORDER, get_agent_profile, normalize_agent_name
+from app.model_providers.multimodal import extract_image_references
 from app.model_providers.factory import get_chat_model_provider
 from app.multi_agents.runtime import load_agent_prompt
 from app.services.memory_store import memory_store
@@ -1532,8 +1532,9 @@ def build_leader_router_user_prompt(
     callable_catalog: Optional[Dict[str, Any]] = None,
     conversation_context: Optional[Dict[str, Any]] = None,
 ) -> str:
+    cleaned_input, _ = extract_image_references(input_text or "")
     return json.dumps({
-        "user_input": input_text or "",
+        "user_input": cleaned_input,
         "profile_snapshot": profile_context or {},
         "conversation_context": conversation_context or {},
         "leader_callable_catalog": callable_catalog or {},
