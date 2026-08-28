@@ -22,7 +22,6 @@ import java.util.Set;
 public class FlowchartAIServiceImpl implements FlowchartAIService {
     private static final int MAX_AI_INPUT_CHARS = 60_000;
     private static final String FLOWCHART_AGENT_NAME = "diagram_flowchart_agent";
-    private static final String DEFAULT_AGENT_NAME = "leader_agent";
     private static final String AGENT_MODEL_BINDING_PREFIX = "ai.agent-bindings.";
 
     private final SystemConfigService systemConfigService;
@@ -41,10 +40,7 @@ public class FlowchartAIServiceImpl implements FlowchartAIService {
     public FlowchartDTO.FlowchartData generate(FlowchartDTO.GenerateRequest request,
                                                 String inputText,
                                                 String authorization) {
-        String configPrefix = resolveTextConfigPrefix();
-        if (!StringUtils.hasText(configPrefix)) {
-            throw new BusinessException(400, "AI 文本模型未配置，请在系统配置中维护 ai.service.text.* 或 ai.agent-bindings." + DEFAULT_AGENT_NAME + ".model");
-        }
+        String configPrefix = requireTextConfigPrefix();
         String apiKey = requireAiConfig(configPrefix, "api-key", "AI Key");
         String baseUrl = trimTrailingSlash(requireAiConfig(configPrefix, "base-url", "AI 服务地址"));
         String model = requireAiConfig(configPrefix, "model", "AI 模型 ID");
@@ -366,21 +362,30 @@ public class FlowchartAIServiceImpl implements FlowchartAIService {
     }
 
     /**
-     * 解析当前流程图可用的文本模型配置前缀。
-     * 顺序：流程图专属绑定 → leader_agent 绑定 → 已测试通过的 text 配置 → 任意完整 text 配置 → 兜底 ai.service.text。
+     * 流程图只使用 diagram_flowchart_agent 绑定的文本模型，不做 Leader 或通用 text 兜底。
      */
-    private String resolveTextConfigPrefix() {
-        String bound = firstText(
-                resolveAgentBoundModel(FLOWCHART_AGENT_NAME),
-                resolveAgentBoundModel(DEFAULT_AGENT_NAME),
-                firstTestedTextConfigPrefix(),
-                firstCompleteTextConfigPrefix()
-        );
-        if (StringUtils.hasText(bound)) {
-            return bound;
+    private String requireTextConfigPrefix() {
+        String bound = resolveAgentBoundModel(FLOWCHART_AGENT_NAME);
+        if (!StringUtils.hasText(bound) || !isTextConfigPrefix(bound)) {
+            throw new BusinessException(
+                    400,
+                    "流程图智能体未绑定文本模型，请在系统配置中维护 ai.agent-bindings."
+                            + FLOWCHART_AGENT_NAME + ".model"
+            );
         }
-        // 兜底：老格式 ai.service.text.{field}，仅当 api-key/base-url/model 都有时可用
-        return hasCompleteConfig("ai.service.text") ? "ai.service.text" : "";
+        if (!hasCompleteConfig(bound)) {
+            throw new BusinessException(
+                    400,
+                    "流程图智能体绑定的文本模型配置不完整，请检查 "
+                            + bound + ".provider/base-url/api-key/model"
+            );
+        }
+        return bound;
+    }
+
+    private boolean isTextConfigPrefix(String configPrefix) {
+        return "ai.service.text".equals(configPrefix)
+                || configPrefix.startsWith("ai.service.text.");
     }
 
     private String resolveAgentBoundModel(String agentName) {

@@ -691,7 +691,7 @@ class PythonAiProxyServiceTest {
     }
 
     @Test
-    void generateArchitecture_shouldForwardTextAiHeadersWhenAgentBindingMissing() throws Exception {
+    void generateArchitecture_shouldForwardTextAiHeadersWhenAgentBound() throws Exception {
         AtomicReference<String> authRef = new AtomicReference<>();
         AtomicReference<String> userIdRef = new AtomicReference<>();
         AtomicReference<String> providerRef = new AtomicReference<>();
@@ -713,7 +713,7 @@ class PythonAiProxyServiceTest {
         });
         server.start();
 
-        SystemConfigService systemConfigService = new NoAgentBindingSystemConfigService();
+        SystemConfigService systemConfigService = new TestSystemConfigService();
         String token = buildJwtToken(3001L);
         Object response = newService(
                 server.getAddress().getPort(),
@@ -731,10 +731,35 @@ class PythonAiProxyServiceTest {
         Assertions.assertEquals("qwen", providerRef.get());
         Assertions.assertEquals("https://llm.test/v1", baseUrlRef.get());
         Assertions.assertEquals("test-ai-key", apiKeyRef.get());
-        Assertions.assertEquals("qwen3.8-27b", modelRef.get());
+        Assertions.assertEquals("deepseek-v4-flash-0731", modelRef.get());
 
         JsonNode request = new ObjectMapper().readTree(requestBodyRef.get());
         Assertions.assertEquals("校园二手交易系统架构图", request.path("description").asText());
+    }
+
+    @Test
+    void generateArchitecture_shouldFailWhenAgentBindingMissing() throws Exception {
+        server = HttpServer.create(new InetSocketAddress(0), 0);
+        server.createContext("/internal/architecture/generate", exchange -> {
+            writeJson(exchange, 200, "{\"title\":\"不应命中\",\"nodes\":[],\"edges\":[]}");
+        });
+        server.start();
+
+        SystemConfigService systemConfigService = new NoAgentBindingSystemConfigService();
+        String token = buildJwtToken(3001L);
+        BusinessException error = Assertions.assertThrows(
+                BusinessException.class,
+                () -> newService(
+                        server.getAddress().getPort(),
+                        systemConfigService,
+                        newSystemConfigRepository(systemConfigService)
+                ).generateArchitecture(
+                        Map.of("description", "校园二手交易系统架构图"),
+                        "Bearer " + token
+                )
+        );
+
+        Assertions.assertTrue(error.getMessage().contains("diagram_architecture_agent"));
     }
 
     @Test

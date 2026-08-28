@@ -6,8 +6,11 @@ from typing import Any, Dict
 
 from fastapi import HTTPException
 
-from app.services.architecture_ai_service import architecture_ai_service
 from app.services.java_backend import java_backend_retriever
+
+MIND_MAP_AGENT_NAME = "diagram_mind_map_agent"
+FLOWCHART_AGENT_NAME = "diagram_flowchart_agent"
+ARCHITECTURE_AGENT_NAME = "diagram_architecture_agent"
 
 
 def _unwrap_java_result(payload: Any) -> Dict[str, Any]:
@@ -64,15 +67,27 @@ def generate_flowchart(authorization: str, input_text: str) -> Dict[str, Any]:
     return diagram
 
 
-def generate_architecture(input_text: str, llm_headers: Dict[str, str] | None = None) -> Dict[str, Any]:
+def generate_architecture(authorization: str, input_text: str) -> Dict[str, Any]:
     text = str(input_text or "").strip()
     if not text:
         raise HTTPException(status_code=400, detail="架构图生成缺少输入内容")
-    diagram = architecture_ai_service.generate(
-        description=text[:8000],
-        auto_architecture_layers=True,
-        llm_headers=llm_headers or {},
-    )
-    if not isinstance(diagram, dict) or not diagram.get("layers"):
+    payload = {
+        "description": text[:8000],
+        "content": text[:8000],
+        "systemType": "WEB",
+        "architectureStyle": "AUTO",
+        "autoArchitectureLayers": True,
+        "architectureLayers": [],
+        "layers": [],
+        "focusContents": [],
+        "displayContent": [],
+        "relationMode": "AUTO",
+        "relationType": "AUTO",
+        "hierarchyMode": "STRUCTURED",
+    }
+    result = java_backend_retriever.post_json("/api/ai/architecture/generate", authorization, payload)
+    diagram = _unwrap_java_result(result)
+    layers = diagram.get("layers")
+    if not isinstance(layers, list) or not layers:
         raise HTTPException(status_code=502, detail="架构图生成失败，未返回有效层级结构")
     return diagram

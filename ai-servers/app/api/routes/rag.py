@@ -99,6 +99,7 @@ STRUCTURED_DIAGRAM_TOOL_CONFIG = {
         "diagramType": "mind_map",
         "answerType": "mind_map_json",
         "output": "mind_map_json",
+        "boundAgent": "diagram_mind_map_agent",
     },
     "generate_flowchart_tool": {
         "zhName": "流程图生成工具",
@@ -107,6 +108,7 @@ STRUCTURED_DIAGRAM_TOOL_CONFIG = {
         "diagramType": "flowchart",
         "answerType": "flowchart_json",
         "output": "flowchart_json",
+        "boundAgent": "diagram_flowchart_agent",
     },
     "generate_architecture_tool": {
         "zhName": "架构图生成工具",
@@ -115,6 +117,7 @@ STRUCTURED_DIAGRAM_TOOL_CONFIG = {
         "diagramType": "architecture",
         "answerType": "architecture_json",
         "output": "architecture_json",
+        "boundAgent": "diagram_architecture_agent",
     },
 }
 
@@ -156,6 +159,7 @@ STRUCTURED_DIAGRAM_TOOLS = [
         "outputs": [config["output"]],
         "status": "implemented",
         "configurable": True,
+        "boundAgent": config.get("boundAgent", ""),
     }
     for tool_name, config in STRUCTURED_DIAGRAM_TOOL_CONFIG.items()
 ]
@@ -3793,7 +3797,7 @@ def _run_structured_diagram_tool(
     elif tool_name == "generate_flowchart_tool":
         diagram = generate_structured_flowchart(authorization, input_text)
     elif tool_name == "generate_architecture_tool":
-        diagram = generate_structured_architecture(input_text, _llm_headers_from_request(request))
+        diagram = generate_structured_architecture(authorization, input_text)
     else:
         raise HTTPException(status_code=502, detail=f"未实现的结构化图表工具：{tool_name}")
     title = str(diagram.get("title") or config.get("zhName") or "结构化图表").strip()
@@ -3805,8 +3809,8 @@ def _run_structured_diagram_tool(
         "targetAgent": tool_name,
         "executedAgent": tool_name,
         "toolName": tool_name,
-        "toolDisplayName": _tool_display_name(tool_name),
-        "diagramType": diagram_type,
+        "boundAgent": config.get("boundAgent") or "",
+        "boundAgentLabel": _tool_display_name(config.get("boundAgent") or ""),
         "diagram": diagram,
         "studioPath": f"/ai-studio/{diagram_type}" if diagram_type else "",
         "intent": getattr(leader_plan, "intent", "") or f"{diagram_type}_generation",
