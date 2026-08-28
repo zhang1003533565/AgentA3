@@ -243,9 +243,15 @@ class QwenProvider(ChatModelProvider):
     def complete(self, system_prompt: str, user_prompt: str, reasoning_effort: Optional[str] = None) -> str:
         from langchain_core.messages import HumanMessage, SystemMessage
 
+        cleaned_prompt, image_urls = extract_image_references(user_prompt)
+        if image_urls:
+            logger.warning(
+                "complete() stripped %s embedded image reference(s); use complete_vision() for image input",
+                len(image_urls),
+            )
         response = self._invoke_with_fallback([
             SystemMessage(content=system_prompt),
-            HumanMessage(content=build_multimodal_human_content(user_prompt)),
+            HumanMessage(content=cleaned_prompt or user_prompt),
         ], reasoning_effort)
         content = extract_response_text(response)
         if not content and isinstance(getattr(response, "additional_kwargs", None), dict):
