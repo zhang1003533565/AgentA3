@@ -3,6 +3,9 @@ import { computed, h, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 
 import AppTabBar from '../components/AppTabBar.vue'
+import ChatImageAttachment from '../components/ChatImageAttachment.vue'
+import ChatMarkdown from '../components/ChatMarkdown.vue'
+import ImageGenerationCanvas from '../components/ImageGenerationCanvas.vue'
 import { deleteLeaderSession, getLeaderSessionDetail, getLeaderSessions, queryLeaderAgent, streamLeaderAgent } from '../api/aiGeneration'
 import { API_BASE_URL } from '../api/request'
 import { AI_RESOURCE_ACCEPT, uploadAiResource } from '../api/upload'
@@ -112,31 +115,91 @@ let activeStreamTask = null
 
 const workflowStageLabels = {
   request_submitted: '请求已提交', session_ready: '会话已建立', leader_route: 'Leader 意图识别与路由',
-  leader_plan: 'Leader 制定执行计划', tool_start: '工具开始执行', tool_call: '调用工具',
-  tool_result_summary: '工具结果汇总', prompt_agent: '内容格式整理智能体', vision_agent: '图片识别智能体',
+  leader_plan: 'Leader 制定执行计划', leader_visual_prompt: 'Leader 汇总生图提示词',
+  tool_start: '工具开始执行', tool_call: '调用工具',
+  tool_result_summary: '工具结果汇总', prompt_agent: '专业提示词智能体', vision_agent: '图片识别智能体',
   image_generation_tool: '图片生成工具', agent_answer: '智能体生成结果', direct_agent: '专业智能体处理',
   generate_sql: '生成查询语句', retrieval: '检索相关资料', generation_start: '开始生成内容', completed: '处理完成',
+  input_pipeline: '附件输入预处理', input_image_collected: '收集上传图片',
+  input_attachment_skipped: '跳过不可读取附件', file_content_extraction: '文件内容提取工具',
+  file_content_extraction_skipped: '跳过文件内容提取', file_content_extraction_failed: '文件内容提取失败',
+  image_grouping: '图片分组', image_stitching_tool: '图片拼接工具',
+  image_stitching_skipped: '单张图片直接识别', multimodal_context_merged: '多模态内容汇总', failed: '执行失败',
+}
+
+const workflowTriggerLabels = {
+  system: '系统自动触发', leader: 'Leader 协调触发', rule_direct: '规则直接触发',
+  workflow_dependency: '工作流依赖触发',
+}
+
+const workflowFailureLocationLabels = {
+  java_proxy: 'Java 代理层',
+  web_client: '前端请求',
+  python_runtime: 'Python 执行层',
 }
 
 function workflowDetailText(detail, fallback = '') {
   if (typeof detail === 'string') return detail
   if (!detail || typeof detail !== 'object') return fallback
-  return detail.message || detail.routeReason || detail.reason || detail.summary || detail.toolDisplayName || fallback
+  return detail.message
+    || detail.summary
+    || detail.promptPreview
+    || detail.failureReason
+    || detail.rawMessage
+    || detail.routeReason
+    || detail.reason
+    || detail.summary
+    || detail.toolDisplayName
+    || fallback
+}
+
+function buildWorkflowFailureDescription(entry, detail, fallback = '') {
+  const lines = []
+  const failurePhase = entry?.failurePhase || detail?.failurePhase || detail?.failureStage || entry?.failureStage || ''
+  const failureLocation = entry?.failureLocation || detail?.failureLocation || ''
+  const toolName = detail?.toolDisplayName || detail?.toolName || entry?.toolDisplayName || entry?.toolName || ''
+  const agentName = detail?.agentDisplayName || detail?.agentName || detail?.failedAgent || detail?.targetAgent || entry?.agentName || ''
+  const stage = entry?.stage || detail?.stage || ''
+  const message = workflowDetailText(detail, entry?.message || fallback)
+  const locationLabel = workflowFailureLocationLabels[failureLocation] || failureLocation
+  if (locationLabel) lines.push(`失败位置：${locationLabel}`)
+  if (failurePhase) lines.push(`失败阶段：${failurePhase}`)
+  if (stage && stage !== 'failed') lines.push(`步骤：${workflowStageLabels[stage] || stage}`)
+  if (toolName) lines.push(`工具：${toolName}`)
+  if (agentName) lines.push(`智能体：${agentName}`)
+  if (message) lines.push(message)
+  return lines.join('\n')
 }
 
 function normalizeWorkflowStep(entry, index, status = 'completed') {
   const stage = String(entry?.stage || entry?.event || 'processing')
   const detail = entry?.detail && typeof entry.detail === 'object' ? entry.detail : entry
-  const toolName = detail?.toolDisplayName || detail?.toolName || detail?.tool || ''
-  const agentName = detail?.agentDisplayName || detail?.agentName || detail?.targetAgent || detail?.executedAgent || ''
-  const intent = detail?.intent || ''
+  const resolvedStatus = entry?.status || status
+  const toolName = detail?.toolDisplayName || detail?.toolName || detail?.tool || entry?.toolDisplayName || entry?.toolName || ''
+  const agentName = detail?.agentDisplayName || detail?.agentName || detail?.targetAgent || detail?.executedAgent || detail?.failedAgent || entry?.agentName || ''
+  const intent = detail?.intent || entry?.intent || ''
+  const failurePhase = detail?.failurePhase || entry?.failurePhase || detail?.failureStage || entry?.failureStage || ''
+  const isFailed = resolvedStatus === 'failed' || stage === 'failed'
+  const title = isFailed
+    ? `执行失败${failurePhase ? ` · ${failurePhase}` : ''}`
+    : (workflowStageLabels[stage] || toolName || agentName || '执行处理')
+  const description = isFailed
+    ? buildWorkflowFailureDescription(entry, detail, entry?.message || '')
+    : workflowDetailText(detail, entry?.message || '')
   return {
     id: `${stage}-${index}-${toolName || agentName}`,
     stage,
-    title: workflowStageLabels[stage] || toolName || agentName || '执行处理',
-    description: workflowDetailText(entry?.detail, entry?.message || ''),
-    meta: [toolName, agentName, intent && `意图：${intent}`].filter(Boolean),
-    status,
+    title,
+    description,
+    meta: [
+      workflowTriggerLabels[detail?.triggerType || entry?.triggerType],
+      failurePhase && `阶段：${failurePhase}`,
+      toolName && `工具：${toolName}`,
+      agentName && `智能体：${agentName}`,
+      intent && `意图：${intent}`,
+      detail?.routeReason || entry?.routeReason,
+    ].filter(Boolean),
+    status: isFailed ? 'failed' : resolvedStatus,
   }
 }
 
@@ -144,11 +207,34 @@ function traceWorkflowSteps(trace) {
   return (Array.isArray(trace) ? trace : []).map((entry, index) => normalizeWorkflowStep(entry, index))
 }
 
-function appendWorkflowStep(messageId, entry) {
+function appendWorkflowStep(messageId, entry, status = 'running') {
   const target = messages.value.find((item) => item.id === messageId)
   if (!target) return
   const current = (target.workflowSteps || []).map((step) => step.status === 'running' ? { ...step, status: 'completed' } : step)
-  target.workflowSteps = [...current, normalizeWorkflowStep(entry, current.length, 'running')]
+  target.workflowSteps = [...current, normalizeWorkflowStep(entry, current.length, status)]
+}
+
+function upsertWorkflowStep(messageId, entry, status = 'running') {
+  const target = messages.value.find((item) => item.id === messageId)
+  if (!target) return
+  const stage = String(entry?.stage || entry?.event || 'processing')
+  const steps = (target.workflowSteps || []).map((step) => (
+    step.status === 'running' && step.stage !== stage ? { ...step, status: 'completed' } : step
+  ))
+  const index = steps.findIndex((step) => step.stage === stage)
+  const normalized = normalizeWorkflowStep(entry, index >= 0 ? index : steps.length, status)
+  if (index >= 0) {
+    steps[index] = normalized
+  } else {
+    steps.push(normalized)
+  }
+  target.workflowSteps = steps
+}
+
+function markWorkflowStepsCompleted(steps = []) {
+  return (steps || []).map((step) => (
+    step.status === 'failed' ? step : { ...step, status: 'completed' }
+  ))
 }
 
 const messages = ref([
@@ -186,9 +272,12 @@ function normalizeHistoryMessage(item, index) {
     outputType: item?.outputType || '',
     agentName: item?.agentName || 'leader_agent',
     resources: Array.isArray(item?.resources) ? item.resources : [],
-    attachments: Array.isArray(item?.attachments) ? item.attachments : [],
+    attachments: normalizeMessageAttachments(item?.attachments, item?.resources),
     workflowSteps: traceWorkflowSteps(trace),
     workflowExpanded: false,
+    exportSessionId: item?.sessionId || '',
+    exportMessageId: item?.messageId || item?.id || '',
+    workflowStatus: 'completed',
     streaming: false,
   }
 }
@@ -203,7 +292,10 @@ async function openConversation(id) {
     const response = await getLeaderSessionDetail(sessionId)
     const data = response || {}
     conversationSessionIds.value = { ...conversationSessionIds.value, [sessionId]: sessionId }
-    messages.value = (data.messages || []).map(normalizeHistoryMessage)
+    messages.value = (data.messages || []).map((item, index) => ({
+      ...normalizeHistoryMessage(item, index),
+      exportSessionId: sessionId,
+    }))
     await scrollMessages()
   } catch (cause) {
     historyError.value = cause.message || '加载会话内容失败'
@@ -388,15 +480,37 @@ function resourceEntry(file) {
   }
 }
 
+function fileContentBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(String(reader.result || '').split(',', 2)[1] || '')
+    reader.onerror = () => reject(new Error(`读取文件失败：${file.name}`))
+    reader.readAsDataURL(file)
+  })
+}
+
+function patchPendingResource(localId, patch) {
+  const index = pendingResources.value.findIndex((item) => item.localId === localId)
+  if (index < 0) return
+  pendingResources.value[index] = { ...pendingResources.value[index], ...patch }
+}
+
 async function uploadEntry(entry) {
-  entry.status = 'uploading'
-  entry.error = ''
+  patchPendingResource(entry.localId, { status: 'uploading', error: '' })
   try {
-    entry.resource = await uploadAiResource(entry.file)
-    entry.status = 'success'
+    const [resource, contentBase64] = await Promise.all([
+      uploadAiResource(entry.file),
+      fileContentBase64(entry.file),
+    ])
+    patchPendingResource(entry.localId, {
+      resource: { ...resource, contentBase64 },
+      status: 'success',
+    })
   } catch (cause) {
-    entry.status = 'error'
-    entry.error = cause.message || '上传失败'
+    patchPendingResource(entry.localId, {
+      status: 'error',
+      error: cause.message || '上传失败',
+    })
   }
 }
 
@@ -414,6 +528,43 @@ function handleResourceSelect(event) {
   event.target.value = ''
 }
 
+function normalizeMessageAttachments(attachments = [], resources = []) {
+  const direct = Array.isArray(attachments) ? attachments.filter(Boolean).map((item) => ({ ...item })) : []
+  if (direct.length) return direct
+  return (Array.isArray(resources) ? resources : [])
+    .filter((item) => {
+      const kind = String(item?.kind || '').toLowerCase()
+      const mimeType = String(item?.mimeType || '').toLowerCase()
+      return kind === 'image' || mimeType.startsWith('image/')
+    })
+    .map((item) => ({
+      name: item?.title || item?.fileName || '生成图片',
+      fileName: item?.title || item?.fileName || '生成图片.png',
+      type: 'image',
+      mimeType: item?.mimeType || 'image/png',
+      url: item?.url || '',
+      previewUrl: item?.previewUrl || '',
+      storageKey: item?.storageKey || '',
+      serverGenerated: true,
+    }))
+}
+
+function buildAttachmentFetchUrl(item, message = null) {
+  const direct = item?.previewUrl || item?.url || item?.sourceUrl || item?.downloadUrl || ''
+  if (direct) {
+    if (direct.startsWith('http://') || direct.startsWith('https://')) return direct
+    if (direct.startsWith('/')) return `${API_BASE_URL}${direct}`
+    return `${API_BASE_URL}/${direct}`
+  }
+  const storageKey = String(item?.storageKey || '').trim()
+  const sessionId = String(message?.exportSessionId || message?.sessionId || activeConversationId.value || '').trim()
+  const messageId = message?.exportMessageId || message?.messageId
+  if (storageKey && sessionId && messageId) {
+    return `${API_BASE_URL}/api/ai/leader/sessions/${encodeURIComponent(sessionId)}/messages/${messageId}/exports/${encodeURIComponent(storageKey)}`
+  }
+  return ''
+}
+
 function removeResource(localId) {
   const item = pendingResources.value.find((entry) => entry.localId === localId)
   if (item?.previewUrl) URL.revokeObjectURL(item.previewUrl)
@@ -426,29 +577,94 @@ function isImageAttachment(item) {
     || /\.(jpe?g|png|webp|gif)$/i.test(String(item?.name || item?.fileName || item?.title || item?.url || ''))
 }
 
-function attachmentUrl(item) {
-  return item?.previewUrl || item?.url || item?.sourceUrl || item?.downloadUrl || ''
+function looksLikeImageResultJson(content) {
+  const text = String(content || '').trim()
+  if (!text.startsWith('{')) return false
+  try {
+    const payload = JSON.parse(text)
+    return Array.isArray(payload?.images)
+  } catch {
+    return false
+  }
 }
 
-function attachmentName(item) {
-  return item?.name || item?.fileName || item?.title || '上传图片'
+function unwrapJsonAnswer(content) {
+  const text = String(content || '').trim()
+  if (!text.startsWith('{')) return text
+  try {
+    const payload = JSON.parse(text)
+    if (typeof payload?.answer === 'string' && payload.answer.trim()) {
+      return payload.answer.trim()
+    }
+  } catch {
+    // keep original text
+  }
+  return text
 }
 
-async function loadAttachmentBlob(item) {
-  const source = attachmentUrl(item)
+function autoFenceCodeBlocks(content) {
+  const text = String(content || '').trim()
+  if (!text || text.includes('```')) return text
+
+  const patterns = [
+    { lang: 'java', re: /^\s*(public\s+class|import\s+java|package\s+\w)/m },
+    { lang: 'python', re: /^\s*(def\s+\w|import\s+\w|from\s+\w+\s+import)/m },
+    { lang: 'javascript', re: /^\s*(function\s+\w|const\s+\w+\s*=|export\s+(default\s+)?(function|class|const))/m },
+    { lang: 'typescript', re: /^\s*(interface\s+\w|type\s+\w+\s*=|export\s+type)/m },
+    { lang: 'go', re: /^\s*(package\s+\w|func\s+\w)/m },
+    { lang: 'rust', re: /^\s*(fn\s+\w|use\s+\w|pub\s+fn)/m },
+    { lang: 'cpp', re: /^\s*(#include\s*<|int\s+main\s*\()/m },
+    { lang: 'csharp', re: /^\s*(using\s+System|namespace\s+\w)/m },
+    { lang: 'kotlin', re: /^\s*(fun\s+\w|class\s+\w|import\s+kotlin)/m },
+    { lang: 'swift', re: /^\s*(import\s+Foundation|func\s+\w|class\s+\w)/m },
+    { lang: 'sql', re: /^\s*(SELECT|INSERT|UPDATE|DELETE|CREATE\s+TABLE)\b/im },
+    { lang: 'bash', re: /^\s*(#!\/bin\/|echo\s+|npm\s+|git\s+)/m },
+    { lang: 'json', re: /^\s*[\[{]/m },
+    { lang: 'yaml', re: /^\s*[\w-]+:\s/m },
+  ]
+
+  for (const { lang, re } of patterns) {
+    if (re.test(text)) {
+      return `\`\`\`${lang}\n${text}\n\`\`\``
+    }
+  }
+  return text
+}
+
+function displayAssistantContent(message) {
+  let content = String(message?.content || '').trim()
+  if (!content) return ''
+  if (message?.answerType === 'image_generation' && looksLikeImageResultJson(content)) {
+    return '已根据你的需求生成图片，请查看下方预览。'
+  }
+  content = unwrapJsonAnswer(content)
+  content = autoFenceCodeBlocks(content)
+  return content
+}
+
+function attachmentUrl(item, message = null) {
+  return buildAttachmentFetchUrl(item, message)
+}
+
+async function loadAttachmentBlob(item, message = null) {
+  const source = buildAttachmentFetchUrl(item, message)
   if (!source) throw new Error('该附件缺少可用地址')
   const token = getToken()
-  const response = await fetch(source.startsWith('/') ? `${API_BASE_URL}${source}` : source, {
+  const response = await fetch(source, {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   })
   if (!response.ok) throw new Error(`读取附件失败（${response.status}）`)
   return response.blob()
 }
 
-async function openAttachment(item) {
+function attachmentName(item) {
+  return item?.name || item?.fileName || item?.title || '上传图片'
+}
+
+async function openAttachment(item, message = null) {
   const previewWindow = window.open('about:blank', '_blank')
   try {
-    const objectUrl = URL.createObjectURL(await loadAttachmentBlob(item))
+    const objectUrl = URL.createObjectURL(await loadAttachmentBlob(item, message))
     if (previewWindow) {
       previewWindow.opener = null
       previewWindow.location.href = objectUrl
@@ -462,9 +678,9 @@ async function openAttachment(item) {
   }
 }
 
-async function downloadAttachment(item) {
+async function downloadAttachment(item, message = null) {
   try {
-    const objectUrl = URL.createObjectURL(await loadAttachmentBlob(item))
+    const objectUrl = URL.createObjectURL(await loadAttachmentBlob(item, message))
     const link = document.createElement('a')
     link.href = objectUrl
     link.download = attachmentName(item)
@@ -560,6 +776,7 @@ async function sendMessage(text) {
       message: attachments.length ? `已提交请求，包含 ${attachments.length} 个附件` : '已提交给智能助手，等待分析',
     }, 0, 'running')],
     workflowExpanded: false,
+    workflowStatus: 'running',
   })
   chatBusy.value = true
   void scrollMessages()
@@ -583,17 +800,63 @@ async function sendMessage(text) {
         streamTouched = true
         syncConversationSession(requestConversationId, payload?.sessionId)
         const current = messages.value.find((item) => item.id === assistantMessageId)
-        if (eventName === 'generation_start') {
-          appendWorkflowStep(assistantMessageId, { stage: 'generation_start', message: payload?.answer || '已进入内容生成阶段' })
+        if (eventName === 'workflow_step') {
+          upsertWorkflowStep(assistantMessageId, payload, payload?.status || 'completed')
+        } else if (eventName === 'generation_progress') {
+          const phase = payload?.phase || 'image_generation_tool'
+          const stage = phase === 'leader_visual_prompt' ? 'leader_visual_prompt' : 'image_generation_tool'
+          const workflowMessage = phase === 'leader_visual_prompt'
+            ? (payload?.status === 'completed' ? '生图提示词已整理完成' : '正在根据会话上下文整理生图提示词…')
+            : '正在生成图片，请稍候…'
+          upsertWorkflowStep(assistantMessageId, {
+            stage,
+            detail: { message: workflowMessage },
+            status: payload?.status || 'running',
+          }, payload?.status === 'completed' ? 'completed' : 'running')
+          if (payload?.imageGenerating && phase === 'leader_visual_prompt' && payload?.status === 'completed') {
+            upsertWorkflowStep(assistantMessageId, {
+              stage: 'image_generation_tool',
+              detail: { message: '正在生成图片，请稍候…', toolDisplayName: '图片生成工具' },
+              status: 'running',
+            }, 'running')
+          }
           updateChatMessage(assistantMessageId, {
-            content: payload?.answer || current?.content || '',
+            content: payload?.content || current?.content || '',
             streaming: true,
+            imageGenerating: Boolean(payload?.imageGenerating),
+            imageGeneratingLabel: payload?.phase === 'leader_visual_prompt' && payload?.status !== 'completed'
+              ? '正在整理生图提示词…'
+              : '正在生成更详细的图片，请稍等。',
+            answerType: 'image_generation',
+            workflowExpanded: true,
           })
-        } else if (eventName === 'tool_start' && payload?.message) {
+        } else if (eventName === 'generation_start') {
+          upsertWorkflowStep(assistantMessageId, { stage: 'generation_start', message: '开始生成内容' }, 'completed')
+          if (Array.isArray(payload?.trace)) {
+            payload.trace.forEach((step) => upsertWorkflowStep(assistantMessageId, step, 'completed'))
+          }
+          updateChatMessage(assistantMessageId, {
+            content: payload?.answer || current?.content || '正在整理生图方案…',
+            streaming: true,
+            imageGenerating: false,
+            answerType: payload?.answerType || current?.answerType || 'text',
+            workflowExpanded: true,
+          })
+        } else if (eventName === 'tool_start') {
           appendWorkflowStep(assistantMessageId, { stage: 'tool_start', ...payload })
           updateChatMessage(assistantMessageId, {
-            content: current?.receivedDelta ? current.content : '',
+            content: current?.receivedDelta ? current.content : (payload?.message || current?.content || ''),
             streaming: true,
+            workflowExpanded: true,
+          })
+        } else if (eventName === 'error') {
+          const failureContent = buildWorkflowFailureDescription(payload, payload, payload?.message || '执行失败')
+          appendWorkflowStep(assistantMessageId, { stage: 'failed', ...payload }, 'failed')
+          updateChatMessage(assistantMessageId, {
+            content: failureContent,
+            streaming: false,
+            workflowExpanded: true,
+            workflowStatus: 'failed',
           })
         }
         void scrollMessages()
@@ -643,23 +906,38 @@ async function sendMessage(text) {
         const current = messages.value.find((item) => item.id === assistantMessageId)
         const finalContent = String(payload?.answer || current?.content || '').trim()
         const finalWorkflow = traceWorkflowSteps(payload?.trace)
-        const workflowSteps = finalWorkflow.length
-          ? finalWorkflow
-          : [...(current?.workflowSteps || []).map((step) => ({ ...step, status: 'completed' })), normalizeWorkflowStep({ stage: 'completed', message: '所有处理步骤已完成' }, (current?.workflowSteps || []).length)]
+        const workflowSteps = current?.workflowSteps?.length
+          ? markWorkflowStepsCompleted(current.workflowSteps)
+          : finalWorkflow.length
+            ? finalWorkflow
+            : [...markWorkflowStepsCompleted(current?.workflowSteps || []), normalizeWorkflowStep({ stage: 'completed', message: '所有处理步骤已完成' }, (current?.workflowSteps || []).length)]
         updateChatMessage(assistantMessageId, {
           content: finalContent || 'AI 已完成本次资源分析。',
-          attachments: payload?.attachments || [],
+          attachments: normalizeMessageAttachments(payload?.attachments, payload?.resources),
           resources: payload?.resources || [],
           streaming: false,
           receivedDelta: false,
+          imageGenerating: false,
           answerType: payload?.answerType || 'text',
+          exportSessionId: payload?.sessionId || conversationSessionIds.value[requestConversationId] || requestConversationId || '',
+          exportMessageId: payload?.messageId || '',
           workflowSteps,
+          workflowStatus: 'completed',
         })
         void scrollMessages()
       },
       onError(payload) {
+        const failureContent = buildWorkflowFailureDescription(payload, payload, payload?.message || '流式请求失败')
+        appendWorkflowStep(assistantMessageId, { stage: 'failed', ...payload }, 'failed')
+        updateChatMessage(assistantMessageId, {
+          content: failureContent,
+          streaming: false,
+          workflowExpanded: true,
+          workflowStatus: 'failed',
+        })
         const error = new Error(payload?.message || '流式请求失败')
         error.payload = payload
+        error.handled = true
         throw error
       },
     })
@@ -684,6 +962,7 @@ async function sendMessage(text) {
           : '已停止生成。',
         streaming: false,
         receivedDelta: false,
+        workflowStatus: 'stopped',
       })
     } else if (cause?.fallbackToNormalRequest && !streamTouched) {
       try {
@@ -691,23 +970,40 @@ async function sendMessage(text) {
         syncConversationSession(requestConversationId, response?.sessionId)
         updateChatMessage(assistantMessageId, {
           content: response?.answer || response?.content || 'AI 已完成本次资源分析。',
-          attachments: response?.attachments || [],
+          attachments: normalizeMessageAttachments(response?.attachments, response?.resources),
           resources: response?.resources || [],
           streaming: false,
           workflowSteps: traceWorkflowSteps(response?.trace).length
             ? traceWorkflowSteps(response.trace)
             : (messages.value.find((item) => item.id === assistantMessageId)?.workflowSteps || []).map((step) => ({ ...step, status: 'completed' })),
+          workflowStatus: 'completed',
         })
       } catch (fallbackError) {
+        appendWorkflowStep(assistantMessageId, { stage: 'failed', message: fallbackError.message || 'AI 请求失败' }, 'failed')
         updateChatMessage(assistantMessageId, {
           content: fallbackError.message || 'AI 请求失败，请稍后重试。',
           streaming: false,
+          workflowStatus: 'failed',
         })
       }
     } else {
+      if (!cause?.handled) {
+        appendWorkflowStep(assistantMessageId, {
+          stage: 'failed',
+          message: cause.message || 'AI 请求失败',
+          failurePhase: cause?.payload?.failurePhase || '前端请求',
+          failureLocation: cause?.payload?.failureLocation || 'web_client',
+          ...cause?.payload,
+        }, 'failed')
+      }
+      const failureContent = cause?.handled
+        ? (messages.value.find((item) => item.id === assistantMessageId)?.content || cause.message || 'AI 请求失败，请稍后重试。')
+        : buildWorkflowFailureDescription(cause?.payload || {}, {}, cause.message || 'AI 请求失败，请稍后重试。')
       updateChatMessage(assistantMessageId, {
-        content: cause.message || 'AI 请求失败，请稍后重试。',
+        content: failureContent,
         streaming: false,
+        workflowExpanded: true,
+        workflowStatus: 'failed',
       })
     }
   } finally {
@@ -1313,9 +1609,9 @@ function handleUpload(event) {
                   <div class="message-bubble">
                     <div v-if="message.role === 'assistant' && message.workflowSteps?.length" class="workflow-panel">
                       <button class="workflow-summary" type="button" :aria-expanded="message.workflowExpanded" @click="message.workflowExpanded = !message.workflowExpanded">
-                        <span :class="['workflow-state-dot', { running: message.streaming }]"></span>
+                        <span :class="['workflow-state-dot', { running: message.streaming, failed: message.workflowStatus === 'failed' }]"></span>
                         <span class="workflow-summary-copy">
-                          <strong>{{ message.streaming ? '正在执行' : '执行流程已完成' }}</strong>
+                          <strong>{{ message.streaming ? '正在执行' : message.workflowStatus === 'failed' ? '执行流程失败' : message.workflowStatus === 'stopped' ? '执行已停止' : '执行流程已完成' }}</strong>
                           <small>{{ message.workflowSteps[message.workflowSteps.length - 1]?.title }} · 共 {{ message.workflowSteps.length }} 步</small>
                         </span>
                         <span class="workflow-toggle">{{ message.workflowExpanded ? '收起' : '展开详情' }} <IconLine name="chevron" :size="13" /></span>
@@ -1328,30 +1624,39 @@ function handleUpload(event) {
                             <p v-if="step.description">{{ step.description }}</p>
                             <div v-if="step.meta?.length" class="workflow-step-meta"><span v-for="meta in step.meta" :key="meta">{{ meta }}</span></div>
                           </div>
-                          <span class="workflow-step-status">{{ step.status === 'running' ? '进行中' : '已完成' }}</span>
+                          <span class="workflow-step-status">{{ step.status === 'running' ? '进行中' : step.status === 'failed' ? '失败' : '已完成' }}</span>
                         </div>
                       </div>
                     </div>
-                    <p>{{ message.content }}</p>
+                    <ChatMarkdown
+                      v-if="message.role === 'assistant' && displayAssistantContent(message)"
+                      :content="displayAssistantContent(message)"
+                      :streaming="Boolean(message.streaming)"
+                    />
+                    <p v-else-if="message.content">{{ message.content }}</p>
+                    <ImageGenerationCanvas
+                      v-if="message.role === 'assistant' && message.imageGenerating && !message.attachments?.length"
+                      :label="message.imageGeneratingLabel || '正在生成更详细的图片，请稍等。'"
+                    />
                     <div v-if="message.attachments?.length" class="message-attachments">
-                      <template v-for="item in message.attachments" :key="item.id || item.url || item.name">
-                        <div :class="['message-attachment-card', { 'is-image': isImageAttachment(item) }]">
-                          <img
-                            v-if="isImageAttachment(item) && attachmentUrl(item)"
-                            class="message-image"
-                            :src="attachmentUrl(item)"
-                            :alt="attachmentName(item)"
-                            loading="lazy"
-                            @click="openAttachment(item)"
-                          />
-                          <div v-else class="message-file">
+                      <template v-for="item in message.attachments" :key="item.storageKey || item.url || item.id || item.name">
+                        <ChatImageAttachment
+                          v-if="isImageAttachment(item)"
+                          :item="item"
+                          :message="message"
+                          :session-id="message.exportSessionId || activeConversationId"
+                          @open="openAttachment(item, message)"
+                          @download="downloadAttachment(item, message)"
+                        />
+                        <div v-else class="message-attachment-card">
+                          <div class="message-file">
                             <img v-if="fileIconAsset(item)" class="file-type-image" :src="fileIconAsset(item)" :alt="fileExtension(item)" />
                             <i v-else :class="['file-type-icon', `file-type-icon--${fileIconClass(item)}`]">{{ fileExtension(item) }}</i>
                             <span :title="attachmentName(item)">{{ attachmentName(item) }}</span>
                           </div>
                           <div class="message-attachment-actions">
-                            <button type="button" @click="openAttachment(item)"><IconLine name="file" :size="14" />打开</button>
-                            <button type="button" @click="downloadAttachment(item)"><IconLine name="download" :size="14" />下载</button>
+                            <button type="button" @click="openAttachment(item, message)"><IconLine name="file" :size="14" />打开</button>
+                            <button type="button" @click="downloadAttachment(item, message)"><IconLine name="download" :size="14" />下载</button>
                           </div>
                         </div>
                       </template>
@@ -2084,6 +2389,7 @@ function handleUpload(event) {
 .workflow-summary { display: flex; width: 100%; align-items: center; gap: 9px; padding: 9px 11px; color: var(--text); background: transparent; text-align: left; }
 .workflow-state-dot { width: 8px; height: 8px; flex: none; border-radius: 50%; background: #3a8a62; box-shadow: 0 0 0 3px color-mix(in srgb, #3a8a62 14%, transparent); }
 .workflow-state-dot.running { background: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 14%, transparent); animation: workflow-pulse 1.4s ease-in-out infinite; }
+.workflow-state-dot.failed { background: #c44f4f; box-shadow: 0 0 0 3px color-mix(in srgb, #c44f4f 14%, transparent); }
 .workflow-summary-copy { display: flex; min-width: 0; flex: 1; flex-direction: column; }
 .workflow-summary-copy strong { font-size: 12px; }
 .workflow-summary-copy small { overflow: hidden; color: var(--muted); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
@@ -2096,11 +2402,12 @@ function handleUpload(event) {
 .workflow-step.running .workflow-step-index { border-color: var(--accent); color: var(--accent); }
 .workflow-step-copy { min-width: 0; }
 .workflow-step-copy strong { display: block; font-size: 11px; }
-.workflow-step-copy p { margin: 2px 0 0; color: var(--muted); font-size: 10px; line-height: 1.45; }
+.workflow-step-copy p { margin: 2px 0 0; color: var(--muted); font-size: 10px; line-height: 1.45; white-space: pre-line; }
 .workflow-step-meta { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 5px; }
 .workflow-step-meta span { padding: 2px 5px; border-radius: 4px; color: var(--muted); background: var(--surface-soft); font-size: 9px; }
 .workflow-step-status { align-self: start; color: #3a8a62; font-size: 9px; }
 .workflow-step.running .workflow-step-status { color: var(--accent); }
+.workflow-step.failed .workflow-step-index, .workflow-step.failed .workflow-step-status { border-color: #c44f4f; color: #c44f4f; }
 @keyframes workflow-pulse { 50% { opacity: .45; } }
 .message-bubble > p { margin: 0; }
 .message-bubble pre { overflow-x: auto; margin: 15px 0; padding: 15px; border-radius: 10px; color: #dce8f4; background: #15283e; font: 12px/1.65 Consolas, monospace; }

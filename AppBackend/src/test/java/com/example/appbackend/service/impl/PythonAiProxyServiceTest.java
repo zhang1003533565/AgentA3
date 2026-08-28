@@ -223,6 +223,46 @@ class PythonAiProxyServiceTest {
     }
 
     @Test
+    void streamRag_withPdfAttachment_shouldStillForwardLeaderModelHeaders() throws Exception {
+        AtomicReference<String> modelRef = new AtomicReference<>();
+        CountDownLatch requestArrived = new CountDownLatch(1);
+        server = HttpServer.create(new InetSocketAddress(0), 0);
+        server.createContext("/internal/rag/query/stream", exchange -> {
+            modelRef.set(exchange.getRequestHeaders().getFirst("X-AI-Model"));
+            requestArrived.countDown();
+            exchange.getResponseHeaders().set(
+                    "Content-Type", MediaType.TEXT_EVENT_STREAM_VALUE + ";charset=UTF-8");
+            exchange.sendResponseHeaders(200, 0);
+            exchange.getResponseBody().write(("""
+                    event: done
+                    data: {"answer":"已读取 PDF","trace":[]}
+
+                    """).getBytes(StandardCharsets.UTF_8));
+            exchange.getResponseBody().flush();
+            exchange.close();
+        });
+        server.start();
+
+        SseEmitter emitter = newService(server.getAddress().getPort()).streamRag(
+                Map.of(
+                        "input", "总结这份 PDF",
+                        "agentName", "leader_agent",
+                        "attachments", List.of(Map.of(
+                                "name", "report.pdf",
+                                "mimeType", "application/pdf",
+                                "url", "https://example.com/report.pdf"
+                        ))
+                ),
+                "Bearer " + buildJwtToken(1004L)
+        );
+
+        Assertions.assertTrue(requestArrived.await(2, TimeUnit.SECONDS));
+        Assertions.assertNotNull(modelRef.get());
+        Assertions.assertFalse(modelRef.get().isBlank());
+        emitter.complete();
+    }
+
+    @Test
     void ragManagement_shouldProxyFrameworkAndAgentsEndpoints() throws Exception {
         AtomicReference<String> frameworkAuthRef = new AtomicReference<>();
         AtomicReference<String> agentsAuthRef = new AtomicReference<>();

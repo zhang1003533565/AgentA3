@@ -11,6 +11,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from pptx import Presentation
+from docx import Document
 
 from app.rag.document_conversion import generated_exporter
 
@@ -74,6 +75,25 @@ class GeneratedExporterTest(unittest.TestCase):
                 image_bytes,
                 (Path(directory) / attachments[0]["storageKey"]).read_bytes(),
             )
+
+    def test_docx_export_embeds_workflow_generated_image(self):
+        image_bytes = base64.b64decode(
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            generated_exporter.EXPORT_ROOT = Path(directory)
+            result = generated_exporter.export_generated_answer(
+                "# 测试文档\n\n这是正文。",
+                "markdown",
+                {
+                    "requestedOutputType": "docx",
+                    "embeddedImageBytes": [image_bytes],
+                    "toolToggles": {"docx_export_tool": True},
+                },
+            )
+
+            document = Document(Path(directory) / result.attachments[0]["storageKey"])
+            self.assertEqual(1, len(document.inline_shapes))
 
     def test_default_root_is_repository_local_and_production_requires_explicit_root(self):
         expected = Path(generated_exporter.__file__).resolve().parents[3] / "data" / "ai-exports"

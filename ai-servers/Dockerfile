@@ -1,4 +1,4 @@
-FROM python:3.11.11-slim-bookworm
+FROM docker.m.daocloud.io/library/python:3.11.11-slim-bookworm
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -13,9 +13,23 @@ WORKDIR /app
 RUN groupadd --system app \
     && useradd --system --gid app --create-home app
 
-RUN apt-get -o Acquire::Retries=5 update \
+RUN sed -i \
+        -e 's|http://deb.debian.org/debian-security|https://mirrors.aliyun.com/debian-security|g' \
+        -e 's|http://deb.debian.org/debian|https://mirrors.aliyun.com/debian|g' \
+        /etc/apt/sources.list.d/debian.sources \
+    && apt-get update \
+    && apt-get install --no-install-recommends --yes libreoffice-impress fonts-noto-cjk nodejs npm chromium unzip \
     && apt-get -o Acquire::Retries=5 install --no-install-recommends --yes libreoffice-impress fonts-noto-cjk nodejs npm chromium unzip \
     && rm -rf /var/lib/apt/lists/*
+
+RUN python -c "import urllib.request; urllib.request.urlretrieve('https://registry.npmmirror.com/-/binary/node/v20.19.4/node-v20.19.4-linux-x64.tar.xz', '/tmp/node.tar.xz')" \
+    && python -c "import tarfile; tarfile.open('/tmp/node.tar.xz').extractall('/usr/local')" \
+    && ln -sf /usr/local/node-v20.19.4-linux-x64/bin/node /usr/local/bin/node \
+    && ln -sf /usr/local/node-v20.19.4-linux-x64/bin/npm /usr/local/bin/npm \
+    && ln -sf /usr/local/node-v20.19.4-linux-x64/bin/npx /usr/local/bin/npx \
+    && rm -f /tmp/node.tar.xz \
+    && node --version \
+    && npm --version
 
 COPY requirements.txt ./requirements.txt
 RUN python -m pip install --no-cache-dir --upgrade pip==25.1.1 \
@@ -28,7 +42,9 @@ COPY main.py ./main.py
 RUN cd /app/presenton_runtime \
     && npm ci --omit=dev \
     && npx esbuild src/template-v2-json-to-html.ts --bundle --platform=node --format=esm --outfile=dist/template-v2-json-to-html.mjs \
-    && node sync-presentation-export.cjs --force \
+    && PRESENTON_EXPORT_REPO_BASE=https://gh-proxy.com/https://github.com/presenton/presenton-export/releases/download \
+       PRESENTON_DOWNLOAD_TIMEOUT_MS=120000 \
+       node sync-presentation-export.cjs --force \
     && npx playwright install-deps chromium \
     && chown -R app:app /app/presenton_runtime
 

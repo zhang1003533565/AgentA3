@@ -5,7 +5,7 @@ from typing import Any, Dict, Iterator, List, Optional
 from fastapi import HTTPException
 
 from app.model_providers.base import ChatModelProvider, extract_response_text
-from app.model_providers.multimodal import build_explicit_multimodal_content, build_multimodal_human_content
+from app.model_providers.multimodal import build_explicit_multimodal_content, extract_image_references
 from app.model_providers.runtime_config import (
     LlmRuntimeConfig,
     get_active_llm_timeout_seconds,
@@ -73,11 +73,18 @@ class DeepSeekProvider(ChatModelProvider):
     def complete(self, system_prompt: str, user_prompt: str, reasoning_effort: Optional[str] = None) -> str:
         from langchain_core.messages import HumanMessage, SystemMessage
 
+        # Text completion must not silently upgrade to multimodal; vision calls use complete_vision().
+        cleaned_prompt, image_urls = extract_image_references(user_prompt)
+        if image_urls:
+            logger.warning(
+                "complete() stripped %s embedded image reference(s); use complete_vision() for image input",
+                len(image_urls),
+            )
         extra = self._request_options(reasoning_effort)
         response = self.llm.invoke(
             [
                 SystemMessage(content=system_prompt),
-                HumanMessage(content=build_multimodal_human_content(user_prompt)),
+                HumanMessage(content=cleaned_prompt or user_prompt),
             ],
             **extra,
         )

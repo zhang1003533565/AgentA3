@@ -706,7 +706,16 @@ public class AppAiLeaderController {
         message.setAnswerType(userMessageAnswerType(request));
         if (request != null && request.getAttachments() != null && !request.getAttachments().isEmpty()) {
             try {
-                message.setAttachmentsJson(objectMapper.writeValueAsString(request.getAttachments()));
+                List<Map<String, Object>> publicAttachments = request.getAttachments().stream()
+                        .map(raw -> {
+                            Map<String, Object> safe = new LinkedHashMap<>(raw);
+                            safe.remove("contentBase64");
+                            safe.remove("dataUrl");
+                            safe.remove("dataURL");
+                            return safe;
+                        })
+                        .toList();
+                message.setAttachmentsJson(objectMapper.writeValueAsString(publicAttachments));
             } catch (JsonProcessingException error) {
                 throw new IllegalStateException("Unable to persist uploaded resources", error);
             }

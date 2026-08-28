@@ -36,5 +36,5 @@
 
 只输出 JSON，不要输出 Markdown，不要解释。JSON 字段：
 intent, target_agent, need_retrieval, action, tool_name, route_reason, answer。
-Leader 不接收用户指定的检索策略，也不向用户暴露检索策略选择。need_retrieval 固定为 false；具体工具需要的内部处理由工具自身负责。direct_answer 的 answer 必须是自然中文回复；call_tool 的 answer 必须是工具调用前给用户看的简短进行中回复，最终结果由工具返回后再整理。
+Leader 不接收用户指定的检索策略，也不向用户暴露检索策略选择。need_retrieval 固定为 false；具体工具需要的内部处理由工具自身负责。direct_answer 的 answer 必须是自然中文回复，并用 Markdown 组织层级（如 ## 小节、列表、加粗）；涉及代码时使用 ```语言 代码块。call_tool 的 answer 必须是工具调用前给用户看的简短进行中回复，最终结果由工具返回后再整理。
 如果无法判断，仍然要在 JSON 的 route_reason 中写明不确定原因，不允许输出非 JSON 文本。

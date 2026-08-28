@@ -357,22 +357,18 @@ const AGENT_LABELS = {
   mind_map_agent: '思维导图图片提示词智能体',
   diagram_mind_map_agent: '思维导图图片生成智能体',
   diagram_flowchart_agent: '图表流程图智能体',
-  diagram_activity_agent: '图表活动图智能体',
   diagram_architecture_agent: '图表架构图智能体',
   diagram_flowchart_prompt_agent: '流程图提示词智能体',
-  diagram_activity_prompt_agent: '活动图提示词智能体',
   architecture_prompt_agent: '架构图提示词智能体',
   textbook_knowledge_agent: '教材知识点智能体',
   image_agent: '图片智能体',
   ppt_outline_agent: 'PPT 大纲智能体',
   ppt_structure_agent: 'PPT 结构智能体',
   ppt_review_agent: 'PPT 审查智能体',
-  ppt_image_agent: 'PPT 图片智能体',
   ppt_to_docx_agent: 'PPT 转 Word 智能体',
   meeting_summary_agent: '会议总结智能体'
 }
 const TOOL_LABELS = {
-  text_to_sql: '结构化查询工具',
   java_schedule_api: '课表查询工具',
   java_activity_api: '活动查询工具',
   java_meeting_api: '会议查询工具',
@@ -397,7 +393,6 @@ const INTENT_LABELS = {
   diagram_mind_map: '思维导图图片',
   diagram_architecture: '架构图',
   diagram_flowchart: '流程图',
-  diagram_activity: '活动图',
   textbook_knowledge: '教材知识点',
   question_bank: '题库生成',
   ppt: 'PPT 生成',
@@ -1355,7 +1350,7 @@ export default {
         return `${this.getAgentLabel(agent)} 执行失败：${detail.message || normalized.error || '未知错误'}${rawMessage}`
       }
       if (stage === 'generate_sql') {
-        const toolName = detail.toolName || detail.tool_name || normalized.retrievalMeta?.toolName || 'text_to_sql'
+        const toolName = detail.toolName || detail.tool_name || normalized.retrievalMeta?.toolName || ''
         return `${this.getToolLabel(toolName, detail.toolDisplayName || detail.tool_display_name || normalized.retrievalMeta?.toolDisplayName)} 正在生成只读查询`
       }
       if (stage === 'tool_start') {

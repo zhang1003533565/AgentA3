@@ -34,7 +34,6 @@ PPT_AGENT_SPECS = {
     "ppt_structure_agent": ("PPT 结构智能体", "ppt_structure", "按照 Presenton 的结构选择契约，为每一页选择模板中的布局组件。", "根据确认后的 PPT 大纲和模板布局目录选择逐页 layoutId"),
     "ppt_content_agent": ("PPT 逐页内容智能体", "ppt_content", "根据确认后的大纲和原始资料撰写逐页标题、要点、解释与视觉建议。", "根据确认后的大纲生成逐页可展示内容"),
     "ppt_review_agent": ("PPT 审查智能体", "ppt_review", "负责审查 PPT 内容、布局和教学适配度，并输出问题清单与置信度评分。", "审查这份 PPT 大纲和布局，给出问题清单、修改建议和置信度"),
-    "ppt_image_agent": ("PPT 配图提示词智能体", "ppt_image", "只负责为 PPT 封面、插图、示意图生成图片提示词和视觉素材建议，不直接调用图片模型。", "根据这份 PPT 大纲生成封面图和关键页面插图提示词"),
     "ppt_to_docx_agent": ("PPT 转 DOCX 智能体", "ppt_to_docx", "负责将 PPTX 文件转换为 DOCX，按幻灯片顺序重排内容并保留图片。", "上传 PPTX 文件后转换为 DOCX，允许 Word 重新排版"),
 }
 
@@ -110,11 +109,8 @@ RESUME_AGENT_SPECS = {
 DIAGRAM_AGENT_SPECS = {
     "diagram_mind_map_agent": ("图表思维导图智能体", "diagram_mind_map", "把知识点层级、概念关系和学习路径整理成 Mermaid 思维导图。", "进程调度知识点思维导图材料"),
     "diagram_flowchart_agent": ("图表流程图智能体", "diagram_flowchart", "把算法步骤、业务过程和知识点流程整理成 Mermaid 流程图。", "括号匹配算法流程材料"),
-    "diagram_activity_agent": ("图表活动图智能体", "diagram_activity", "把角色协作、任务执行和活动顺序整理成 Mermaid 活动图。", "会议任务活动流程材料"),
     "diagram_architecture_agent": ("图表架构图智能体", "diagram_architecture", "把系统模块、服务依赖和数据流整理成 Mermaid 架构图。", "智慧校园 AI 智能体架构材料"),
     "diagram_flowchart_prompt_agent": ("流程图提示词智能体", "diagram_flowchart_prompt", "把算法步骤、业务流程整理成用于生成流程图图片的文生图提示词。", "括号匹配算法流程"),
-    "diagram_activity_prompt_agent": ("活动图提示词智能体", "diagram_activity_prompt", "把角色协作、任务流程整理成用于生成活动图图片的文生图提示词。", "会议任务活动流程"),
-    "knowledge_graph_prompt_agent": ("知识图谱提示词智能体", "knowledge_graph_prompt", "把实体、概念和关系整理成用于生成知识图谱图片的文生图提示词。", "操作系统进程调度知识图谱"),
 }
 
 AGENT_ORDER = [
@@ -141,7 +137,6 @@ LEARNING_WORKFLOW_INTERNAL_AGENTS = frozenset(LEARNING_WORKFLOW_AGENT_SPECS)
 DIAGRAM_SOURCE_AGENTS = frozenset({
     "diagram_mind_map_agent",
     "diagram_flowchart_agent",
-    "diagram_activity_agent",
     "diagram_architecture_agent",
 })
 INTERNAL_VISUAL_AGENTS = frozenset({
@@ -150,9 +145,6 @@ INTERNAL_VISUAL_AGENTS = frozenset({
     "mind_map_agent",
     "architecture_prompt_agent",
     "diagram_flowchart_prompt_agent",
-    "diagram_activity_prompt_agent",
-    "knowledge_graph_prompt_agent",
-    "ppt_image_agent",
 })
 FILE_EXPORT_INTERNAL_AGENTS = frozenset({"file_content_planner_agent"})
 RESUME_INTERNAL_AGENTS = frozenset({"resume_create_agent", "resume_edit_agent", "resume_polish_expand_agent"})
@@ -273,7 +265,6 @@ def _ppt_profile(agent_name: str, role: str, intent: str, purpose: str, example_
         "ppt_structure_agent": "presenton_structure_json",
         "ppt_content_agent": "slide_json",
         "ppt_review_agent": "ppt_review_markdown",
-        "ppt_image_agent": "ppt_image_prompt_markdown",
         "ppt_to_docx_agent": "docx_file",
     }[agent_name]
     alias_core = intent.replace("ppt_", "")
@@ -311,20 +302,14 @@ def _diagram_profile(agent_name: str, role: str, intent: str, purpose: str, exam
     output_type = {
         "diagram_mind_map_agent": "mermaid_mindmap",
         "diagram_flowchart_agent": "mermaid_flowchart",
-        "diagram_activity_agent": "mermaid_activity_flowchart",
         "diagram_architecture_agent": "mermaid_architecture",
         "diagram_flowchart_prompt_agent": "flowchart_prompt_text",
-        "diagram_activity_prompt_agent": "activity_prompt_text",
-        "knowledge_graph_prompt_agent": "knowledge_graph_prompt_text",
     }[agent_name]
     alias_map = {
         "diagram_mind_map_agent": ["mind_map", "mindmap", "思维导图", "脑图", "思维导图智能体", "mind_map_agent"],
         "diagram_flowchart_agent": ["flowchart", "流程图", "流程图智能体", "流程"],
-        "diagram_activity_agent": ["activity_diagram", "活动图", "活动图智能体", "泳道图", "任务活动图"],
         "diagram_architecture_agent": ["architecture_diagram", "架构图", "系统架构图", "架构图智能体", "系统架构"],
         "diagram_flowchart_prompt_agent": ["flowchart_prompt", "流程图提示词", "流程图提示词智能体"],
-        "diagram_activity_prompt_agent": ["activity_prompt", "活动图提示词", "活动图提示词智能体"],
-        "knowledge_graph_prompt_agent": ["knowledge_graph_prompt", "知识图谱提示词", "知识图谱提示词智能体", "概念图提示词"],
     }
     is_prompt_agent = agent_name.endswith("_prompt_agent")
     return {
@@ -635,7 +620,6 @@ def get_agent_catalog() -> Dict[str, Any]:
             "architecturePrompt": ["leader_agent", "textbook_knowledge_agent", "architecture_prompt_agent", "diagram_architecture_agent"],
             "diagram": ["leader_agent", "textbook_knowledge_agent", *DIAGRAM_AGENT_SPECS.keys()],
             "flowchart": ["leader_agent", "textbook_knowledge_agent", "diagram_flowchart_agent"],
-            "activityDiagram": ["leader_agent", "textbook_knowledge_agent", "diagram_activity_agent"],
             "architectureDiagram": ["leader_agent", "textbook_knowledge_agent", "diagram_architecture_agent"],
             "markdownKnowledge": ["leader_agent", "textbook_knowledge_agent"],
             "textbookKnowledge": ["leader_agent", "textbook_knowledge_agent"],

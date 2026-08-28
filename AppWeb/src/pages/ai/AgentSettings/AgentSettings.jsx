@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Alert, Button, Card, Drawer, Empty, Input, Modal, Segmented, Select, Space, Switch, Table, Tabs, Tag, Typography, Upload, message } from 'antd'
-import { CheckCircleOutlined, DownloadOutlined, ExclamationCircleOutlined, PlusOutlined, ReloadOutlined, RobotOutlined, SaveOutlined, SettingOutlined } from '@ant-design/icons'
+import { ApiOutlined, CheckCircleOutlined, DownloadOutlined, ExclamationCircleOutlined, PlusOutlined, ReloadOutlined, RobotOutlined, SaveOutlined, SettingOutlined } from '@ant-design/icons'
 import { getRagAgents, runRagQuery, testFileContentTool } from '../../../api/rag'
-import { API_BASE_URL } from '../../../config/apiBase'
 import { getSystemConfigList, upsertSystemConfig } from '../../../api/systemConfig'
+import axios from 'axios'
+import { API_BASE_URL } from '../../../config/apiBase'
 import {
   AGENT_ENABLED_CONFIG_PREFIX,
   QUESTION_GENERATION_AGENT_PREFIX,
@@ -28,6 +29,35 @@ import {
 import './AgentSettings.css'
 
 const { Text, Title } = Typography
+
+const TOOL_TAB_GROUPS = [
+  { key: 'campus', label: '校园服务', categories: ['campus_service'] },
+  { key: 'vision', label: '图片理解', categories: ['vision_understanding'] },
+  { key: 'visual', label: '视觉生成', categories: ['visual_generation'] },
+  { key: 'content', label: '内容导出', categories: ['content_export'] },
+  { key: 'presentation', label: 'PPT 生成', categories: ['presentation_generation'] },
+  { key: 'diagram', label: '图表导出', categories: ['diagram_export'] },
+  { key: 'file_content', label: '文件识别', categories: ['file_content_extraction'] },
+  { key: 'capability', label: '能力查询', categories: ['capability_query'] },
+]
+
+const DEFAULT_TOOL_TAB_KEY = TOOL_TAB_GROUPS[0].key
+
+const getToolsForTabGroup = (tools, tabKey) => {
+  const tab = TOOL_TAB_GROUPS.find((item) => item.key === tabKey)
+  if (!tab) return []
+  const categories = new Set(tab.categories)
+  return tools.filter((item) => categories.has(item.category))
+}
+
+const getToolTabStats = (tools, tabKey) => {
+  const tabTools = getToolsForTabGroup(tools, tabKey)
+  return {
+    enabled: tabTools.filter((item) => item.enabled !== false).length,
+    total: tabTools.length,
+  }
+}
+
 const TOOL_TEST_IMAGE_MAX_BYTES = 10 * 1024 * 1024
 const TOOL_TEST_IMAGE_MAX_EDGE = 1920
 const TOOL_TEST_IMAGE_JPEG_QUALITY = 0.82
@@ -49,6 +79,18 @@ const FILE_CONTENT_TOOL_ACCEPT = {
 }
 const isFileContentTool = (tool) => FILE_CONTENT_TOOL_NAMES.has(tool?.name)
 
+const TOOL_TRIGGER_TYPE_VIEW = {
+  system: { label: '系统主动触发', color: 'blue' },
+  leader: { label: 'Leader 协调', color: 'purple' },
+  rule_direct: { label: '规则直调', color: 'cyan' },
+  workflow_dependency: { label: '工作流依赖', color: 'gold' },
+}
+
+const renderToolTriggerType = (value) => {
+  const view = TOOL_TRIGGER_TYPE_VIEW[value] || { label: value || 'Leader 协调', color: 'default' }
+  return <Tag color={view.color}>{view.label}</Tag>
+}
+
 const TOOL_TEST_PROMPTS = {
   recognize_image_tool: '请识别我上传的图片，概括主要内容并读取其中清晰可见的文字。',
   generate_image_tool: '请生成一张简洁的智慧校园首页插图，浅色背景，蓝灰色调，不包含文字。',
@@ -59,7 +101,6 @@ const TOOL_TEST_PROMPTS = {
   generate_knowledge_graph_image_tool: '请生成学生、商品、分类、订单之间关系的知识图谱图片。',
   generate_ppt_image_tool: '请生成一张智慧校园主题的 PPT 封面配图，16:9，蓝灰色，留出标题区域。',
   image_stitching_tool: '请将我上传的图片按照上传顺序拼接成一张图片。',
-  text_to_sql: '请统计当前系统中的二手商品数量，并返回查询结果。',
   java_schedule_api: '请查询我本周的课程安排。',
   java_activity_api: '请查询当前可报名的校园活动。',
   java_meeting_api: '请查询我的会议列表和会议状态。',
@@ -164,15 +205,15 @@ const getToolDisplayName = (tool) => {
 
 const getToolCategoryLabel = (category) => {
   const labels = {
-    campus_service: '系统能力',
+    campus_service: '校园服务',
+    visual_generation: '视觉生成',
+    vision_understanding: '图片理解',
     structured_query: '结构化查询',
-    content_export: '内容整理',
-    file_content_extraction: '文件内容识别',
+    content_export: '内容导出',
+    file_content_extraction: '文件识别',
     diagram_export: '图表导出',
     presentation_generation: 'PPT 生成',
-    vision_understanding: '图片理解',
     meeting_service: '会议服务',
-    visual_generation: '视觉生成',
     capability_query: '能力查询',
   }
   return labels[category] || category || '-'
@@ -308,10 +349,16 @@ function AgentSettings() {
   const [retrievalGeneratedProfile, setRetrievalGeneratedProfile] = useState(null)
   const [retrievalGenerating, setRetrievalGenerating] = useState('')
   const [activeTab, setActiveTab] = useState('overview')
-  const [leaderObjectType, setLeaderObjectType] = useState('all')
+  const [leaderObjectType, setLeaderObjectType] = useState(DEFAULT_TOOL_TAB_KEY)
+  const [toolTriggerType, setToolTriggerType] = useState('all')
   const [leaderToolFilter, setLeaderToolFilter] = useState('all')
   const [selectedToolKeys, setSelectedToolKeys] = useState([])
   const [runtimeAgentFilter, setRuntimeAgentFilter] = useState('all')
+  const [testUsername, setTestUsername] = useState('zzs')
+  const [testPassword, setTestPassword] = useState('admin123')
+  const [endpointDrawerOpen, setEndpointDrawerOpen] = useState(false)
+  const [endpointDrawerTool, setEndpointDrawerTool] = useState(null)
+  const [endpointTestResults, setEndpointTestResults] = useState({})
   const [toolTestName, setToolTestName] = useState('')
   const [toolTestMode, setToolTestMode] = useState('prompt')
   const [toolTestInput, setToolTestInput] = useState('')
@@ -581,6 +628,58 @@ function AgentSettings() {
     setRetrievalGeneratedProfile(null)
     setRetrievalDrawerOpen(true)
   }, [draftToolRetrievalProfiles])
+
+  const openEndpointDrawer = useCallback((tool) => {
+    setEndpointDrawerTool(tool)
+    setEndpointTestResults({})
+    setEndpointDrawerOpen(true)
+  }, [])
+
+  const testEndpoint = useCallback(async (endpoint) => {
+    if (!endpointDrawerTool) return
+    const key = `${endpointDrawerTool.name}:${endpoint.method}:${endpoint.path}:${JSON.stringify(endpoint.params || {})}`
+    setEndpointTestResults((prev) => ({ ...prev, [key]: { testing: true } }))
+    try {
+      const loginRes = await axios.post(`${API_BASE_URL}/api/auth/applogin`, {
+        username: testUsername,
+        password: testPassword,
+      })
+      const token = loginRes.data?.data?.token
+      if (!token) throw new Error('测试用户登录失败，请检查账号密码')
+      const res = await axios.get(`${API_BASE_URL}${endpoint.path}`, {
+        headers: { Authorization: `Bearer ${token}` },
+        params: endpoint.params || {},
+        timeout: 15000,
+      })
+      const body = res.data
+      setEndpointTestResults((prev) => ({
+        ...prev,
+        [key]: {
+          testing: false,
+          reachable: true,
+          ok: body?.code === 200,
+          status: res.status,
+          code: body?.code,
+          msg: body?.msg || '',
+          hasData: body?.data != null,
+        },
+      }))
+    } catch (e) {
+      const status = e.response?.status
+      const body = e.response?.data
+      setEndpointTestResults((prev) => ({
+        ...prev,
+        [key]: {
+          testing: false,
+          reachable: e.response != null,
+          ok: false,
+          status,
+          code: body?.code,
+          msg: body?.msg || body?.message || e.message,
+        },
+      }))
+    }
+  }, [testUsername, testPassword, endpointDrawerTool])
 
   const generateToolRetrievalProfile = useCallback(async (tool) => {
     setRetrievalGenerating(tool.name)
@@ -1049,6 +1148,12 @@ function AgentSettings() {
       render: renderOutputs,
     },
     {
+      title: '调度类型',
+      dataIndex: 'triggerType',
+      width: 130,
+      render: renderToolTriggerType,
+    },
+    {
       title: '绑定智能体',
       dataIndex: 'boundAgent',
       width: 330,
@@ -1113,13 +1218,18 @@ function AgentSettings() {
       title: '检索说明（可编辑）',
       dataIndex: 'retrievalProfile',
       width: 180,
-      render: (value, record) => {
-        return (
+      render: (value, record) => (
+        <Space direction="vertical" size={4}>
           <Button icon={<SettingOutlined />} onClick={() => openRetrievalDrawer(record)}>
             配置检索说明
           </Button>
-        )
-      },
+          {Array.isArray(record.endpoints) && record.endpoints.length > 0 && (
+            <Button icon={<ApiOutlined />} onClick={() => openEndpointDrawer(record)}>
+              接口 ({record.endpoints.length})
+            </Button>
+          )}
+        </Space>
+      ),
     },
   ], [openRetrievalDrawer, saveToolEnabled, saveToolBinding, savingKey, agents, toolBindingOptions, draftToolBindings, toolBindings])
 
@@ -1208,6 +1318,12 @@ function AgentSettings() {
       render: renderOutputs,
     },
     {
+      title: '调度类型',
+      dataIndex: 'triggerType',
+      width: 130,
+      render: renderToolTriggerType,
+    },
+    {
       title: '绑定智能体',
       dataIndex: 'boundAgent',
       width: 270,
@@ -1271,14 +1387,19 @@ function AgentSettings() {
     {
       title: '检索说明（可编辑）',
       dataIndex: 'retrievalProfile',
-      width: 220,
-      render: (value, record) => {
-        return (
+      width: 180,
+      render: (value, record) => (
+        <Space direction="vertical" size={4}>
           <Button icon={<SettingOutlined />} onClick={() => openRetrievalDrawer(record)}>
             配置检索说明
           </Button>
-        )
-      },
+          {Array.isArray(record.endpoints) && record.endpoints.length > 0 && (
+            <Button icon={<ApiOutlined />} onClick={() => openEndpointDrawer(record)}>
+              接口 ({record.endpoints.length})
+            </Button>
+          )}
+        </Space>
+      ),
     },
   ], [openRetrievalDrawer, handleToolToggleChange, saveToolBinding, savingKey, agents, toolBindingOptions, draftToolBindings, toolBindings])
 
@@ -1362,27 +1483,21 @@ function AgentSettings() {
   const boundCount = configuredAgents.filter((item) => item.boundModel).length
   const unboundAgentCount = configuredAgents.filter((item) => !item.boundModel).length
   const callableToolCount = allConfiguredTools.filter((item) => item.enabled !== false).length
-  const campusServiceTools = allConfiguredTools.filter((item) => item.category === 'campus_service')
-  const enabledCampusServiceCount = campusServiceTools.filter((item) => item.enabled !== false).length
-  const visualTools = allConfiguredTools.filter((item) => item.category === 'visual_generation')
-  const contentCategoryTools = allConfiguredTools.filter((item) => item.category === 'content_export')
-  const fileContentTools = allConfiguredTools.filter((item) => item.category === 'file_content_extraction')
-  const structuredTools = allConfiguredTools.filter((item) => item.category === 'structured_query')
+  const leaderToolSource = useMemo(
+    () => getToolsForTabGroup(allConfiguredTools, leaderObjectType),
+    [allConfiguredTools, leaderObjectType],
+  )
+  const tabTriggerStats = useMemo(() => ({
+    all: leaderToolSource.length,
+    system: leaderToolSource.filter((item) => item.triggerType === 'system').length,
+    leader: leaderToolSource.filter((item) => item.triggerType === 'leader').length,
+    rule_direct: leaderToolSource.filter((item) => item.triggerType === 'rule_direct').length,
+    workflow_dependency: leaderToolSource.filter((item) => item.triggerType === 'workflow_dependency').length,
+  }), [leaderToolSource])
   const mappedQuestionAgentCount = questionAgentRows.filter((item) => item.agentName && item.exists).length
   const validQuestionAgentCount = questionAgentRows.filter((item) => (
     item.agentName && item.exists && item.enabled !== false && item.boundModel
   )).length
-  const leaderToolSource = leaderObjectType === 'all'
-    ? allConfiguredTools
-    : leaderObjectType === 'campus'
-      ? campusServiceTools
-      : leaderObjectType === 'visual'
-        ? visualTools
-        : leaderObjectType === 'content'
-          ? contentCategoryTools
-          : leaderObjectType === 'file_content'
-            ? fileContentTools
-            : structuredTools
 
   const overviewIssues = [
     unboundAgentCount ? {
@@ -1412,14 +1527,17 @@ function AgentSettings() {
   ].filter(Boolean)
 
   const filteredLeaderTools = useMemo(() => {
+    const triggerFiltered = toolTriggerType === 'all'
+      ? leaderToolSource
+      : leaderToolSource.filter((item) => item.triggerType === toolTriggerType)
     if (leaderToolFilter === 'enabled') {
-      return leaderToolSource.filter((item) => item.enabled !== false)
+      return triggerFiltered.filter((item) => item.enabled !== false)
     }
     if (leaderToolFilter === 'disabled') {
-      return leaderToolSource.filter((item) => item.enabled === false)
+      return triggerFiltered.filter((item) => item.enabled === false)
     }
-    return leaderToolSource
-  }, [leaderToolFilter, leaderToolSource])
+    return triggerFiltered
+  }, [leaderToolFilter, leaderToolSource, toolTriggerType])
 
   const filteredConfiguredAgents = useMemo(() => {
     if (runtimeAgentFilter === 'enabled') {
@@ -1441,9 +1559,14 @@ function AgentSettings() {
           <Title level={2}>智能体设置</Title>
           <Text type="secondary">维护 Leader 路由、默认模型、题库映射和工具开关。</Text>
         </div>
-        <Button icon={<ReloadOutlined />} onClick={fetchData} loading={loading}>
-          刷新状态
-        </Button>
+        <Space align="center">
+          <Text type="secondary">测试用户</Text>
+          <Input size="small" value={testUsername} onChange={(e) => setTestUsername(e.target.value)} placeholder="账号" style={{ width: 110 }} />
+          <Input.Password size="small" value={testPassword} onChange={(e) => setTestPassword(e.target.value)} placeholder="密码" style={{ width: 130 }} />
+          <Button icon={<ReloadOutlined />} onClick={fetchData} loading={loading}>
+            刷新状态
+          </Button>
+        </Space>
       </section>
 
       <Card className="agent-settings-shell">
@@ -1514,20 +1637,37 @@ function AgentSettings() {
               label: '工具开关',
               children: (
                 <div className="agent-settings-tab-panel">
-                  <div className="agent-settings-table-tools">
+                  <div className="agent-settings-table-tools agent-settings-table-tools-stacked">
                     <Segmented
-                      className="agent-settings-segmented"
+                      className="agent-settings-segmented agent-settings-tool-tabs"
                       value={leaderObjectType}
-                      options={[
-                        { label: `全部工具 ${callableToolCount}/${allConfiguredTools.length}`, value: 'all' },
-                        { label: `校园服务 ${enabledCampusServiceCount}/${campusServiceTools.length}`, value: 'campus' },
-                        { label: `视觉能力 ${visualTools.filter((item) => item.enabled !== false).length}/${visualTools.length}`, value: 'visual' },
-                        { label: `内容处理 ${contentCategoryTools.filter((item) => item.enabled !== false).length}/${contentCategoryTools.length}`, value: 'content' },
-                        { label: `文件内容识别 ${fileContentTools.filter((item) => item.enabled !== false).length}/${fileContentTools.length}`, value: 'file_content' },
-                        { label: `结构化查询 ${structuredTools.filter((item) => item.enabled !== false).length}/${structuredTools.length}`, value: 'structured' },
-                      ]}
+                      options={TOOL_TAB_GROUPS.map((tab) => {
+                        const stats = getToolTabStats(allConfiguredTools, tab.key)
+                        return {
+                          label: `${tab.label} ${stats.enabled}/${stats.total}`,
+                          value: tab.key,
+                        }
+                      })}
                       onChange={(value) => {
                         setLeaderObjectType(value)
+                        setToolTriggerType('all')
+                        setLeaderToolFilter('all')
+                        setSelectedToolKeys([])
+                      }}
+                    />
+                    <div className="agent-settings-table-tools-filters">
+                    <Segmented
+                      className="agent-settings-segmented"
+                      value={toolTriggerType}
+                      options={[
+                        { label: `全部调度 ${tabTriggerStats.all}`, value: 'all' },
+                        { label: `系统主动触发 ${tabTriggerStats.system}`, value: 'system' },
+                        { label: `Leader 调用 ${tabTriggerStats.leader}`, value: 'leader' },
+                        { label: `规则直调 ${tabTriggerStats.rule_direct}`, value: 'rule_direct' },
+                        { label: `工作流依赖 ${tabTriggerStats.workflow_dependency}`, value: 'workflow_dependency' },
+                      ]}
+                      onChange={(value) => {
+                        setToolTriggerType(value)
                         setLeaderToolFilter('all')
                       }}
                     />
@@ -1542,6 +1682,7 @@ function AgentSettings() {
                       ]}
                       onChange={setLeaderToolFilter}
                     />
+                    </div>
                   </div>
                   {selectedToolKeys.length > 0 && (
                     <Space style={{ marginBottom: 8 }} size={8}>
@@ -2148,6 +2289,46 @@ function AgentSettings() {
             </Space>
           </Space>
         ) : null}
+      </Drawer>
+      <Drawer
+        title={endpointDrawerTool ? `接口清单：${getToolDisplayName(endpointDrawerTool)}` : '接口清单'}
+        width={560}
+        open={endpointDrawerOpen}
+        onClose={() => setEndpointDrawerOpen(false)}
+        extra={endpointDrawerTool ? <Tag color="blue">{endpointDrawerTool.name}</Tag> : null}
+      >
+        {endpointDrawerTool ? (
+          <Space direction="vertical" size={12} style={{ width: '100%' }}>
+            <Text type="secondary">点「测试」用测试用户（{testUsername}）身份请求该接口，看连通状态。</Text>
+            {(Array.isArray(endpointDrawerTool.endpoints) ? endpointDrawerTool.endpoints : []).map((ep) => {
+              const key = `${endpointDrawerTool.name}:${ep.method}:${ep.path}:${JSON.stringify(ep.params || {})}`
+              const r = endpointTestResults[key]
+              return (
+                <Card key={key} size="small">
+                  <Space direction="vertical" size={6} style={{ width: '100%' }}>
+                    <Space size={6}>
+                      <Tag color="blue">{ep.method}</Tag>
+                      <Text code>{ep.path}</Text>
+                    </Space>
+                    <Text type="secondary">{ep.description}</Text>
+                    <Space size={8}>
+                      <Button size="small" type="primary" loading={r?.testing} onClick={() => testEndpoint(ep)}>
+                        测试
+                      </Button>
+                      {r && !r.testing && (
+                        !r.reachable
+                          ? <Tag color="red">❌ 连不上（{r.msg || r.code || '无响应'}）</Tag>
+                          : r.ok
+                            ? <Tag color="green">✅ 连通（HTTP {r.status}，code {r.code}）</Tag>
+                            : <Tag color="orange">✅ 连通（HTTP {r.status}：{r.msg || r.code}）</Tag>
+                      )}
+                    </Space>
+                  </Space>
+                </Card>
+              )
+            })}
+          </Space>
+        ) : <Empty description="该工具没有接口清单" />}
       </Drawer>
     </div>
   )
