@@ -1,7 +1,7 @@
 import { request } from '../utils/request.js'
 
 export const listPaperDictionaries = (type) => request({ url: '/api/papers/dictionaries', method: 'GET', data: { type } })
-export const createPaperDictionary = (data) => request({ url: '/api/papers/dictionaries', method: 'POST', data })
+export const createPaperDictionary = (data) => request({ url: '/api/papers/dictionaries', method: 'POST', data, showError: false })
 export const deletePaperDictionary = (id) => request({ url: `/api/papers/dictionaries/${id}`, method: 'DELETE' })
 
 export const listPaperBanks = (params = {}) => request({ url: '/api/papers/banks', method: 'GET', data: params })
@@ -27,6 +27,6 @@ export const updatePaperQuestion = (paperId, questionId, data) => request({ url:
 export const removePaperQuestion = (paperId, questionId) => request({ url: `/api/papers/${paperId}/questions/${questionId}`, method: 'DELETE' })
 export const completePaper = (id) => request({ url: `/api/papers/${id}/complete`, method: 'POST' })
 export const copyPaper = (id) => request({ url: `/api/papers/${id}/copy`, method: 'POST' })
-export const deletePaper = (id) => request({ url: `/api/papers/${id}`, method: 'DELETE' })
-export const getPaperLayout = (id, defaults = false) => request({ url: `/api/papers/${id}/layout`, method: 'GET', data: defaults ? { defaults: true } : {} })
+export const deletePaper = (id) => request({ url: `/api/papers/${id}`, method: 'DELETE', timeout: 15000, showError: false })
+export const getPaperLayout = (id, defaults = false, templateName = '') => request({ url: `/api/papers/${id}/layout`, method: 'GET', data: defaults ? { defaults: true, templateName } : {} })
 export const updatePaperLayout = (id, data) => request({ url: `/api/papers/${id}/layout`, method: 'PUT', data })

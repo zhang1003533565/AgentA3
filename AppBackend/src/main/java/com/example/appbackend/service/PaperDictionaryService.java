@@ -23,20 +23,23 @@ public class PaperDictionaryService {
         this.paperRepository = paperRepository;
     }
 
-    public List<PaperDictionary> list(String type) {
-        return repository.findByDictTypeAndEnabledTrueOrderBySortOrderAscIdAsc(type);
+    public List<PaperDictionary> list(String type, Long userId) {
+        requireUser(userId);
+        return repository.findVisibleByType(type, userId);
     }
 
     @Transactional
     public PaperDictionary create(String type, String name, Long userId) {
+        requireUser(userId);
         if (!Set.of("subject", "paper_category").contains(type)) {
-            throw new IllegalArgumentException("仅支持新增科目或试卷分类");
+            throw new BusinessException(Result.BAD_REQUEST_CODE, "不支持的字典类型");
         }
         String normalizedName = name == null ? "" : name.trim();
         if (normalizedName.isEmpty()) throw new IllegalArgumentException("名称不能为空");
         if (normalizedName.length() > 120) throw new IllegalArgumentException("名称不能超过120个字符");
-        if (repository.findByDictTypeAndName(type, normalizedName).isPresent()) {
-            throw new IllegalArgumentException("该名称已存在");
+        if (repository.findVisibleByTypeAndName(type, normalizedName, userId).isPresent()) {
+            throw new BusinessException(Result.BAD_REQUEST_CODE,
+                    "subject".equals(type) ? "该科目已存在" : "该试卷分类已存在");
         }
 
         PaperDictionary item = new PaperDictionary();
@@ -51,6 +54,7 @@ public class PaperDictionaryService {
 
     @Transactional
     public void delete(Long id, Long userId) {
+        requireUser(userId);
         PaperDictionary item = repository.findById(id)
                 .orElseThrow(() -> new BusinessException(Result.NOT_FOUND_CODE, "字典项不存在"));
         if (item.getCreatorId() == null) {
@@ -59,13 +63,19 @@ public class PaperDictionaryService {
         if (!item.getCreatorId().equals(userId)) {
             throw new BusinessException(Result.FORBIDDEN_CODE, "无权删除其他用户创建的字典项");
         }
-        if ("subject".equals(item.getDictType()) && paperRepository.existsBySubjectId(item.getId())) {
+        if ("subject".equals(item.getDictType()) && paperRepository.existsBySubjectIdAndCreatorId(item.getId(), userId)) {
             throw new BusinessException(Result.BAD_REQUEST_CODE, "该科目已被试卷使用，无法删除");
         }
-        if ("paper_category".equals(item.getDictType()) && paperRepository.existsByCategory(item.getName())) {
+        if ("paper_category".equals(item.getDictType()) && paperRepository.existsByCategoryAndCreatorId(item.getName(), userId)) {
             throw new BusinessException(Result.BAD_REQUEST_CODE, "该分类已被试卷使用，无法删除");
         }
         repository.delete(item);
+    }
+
+    private void requireUser(Long userId) {
+        if (userId == null) {
+            throw new BusinessException(Result.UNAUTHORIZED_CODE, "请先登录");
+        }
     }
 
     @PostConstruct

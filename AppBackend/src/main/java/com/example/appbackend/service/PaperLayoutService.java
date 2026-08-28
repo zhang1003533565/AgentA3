@@ -11,6 +11,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 
 @Service
@@ -27,14 +28,19 @@ public class PaperLayoutService {
         this.layoutRepository = layoutRepository;
     }
 
+    @Transactional
     public PaperLayout get(Long paperId, Long userId) {
         ownPaper(paperId, userId);
-        return layoutRepository.findByPaperId(paperId).orElseGet(() -> defaults(paperId));
+        Optional<PaperLayout> stored = layoutRepository.findByPaperId(paperId);
+        if (stored.isEmpty()) return defaults(paperId);
+        PaperLayout layout = compatibility(stored.get());
+        if (normalizeStandardTemplate(layout)) return layoutRepository.save(layout);
+        return layout;
     }
 
-    public PaperLayout getDefaults(Long paperId, Long userId) {
+    public PaperLayout getDefaults(Long paperId, Long userId, String templateName) {
         ownPaper(paperId, userId);
-        return defaults(paperId);
+        return defaults(paperId, templateName);
     }
 
     @Transactional
@@ -48,27 +54,63 @@ public class PaperLayoutService {
         return layoutRepository.save(layout);
     }
 
+    private PaperLayout compatibility(PaperLayout layout) {
+        PaperLayout standard = defaults(layout.getPaperId());
+        if (layout.getTemplateName() == null) layout.setTemplateName(standard.getTemplateName());
+        if (layout.getMarginPreset() == null) layout.setMarginPreset(standard.getMarginPreset());
+        if (layout.getShowStudentInfo() == null) layout.setShowStudentInfo(true);
+        if (layout.getStudentFields() == null) layout.setStudentFields(standard.getStudentFields());
+        return layout;
+    }
+
+    /**
+     * The paper-print workflow uses the formal A3 landscape exam layout.
+     * Older rows (including rows created before the template switch) may still
+     * contain A4 portrait values; normalize them when read so preview, Word
+     * and PDF all consume the same persisted layout.
+     */
+    private boolean normalizeStandardTemplate(PaperLayout layout) {
+        boolean changed = false;
+        if (!"A3".equals(layout.getPaperSize())) { layout.setPaperSize("A3"); changed = true; }
+        if (!"landscape".equals(layout.getOrientation())) { layout.setOrientation("landscape"); changed = true; }
+        if (!Objects.equals(layout.getColumnsCount(), 2)) { layout.setColumnsCount(2); changed = true; }
+        if (layout.getColumnGap() == null || layout.getColumnGap().compareTo(new BigDecimal("0.75")) != 0) {
+            layout.setColumnGap(new BigDecimal("0.75")); changed = true;
+        }
+        if (!Boolean.TRUE.equals(layout.getBindingLine())) { layout.setBindingLine(true); changed = true; }
+        return changed;
+    }
+
     public PaperLayout defaults(Long paperId) {
+        return defaults(paperId, "标准模板");
+    }
+
+    public PaperLayout defaults(Long paperId, String templateName) {
         PaperLayout layout = new PaperLayout();
         layout.setPaperId(paperId);
-        layout.setPaperSize("A4");
-        layout.setOrientation("portrait");
-        layout.setColumnsCount(1);
+        boolean concise = "简洁模板".equals(templateName);
+        layout.setTemplateName(concise ? "简洁模板" : "标准模板");
+        layout.setPaperSize(concise ? "A4" : "A3");
+        layout.setOrientation(concise ? "portrait" : "landscape");
+        layout.setColumnsCount(concise ? 1 : 2);
         layout.setColumnGap(new BigDecimal("0.75"));
-        layout.setBindingLine(false);
+        layout.setBindingLine(!concise);
         layout.setBindingPosition("left");
-        layout.setMarginTop(new BigDecimal("2.54"));
-        layout.setMarginBottom(new BigDecimal("2.54"));
-        layout.setMarginLeft(new BigDecimal("2.54"));
-        layout.setMarginRight(new BigDecimal("2.54"));
+        layout.setMarginPreset(concise ? "自定义" : "标准装订线");
+        layout.setMarginTop(new BigDecimal(concise ? "1.8" : "2.54"));
+        layout.setMarginBottom(new BigDecimal(concise ? "1.8" : "2.54"));
+        layout.setMarginLeft(new BigDecimal(concise ? "1.8" : "2.8"));
+        layout.setMarginRight(new BigDecimal(concise ? "1.8" : "2.0"));
+        layout.setShowStudentInfo(true);
+        layout.setStudentFields("school,grade,class,name,studentNo");
         layout.setShowSchool(true);
         layout.setShowGrade(true);
         layout.setShowClass(true);
         layout.setShowName(true);
         layout.setShowStudentNo(true);
-        layout.setTitleFontSize(24);
-        layout.setSubtitleFontSize(18);
-        layout.setBodyFontSize(12);
+        layout.setTitleFontSize(concise ? 32 : 50);
+        layout.setSubtitleFontSize(concise ? 18 : 24);
+        layout.setBodyFontSize(concise ? 12 : 21);
         return layout;
     }
 
@@ -91,7 +133,8 @@ public class PaperLayoutService {
         validateMargin(layout.getMarginBottom());
         validateMargin(layout.getMarginLeft());
         validateMargin(layout.getMarginRight());
-        if (layout.getBindingLine() == null || layout.getShowSchool() == null || layout.getShowGrade() == null
+        if (layout.getTemplateName() == null || layout.getMarginPreset() == null || layout.getStudentFields() == null
+                || layout.getShowStudentInfo() == null || layout.getBindingLine() == null || layout.getShowSchool() == null || layout.getShowGrade() == null
                 || layout.getShowClass() == null || layout.getShowName() == null || layout.getShowStudentNo() == null) bad("显示配置不能为空");
         validateFont(layout.getTitleFontSize(), "标题字号");
         validateFont(layout.getSubtitleFontSize(), "副标题字号");
@@ -112,6 +155,7 @@ public class PaperLayoutService {
 
     private void copy(PaperLayout source, PaperLayout target) {
         target.setPaperSize(source.getPaperSize());
+        target.setTemplateName(source.getTemplateName());
         target.setOrientation(source.getOrientation());
         target.setColumnsCount(source.getColumnsCount());
         target.setColumnGap(source.getColumnGap());
@@ -126,6 +170,9 @@ public class PaperLayoutService {
         target.setShowClass(source.getShowClass());
         target.setShowName(source.getShowName());
         target.setShowStudentNo(source.getShowStudentNo());
+        target.setShowStudentInfo(source.getShowStudentInfo());
+        target.setStudentFields(source.getStudentFields());
+        target.setMarginPreset(source.getMarginPreset());
         target.setTitleFontSize(source.getTitleFontSize());
         target.setSubtitleFontSize(source.getSubtitleFontSize());
         target.setBodyFontSize(source.getBodyFontSize());

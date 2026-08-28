@@ -22,6 +22,9 @@ public class PaperLayout {
     @Column(name = "paper_id", insertable = false, updatable = false)
     private Long paperId;
 
+    @Column(name = "template_name", nullable = false, length = 32)
+    private String templateName;
+
     @JsonIgnore
     @OneToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "paper_id", nullable = false, unique = true,
@@ -73,6 +76,15 @@ public class PaperLayout {
 
     @Column(name = "show_student_no", nullable = false)
     private Boolean showStudentNo;
+
+    @Column(name = "show_student_info", nullable = false)
+    private Boolean showStudentInfo;
+
+    @Column(name = "student_fields", nullable = false, length = 255)
+    private String studentFields;
+
+    @Column(name = "margin_preset", nullable = false, length = 32)
+    private String marginPreset;
 
     @Column(name = "title_font_size", nullable = false)
     private Integer titleFontSize;

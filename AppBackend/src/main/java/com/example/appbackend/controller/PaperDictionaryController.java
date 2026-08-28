@@ -26,22 +26,30 @@ public class PaperDictionaryController {
     }
 
     @GetMapping
-    public Result<List<PaperDictionary>> list(@RequestParam String type) {
-        return Result.success(service.list(type));
+    public Result<List<PaperDictionary>> list(@RequestParam String type, HttpServletRequest request) {
+        return Result.success(service.list(type, user(request)));
     }
 
     @PostMapping
     public Result<PaperDictionary> create(@RequestBody CreateRequest body, HttpServletRequest request) {
-        Long userId = (Long) request.getAttribute("userId");
+        Long userId = user(request);
         return Result.success("新增成功", service.create(body.type(), body.name(), userId));
     }
 
     @DeleteMapping("/{id}")
     public Result<Void> delete(@PathVariable Long id, HttpServletRequest request) {
-        Long userId = (Long) request.getAttribute("userId");
+        Long userId = user(request);
         service.delete(id, userId);
         return Result.success("删除成功", null);
     }
 
     public record CreateRequest(String type, String name) {}
+
+    private Long user(HttpServletRequest request) {
+        Object id = request.getAttribute("userId");
+        if (!(id instanceof Number)) {
+            throw new com.example.appbackend.exception.BusinessException(Result.UNAUTHORIZED_CODE, "请先登录");
+        }
+        return ((Number) id).longValue();
+    }
 }

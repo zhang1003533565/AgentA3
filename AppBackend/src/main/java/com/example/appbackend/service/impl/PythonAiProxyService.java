@@ -791,8 +791,34 @@ public class PythonAiProxyService {
         } catch (WebClientResponseException e) {
             throw new BusinessException(Result.ERROR_CODE, errorPrefix + ": " + extractRemoteMessage(e));
         } catch (Exception e) {
+            if (isConnectionRefused(e)) {
+                String message = errorPrefix.startsWith("Python 模型目录服务")
+                        ? "AI模型服务未启动，请启动Python模型服务"
+                        : errorPrefix + "：AI模型服务未启动，请启动Python模型服务";
+                throw new BusinessException(Result.ERROR_CODE, message);
+            }
             throw new BusinessException(Result.ERROR_CODE, errorPrefix + ": " + e.getMessage());
         }
+    }
+
+    private boolean isConnectionRefused(Throwable error) {
+        Throwable current = error;
+        while (current != null) {
+            if (current instanceof java.net.ConnectException) {
+                return true;
+            }
+            String message = current.getMessage();
+            if (message != null) {
+                String normalized = message.toLowerCase(java.util.Locale.ROOT);
+                if (normalized.contains("connection refused")
+                        || normalized.contains("getsockopt")
+                        || normalized.contains("failed to connect")) {
+                    return true;
+                }
+            }
+            current = current.getCause();
+        }
+        return false;
     }
 
     private Object postRagObject(String path, Map<String, Object> request, String authorization) {

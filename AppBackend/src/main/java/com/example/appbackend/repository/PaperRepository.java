@@ -4,6 +4,6 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import java.util.List;
 public interface PaperRepository extends JpaRepository<Paper, Long> {
     List<Paper> findByCreatorIdOrderByUpdateTimeDesc(Long creatorId);
-    boolean existsBySubjectId(Long subjectId);
-    boolean existsByCategory(String category);
+    boolean existsBySubjectIdAndCreatorId(Long subjectId, Long creatorId);
+    boolean existsByCategoryAndCreatorId(String category, Long creatorId);
 }

@@ -19,9 +19,10 @@ public class PaperLayoutController {
     @GetMapping
     public Result<PaperLayout> get(@PathVariable Long paperId,
                                    @RequestParam(defaultValue = "false") boolean defaults,
+                                   @RequestParam(required = false) String templateName,
                                    HttpServletRequest request) {
         Long userId = user(request);
-        return Result.success(defaults ? service.getDefaults(paperId, userId) : service.get(paperId, userId));
+        return Result.success(defaults ? service.getDefaults(paperId, userId, templateName) : service.get(paperId, userId));
     }
 
     @PutMapping
