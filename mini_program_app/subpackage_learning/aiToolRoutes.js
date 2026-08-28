@@ -12,6 +12,11 @@ function resourceRoute(resourceType, title) {
   return `${RESOURCE_GENERATE}?resourceType=${encodeURIComponent(resourceType)}&topic=${encodeURIComponent(topic)}`
 }
 
+function templateFirstPresentationRoute(title) {
+  const topic = title || 'PPT生成'
+  return `${RESOURCE_GENERATE}?resourceType=presentation&presentationEntry=templateFirst&topic=${encodeURIComponent(topic)}`
+}
+
 function conversationRoute(tool) {
   const name = String(tool?.name || 'AI 工具').trim() || 'AI 工具'
   const description = String(tool?.desc || '').trim()
@@ -28,15 +33,20 @@ export function resolveAiToolDestination(tool = {}) {
   if (name === 'AI对话') return CONVERSATION
   if (name === 'AI玩图' || name === '文生图') return '/subpackage_ai/imageGenerate/imageGenerate'
   if (AI_DIAGRAM_ROUTES[name]) return AI_DIAGRAM_ROUTES[name]
-  if (['PPT生成', 'AIPPT', 'PPT大纲'].includes(name)) return resourceRoute('presentation', name)
+  if (['PPT生成', 'AIPPT', 'PPT大纲'].includes(name)) return templateFirstPresentationRoute(name)
   if (name === '题库生成') return '/subpackage_ai/questionBankGenerate/questionBankGenerate'
   if (['试卷生成', '学科出题'].includes(name)) return '/subpackage_ai/paperHome/paperHome'
   if (name === '考研题目') return resourceRoute('practice_set', name)
+  if (name === '学习计划拆解') return '/subpackage_ai/goalDecompose/goalDecompose'
   if (['Python个性化学习', 'Python课程学习'].includes(name)) return '/subpackage_learning/pythonHome/pythonHome'
   if (name === 'Python代码实验') return resourceRoute('code_lab', name)
   if (name === '学习计划') return '/subpackage_learning/learningPath/learningPath'
   if (['活动图', '架构图', '流程图'].includes(name)) return conversationRoute(tool)
   if (name === 'PDF转Word') return '/subpackage_ai/documentConvertDetail/documentConvertDetail?convertType=pdf_to_docx'
   if (name === 'PPT转Word') return '/subpackage_ai/documentConvertDetail/documentConvertDetail?convertType=ppt_to_docx'
+  if (name === 'PDF转PPT') return '/subpackage_ai/documentConvertDetail/documentConvertDetail?convertType=pdf_to_ppt'
+  if (name === 'PPT转PDF') return '/subpackage_ai/documentConvertDetail/documentConvertDetail?convertType=ppt_to_pdf'
+  if (name === 'Word转PDF') return '/subpackage_ai/documentConvertDetail/documentConvertDetail?convertType=docx_to_pdf'
+  if (name === 'Word转PPT') return '/subpackage_ai/documentConvertDetail/documentConvertDetail?convertType=docx_to_ppt'
   return conversationRoute(tool)
 }

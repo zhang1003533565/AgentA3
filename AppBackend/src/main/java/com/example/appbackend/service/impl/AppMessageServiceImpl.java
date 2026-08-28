@@ -130,6 +130,42 @@ public class AppMessageServiceImpl implements AppMessageService {
         return toVO(saved);
     }
 
+    @Override
+    @Transactional
+    public AppMessageDTO.MessageVO createOrRefreshUnread(AppMessageDTO.CreateCommand command) {
+        if (command == null || command.getUserId() == null || command.getEventType() == null || command.getSourceId() == null || command.getSourceType() == null) {
+            return null;
+        }
+        Optional<AppMessage> existing = appMessageRepository.findBySourceTypeAndSourceIdAndUserIdAndEventType(
+                command.getSourceType(), command.getSourceId(), command.getUserId(), command.getEventType());
+        if (existing.isPresent()) {
+            AppMessage message = existing.get();
+            message.setIsRead(false);
+            message.setReadTime(null);
+            if (command.getTitle() != null) message.setTitle(command.getTitle());
+            if (command.getContent() != null) message.setContent(command.getContent());
+            if (command.getTargetPage() != null) message.setTargetPage(command.getTargetPage());
+            if (command.getTargetParams() != null) message.setTargetParams(command.getTargetParams());
+            AppMessage saved = appMessageRepository.save(message);
+            realtimeNotifier.notifyUser(command.getUserId(), "app");
+            return toVO(saved);
+        }
+        return createIfAbsent(command);
+    }
+
+    @Override
+    @Transactional
+    public void deleteBySource(String sourceType, Long sourceId, Long userId, String eventType) {
+        if (sourceType == null || sourceId == null || userId == null || eventType == null) {
+            return;
+        }
+        appMessageRepository.findBySourceTypeAndSourceIdAndUserIdAndEventType(sourceType, sourceId, userId, eventType)
+                .ifPresent(message -> {
+                    appMessageRepository.delete(message);
+                    realtimeNotifier.notifyUser(userId, "app");
+                });
+    }
+
     private AppMessageDTO.MessageVO toVO(AppMessage message) {
         AppMessageDTO.MessageVO vo = new AppMessageDTO.MessageVO();
         vo.setId(message.getId());

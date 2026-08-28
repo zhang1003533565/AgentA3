@@ -35,6 +35,12 @@ public class MapPlace {
     @Column(columnDefinition = "TEXT")
     private String description;
 
+    @Column(name = "usage_purpose", length = 100)
+    private String usagePurpose;
+
+    @Column(name = "usage_status", length = 20)
+    private String usageStatus;
+
     @Column(nullable = false, length = 20)
     private String status = "ENABLED";
 

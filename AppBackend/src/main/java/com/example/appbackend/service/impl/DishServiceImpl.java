@@ -50,6 +50,18 @@ public class DishServiceImpl implements DishService {
     }
 
     @Override
+    public List<DishDTO> getDishesByFloorPlaceId(Long floorPlaceId) {
+        MapPlace floor = mapPlaceRepository.findById(floorPlaceId)
+                .orElseThrow(() -> new BusinessException(404, "楼层不存在"));
+        if (!"FLOOR".equals(floor.getPlaceType()) || !"CANTEEN".equals(floor.getSceneType())) {
+            throw new BusinessException(400, "所选点位不是食堂楼层");
+        }
+        return dishRepository.findAvailableByFloorPlaceId(floorPlaceId).stream()
+                .map(this::convertToDTO)
+                .collect(Collectors.toList());
+    }
+
+    @Override
     public List<DishDTO> getAllDishes() {
         return dishRepository.findAll().stream().map(this::convertToDTO).collect(Collectors.toList());
     }

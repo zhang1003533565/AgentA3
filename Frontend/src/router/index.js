@@ -18,6 +18,11 @@ import ForumView from '../views/ForumView.vue'
 import ForumPostView from '../views/ForumPostView.vue'
 import ForumProfileView from '../views/ForumProfileView.vue'
 import AiStudioView from '../views/AiStudioView.vue'
+import AiOriginalView from '../views/AiOriginalView.vue'
+import WatermarkAddView from '../views/WatermarkAddView.vue'
+import WatermarkBatchView from '../views/WatermarkBatchView.vue'
+import WatermarkHistoryView from '../views/WatermarkHistoryView.vue'
+import WatermarkHelpView from '../views/WatermarkHelpView.vue'
 import CampusServicesView from '../views/CampusServicesView.vue'
 import ActivityPublishView from '../views/ActivityPublishView.vue'
 import ActivitySignInView from '../views/ActivitySignInView.vue'
@@ -37,10 +42,14 @@ import ExamResultView from '../views/ExamResultView.vue'
 import ExamDetailView from '../views/ExamDetailView.vue'
 import ExamHistoryView from '../views/ExamHistoryView.vue'
 import ResumeView from '../views/ResumeView.vue'
+import ResumeWorkspaceView from '../views/ResumeWorkspaceView.vue'
 import ResumeDesigner from '../views/ResumeDesigner.vue'
 import ResumeWizard from '../views/ResumeWizard.vue'
 import CampusCourseView from '../views/CampusCourseView.vue'
 import CampusDiscountView from '../views/CampusDiscountView.vue'
+import DocumentConvertView from '../views/DocumentConvertView.vue'
+import CareerNebulaView from '../views/CareerNebulaView.vue'
+import CareerPlanetView from '../views/CareerPlanetView.vue'
 import { getToken } from '../utils/auth'
 
 const routes = [
@@ -53,6 +62,11 @@ const routes = [
   { path: '/meetings/room/:sessionId', name: 'meeting-room', component: MeetingRoomView },
   { path: '/ai', name: 'ai', component: AiAssistantView },
   { path: '/ai-tools', name: 'ai-tools', component: AiToolsView },
+  { path: '/ai-original', name: 'ai-original', component: AiOriginalView },
+  { path: '/ai-original/add', name: 'ai-original-add', component: WatermarkAddView },
+  { path: '/ai-original/batch', name: 'ai-original-batch', component: WatermarkBatchView },
+  { path: '/ai-original/history', name: 'ai-original-history', component: WatermarkHistoryView },
+  { path: '/ai-original/help', name: 'ai-original-help', component: WatermarkHelpView },
   { path: '/ai-studio/:tool?', name: 'ai-studio', component: AiStudioView },
   { path: '/profile-radar', name: 'profile-radar', component: ProfileRadarView },
   { path: '/learning', name: 'learning', component: PythonLearningView },
@@ -88,8 +102,14 @@ const routes = [
   { path: '/mine/papers/results/:attemptId/details', name: 'exam-detail', component: ExamDetailView },
   { path: '/mine/account-settings', name: 'account-settings', component: AccountSettingsView },
   { path: '/resume', name: 'resume', component: ResumeView },
+  { path: '/resume/workspace', name: 'resume-workspace', component: ResumeWorkspaceView },
+  { path: '/resume/legacy', redirect: '/resume' },
   { path: '/resume/designer', name: 'resume-designer', component: ResumeDesigner },
   { path: '/resume/wizard', name: 'resume-wizard', component: ResumeWizard },
+  { path: '/resume/wizard/edit', name: 'resume-edit', component: ResumeWizard },
+  { path: '/career/nebula/:careerId?', name: 'career-nebula', component: CareerNebulaView },
+  { path: '/career/nebula/:careerId/planet/:skillId', name: 'career-planet', component: CareerPlanetView },
+  { path: '/convert', name: 'convert', component: DocumentConvertView },
 ]
 
 const router = createRouter({

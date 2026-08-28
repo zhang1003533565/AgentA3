@@ -3,10 +3,15 @@ from typing import Any, Dict, Iterator, List, Optional
 
 from fastapi import HTTPException
 
-from app.model_providers.base import ChatModelProvider
+from app.model_providers.base import ChatModelProvider, extract_response_text
 from app.model_providers.deepseek.provider import to_llm_messages
-from app.model_providers.multimodal import build_multimodal_human_content
-from app.model_providers.runtime_config import LlmRuntimeConfig, resolve_llm_config
+from app.model_providers.multimodal import build_explicit_multimodal_content, build_multimodal_human_content, extract_image_references
+from app.model_providers.runtime_config import (
+    LlmRuntimeConfig,
+    get_active_llm_timeout_seconds,
+    get_active_max_output_tokens,
+    resolve_llm_config,
+)
 from app.observability.langfuse import langchain_callbacks
 from app.utils.logger import get_logger
 from app.utils.prompts import KEYWORD_EXTRACTION_PROMPT, build_search_facts_prompt
@@ -43,22 +48,53 @@ class XiaomiProvider(ChatModelProvider):
             base_url=normalize_base_url(base_url),
             model=model,
             temperature=0.2,
-            timeout=60,
-            max_retries=1,
+            timeout=get_active_llm_timeout_seconds(),
+            max_retries=0,
+            **({"max_tokens": get_active_max_output_tokens()} if get_active_max_output_tokens() else {}),
             default_headers={"api-key": api_key},
             callbacks=langchain_callbacks(),
         )
 
-    def complete(self, system_prompt: str, user_prompt: str) -> str:
+    def complete(self, system_prompt: str, user_prompt: str, reasoning_effort: Optional[str] = None) -> str:
         from langchain_core.messages import HumanMessage, SystemMessage
 
+        cleaned_prompt, image_urls = extract_image_references(user_prompt)
+        if image_urls:
+            logger.warning(
+                "complete() stripped %s embedded image reference(s); use complete_vision() for image input",
+                len(image_urls),
+            )
         response = self.llm.invoke([
             SystemMessage(content=system_prompt),
-            HumanMessage(content=build_multimodal_human_content(user_prompt)),
+            HumanMessage(content=cleaned_prompt or user_prompt),
         ])
-        return str(response.content or "").strip()
+        content = extract_response_text(response)
+        if not content and isinstance(getattr(response, "additional_kwargs", None), dict):
+            content = str(response.additional_kwargs.get("reasoning_content") or "").strip()
+        return content
 
-    def stream_complete(self, system_prompt: str, user_prompt: str) -> Iterator[str]:
+    def complete_vision(
+        self,
+        system_prompt: str,
+        user_text: str,
+        image_urls: List[str],
+        reasoning_effort: Optional[str] = None,
+    ) -> str:
+        from langchain_core.messages import HumanMessage, SystemMessage
+
+        content = build_explicit_multimodal_content(user_text, image_urls)
+        if len(content) < 2:
+            raise HTTPException(status_code=400, detail="视觉模型调用缺少有效图片输入")
+        response = self.llm.invoke([
+            SystemMessage(content=system_prompt),
+            HumanMessage(content=content),
+        ])
+        content_text = extract_response_text(response)
+        if not content_text and isinstance(getattr(response, "additional_kwargs", None), dict):
+            content_text = str(response.additional_kwargs.get("reasoning_content") or "").strip()
+        return content_text
+
+    def stream_complete(self, system_prompt: str, user_prompt: str, reasoning_effort: Optional[str] = None) -> Iterator[str]:
         from langchain_core.messages import HumanMessage, SystemMessage
 
         messages = [

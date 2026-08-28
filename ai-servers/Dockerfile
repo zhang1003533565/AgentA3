@@ -19,6 +19,7 @@ RUN sed -i \
         /etc/apt/sources.list.d/debian.sources \
     && apt-get update \
     && apt-get install --no-install-recommends --yes libreoffice-impress fonts-noto-cjk nodejs npm chromium unzip \
+    && apt-get -o Acquire::Retries=5 install --no-install-recommends --yes libreoffice-impress fonts-noto-cjk nodejs npm chromium unzip \
     && rm -rf /var/lib/apt/lists/*
 
 RUN python -c "import urllib.request; urllib.request.urlretrieve('https://registry.npmmirror.com/-/binary/node/v20.19.4/node-v20.19.4-linux-x64.tar.xz', '/tmp/node.tar.xz')" \

@@ -11,6 +11,20 @@
   margin-bottom: 20px;
 }
 
+.facility-place-toolbar > :first-child {
+  flex: 0 0 auto;
+}
+
+.facility-place-toolbar > .ant-space {
+  min-width: 0;
+  flex: 1 1 auto;
+  justify-content: flex-end;
+}
+
+.facility-place-toolbar > .ant-space .ant-input-search {
+  width: min(300px, 100%);
+}
+
 .facility-place-toolbar h1 {
   margin: 0 0 6px;
   color: #172033;
@@ -84,11 +98,65 @@
   gap: 0 16px;
 }
 
+.facility-floor-editor-modal .ant-modal-content {
+  padding: 28px 32px 24px;
+  border-radius: 16px;
+}
+
+.facility-floor-editor-modal .ant-modal-title {
+  color: #172033;
+  font-size: 22px;
+  font-weight: 700;
+}
+
+.facility-floor-editor-modal .ant-modal-body {
+  padding-top: 24px;
+}
+
+.facility-floor-editor-modal .ant-form-item {
+  margin-bottom: 24px;
+}
+
+.facility-floor-editor-modal .ant-form-item-label > label {
+  color: #172033;
+  font-size: 16px;
+}
+
 .floor-plan-preview {
   display: block;
   max-height: 320px;
   margin-top: 16px;
   object-fit: contain;
+}
+
+.floor-plan-markers {
+  position: relative;
+  width: 100%;
+}
+
+.floor-plan-markers .floor-plan-preview {
+  width: 100%;
+  max-height: 360px;
+  margin-top: 16px;
+  object-fit: contain;
+}
+
+.floor-plan-marker {
+  position: absolute;
+  z-index: 10;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #f5222d;
+  border: 2px solid #fff;
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.35);
+  cursor: pointer;
+  transform: translate(-50%, -50%);
+  transition: transform 0.15s ease;
+}
+
+.floor-plan-marker:hover {
+  transform: translate(-50%, -50%) scale(1.3);
 }
 
 .plan-delete-button {
@@ -314,6 +382,13 @@
   font-weight: 700;
 }
 
+.facility-canteen-summary-row .facility-card-ellipsis {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .facility-canteen-location {
   display: flex;
   min-height: 66px;
@@ -380,6 +455,122 @@
   margin-left: auto;
   padding: 0;
   font-size: 20px;
+}
+
+.facility-room-management-card {
+  border-radius: 14px;
+  background: #fff;
+}
+
+.facility-room-management-summary {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 22px;
+}
+
+.facility-room-management-summary span {
+  min-width: 128px;
+  padding: 12px 22px;
+  border: 1px solid #dfe6ef;
+  border-radius: 8px;
+  color: #64748b;
+  background: #fff;
+}
+
+.facility-room-management-summary strong {
+  margin-right: 6px;
+  color: #1677ff;
+  font-size: 16px;
+}
+
+.facility-room-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 24px;
+}
+
+.facility-room-card {
+  overflow: hidden;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  box-shadow: none;
+}
+
+.facility-room-card-cover {
+  position: relative;
+  width: 100%;
+  padding-top: 48%;
+  overflow: hidden;
+  background: #f1f5f9;
+}
+
+.facility-room-card-info {
+  display: grid;
+  gap: 10px;
+  padding: 18px 22px 12px;
+}
+
+.facility-room-card-info > div {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #475569;
+}
+
+.facility-room-card-info .anticon {
+  color: #1677ff;
+}
+
+.facility-room-card-actions {
+  display: flex;
+  gap: 12px;
+  padding: 8px 22px 20px;
+}
+
+.facility-room-card-actions .ant-btn:first-child {
+  flex: 1;
+}
+
+.facility-room-manager-tip {
+  margin-bottom: 22px;
+  padding: 16px 18px;
+  border: 1px solid #d9e4f2;
+  border-radius: 10px;
+  color: #64748b;
+  background: #f7faff;
+  line-height: 1.6;
+}
+
+.facility-room-manager-section {
+  padding-top: 8px;
+}
+
+.facility-room-manager-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+
+.facility-room-manager-toolbar p {
+  margin: 0;
+  color: #64748b;
+}
+
+.facility-room-manager-section .ant-table-wrapper {
+  padding: 16px;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background: #fff;
+}
+
+@media (max-width: 1200px) {
+  .facility-room-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 760px) {
+  .facility-room-grid { grid-template-columns: 1fr; }
 }
 
 .facility-image-preview-tip {
@@ -489,6 +680,10 @@
     flex-direction: column;
   }
 
+  .facility-place-toolbar > .ant-space {
+    justify-content: flex-start;
+  }
+
   .facility-canteen-overview-page .facility-place-toolbar {
     min-height: auto;
     margin-bottom: 12px;
@@ -524,4 +719,20 @@
   .facility-canteen-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+}
+
+.facility-floor-actions {
+  gap: 12px;
+  padding: 4px 32px 20px;
+}
+
+.facility-floor-actions > .ant-btn {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.facility-floor-actions > .facility-canteen-more {
+  flex: 0 0 40px;
+  width: 40px;
+  min-width: 40px;
 }

@@ -1,7 +1,39 @@
 const assert = require('node:assert/strict')
-const { readFileSync } = require('node:fs')
+const { mkdtempSync, readFileSync, rmSync, writeFileSync } = require('node:fs')
+const { tmpdir } = require('node:os')
 const { join } = require('node:path')
+const { pathToFileURL } = require('node:url')
 const test = require('node:test')
+
+let tempModuleSeq = 0
+
+/**
+ * 把 .vue 的 <script> 片段写成临时真实 ESM 模块后用标准 import 加载，
+ * 依赖注入改经 globalThis 快照传入；不再对源码字符串做动态求值。
+ */
+async function importComponentModule(componentSource, dependencies) {
+  const script = componentSource.slice(componentSource.indexOf('<script>') + '<script>'.length, componentSource.indexOf('</script>'))
+  const executable = stripImports(script)
+  const depsHolder = '__assistantComponentTestDeps'
+  const declarations = Object.keys(dependencies)
+    .map((name) => `const ${name} = globalThis.${depsHolder}[${JSON.stringify(name)}];`)
+    .join('\n')
+  const dir = mkdtempSync(join(tmpdir(), 'assistant-component-test-'))
+  const moduleFile = join(dir, `component-${Date.now()}-${tempModuleSeq++}.mjs`)
+  writeFileSync(moduleFile, `${declarations}\n${executable}\n`, 'utf8')
+  globalThis[depsHolder] = dependencies
+  try {
+    const mod = await import(pathToFileURL(moduleFile).href)
+    return mod.default
+  } finally {
+    delete globalThis[depsHolder]
+    try {
+      rmSync(dir, { recursive: true, force: true })
+    } catch {
+      // Windows 上刚加载完的模块文件可能短暂被占用，清理失败仅遗留临时目录
+    }
+  }
+}
 
 const source = readFileSync(join(__dirname, 'ai-float-assistant.vue'), 'utf8')
 const helperSource = readFileSync(join(__dirname, '../../subpackage_ai/assistantMessage.js'), 'utf8')
@@ -47,10 +79,7 @@ async function loadComponent(overrides = {}) {
     summarizeEvidenceChain: helper.summarizeEvidenceChain,
     ...overrides
   }
-  const script = source.slice(source.indexOf('<script>') + '<script>'.length, source.indexOf('</script>'))
-  const executable = stripImports(script).replace(/export default\s+\{/, 'return {')
-  const factory = new Function(...Object.keys(dependencies), executable)
-  return factory(...Object.values(dependencies))
+  return importComponentModule(source, dependencies)
 }
 
 function instantiate(component) {

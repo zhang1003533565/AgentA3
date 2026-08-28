@@ -281,8 +281,10 @@ INSERT INTO sys_role (id, name) VALUES
 -- 2. 用户数据 (密码都是 admin123)
 -- =============================================
 INSERT INTO sys_user (id, username, password, real_name, phone, email, role_id, status, create_time, update_time,jwx_password,jwx_student_id,semester_start,share_code) VALUES
--- 管理员 (用户名: admin, 密码: admin123)
+-- 管理员 (用户名：admin, 密码：admin123)
 (1, 'admin', 'admin123', '系统管理员', '13800000001', 'admin@campus.edu.cn', 1, 1, NOW(), NOW(),'313','32132313','2026-02-24','SCH000001'),
+-- 新增测试管理员 (用户名：test_admin_20260821, 密码：admin123)
+(14, 'test_admin_20260821', 'admin123', '测试管理员', '13900000098', 'test_admin@campus.edu.cn', 1, 1, NOW(), NOW(),'313','32132313','2026-02-24','SCH000014'),
 -- 教师 (用户名: fjj, 密码: admin123)
 (2, 'fjj', 'admin123', '张老师', '13800000002', 'zhanglaoshi@campus.edu.cn', 2, 1, NOW(), NOW(),'313','32132313','2026-02-24','SCH000002'),
 -- 教师 (用户名: fjj2, 密码: admin123)
@@ -1756,3 +1758,38 @@ WHERE NOT EXISTS (SELECT 1 FROM question WHERE id = 9001);
 INSERT INTO question (id, bank_id, subject, chapter, knowledge_point, question_type, difficulty, content, options, answer, analysis, create_time, update_time)
 SELECT 9002, 9001, 'Python程序设计', '面向对象', '继承', '判断题', '中等', 'Python类可以通过继承复用父类的属性和方法。', NULL, '正确', 'Python支持单继承和多继承。', NOW(), NOW()
 WHERE NOT EXISTS (SELECT 1 FROM question WHERE id = 9002);
+-- ============================================================
+-- 公共设施表
+-- ============================================================
+CREATE TABLE IF NOT EXISTS public_facility (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY COMMENT '设施ID',
+    name VARCHAR(100) NOT NULL COMMENT '设施名称',
+    type VARCHAR(32) NOT NULL COMMENT '设施类型: BENCH-长椅 STREET_LAMP-路灯 TRASH_BIN-垃圾桶 WATER_DISPENSER-饮水机 BICYCLE_RACK-自行车停放点 OTHER-其他',
+    location VARCHAR(200) COMMENT '位置描述',
+    description TEXT COMMENT '详细描述',
+    status VARCHAR(16) NOT NULL DEFAULT 'ACTIVE' COMMENT '状态: ACTIVE-正常 MAINTENANCE-维护中 INACTIVE-停用',
+    latitude DECIMAL(18,14) COMMENT '纬度',
+    longitude DECIMAL(18,14) COMMENT '经度',
+    distance INT COMMENT '距离(米)',
+    image_url VARCHAR(500) COMMENT '图片URL',
+    created_at DATETIME COMMENT '创建时间',
+    updated_at DATETIME COMMENT '更新时间',
+    INDEX idx_public_facility_type (type),
+    INDEX idx_public_facility_status (status),
+    INDEX idx_public_facility_name (name)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='公共设施表';
+
+-- 公共设施测试数据（12条，覆盖各类型）
+INSERT INTO public_facility (name, type, location, description, status, latitude, longitude, distance, image_url, created_at, updated_at) VALUES
+('东门自行车停放点A', 'BICYCLE_RACK', '东门入口左侧', '可容纳20辆自行车，24小时开放，靠近公交站', 'ACTIVE', 40.756823, 114.898345, 120, NULL, NOW(), NOW()),
+('南门自行车停放点', 'BICYCLE_RACK', '南门广场西侧', '可容纳30辆自行车，配有停车架', 'ACTIVE', 40.754210, 114.897560, 280, NULL, NOW(), NOW()),
+('图书馆前长椅1', 'BENCH', '图书馆正门南侧', '木质长椅，可容纳4人，面向广场', 'ACTIVE', 40.755700, 114.896800, 95, NULL, NOW(), NOW()),
+('教学楼B栋长椅', 'BENCH', '第二教学楼B栋一层大厅外', '金属框架长椅，遮阳避雨', 'ACTIVE', 40.755100, 114.895900, 180, NULL, NOW(), NOW()),
+('主路太阳能路灯01', 'STREET_LAMP', '校园主路东侧1号灯杆', '太阳能LED路灯，夜间自动开启', 'ACTIVE', 40.756100, 114.897200, 65, NULL, NOW(), NOW()),
+('运动场路灯组', 'STREET_LAMP', '运动场西侧', '6盏高杆路灯，运动时段延长照明', 'MAINTENANCE', 40.757000, 114.895500, 320, NULL, NOW(), NOW()),
+('食堂旁分类垃圾桶', 'TRASH_BIN', '第一食堂出口右侧', '四分类垃圾桶（可回收/厨余/其他/有害）', 'ACTIVE', 40.754800, 114.898100, 140, NULL, NOW(), NOW()),
+('教学楼A栋垃圾桶', 'TRASH_BIN', '第一教学楼A栋大厅', '双分类垃圾桶，每日清运2次', 'ACTIVE', 40.755200, 114.896200, 210, NULL, NOW(), NOW()),
+('图书馆直饮水机', 'WATER_DISPENSER', '图书馆一层大厅', '冷热双温直饮水机，配有纸杯', 'ACTIVE', 40.755650, 114.896900, 100, NULL, NOW(), NOW()),
+('教学楼饮水机-3F', 'WATER_DISPENSER', '第二教学楼3层东侧', '常温直饮水机，需自带水杯', 'INACTIVE', 40.755000, 114.895700, 230, NULL, NOW(), NOW()),
+('爱心伞服务站', 'OTHER', '行政楼一层大厅', '提供爱心雨伞借用服务，凭学生证登记', 'ACTIVE', 40.756300, 114.897800, 150, NULL, NOW(), NOW()),
+('快递代收点', 'OTHER', '北门西侧后勤楼', '自助快递柜，24小时取件，支持主流快递', 'ACTIVE', 40.757500, 114.896500, 400, NULL, NOW(), NOW());

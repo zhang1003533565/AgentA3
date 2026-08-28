@@ -19,6 +19,7 @@ import java.io.IOException;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.Executor;
 import java.util.concurrent.RejectedExecutionException;
@@ -54,7 +55,7 @@ public class DocumentConvertTaskServiceImpl implements DocumentConvertService {
 
     @Override
     public DocumentConvertDTO.TaskAccepted createTask(
-            MultipartFile file, String convertType, Long userId, String authorization) {
+            MultipartFile file, String convertType, String convertMode, Long userId, String authorization) {
         requireUser(userId);
         validateRequest(file, convertType);
         if (taskRepository.countByUserIdAndStatusIn(userId, ACTIVE_STATUSES) >= MAX_ACTIVE_TASKS_PER_USER) {
@@ -72,6 +73,7 @@ public class DocumentConvertTaskServiceImpl implements DocumentConvertService {
         task.setTaskId(UUID.randomUUID().toString());
         task.setUserId(userId);
         task.setConvertType(convertType);
+        task.setConvertMode(StringUtils.hasText(convertMode) ? convertMode : defaultConvertMode(convertType));
         task.setStatus(DocumentConvertTask.STATUS_QUEUED);
         task.setProgress(0);
         task.setMessage("转换任务已排队");
@@ -95,6 +97,17 @@ public class DocumentConvertTaskServiceImpl implements DocumentConvertService {
         accepted.setProgress(task.getProgress());
         accepted.setMessage(task.getMessage());
         return accepted;
+    }
+
+    private String defaultConvertMode(String convertType) {
+        if (DocumentConvertServiceImpl.CONVERT_TYPE_DOCX_TO_PPT.equals(convertType)) {
+            return "smart";
+        }
+        if (DocumentConvertServiceImpl.CONVERT_TYPE_PDF_TO_DOCX.equals(convertType)
+                || DocumentConvertServiceImpl.CONVERT_TYPE_PPT_TO_DOCX.equals(convertType)) {
+            return "reflow";
+        }
+        return "image";
     }
 
     @Override
@@ -214,9 +227,9 @@ public class DocumentConvertTaskServiceImpl implements DocumentConvertService {
         if (!documentConvertService.isSupportedConvertType(convertType)) {
             throw new BusinessException(Result.BAD_REQUEST_CODE, "不支持的转换类型: " + convertType);
         }
-        String expectedExtension = documentConvertService.expectedExtension(convertType);
-        if (!expectedExtension.equals(extensionOf(file.getOriginalFilename()))) {
-            throw new BusinessException(Result.BAD_REQUEST_CODE, "仅支持 " + expectedExtension + " 文件");
+        Set<String> expectedExtensions = documentConvertService.expectedExtensions(convertType);
+        if (!expectedExtensions.contains(extensionOf(file.getOriginalFilename()))) {
+            throw new BusinessException(Result.BAD_REQUEST_CODE, "仅支持 " + String.join("/", expectedExtensions) + " 文件");
         }
         if (file.getSize() > DocumentConvertServiceImpl.MAX_FILE_BYTES) {
             throw new BusinessException(Result.BAD_REQUEST_CODE, "文件大小不能超过 25MB");

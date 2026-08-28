@@ -1,0 +1,14 @@
+.app-error-boundary {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 32px;
+  background: #f2f7fc;
+}
+
+.app-error-boundary .ant-result {
+  width: min(620px, 100%);
+  background: #fff;
+  border: 1px solid #dfe7f0;
+  border-radius: 16px;
+}

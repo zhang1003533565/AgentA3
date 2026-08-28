@@ -310,8 +310,8 @@ public class UserProfileServiceImpl implements UserProfileService {
         context.put("resourcePreference", snapshot.getResourcePreference());
         context.put("outputPreferenceHints", buildOutputPreferenceHints(userId));
         context.put("updateMode", snapshot.getUpdateMode());
-        context.put("summaryUpdatedAt", snapshot.getSummaryUpdatedAt());
-        context.put("lastUpdatedAt", snapshot.getLastUpdatedAt());
+        context.put("summaryUpdatedAt", formatProfileTimestamp(snapshot.getSummaryUpdatedAt()));
+        context.put("lastUpdatedAt", formatProfileTimestamp(snapshot.getLastUpdatedAt()));
         context.put("dimensions", snapshot.getDimensions().stream().map(item -> {
             Map<String, Object> dimension = new LinkedHashMap<>();
             dimension.put("key", item.getKey());
@@ -332,6 +332,10 @@ public class UserProfileServiceImpl implements UserProfileService {
                 "lowConfidencePolicy", "只做倾向，不做确定判断"
         ));
         return context;
+    }
+
+    private static String formatProfileTimestamp(LocalDateTime value) {
+        return value == null ? "" : value.toString();
     }
 
     @Override

@@ -111,7 +111,12 @@ public class AssistantEnvelopeService {
             "message", "retryable", "status");
     private static final Map<String, Set<String>> SSE_EVENT_FIELDS = Map.of(
             "status", Set.of("message", "status", "stage", "progress", "agentName"),
-            "tool_start", Set.of("message", "status", "stage", "agentName", "toolName", "toolDisplayName"),
+            "tool_start", Set.of("message", "status", "stage", "agentName", "toolName", "toolDisplayName", "routeReason", "intent", "triggerType"),
+            "workflow_step", Set.of("stage", "detail", "message", "status"),
+            "error", Set.of(
+                    "message", "status", "stage", "agentName", "failedAgent", "toolName", "toolDisplayName",
+                    "failurePhase", "failureStage", "failureLocation", "statusCode", "intent", "routeReason"
+            ),
             "session", Set.of("message", "status", "sessionId"),
             "search", Set.of("message", "status", "query", "keyword", "resultCount", "documentCount"),
             "delta", Set.of("content", "delta", "answer", "index", "status"));

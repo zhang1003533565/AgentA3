@@ -10,6 +10,7 @@ import com.example.appbackend.exception.BusinessException;
 import com.example.appbackend.repository.AiLeaderMessageRepository;
 import com.example.appbackend.repository.AiLeaderSessionRepository;
 import com.example.appbackend.repository.AiLeaderGeneratedExportRepository;
+import com.example.appbackend.repository.AiToolCallRecordRepository;
 import com.example.appbackend.service.UserProfileService;
 import com.example.appbackend.service.impl.AssistantEnvelopeService;
 import com.example.appbackend.service.impl.PythonAiProxyService;
@@ -57,6 +58,7 @@ class AppAiLeaderControllerTest {
     private AiLeaderSessionRepository sessionRepository;
     private AiLeaderMessageRepository messageRepository;
     private AiLeaderGeneratedExportRepository exportRepository;
+    private AiToolCallRecordRepository toolCallRecordRepository;
     private UserProfileService userProfileService;
     private ObjectMapper objectMapper;
     private AppAiLeaderController controller;
@@ -70,6 +72,7 @@ class AppAiLeaderControllerTest {
         sessionRepository = mock(AiLeaderSessionRepository.class);
         messageRepository = mock(AiLeaderMessageRepository.class);
         exportRepository = mock(AiLeaderGeneratedExportRepository.class);
+        toolCallRecordRepository = mock(AiToolCallRecordRepository.class);
         userProfileService = mock(UserProfileService.class);
         objectMapper = new ObjectMapper().findAndRegisterModules();
 
@@ -118,6 +121,7 @@ class AppAiLeaderControllerTest {
                 sessionRepository,
                 messageRepository,
                 exportRepository,
+                toolCallRecordRepository,
                 userProfileService,
                 objectMapper,
                 assistantEnvelopeService
@@ -1135,7 +1139,7 @@ class AppAiLeaderControllerTest {
             assertThat(result.getData().getOutputTypes()).containsExactly("text");
             assertThat(assistant.getContent()).isEqualTo("内容暂不可用。");
             assertThat(assistant.getSearchKeyword()).isEmpty();
-            assertThat(objectMapper.readValue(assistant.getOutputTypesJson(), List.class))
+            assertThat(readStringList(assistant.getOutputTypesJson()))
                     .containsExactly("text");
         }
     }
@@ -1602,5 +1606,10 @@ class AppAiLeaderControllerTest {
             return list.stream().map(this::canonicalize).toList();
         }
         return value;
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<String> readStringList(String json) throws Exception {
+        return objectMapper.readValue(json, List.class);
     }
 }

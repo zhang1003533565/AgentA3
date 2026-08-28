@@ -100,6 +100,7 @@ ai:
     timeout-seconds: ${AI_PYTHON_TIMEOUT_SECONDS:65}
     ppt-timeout-seconds: ${AI_PYTHON_PPT_TIMEOUT_SECONDS:300}
     file-response-max-in-memory-bytes: ${AI_PYTHON_FILE_RESPONSE_MAX_IN_MEMORY_BYTES:52428800}
+    max-in-memory-bytes: ${AI_PYTHON_MAX_IN_MEMORY_BYTES:52428800}
     internal-token: ${AI_INTERNAL_TOKEN:dev-internal-token-change-me-32chars}
   assistant:
     public-resource-hosts: ${AI_ASSISTANT_PUBLIC_RESOURCE_HOSTS:}

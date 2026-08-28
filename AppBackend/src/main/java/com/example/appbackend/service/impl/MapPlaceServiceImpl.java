@@ -22,15 +22,23 @@ public class MapPlaceServiceImpl implements MapPlaceService {
     private static final Set<String> SCENES = Set.of("CANTEEN", "SPORTS", "TEACHING", "DORMITORY", "OTHER");
     private static final Set<String> ROOT_TYPES = Set.of(
             "CANTEEN", "SPORTS_GROUND", "TEACHING_BUILDING", "DORMITORY_BUILDING",
+            "MALE_DORMITORY", "FEMALE_DORMITORY", "STAFF_DORMITORY", "GUEST_DORMITORY", "RESIDENTIAL_AREA",
             "LANDSCAPE", "ADMIN_BUILDING", "HOSPITAL"
     );
     private static final Map<String, Set<String>> ALLOWED_CHILDREN = Map.ofEntries(
             Map.entry("CANTEEN", Set.of("FLOOR")),
             Map.entry("TEACHING_BUILDING", Set.of("FLOOR")),
             Map.entry("DORMITORY_BUILDING", Set.of("FLOOR")),
+            Map.entry("MALE_DORMITORY", Set.of("FLOOR")),
+            Map.entry("FEMALE_DORMITORY", Set.of("FLOOR")),
+            Map.entry("STAFF_DORMITORY", Set.of("FLOOR")),
+            Map.entry("GUEST_DORMITORY", Set.of("FLOOR")),
+            Map.entry("RESIDENTIAL_AREA", Set.of("FLOOR")),
             Map.entry("FLOOR", Set.of(
                     "CANTEEN_STALL", "DINING_AREA", "CLASSROOM", "LABORATORY",
-                    "OFFICE", "DORMITORY_ROOM"
+                    "OFFICE", "DORMITORY_ROOM", "UNDERGRADUATE_DORM",
+                    "POSTGRADUATE_DORM", "DOCTORAL_DORM", "FACULTY_DORM",
+                    "LIFE_AREA", "STUDY_AREA"
             )),
             Map.entry("SPORTS_GROUND", Set.of(
                     "RUNNING_TRACK", "FOOTBALL_FIELD", "BASKETBALL_COURT",
@@ -38,19 +46,27 @@ public class MapPlaceServiceImpl implements MapPlaceService {
                     "SHOT_PUT_AREA", "PLATFORM"
             ))
     );
-    private static final Map<String, String> ROOT_SCENE = Map.of(
-            "CANTEEN", "CANTEEN",
-            "SPORTS_GROUND", "SPORTS",
-            "TEACHING_BUILDING", "TEACHING",
-            "DORMITORY_BUILDING", "DORMITORY",
-            "LANDSCAPE", "OTHER",
-            "ADMIN_BUILDING", "OTHER",
-            "HOSPITAL", "OTHER"
+    private static final Map<String, String> ROOT_SCENE = Map.ofEntries(
+            Map.entry("CANTEEN", "CANTEEN"),
+            Map.entry("SPORTS_GROUND", "SPORTS"),
+            Map.entry("TEACHING_BUILDING", "TEACHING"),
+            Map.entry("DORMITORY_BUILDING", "DORMITORY"),
+            Map.entry("MALE_DORMITORY", "DORMITORY"),
+            Map.entry("FEMALE_DORMITORY", "DORMITORY"),
+            Map.entry("STAFF_DORMITORY", "DORMITORY"),
+            Map.entry("GUEST_DORMITORY", "DORMITORY"),
+            Map.entry("RESIDENTIAL_AREA", "DORMITORY"),
+            Map.entry("LANDSCAPE", "OTHER"),
+            Map.entry("ADMIN_BUILDING", "OTHER"),
+            Map.entry("HOSPITAL", "OTHER")
     );
     private static final Map<String, Set<String>> FLOOR_CHILDREN_BY_SCENE = Map.of(
             "CANTEEN", Set.of("CANTEEN_STALL", "DINING_AREA"),
             "TEACHING", Set.of("CLASSROOM", "LABORATORY", "OFFICE"),
-            "DORMITORY", Set.of("DORMITORY_ROOM")
+            "DORMITORY", Set.of(
+                    "DORMITORY_ROOM", "UNDERGRADUATE_DORM", "POSTGRADUATE_DORM",
+                    "DOCTORAL_DORM", "FACULTY_DORM", "LIFE_AREA", "STUDY_AREA"
+            )
     );
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
@@ -59,19 +75,28 @@ public class MapPlaceServiceImpl implements MapPlaceService {
     private final MapPlaceFenceRepository fenceRepository;
     private final MapFloorPlanRepository floorPlanRepository;
     private final MapPlaceIndoorPositionRepository positionRepository;
+    private final DishRepository dishRepository;
+    private final DishReviewRepository dishReviewRepository;
+    private final DishCuisineRepository dishCuisineRepository;
 
     public MapPlaceServiceImpl(
             MapPlaceRepository placeRepository,
             MapPlaceImageRepository imageRepository,
             MapPlaceFenceRepository fenceRepository,
             MapFloorPlanRepository floorPlanRepository,
-            MapPlaceIndoorPositionRepository positionRepository
+            MapPlaceIndoorPositionRepository positionRepository,
+            DishRepository dishRepository,
+            DishReviewRepository dishReviewRepository,
+            DishCuisineRepository dishCuisineRepository
     ) {
         this.placeRepository = placeRepository;
         this.imageRepository = imageRepository;
         this.fenceRepository = fenceRepository;
         this.floorPlanRepository = floorPlanRepository;
         this.positionRepository = positionRepository;
+        this.dishRepository = dishRepository;
+        this.dishReviewRepository = dishReviewRepository;
+        this.dishCuisineRepository = dishCuisineRepository;
     }
 
     @Override
@@ -86,7 +111,7 @@ public class MapPlaceServiceImpl implements MapPlaceService {
         String type = normalizeOptional(placeType);
         String normalizedStatus = normalizeOptional(status);
         String normalizedKeyword = keyword == null ? null : keyword.trim().toLowerCase(Locale.ROOT);
-        return source.stream()
+        List<MapPlaceResponse> responses = source.stream()
                 .filter(item -> parentId == null || Objects.equals(parentId, item.getParentId()))
                 .filter(item -> type == null || type.equals(item.getPlaceType()))
                 .filter(item -> normalizedStatus == null || normalizedStatus.equals(item.getStatus()))
@@ -95,6 +120,8 @@ public class MapPlaceServiceImpl implements MapPlaceService {
                 .sorted(Comparator.comparing(MapPlace::getSortOrder).thenComparing(MapPlace::getId))
                 .map(item -> toResponse(item, false))
                 .toList();
+        attachFences(responses);
+        return responses;
     }
 
     @Override
@@ -135,7 +162,13 @@ public class MapPlaceServiceImpl implements MapPlaceService {
     @Override
     @Transactional(readOnly = true)
     public MapPlaceResponse detail(Long id) {
-        return toResponse(requirePlace(id), true);
+        return detail(id, true);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public MapPlaceResponse detail(Long id, boolean includeChildren) {
+        return toResponse(requirePlace(id), true, includeChildren);
     }
 
     @Override
@@ -164,11 +197,21 @@ public class MapPlaceServiceImpl implements MapPlaceService {
         if (placeRepository.existsByParentId(id)) {
             throw new BusinessException(400, "该点位存在下级，请先删除或移动下级点位");
         }
-        imageRepository.deleteByPlaceId(id);
-        fenceRepository.deleteByPlaceId(id);
-        positionRepository.deleteByPlaceId(id);
+        if ("CANTEEN_STALL".equals(place.getPlaceType())) {
+            List<Dish> dishes = dishRepository.findByStallPlaceId(place.getId());
+            if (!dishes.isEmpty()) {
+                dishReviewRepository.deleteByDishIdIn(dishes.stream().map(Dish::getId).toList());
+                dishRepository.deleteByStallPlaceId(place.getId());
+            }
+        }
+        if ("CANTEEN".equals(place.getPlaceType())) {
+            dishCuisineRepository.deleteByCanteenPlaceId(place.getId());
+        }
+        imageRepository.deleteByPlaceId(place.getId());
+        fenceRepository.deleteByPlaceId(place.getId());
+        positionRepository.deleteByPlaceId(place.getId());
         if ("FLOOR".equals(place.getPlaceType())) {
-            floorPlanRepository.findByFloorPlaceId(id).ifPresent(plan -> {
+            floorPlanRepository.findByFloorPlaceId(place.getId()).ifPresent(plan -> {
                 positionRepository.deleteByFloorPlanId(plan.getId());
                 floorPlanRepository.delete(plan);
             });
@@ -283,9 +326,17 @@ public class MapPlaceServiceImpl implements MapPlaceService {
 
     @Override
     @Transactional(readOnly = true)
-    public List<MapPlaceIndoorPosition> listPositions(Long floorPlanId) {
-        requireFloorPlan(floorPlanId);
-        return positionRepository.findByFloorPlanIdOrderByIdAsc(floorPlanId);
+    public List<MapIndoorPositionResponse> listPositions(Long floorPlanId) {
+        MapFloorPlan plan = requireFloorPlan(floorPlanId);
+        MapPlace floor = requireFloor(plan.getFloorPlaceId());
+        List<MapPlaceIndoorPosition> positions = positionRepository.findByFloorPlanIdOrderByIdAsc(floorPlanId);
+        if (positions.isEmpty()) return List.of();
+        Map<Long, MapPlace> places = placeRepository.findAllById(
+                positions.stream().map(MapPlaceIndoorPosition::getPlaceId).toList()
+        ).stream().collect(Collectors.toMap(MapPlace::getId, Function.identity()));
+        return positions.stream()
+                .map(position -> toIndoorPositionResponse(position, places.get(position.getPlaceId()), floor))
+                .toList();
     }
 
     @Override
@@ -336,6 +387,8 @@ public class MapPlaceServiceImpl implements MapPlaceService {
             place.setName(name);
         }
         if (request.getDescription() != null) place.setDescription(request.getDescription().trim());
+        if (request.getUsagePurpose() != null) place.setUsagePurpose(request.getUsagePurpose().trim());
+        if (request.getUsageStatus() != null) place.setUsageStatus(request.getUsageStatus().trim());
         if (creating || request.getStatus() != null) {
             String status = normalizeOptional(request.getStatus());
             place.setStatus(status == null ? "ENABLED" : status);
@@ -396,15 +449,19 @@ public class MapPlaceServiceImpl implements MapPlaceService {
     }
 
     private MapPlaceResponse toResponse(MapPlace place, boolean includeDetails) {
+        return toResponse(place, includeDetails, includeDetails);
+    }
+
+    private MapPlaceResponse toResponse(MapPlace place, boolean includeDetails, boolean includeChildren) {
         MapPlaceResponse response = new MapPlaceResponse();
         response.setId(place.getId());
         response.setParentId(place.getParentId());
         response.setSceneType(place.getSceneType());
         response.setPlaceType(place.getPlaceType());
         response.setName(place.getName());
-        if (includeDetails) {
-            response.setDescription(place.getDescription());
-        }
+        response.setDescription(place.getDescription());
+        response.setUsagePurpose(place.getUsagePurpose());
+        response.setUsageStatus(place.getUsageStatus());
         response.setStatus(place.getStatus());
         response.setLongitude(place.getLongitude());
         response.setLatitude(place.getLatitude());
@@ -431,6 +488,50 @@ public class MapPlaceServiceImpl implements MapPlaceService {
                                 .findByPlaceIdAndFloorPlanId(place.getId(), plan.getId()).orElse(null))
                 );
             }
+            if (includeChildren) {
+                List<MapPlace> children = placeRepository.findByParentIdOrderBySortOrderAscIdAsc(place.getId());
+                if (!children.isEmpty()) {
+                    response.setChildren(children.stream()
+                            .map(child -> toResponse(child, true, true))
+                            .toList());
+                }
+            }
+        }
+        return response;
+    }
+
+    private void attachFences(List<MapPlaceResponse> items) {
+        if (items == null || items.isEmpty()) return;
+        List<Long> ids = items.stream().map(MapPlaceResponse::getId).filter(Objects::nonNull).toList();
+        if (ids.isEmpty()) return;
+        Map<Long, MapPlaceFence> fences = fenceRepository.findByPlaceIdIn(ids).stream()
+                .collect(Collectors.toMap(MapPlaceFence::getPlaceId, Function.identity(), (left, right) -> left));
+        items.forEach(item -> item.setFence(fences.get(item.getId())));
+    }
+
+    private MapIndoorPositionResponse toIndoorPositionResponse(
+            MapPlaceIndoorPosition position, MapPlace place, MapPlace floor
+    ) {
+        MapIndoorPositionResponse response = new MapIndoorPositionResponse();
+        response.setId(position.getId());
+        response.setPlaceId(position.getPlaceId());
+        response.setFloorPlanId(position.getFloorPlanId());
+        response.setXRatio(position.getXRatio());
+        response.setYRatio(position.getYRatio());
+        if (place != null) {
+            response.setName(place.getName());
+            response.setPlaceType(place.getPlaceType());
+            response.setDescription(place.getDescription());
+            response.setStatus(place.getStatus());
+            response.setLocationDesc(place.getLocationDesc());
+            response.setStallStatus(place.getStallStatus());
+            response.setBusinessHours(place.getBusinessHours());
+            response.setAvgPrice(place.getAvgPrice());
+            response.setImageUrl(place.getImageUrl());
+        }
+        if (floor != null) {
+            response.setFloorPlaceId(floor.getId());
+            response.setFloorName(floor.getName());
         }
         return response;
     }

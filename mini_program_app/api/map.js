@@ -1,11 +1,15 @@
 import { request } from '@/utils/request'
+import {
+  compactParams,
+  formatFloorTabLabel,
+  getPlaceTypeLabel,
+  isBuildingPlaceType,
+  toMapPlaceMarker,
+} from '@/utils/mapPlaceCore'
 
-const SCENE_FACILITY_TYPE = {
-  CANTEEN: 1,
-  SPORTS: 2,
-  TEACHING: 3,
-  DORMITORY: 4,
-}
+// 点位适配的纯函数统一收敛在 utils/mapPlaceCore.js（无依赖、可被 node 测试直接 import），
+// 这里按原有导出签名转发，页面侧引用保持不变。
+export { getPlaceTypeLabel, isBuildingPlaceType, formatFloorTabLabel, compactParams, toMapPlaceMarker }
 
 const adaptRequest = (task, transform) => {
   const adapted = task.then(transform)
@@ -14,38 +18,25 @@ const adaptRequest = (task, transform) => {
   return adapted
 }
 
-const toLegacyMarker = (place) => {
-  const facilityType = SCENE_FACILITY_TYPE[place.sceneType] || 99
-  const imageUrls = (place.images || []).map((item) => item.imageUrl).filter(Boolean)
-  return {
-    id: place.id,
-    facilityId: place.id,
-    markerName: place.name,
-    facilityName: place.name,
-    facilityType,
-    facilityTypeName: place.placeType,
-    status: place.status === 'ENABLED' ? 1 : 3,
-    description: place.description,
-    location: place.locationDesc,
-    longitude: place.longitude,
-    latitude: place.latitude,
-    geometryType: place.fence?.geometryType,
-    boundaryPoints: place.fence?.geometryData,
-    images: JSON.stringify(imageUrls),
-    thumbnailUrl: imageUrls[0] || '',
-  }
+const normalizePlaceList = (payload) => {
+  if (Array.isArray(payload)) return payload
+  if (Array.isArray(payload?.records)) return payload.records
+  if (Array.isArray(payload?.list)) return payload.list
+  if (Array.isArray(payload?.data)) return payload.data
+  return []
 }
 
 export function getFacilityList(params = {}) {
   const task = request({
     url: '/api/v1/map-places',
     method: 'GET',
-    params: { keyword: params.keyword || params.name },
+    params: compactParams({ keyword: params.keyword || params.name }),
   })
   return adaptRequest(task, (response) => {
-    const records = (response.data || [])
+    const records = normalizePlaceList(response.data)
       .filter((item) => item.parentId == null)
-      .map(toLegacyMarker)
+      .map(toMapPlaceMarker)
+      .filter(Boolean)
       .filter((item) => params.type == null || Number(params.type) === item.facilityType)
     return { ...response, data: { records, total: records.length, page: 1, size: records.length } }
   })
@@ -55,35 +46,91 @@ export function getMarkerList(params = {}) {
   const task = request({
     url: '/api/v1/map-places',
     method: 'GET',
-    params: { keyword: params.keyword },
+    params: compactParams({
+      keyword: params.keyword,
+      status: params.status || 'ENABLED',
+    }),
+    showError: params.showError !== false,
   })
   return adaptRequest(task, (response) => {
     const selectedTypes = String(params.facilityTypes || params.facilityType || '')
       .split(',')
       .map(Number)
       .filter(Number.isFinite)
-    const records = (response.data || [])
+    const records = normalizePlaceList(response.data)
       .filter((item) => item.mapVisible !== false)
-      .map(toLegacyMarker)
+      .map(toMapPlaceMarker)
+      .filter(Boolean)
       .filter((item) => item.longitude != null && item.latitude != null)
       .filter((item) => !selectedTypes.length || selectedTypes.includes(item.facilityType))
     return { ...response, data: { records, total: records.length, page: 1, size: records.length } }
   })
 }
 
-export function getMarkerDetail(id) {
+/** GET /api/v1/map-places/{id} — place detail only; floor tree/plans load separately */
+export function getMarkerDetail(id, params = {}) {
   const task = request({
     url: `/api/v1/map-places/${id}`,
     method: 'GET',
+    params: compactParams({
+      includeChildren: params.includeChildren === true ? true : false,
+    }),
   })
-  return adaptRequest(task, (response) => ({ ...response, data: toLegacyMarker(response.data) }))
+  return adaptRequest(task, (response) => ({
+    ...response,
+    data: toMapPlaceMarker(response.data),
+  }))
+}
+
+export function getPlaceChildren(parentId, params = {}) {
+  const task = request({
+    url: '/api/v1/map-places',
+    method: 'GET',
+    params: compactParams({
+      parentId,
+      status: params.status || 'ENABLED',
+      placeType: params.placeType,
+    }),
+    showError: params.showError !== false,
+  })
+  return adaptRequest(task, (response) => {
+    const records = normalizePlaceList(response.data).map(toMapPlaceMarker).filter(Boolean)
+    return { ...response, data: records }
+  })
+}
+
+/** GET /api/v1/map-places/floors/{floorPlaceId}/plan */
+export function getFloorPlan(floorPlaceId) {
+  return request({
+    url: `/api/v1/map-places/floors/${floorPlaceId}/plan`,
+    method: 'GET',
+    showError: false,
+  })
+}
+
+/** GET /api/v1/map-places/floor-plans/{floorPlanId}/positions */
+export function getIndoorPositions(floorPlanId) {
+  return request({
+    url: `/api/v1/map-places/floor-plans/${floorPlanId}/positions`,
+    method: 'GET',
+    showError: false,
+  })
+}
+
+/** GET /api/v1/map-places/{id}/fence */
+export function getPlaceFence(id) {
+  return request({
+    url: `/api/v1/map-places/${id}/fence`,
+    method: 'GET',
+    showError: false,
+  })
 }
 
 export function searchFacilities(params = {}, options = {}) {
   return request({
     url: '/api/v1/map/search',
     method: 'GET',
-    params,
+    params: compactParams(params),
     showError: options.showError !== false,
   })
 }
@@ -92,7 +139,7 @@ export function locateFacility(keyword) {
   return request({
     url: '/api/v1/map/locate',
     method: 'GET',
-    params: { keyword },
+    params: compactParams({ keyword }),
   })
 }
 
@@ -100,7 +147,7 @@ export function getNearbyFacilities(params = {}) {
   return request({
     url: '/api/v1/map/nearby',
     method: 'GET',
-    params,
+    params: compactParams(params),
   })
 }
 
@@ -108,7 +155,7 @@ export function getNearbyCount(params = {}) {
   return request({
     url: '/api/v1/map/nearby/count',
     method: 'GET',
-    params,
+    params: compactParams(params),
   })
 }
 
@@ -116,7 +163,7 @@ export function getNavigationRoute(params = {}) {
   return request({
     url: '/api/v1/map/navigation/route',
     method: 'GET',
-    params,
+    params: compactParams(params),
   })
 }
 
@@ -146,7 +193,7 @@ export function getNavigationHistory(params = {}) {
   return request({
     url: '/api/v1/map/navigation/history',
     method: 'GET',
-    params,
+    params: compactParams(params),
   })
 }
 
@@ -154,7 +201,7 @@ export function reverseGeocode(longitude, latitude) {
   return request({
     url: '/api/v1/map/navigation/reverse-geocode',
     method: 'GET',
-    params: { longitude, latitude },
+    params: compactParams({ longitude, latitude }),
   })
 }
 
@@ -162,7 +209,7 @@ export function geocodeAddress(address, region) {
   return request({
     url: '/api/v1/map/navigation/geocode',
     method: 'GET',
-    params: { address, region },
+    params: compactParams({ address, region }),
   })
 }
 
@@ -170,7 +217,7 @@ export function searchPlaces(params = {}, options = {}) {
   return request({
     url: '/api/v1/map/navigation/places/search',
     method: 'GET',
-    params,
+    params: compactParams(params),
     showError: options.showError !== false,
   })
 }

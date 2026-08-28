@@ -368,7 +368,7 @@ const AGENT_LABELS = {
   ppt_structure_agent: 'PPT 结构智能体',
   ppt_review_agent: 'PPT 审查智能体',
   ppt_image_agent: 'PPT 图片智能体',
-  ppt_to_docx_agent: 'PPT 转 DOCX 智能体',
+  ppt_to_docx_agent: 'PPT 转 Word 智能体',
   meeting_summary_agent: '会议总结智能体'
 }
 const TOOL_LABELS = {
@@ -380,6 +380,9 @@ const TOOL_LABELS = {
   java_facility_api: '设施位置查询工具',
   java_secondhand_api: '旧物查询工具',
   generated_export_tools: '内容整理工具',
+  text_to_markdown_tool: '文本转 Markdown 工具',
+  text_to_txt_tool: '文本转 TXT 工具',
+  text_to_docx_tool: '文本转 Word 工具',
   markdown_export_tool: 'Markdown 导出工具',
   docx_export_tool: 'Word 导出工具',
   excel_export_tool: 'Excel 导出工具',

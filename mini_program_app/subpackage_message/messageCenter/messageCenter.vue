@@ -282,14 +282,19 @@ export default {
       } catch (error) {
         stats = { comment: 0, like: 0, system: 0 }
       }
-      // 已读状态覆盖未读数
+      // 点赞未读数来自后端真实未读消息（已读后归零，新点赞重新出现红点）
+      this.forumLikeCount = stats.like
+      // 评论/系统通知暂无后端消息记录，沿用本地已读标记兼容
       this.forumCommentCount = isForumCategoryRead('comment') ? 0 : stats.comment
-      this.forumLikeCount = isForumCategoryRead('like') ? 0 : stats.like
       this.forumSystemCount = isForumCategoryRead('system') ? 0 : stats.system
     },
     openForumCategory(entry) {
       if (entry.type === 'comment') this.forumCommentCount = 0
-      if (entry.type === 'like') this.forumLikeCount = 0
+      if (entry.type === 'like') {
+        this.forumLikeCount = 0
+        // 点赞消息基于后端 app_message，标记后端已读，返回后 onShow 重新统计不再显示红点
+        markAppMessagesReadByCategory({ moduleType: 'FORUM', eventTypes: ['POST_LIKE'] }).catch(() => {})
+      }
       if (entry.type === 'system') this.forumSystemCount = 0
       // 点击即标记该分类已读：立即持久化，返回后 onShow 统计不再显示红点
       markForumCategoryRead(entry.type)

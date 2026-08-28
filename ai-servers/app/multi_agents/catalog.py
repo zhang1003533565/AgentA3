@@ -35,7 +35,7 @@ PPT_AGENT_SPECS = {
     "ppt_content_agent": ("PPT 逐页内容智能体", "ppt_content", "根据确认后的大纲和原始资料撰写逐页标题、要点、解释与视觉建议。", "根据确认后的大纲生成逐页可展示内容"),
     "ppt_review_agent": ("PPT 审查智能体", "ppt_review", "负责审查 PPT 内容、布局和教学适配度，并输出问题清单与置信度评分。", "审查这份 PPT 大纲和布局，给出问题清单、修改建议和置信度"),
     "ppt_image_agent": ("PPT 配图提示词智能体", "ppt_image", "只负责为 PPT 封面、插图、示意图生成图片提示词和视觉素材建议，不直接调用图片模型。", "根据这份 PPT 大纲生成封面图和关键页面插图提示词"),
-    "ppt_to_docx_agent": ("PPT 转 DOCX 智能体", "ppt_to_docx", "负责将 PPTX 文件转换为 DOCX，按幻灯片顺序重排内容并保留图片。", "上传 PPTX 文件后转换为 DOCX，保留图片并允许 Word 重新排版"),
+    "ppt_to_docx_agent": ("PPT 转 DOCX 智能体", "ppt_to_docx", "负责将 PPTX 文件转换为 DOCX，按幻灯片顺序重排内容并保留图片。", "上传 PPTX 文件后转换为 DOCX，允许 Word 重新排版"),
 }
 
 LEARNING_WORKFLOW_AGENT_SPECS = {
@@ -83,6 +83,30 @@ LEARNING_WORKFLOW_AGENT_SPECS = {
     ),
 }
 
+RESUME_AGENT_SPECS = {
+    "resume_create_agent": (
+        "AI 简历生成智能体",
+        "resume_create",
+        "通过多轮对话收集用户个人信息、教育背景、工作经历等，最终输出结构化简历 JSON。",
+        "帮我写一份数据结构课程的简历",
+        ["resume_json"],
+    ),
+    "resume_edit_agent": (
+        "AI 一键改简历智能体",
+        "resume_edit",
+        "分析用户上传的现有简历问题，逐段优化完善，使简历更专业、更有竞争力。",
+        "帮我看一下这份简历哪里需要优化，如何改进？",
+        ["resume_optimization_json"],
+    ),
+    "resume_polish_expand_agent": (
+        "简历润色扩展智能体",
+        "resume_polish_expand",
+        "针对简历中的单个字段或经历段落，在不编造事实的前提下进行专业润色，或给出可补充的事实方向与追问清单。",
+        "目标岗位是 Java 后端工程师，请润色这段项目经历，并给出还可以补充哪些真实信息",
+        ["resume_polish_expand_json"],
+    ),
+}
+
 DIAGRAM_AGENT_SPECS = {
     "diagram_mind_map_agent": ("图表思维导图智能体", "diagram_mind_map", "把知识点层级、概念关系和学习路径整理成 Mermaid 思维导图。", "进程调度知识点思维导图材料"),
     "diagram_flowchart_agent": ("图表流程图智能体", "diagram_flowchart", "把算法步骤、业务过程和知识点流程整理成 Mermaid 流程图。", "括号匹配算法流程材料"),
@@ -95,6 +119,7 @@ DIAGRAM_AGENT_SPECS = {
 
 AGENT_ORDER = [
     "leader_agent",
+    "tool_intent_router_agent",
     "profile_summary_agent",
     "vision_agent",
     "architecture_prompt_agent",
@@ -106,7 +131,10 @@ AGENT_ORDER = [
     *QUESTION_AGENT_SPECS.keys(),
     *MEETING_AGENT_SPECS.keys(),
     *PPT_AGENT_SPECS.keys(),
+    *RESUME_AGENT_SPECS.keys(),
     *LEARNING_WORKFLOW_AGENT_SPECS.keys(),
+    "python_coding_tutor_agent",
+    "python_problem_generator_agent",
 ]
 
 LEARNING_WORKFLOW_INTERNAL_AGENTS = frozenset(LEARNING_WORKFLOW_AGENT_SPECS)
@@ -127,14 +155,18 @@ INTERNAL_VISUAL_AGENTS = frozenset({
     "ppt_image_agent",
 })
 FILE_EXPORT_INTERNAL_AGENTS = frozenset({"file_content_planner_agent"})
+RESUME_INTERNAL_AGENTS = frozenset({"resume_create_agent", "resume_edit_agent", "resume_polish_expand_agent"})
+INTERNAL_ONLY_AGENT_NAMES = frozenset({"tool_intent_router_agent"})
 LEADER_CALLABLE_AGENT_ORDER = tuple(
     agent_name
     for agent_name in AGENT_ORDER
     if agent_name != "leader_agent"
+    and agent_name not in INTERNAL_ONLY_AGENT_NAMES
     and agent_name not in LEARNING_WORKFLOW_INTERNAL_AGENTS
     and agent_name not in DIAGRAM_SOURCE_AGENTS
     and agent_name not in INTERNAL_VISUAL_AGENTS
     and agent_name not in FILE_EXPORT_INTERNAL_AGENTS
+    and agent_name not in RESUME_INTERNAL_AGENTS
 )
 
 
@@ -211,6 +243,30 @@ def _learning_workflow_agent_profile(
         "requiredModelModalities": TEXT_MODEL_MODALITY,
     }
 
+
+def _resume_agent_profile(agent_name: str, role: str, intent: str, purpose: str, example_input: str, outputs: list[str]) -> Dict[str, Any]:
+    input_map = {
+        "resume_create_agent": ["user_request", "conversation_context"],
+        "resume_edit_agent": ["uploaded_resume", "target_position", "conversation_context"],
+        "resume_polish_expand_agent": ["section", "original_text", "target_position", "job_description", "mode"],
+    }
+    return {
+        "role": role,
+        "purpose": purpose,
+        "inputs": input_map[agent_name],
+        "outputs": outputs,
+        "skills": ["resume generation", "resume optimization", "resume polishing", "truthful expansion", intent],
+        "intent": intent,
+        "needRetrieval": False,
+        "executionMode": "direct_agent",
+        "executionModeLabel": f"直接{role.replace('智能体', '')}",
+        "defaultRagStrategy": "",
+        "supportedRagStrategies": [],
+        "aliases": [intent, role, role.replace("智能体", ""), agent_name],
+        "exampleInput": example_input,
+        "requiredModelModalities": TEXT_MODEL_MODALITY,
+    }
+
 def _ppt_profile(agent_name: str, role: str, intent: str, purpose: str, example_input: str) -> Dict[str, Any]:
     output_type = {
         "ppt_outline_agent": "ppt_outline_markdown",
@@ -223,9 +279,9 @@ def _ppt_profile(agent_name: str, role: str, intent: str, purpose: str, example_
     alias_core = intent.replace("ppt_", "")
     extra_aliases = []
     if agent_name == "ppt_outline_agent":
-        extra_aliases = ["ppt", "课件大纲智能体", "PPT大纲智能体"]
+        extra_aliases = ["ppt", "课件大纲智能体", "PPT 大纲智能体"]
     elif agent_name == "ppt_to_docx_agent":
-        extra_aliases = ["ppt转docx", "pptx转docx", "ppt转word", "pptx转word", "PPT转DOCX智能体", "PPT转Word智能体"]
+        extra_aliases = ["ppt 转 docx", "pptx 转 docx", "ppt 转 word", "pptx 转 word", "PPT 转 DOCX 智能体", "PPT 转 Word 智能体"]
     return {
         "role": role,
         "purpose": purpose,
@@ -302,7 +358,7 @@ AGENT_PROFILES: Dict[str, Dict[str, Any]] = {
         "executionModeLabel": "Leader 意图识别与自动分发",
         "defaultRagStrategy": "",
         "supportedRagStrategies": [],
-        "aliases": ["leader", "leader_agent", "总控智能体", "leader智能体"],
+        "aliases": ["leader", "leader_agent", "总控智能体", "leader 智能体"],
         "exampleInput": "帮我把数据结构中的栈与队列整理成 PPT 大纲",
         "requiredModelModalities": TEXT_MODEL_MODALITY,
     },
@@ -334,9 +390,28 @@ AGENT_PROFILES: Dict[str, Dict[str, Any]] = {
         "executionModeLabel": "仅由文件导出工具内部调用",
         "defaultRagStrategy": "",
         "supportedRagStrategies": [],
-        "aliases": ["file_content_planner_agent", "文件内容编排智能体", "Word知识转换智能体", "文件知识转换智能体"],
+        "aliases": ["file_content_planner_agent", "文件内容编排智能体", "Word 知识转换智能体", "文件知识转换智能体"],
         "exampleInput": "把刚才关于 Python 发展历史的内容整理成 Word 文档",
         "requiredModelModalities": TEXT_MODEL_MODALITY,
+    },
+    "tool_intent_router_agent": {
+        "role": "工具意图识别智能体",
+        "purpose": "在 Leader 路由前强制提取用户意图、关键词、实体、约束和查询变体；不由 Leader 作为业务智能体路由，但允许后台单独测试和绑定模型。",
+        "inputs": ["user_query", "enabled_tools"],
+        "outputs": ["intent", "keywords", "entities", "constraints", "query_variants"],
+        "skills": ["intent extraction", "keyword extraction", "entity extraction", "query rewriting"],
+        "intent": "tool_intent_routing",
+        "needRetrieval": False,
+        "executionMode": "internal_tool",
+        "executionModeLabel": "生产环境由 tool_intent_router 强制自动调用；后台可单独测试",
+        "defaultRagStrategy": "",
+        "supportedRagStrategies": [],
+        "aliases": ["tool_intent_router", "tool_intent_router_agent", "工具意图识别", "意图识别智能体"],
+        "exampleInput": "从用户问题中提取意图、关键词、实体、约束和最多三个查询变体",
+        "requiredModelModalities": TEXT_MODEL_MODALITY,
+        "internalOnly": True,
+        "mandatory": True,
+        "toolName": "tool_intent_router",
     },
     "vision_agent": {
         "role": "图片识别智能体",
@@ -443,6 +518,57 @@ AGENT_PROFILES: Dict[str, Dict[str, Any]] = {
         "exampleInput": "为操作系统进程调度知识点生成 4 张课堂教学配图，风格为扁平教学插画，尺寸 1024x1024",
         "requiredModelModalities": IMAGE_MODEL_MODALITY,
     },
+    **{
+        agent_name: _resume_agent_profile(agent_name, *spec)
+        for agent_name, spec in RESUME_AGENT_SPECS.items()
+    },
+    "python_coding_tutor_agent": {
+        "role": "Python 编程辅导智能体",
+        "purpose": "参照 LeetCode AI 助手，为在线刷题用户提供分级提示、思路讲解、代码解释与报错分析；辅助而非代劳。",
+        "inputs": ["questionType", "problem", "userCode", "judgeResult", "followUp", "history"],
+        "outputs": ["markdown"],
+        "skills": ["code tutoring", "progressive hints", "debug guidance", "code explanation", "anti-cheating guidance"],
+        "intent": "python_coding_tutor",
+        "needRetrieval": False,
+        "executionMode": "direct_agent",
+        "executionModeLabel": "直接生成编程辅导回答",
+        "defaultRagStrategy": "",
+        "supportedRagStrategies": [],
+        "aliases": [
+            "python_coding_tutor",
+            "python_coding_tutor_agent",
+            "编程辅导",
+            "编程辅导智能体",
+            "AI 编程助手",
+            "代码解释",
+            "给我提示",
+            "报错分析",
+        ],
+        "exampleInput": "帮我分析这段两数之和的代码为什么超时",
+        "requiredModelModalities": TEXT_MODEL_MODALITY,
+    },
+    "python_problem_generator_agent": {
+        "role": "Python 刷题题目生成器",
+        "purpose": "按主题/难度/数量生成可直接入库的 Python 刷题题目（对齐 python_problem 表结构，含判题用例与多解标准答案）。",
+        "inputs": ["topic", "difficulty", "count"],
+        "outputs": ["python_problem_set_json"],
+        "skills": ["problem generation", "testcase authoring", "python", "multi-solution authoring"],
+        "intent": "python_problem_generation",
+        "needRetrieval": False,
+        "executionMode": "direct_agent",
+        "executionModeLabel": "直接生成 Python 刷题题目",
+        "defaultRagStrategy": "",
+        "supportedRagStrategies": [],
+        "aliases": [
+            "python_problem_generator",
+            "python_problem_generator_agent",
+            "生成 Python 题目",
+            "AI 生成题目",
+            "刷题题目生成",
+        ],
+        "exampleInput": "数组 + 双指针，中等难度，生成 2 道",
+        "requiredModelModalities": TEXT_MODEL_MODALITY,
+    },
 }
 
 AGENT_ALIASES = {
@@ -516,17 +642,12 @@ def get_agent_catalog() -> Dict[str, Any]:
             "questionBank": ["leader_agent", "textbook_knowledge_agent", *QUESTION_AGENT_SPECS.keys()],
             "meeting": ["leader_agent", *MEETING_AGENT_SPECS.keys()],
             "ppt": ["leader_agent", "textbook_knowledge_agent", *PPT_AGENT_SPECS.keys()],
+            "resume": ["leader_agent", *RESUME_AGENT_SPECS.keys()],
             "image": ["leader_agent", "textbook_knowledge_agent", *DIAGRAM_AGENT_SPECS.keys()],
             "pythonLearningResources": [
-                "learning_path_agent",
-                "textbook_knowledge_agent",
-                "diagram_mind_map_agent",
-                "python_practice_set_agent",
-                "python_code_lab_agent",
-                "ppt_outline_agent",
-                "extension_reading_agent",
-                "resource_review_agent",
-                "resource_package_agent",
+                "learning_path_agent", "textbook_knowledge_agent", "diagram_mind_map_agent",
+                "python_practice_set_agent", "python_code_lab_agent", "ppt_outline_agent",
+                "extension_reading_agent", "resource_review_agent", "resource_package_agent",
             ],
         },
         "agents": agents,
@@ -534,10 +655,10 @@ def get_agent_catalog() -> Dict[str, Any]:
 
 
 def get_agent_detail(agent_name: str) -> Optional[Dict[str, Any]]:
-    agent_name = normalize_agent_name(agent_name) or ""
-    if agent_name not in AGENT_PROFILES:
+    normalized = normalize_agent_name(agent_name) or ""
+    if normalized not in AGENT_PROFILES:
         return None
-    return _build_agent(agent_name, include_documents=True)
+    return _build_agent(normalized, include_documents=True)
 
 
 def update_agent_example_input(agent_name: str, content: str) -> Dict[str, Any]:
@@ -563,7 +684,12 @@ def normalize_agent_name(agent_name: Optional[str]) -> Optional[str]:
 
 def normalize_leader_request_agent(agent_name: Optional[str]) -> Optional[str]:
     normalized = normalize_agent_name(agent_name)
-    if normalized == "leader_agent" or normalized in LEADER_CALLABLE_AGENT_ORDER:
+    if (
+        normalized == "leader_agent"
+        or normalized in LEADER_CALLABLE_AGENT_ORDER
+        or normalized in INTERNAL_ONLY_AGENT_NAMES
+        or normalized in RESUME_INTERNAL_AGENTS
+    ):
         return normalized
     return None
 
@@ -591,6 +717,9 @@ def _build_agent(agent_name: str, include_documents: bool) -> Dict[str, Any]:
         "needRetrieval": profile["needRetrieval"],
         "executionMode": profile["executionMode"],
         "executionModeLabel": profile["executionModeLabel"],
+        "internalOnly": bool(profile.get("internalOnly", False)),
+        "mandatory": bool(profile.get("mandatory", False)),
+        "toolName": profile.get("toolName"),
         "defaultRagStrategy": profile["defaultRagStrategy"],
         "supportedRagStrategies": profile["supportedRagStrategies"],
         "requiredModelModalities": profile.get("requiredModelModalities", TEXT_MODEL_MODALITY),
@@ -598,15 +727,7 @@ def _build_agent(agent_name: str, include_documents: bool) -> Dict[str, Any]:
         "invokeExample": {
             "input": example_input,
             "agentName": agent_name,
-            **(
-                {"executionMode": "leader_orchestration"}
-                if agent_name == "leader_agent"
-                else (
-                    {"ragStrategy": profile["defaultRagStrategy"]}
-                    if profile["needRetrieval"]
-                    else {"executionMode": profile["executionMode"]}
-                )
-            ),
+            **({"executionMode": "leader_orchestration"} if agent_name == "leader_agent" else {"executionMode": profile["executionMode"]}),
         },
         "runtime": f"app.multi_agents.{agent_name}.agent",
         "directory": str(agent_dir),

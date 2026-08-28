@@ -8,7 +8,8 @@ import java.util.List;
 
 public interface DocumentConvertService {
 
-    DocumentConvertDTO.TaskAccepted createTask(MultipartFile file, String convertType, Long userId, String authorization);
+    DocumentConvertDTO.TaskAccepted createTask(
+            MultipartFile file, String convertType, String convertMode, Long userId, String authorization);
 
     DocumentConvertDTO.TaskView getTask(String taskId, Long userId);
 
