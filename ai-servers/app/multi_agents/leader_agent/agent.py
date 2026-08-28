@@ -8,6 +8,7 @@ from fastapi import HTTPException
 
 from app.model_providers.multimodal import extract_image_references
 from app.model_providers.factory import get_chat_model_provider
+from app.multi_agents.catalog import LEADER_CALLABLE_AGENT_ORDER, get_agent_profile, normalize_agent_name
 from app.multi_agents.runtime import load_agent_prompt
 from app.services.memory_store import memory_store
 from app.utils.logger import get_logger
