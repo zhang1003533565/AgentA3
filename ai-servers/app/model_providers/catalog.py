@@ -23,6 +23,39 @@ def _load_catalog() -> Dict[str, Any]:
         return json.load(fp)
 
 
+def _provider_aliases(provider: Dict[str, Any]) -> set[str]:
+    aliases = {str(provider.get("id") or "").strip().lower()}
+    for alias in provider.get("aliases") or []:
+        text = str(alias or "").strip().lower()
+        if text:
+            aliases.add(text)
+    return aliases
+
+
+def model_supports_vision(provider: str, model: str) -> bool:
+    """Return whether a provider/model pair is cataloged with vision capability."""
+    normalized_provider = str(provider or "").strip().lower()
+    model_id = str(model or "").strip().lower()
+    if not model_id:
+        return False
+
+    for prov in _load_catalog().get("providers", []):
+        if normalized_provider and normalized_provider not in _provider_aliases(prov):
+            continue
+        for capability in (prov.get("capabilities") or {}).values():
+            if not isinstance(capability, dict):
+                continue
+            for entry in capability.get("models") or []:
+                if str(entry.get("id") or "").strip().lower() != model_id:
+                    continue
+                features = {str(feature).strip().lower() for feature in (entry.get("features") or [])}
+                if "vision" in features or "image_understanding" in features or "full_modal_understanding" in features:
+                    return True
+
+    vision_markers = ("vision", "-vl", "vl-", "gpt-4o", "gpt-4.1", "gemini")
+    return any(marker in model_id for marker in vision_markers)
+
+
 def get_model_provider_catalog() -> Dict[str, Any]:
     catalog = deepcopy(_load_catalog())
     providers = catalog.get("providers", [])

@@ -5,6 +5,7 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
 
+from app.model_providers.catalog import model_supports_vision
 from app.model_providers.multimodal import collect_request_image_references
 from app.models.schemas import RagQueryRequest
 from app.multi_agents.catalog import get_agent_catalog, normalize_agent_name
@@ -90,6 +91,30 @@ class VisionAgentTest(unittest.TestCase):
         self.assertEqual("vision_agent", response.metadata["boundAgent"])
         self.assertEqual(1, response.metadata["imageCount"])
         self.assertEqual("vision_agent", run_agent.call_args.args[1])
+
+    def test_model_supports_vision_detects_catalog_and_heuristics(self):
+        self.assertTrue(model_supports_vision("deepseek", "deepseek-v4-flash-vision-exp"))
+        self.assertFalse(model_supports_vision("deepseek", "deepseek-v4-flash"))
+        self.assertTrue(model_supports_vision("qwen", "qwen-vl-max"))
+
+    def test_vision_agent_rejects_text_only_model_binding(self):
+        request = RagQueryRequest(
+            input="请识别图片",
+            metadata={
+                "agentModelConfigs": {
+                    "vision_agent": {
+                        "provider": "deepseek",
+                        "baseUrl": "https://api.deepseek.com",
+                        "apiKey": "test-key",
+                        "model": "deepseek-v4-flash",
+                        "tested": True,
+                    },
+                },
+            },
+        )
+        with self.assertRaises(self.rag_routes.AgentExecutionError) as ctx:
+            self.rag_routes._require_agent_runtime_config(request, "vision_agent")
+        self.assertIn("不支持图片输入", str(ctx.exception))
 
     def test_tool_is_unavailable_without_vision_model_binding(self):
         request = SimpleNamespace(

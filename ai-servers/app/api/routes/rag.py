@@ -2822,6 +2822,28 @@ def _require_agent_runtime_config(
             status_code=400,
             model_config_prefix=config_prefix,
         )
+
+    profile = get_agent_profile(normalized_agent) or {}
+    required_modalities = profile.get("requiredModelModalities") or []
+    if "vision" in required_modalities:
+        from app.model_providers.catalog import model_supports_vision
+
+        if not model_supports_vision(provider, model):
+            raise AgentExecutionError(
+                message=(
+                    f"{display_name} 需要绑定支持视觉理解的模型（例如 Qwen-VL 或 deepseek-v4-flash-vision-exp），"
+                    f"当前绑定的 {model or '未命名模型'} 不支持图片输入。"
+                ),
+                agent_name=normalized_agent,
+                intent=getattr(leader_plan, "intent", "") or "",
+                stage="agent_model_config",
+                route_reason=getattr(leader_plan, "route_reason", "") or "",
+                status_code=400,
+                model_provider=provider,
+                model=model,
+                base_url=base_url,
+                model_config_prefix=config_prefix,
+            )
     return runtime_config, config_prefix
 
 
