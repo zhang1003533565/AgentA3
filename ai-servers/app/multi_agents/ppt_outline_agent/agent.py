@@ -7,8 +7,8 @@ from fastapi import HTTPException
 from app.multi_agents.runtime import complete_agent_or_raise
 
 
-PPT_OUTLINE_REQUIRED_FIELDS = ["页标题", "页面类型", "本页目标", "核心内容", "展示建议", "素材建议"]
-PPT_OUTLINE_OPTIONAL_FIELDS = ["页面节点"]
+PPT_OUTLINE_REQUIRED_FIELDS = ["页标题", "大纲层级", "页面类型", "本页目标", "核心内容", "页面节点", "展示建议", "素材建议"]
+PPT_OUTLINE_OPTIONAL_FIELDS = []
 PPT_OUTLINE_FORBIDDEN_FIELDS = ["讲解目标", "页面内容建议", "课堂互动建议", "教学目标", "互动建议"]
 PPT_LAYOUT_REQUIRED_FIELDS = ["页标题", "页面类型", "布局结构", "信息层级", "区域安排", "视觉建议", "素材处理"]
 PPT_LAYOUT_FORBIDDEN_FIELDS = ["版式类型", "标题区", "正文区", "图表/图片区", "视觉层级", "留白", "讲解动线"]
@@ -25,21 +25,17 @@ class PptOutlineAgent:
     name = "ppt_outline_agent"
 
     def process(self, input_text: str, evidence: List[Dict[str, Any]], chat_service=None) -> str:
-        request = input_text
-        for attempt in range(2):
-            try:
-                answer = complete_agent_or_raise(self.name, request, evidence or [], model_provider=chat_service)
-                return normalize_ppt_outline_answer(answer, input_text)
-            except HTTPException as exc:
-                detail = str(getattr(exc, "detail", "") or "")
-                if attempt or int(getattr(exc, "status_code", 0) or 0) != 502 or "LLM 返回内容为空" in detail:
-                    raise
-                request = (
-                    f"{input_text}\n\n上一轮响应未通过 PPT 大纲格式校验。"
-                    "请严格按要求重新输出完整大纲，不要解释失败原因，不要输出 Markdown 代码围栏；"
-                    "每一页必须包含页标题、页面类型、本页目标、核心内容、展示建议和素材建议。"
-                )
-        raise RuntimeError("ppt_outline_agent structured retry did not execute")
+        # 大纲纠正只允许由 service.py 统一调度一次。这里如果再隐式重试，
+        # 一个“不完整大纲”会变成多次模型调用，既放大延迟，也会把格式错误
+        # 误判成模型不可用并提前进入兜底链。
+        answer = complete_agent_or_raise(self.name, input_text, evidence or [], model_provider=chat_service)
+        try:
+            return normalize_ppt_outline_answer(answer, input_text)
+        except HTTPException as exc:
+            detail = str(getattr(exc, "detail", "") or "")
+            if "LLM 返回内容为空" in detail:
+                raise
+            raise HTTPException(status_code=422, detail=f"ppt_outline_agent 输出格式无效：{detail}") from exc
 
 
 ppt_outline_agent = PptOutlineAgent()
@@ -100,6 +96,7 @@ def _structured_outline_to_markdown(text: str, input_text: str) -> str:
         lines.extend([
             f"### 第{position}页",
             f"- 页标题：{title_value}",
+            f"- 大纲层级：{_normalize_outline_level(raw.get('level') or raw.get('大纲层级') or ('章节' if position == 1 else '小节'))}",
             f"- 页面类型：{page_type}",
             f"- 本页目标：{objective}",
             "- 核心内容：",
@@ -110,7 +107,7 @@ def _structured_outline_to_markdown(text: str, input_text: str) -> str:
                 for node_index, node in enumerate(nodes, start=1)
             ],
             f"- 展示建议：{_normalize_inline_text(str(raw.get('displaySuggestion') or raw.get('展示建议') or '突出本页核心信息，控制文字密度。'))}",
-            f"- 素材建议：{_normalize_inline_text(str(raw.get('assetSuggestion') or raw.get('素材建议') or '按内容需要使用模板组件。'))}",
+            f"- 素材建议：{_normalize_inline_text(str(raw.get('assetSuggestion') or raw.get('素材建议') or '根据页面节点关系选择结构图、流程图、对比表或简洁图标。'))}",
             "",
         ])
     result = "\n".join(lines).strip()
@@ -193,6 +190,15 @@ def _is_valid_ppt_outline(text: str) -> bool:
     page_blocks = _split_ppt_pages(normalized)
     return bool(page_blocks) and all(f"- {field}：" in block for _, block in page_blocks for field in PPT_OUTLINE_REQUIRED_FIELDS)
 
+
+def _normalize_outline_level(value: Any) -> str:
+    normalized = re.sub(r"\s+", "", str(value or "")).lower()
+    if normalized in {"1", "章节", "章", "chapter", "section", "一级"}:
+        return "章节"
+    if normalized in {"3", "知识点", "知识节点", "要点", "knowledgepoint", "三级"}:
+        return "知识点"
+    return "小节"
+
 def _rewrite_ppt_outline(text: str, input_text: str) -> str:
     meta = _extract_outline_meta(input_text, text)
     page_blocks = _split_ppt_pages(text) or [("1", text)]
@@ -211,15 +217,25 @@ def _rewrite_ppt_outline(text: str, input_text: str) -> str:
     total_pages = len(page_blocks)
     for index, (page_no, block) in enumerate(page_blocks, start=1):
         title = _extract_page_title(block, page_no)
-        goal = _extract_markdown_field(block, ["本页目标", "讲解目标", "教学目标"]) or "概括本页希望传达的关键信息。"
-        core_content = _extract_markdown_field(block, ["核心内容", "页面内容建议"]) or "提炼本页的核心要点并控制信息密度。"
+        goal = _extract_markdown_field(block, ["本页目标", "讲解目标", "教学目标"]) or "本页需要传达的核心结论和受众收益。"
+        core_content = _extract_markdown_field(block, ["核心内容", "页面内容建议"]) or "本页需要展开的核心事实、关系或行动要点。"
         page_type = _infer_page_type(title, goal, core_content, index, total_pages)
+        level = "章节" if index == 1 or index == total_pages else "小节"
+        core_points = [
+            re.sub(r"^[-*•]\s*", "", line.strip())
+            for line in core_content.splitlines()
+            if re.sub(r"^[-*•]\s*", "", line.strip())
+        ]
+        node_points = (core_points + [title])[:2]
         lines.extend([
             f"### 第{page_no}页",
             f"- 页标题：{title}",
+            f"- 大纲层级：{level}",
             f"- 页面类型：{page_type}",
             f"- 本页目标：{_normalize_inline_text(goal)}",
             f"- 核心内容：\n{_format_multiline_bullets(core_content)}",
+            "- 页面节点：",
+            *[f"  - 节点{node_index}：{_normalize_inline_text(point)}｜说明该信息单元对本页结论的作用。" for node_index, point in enumerate(node_points, start=1)],
             f"- 展示建议：{_infer_display_suggestion(title, core_content, page_type)}",
             f"- 素材建议：{_infer_asset_suggestion(core_content, page_type)}",
             "",
@@ -326,7 +342,7 @@ def _normalize_inline_text(text: str) -> str:
 def _format_multiline_bullets(text: str) -> str:
     raw = (text or "").strip()
     if not raw:
-        return "  - 提炼本页需要展示的核心要点。"
+        return "  - 本页需要展示的核心事实或行动要点。"
     items = []
     for line in raw.splitlines():
         stripped = re.sub(r"^[-*]\s*", "", line.strip())

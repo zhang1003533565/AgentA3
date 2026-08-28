@@ -85,7 +85,7 @@
             <text class="course-state-subtitle">管理员发布课程后会显示在这里</text>
           </view>
           <view v-else class="tools-grid">
-            <view class="tool-item" v-for="tool in currentTools" :key="tool.courseId || tool.name" @tap="handleToolTap(tool)">
+            <view class="tool-item" :class="{ 'tool-item--study-plan': tool.name === '学习计划拆解' }" v-for="tool in currentTools" :key="tool.courseId || tool.name" @tap="handleToolTap(tool)">
               <view v-if="tool.courseId" class="course-cover-wrapper">
                 <image class="course-cover-image" :src="tool.icon" mode="aspectFill"></image>
               </view>
@@ -133,6 +133,7 @@ const quickActions = ref([
 // 工具分类 Mock 数据
 const toolCategories = {
   hot: [
+    { name: '学习计划拆解', desc: '数据表一键拆成任务', icon: '/static/icons/ai create/plan.png', themeColor: '#5B7F80', lightColor: 'rgba(91, 127, 128, 0.22)' },
     { name: '试卷生成', desc: '智能生成标准化试卷', icon: '/static/icons/ai create/exam.png', themeColor: '#FF6B6B', lightColor: 'rgba(255, 107, 107, 0.35)' },
     { name: '题库生成', desc: '资料一键生成练习题', icon: '/static/icons/ai create/exam.png', themeColor: '#5E7387', lightColor: 'rgba(94, 115, 135, 0.35)' },
     { name: 'PPT生成', desc: '一键生成演示文稿', icon: '/static/icons/ai create/ppt-pdf.png', themeColor: '#FF9F43', lightColor: 'rgba(255, 159, 67, 0.35)' },
@@ -616,6 +617,15 @@ const handleToolTap = (tool) => {
   font-size: 22rpx;
   color: #999999;
   line-height: 1.4;
+}
+
+.tool-item--study-plan {
+  background: #F7FAFD;
+}
+
+.tool-item--study-plan .tool-name {
+  color: #233047;
+  font-weight: 600;
 }
 .tool-emoji {
   font-size: 32rpx;

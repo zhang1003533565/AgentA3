@@ -29,6 +29,8 @@ import './AgentSettings.css'
 
 const { Text, Title } = Typography
 const TOOL_TEST_IMAGE_MAX_BYTES = 10 * 1024 * 1024
+const TOOL_TEST_IMAGE_MAX_EDGE = 1920
+const TOOL_TEST_IMAGE_JPEG_QUALITY = 0.82
 const TOOL_TEST_STITCH_MAX_IMAGES = 9
 const TOOL_TEST_FILE_MAX_BYTES = 25 * 1024 * 1024
 const FILE_CONTENT_TOOL_NAMES = new Set([
@@ -81,18 +83,43 @@ const TOOL_TEST_PROMPTS = {
 const getToolTestPrompt = (tool) => TOOL_TEST_PROMPTS[tool?.name]
   || `请执行${tool?.zhName || tool?.name || '当前工具'}测试，并返回可验证的输出。${tool?.trigger ? `触发要求：${tool.trigger}` : ''}`
 
-const TEXT_TO_FILE_TOOL_NAMES = new Set([
-  'text_to_markdown_tool',
-  'text_to_txt_tool',
-  'text_to_docx_tool',
-])
-const isTextToFileTool = (tool) => TEXT_TO_FILE_TOOL_NAMES.has(tool?.name)
-
 const readToolTestImage = (file) => new Promise((resolve, reject) => {
   const reader = new FileReader()
   reader.onload = () => resolve(String(reader.result || ''))
   reader.onerror = () => reject(new Error(`图片读取失败：${file.name}`))
   reader.readAsDataURL(file)
+})
+
+const compressToolTestImage = (file) => new Promise((resolve, reject) => {
+  if (String(file?.type || '').toLowerCase() === 'image/gif') {
+    readToolTestImage(file).then(resolve).catch(reject)
+    return
+  }
+  const objectUrl = URL.createObjectURL(file)
+  const image = new Image()
+  image.onload = () => {
+    URL.revokeObjectURL(objectUrl)
+    const { width, height } = image
+    const longest = Math.max(width, height)
+    const scale = longest > TOOL_TEST_IMAGE_MAX_EDGE ? TOOL_TEST_IMAGE_MAX_EDGE / longest : 1
+    const targetWidth = Math.max(1, Math.round(width * scale))
+    const targetHeight = Math.max(1, Math.round(height * scale))
+    const canvas = document.createElement('canvas')
+    canvas.width = targetWidth
+    canvas.height = targetHeight
+    const context = canvas.getContext('2d')
+    if (!context) {
+      readToolTestImage(file).then(resolve).catch(reject)
+      return
+    }
+    context.drawImage(image, 0, 0, targetWidth, targetHeight)
+    resolve(canvas.toDataURL('image/jpeg', TOOL_TEST_IMAGE_JPEG_QUALITY))
+  }
+  image.onerror = () => {
+    URL.revokeObjectURL(objectUrl)
+    reject(new Error(`图片读取失败：${file.name}`))
+  }
+  image.src = objectUrl
 })
 
 const getToolTestFileExtension = (file) => {
@@ -120,7 +147,7 @@ const responseContainsTool = (response, toolName) => {
     }
     if (typeof value === 'object') {
       Object.entries(value).forEach(([key, item]) => {
-        if (['toolName', 'tool', 'executedTool'].includes(key)) values.push(String(item || ''))
+        if (['toolName', 'tool', 'executedTool', 'executedAgent', 'targetAgent'].includes(key)) values.push(String(item || ''))
         visit(item, depth + 1)
       })
     }
@@ -694,7 +721,7 @@ function AgentSettings() {
       return Upload.LIST_IGNORE
     }
     try {
-      const dataUrl = await readToolTestImage(file)
+      const dataUrl = await compressToolTestImage(file)
       setToolTestImages((current) => {
         const withoutCurrent = current.filter((item) => item.uid !== file.uid)
         if (selectedToolTest?.name === 'image_stitching_tool'
@@ -808,12 +835,10 @@ function AgentSettings() {
         agentName: 'leader_agent',
         intent: 'campus_search',
         metadata: {
-          testFrom: 'admin_agent_console',
+          testFrom: 'admin_tool_console',
           expectedToolName: selectedToolTest.name,
+          directToolTest: true,
         },
-      }
-      if (isTextToFileTool(selectedToolTest)) {
-        payload.metadata.directToolTest = true
       }
       const testedTextModel = llmModelOptions.find((option) => option.modality === 'text' && option.isDefault)
         || llmModelOptions.find((option) => option.modality === 'text')
@@ -843,32 +868,57 @@ function AgentSettings() {
     }
   }, [selectedToolTest, toolTestImages, toolTestInput, llmModelOptions])
 
+  const fetchToolTestAttachmentBlob = useCallback(async (item) => {
+    if (!item?.storageKey || !item?.internalCapability) {
+      throw new Error('附件缺少下载凭据，请重新运行测试')
+    }
+    const fileName = item.fileName || item.name || item.type || 'ai-export'
+    const token = localStorage.getItem('token') || ''
+    const url = `${API_BASE_URL}/api/ai/rag/export?storageKey=${encodeURIComponent(item.storageKey)}&capability=${encodeURIComponent(item.internalCapability)}&filename=${encodeURIComponent(fileName)}`
+    const response = await fetch(url, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    })
+    if (!response.ok) {
+      let detail = `下载失败(${response.status})`
+      try {
+        const text = await response.text()
+        const parsed = text ? JSON.parse(text) : null
+        detail = parsed?.msg || parsed?.message || parsed?.detail || detail
+      } catch (parseError) {
+        // keep status fallback
+      }
+      throw new Error(detail)
+    }
+    return response.blob()
+  }, [])
+
+  const previewToolTestAttachment = useCallback(async (item) => {
+    if (item?.previewDataUrl) {
+      setToolTestPreview(item.previewDataUrl)
+      return
+    }
+    const hideLoading = message.loading('正在加载预览...', 0)
+    try {
+      const blob = await fetchToolTestAttachmentBlob(item)
+      const objectUrl = window.URL.createObjectURL(blob)
+      setToolTestPreview((current) => {
+        if (current?.startsWith('blob:')) {
+          window.URL.revokeObjectURL(current)
+        }
+        return objectUrl
+      })
+    } catch (error) {
+      message.error(error.message || '预览加载失败')
+    } finally {
+      hideLoading()
+    }
+  }, [fetchToolTestAttachmentBlob])
+
   const downloadToolTestAttachment = useCallback(async (item) => {
     const hideLoading = message.loading('正在准备下载文件...', 0)
     try {
-      if (!item?.storageKey || !item?.internalCapability) {
-        hideLoading()
-        message.warning('附件缺少下载凭据，请重新运行测试')
-        return
-      }
+      const blob = await fetchToolTestAttachmentBlob(item)
       const fileName = item.fileName || item.name || item.type || 'ai-export'
-      const token = localStorage.getItem('token') || ''
-      const url = `${API_BASE_URL}/api/ai/rag/export?storageKey=${encodeURIComponent(item.storageKey)}&capability=${encodeURIComponent(item.internalCapability)}&filename=${encodeURIComponent(fileName)}`
-      const response = await fetch(url, {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-      })
-      if (!response.ok) {
-        let detail = `下载失败(${response.status})`
-        try {
-          const text = await response.text()
-          const parsed = text ? JSON.parse(text) : null
-          detail = parsed?.msg || parsed?.message || parsed?.detail || detail
-        } catch (parseError) {
-          // keep status fallback
-        }
-        throw new Error(detail)
-      }
-      const blob = await response.blob()
       const objectUrl = window.URL.createObjectURL(blob)
       const link = document.createElement('a')
       link.href = objectUrl
@@ -883,7 +933,7 @@ function AgentSettings() {
       hideLoading()
       message.error(error.message || '文件下载失败')
     }
-  }, [])
+  }, [fetchToolTestAttachmentBlob])
 
   const modelColumns = useMemo(() => [
     {
@@ -1528,7 +1578,7 @@ function AgentSettings() {
                         <Title level={4}>工具功能测试</Title>
                         <Text type="secondary">
                           {toolTestMode === 'prompt'
-                            ? '通过给模型输入指令，检查工具输出和调用 trace。'
+                            ? '直连执行所选工具，不经过 Leader 路由；需要模型的工具仍会使用已绑定模型。'
                             : '上传真实文件直接执行所选提取工具，不经过模型路由。'}
                         </Text>
                       </div>
@@ -1595,8 +1645,8 @@ function AgentSettings() {
                         </Upload>
                         <Text type="secondary">
                           {selectedToolTest.name === 'image_stitching_tool'
-                            ? `可上传 2-${TOOL_TEST_STITCH_MAX_IMAGES} 张图片，自动采用最多 3 列的自适应网格，在每张图片左侧按上传顺序标注编号，单张不超过 10MB。`
-                            : '图片识别测试必须上传图片，单张不超过 10MB。'}
+                            ? `可上传 2-${TOOL_TEST_STITCH_MAX_IMAGES} 张图片，上传时自动压缩（最长边 ${TOOL_TEST_IMAGE_MAX_EDGE}px），单张原图不超过 10MB。`
+                            : '图片识别测试必须上传图片，上传时自动压缩，单张原图不超过 10MB。'}
                         </Text>
                       </>
                     ) : null}
@@ -1744,14 +1794,15 @@ function AgentSettings() {
                               {toolTestResult.response.attachments.map((item, index) => {
                                 const fileName = item.fileName || item.name || item.type || `附件 ${index + 1}`
                                 const downloadable = Boolean(item.storageKey && item.internalCapability)
-                                if (item.previewDataUrl) {
+                                const previewable = Boolean(item.previewDataUrl || downloadable)
+                                if (previewable && item.type === 'image') {
                                   return (
                                     <Tag
                                       color="blue"
                                       key={`${item.url || fileName}-${index}`}
                                       title="点击查看拼接结果"
                                       style={{ cursor: 'pointer' }}
-                                      onClick={() => setToolTestPreview(item.previewDataUrl)}
+                                      onClick={() => previewToolTestAttachment(item)}
                                     >
                                       {fileName}
                                     </Tag>
@@ -1792,7 +1843,14 @@ function AgentSettings() {
                       title="图片拼接结果"
                       footer={null}
                       width={900}
-                      onCancel={() => setToolTestPreview('')}
+                      onCancel={() => {
+                        setToolTestPreview((current) => {
+                          if (current?.startsWith('blob:')) {
+                            window.URL.revokeObjectURL(current)
+                          }
+                          return ''
+                        })
+                      }}
                     >
                       {toolTestPreview ? (
                         <img

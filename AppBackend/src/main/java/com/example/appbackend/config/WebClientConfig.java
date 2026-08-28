@@ -13,7 +13,7 @@ public class WebClientConfig {
      */
     @Bean
     public WebClient.Builder webClientBuilder(
-            @Value("${ai.python.max-in-memory-bytes:16777216}") int maxInMemoryBytes) {
+            @Value("${ai.python.max-in-memory-bytes:52428800}") int maxInMemoryBytes) {
         return WebClient.builder()
                 .codecs(configurer -> configurer.defaultCodecs().maxInMemorySize(maxInMemoryBytes));
     }

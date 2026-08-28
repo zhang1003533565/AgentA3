@@ -1,5 +1,4 @@
 import json
-import json
 import logging
 import inspect
 import os
@@ -79,6 +78,11 @@ def load_agent_prompt(agent_name: str) -> str:
 
 
 def build_agent_user_prompt(agent_name: str, input_text: str, evidence: List[Dict[str, Any]]) -> str:
+    # Vision calls must keep markdown/data-url images in the raw user text. Wrapping
+    # them in JSON strips images from user_input and makes VL models claim no image
+    # was provided even when image_url blocks are attached separately.
+    if agent_name == "vision_agent":
+        return input_text or "请识别用户上传的图片并回答相关问题。"
     return json.dumps({
         "agent_name": agent_name,
         "user_input": input_text or "",
@@ -380,6 +384,32 @@ def stream_agent(
         build_agent_user_prompt(agent_name, input_text, evidence),
         get_active_reasoning_effort(),
     )
+
+
+def complete_vision_agent_or_raise(
+    agent_name: str,
+    user_text: str,
+    image_urls: List[str],
+    model_provider: Optional[ChatModelProvider] = None,
+) -> str:
+    if not image_urls:
+        raise HTTPException(status_code=400, detail=f"{agent_name} 没有收到可识别的图片")
+    provider = get_agent_model(model_provider)
+    if not hasattr(provider, "complete_vision"):
+        raise HTTPException(status_code=500, detail=f"{agent_name} 当前模型服务商不支持视觉理解调用")
+    system_prompt = load_agent_prompt(agent_name)
+    answer = (
+        provider.complete_vision(
+            system_prompt,
+            user_text,
+            image_urls,
+            reasoning_effort="none",
+        )
+        or ""
+    ).strip()
+    if not answer:
+        raise HTTPException(status_code=502, detail=f"{agent_name} LLM 返回内容为空，已禁止本地模板兜底")
+    return answer
 
 
 def complete_agent_or_raise(

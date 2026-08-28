@@ -1,26 +1,18 @@
 const assert = require('node:assert/strict')
-const { readFileSync, existsSync } = require('node:fs')
+const { existsSync } = require('node:fs')
 const { join } = require('node:path')
+const { pathToFileURL } = require('node:url')
 const test = require('node:test')
-const vm = require('node:vm')
 
-const mapApiSource = readFileSync(join(__dirname, '../../api/map.js'), 'utf8')
-const mapPageSource = readFileSync(join(__dirname, 'map.vue'), 'utf8')
+const mapPageSource = require('node:fs').readFileSync(join(__dirname, 'map.vue'), 'utf8')
 
-function loadMapApiModule() {
-  const transformed = mapApiSource
-    .replace(/import\s+\{[^}]+\}\s+from\s+'@\/utils\/request'\s*/, '')
-    .replace(/export\s+const\s+/g, 'const ')
-    .replace(/export\s+function/g, 'function')
-  const sandbox = {
-    module: { exports: {} },
-    exports: {},
-    request: () => Promise.resolve({ code: 200, data: [] }),
+// 点位纯函数已抽取为无依赖 ESM 模块，这里直接按真实模块加载（不再用 vm 执行源码字符串）
+let coreModulePromise
+function loadMapApiCore() {
+  if (!coreModulePromise) {
+    coreModulePromise = import(pathToFileURL(join(__dirname, '../../utils/mapPlaceCore.js')).href)
   }
-  sandbox.module.exports = sandbox.exports
-  const script = `${transformed}\nmodule.exports = { toMapPlaceMarker, compactParams, formatFloorTabLabel, isBuildingPlaceType };`
-  vm.runInNewContext(script, sandbox, { filename: 'map.js' })
-  return sandbox.module.exports
+  return coreModulePromise
 }
 
 test('native pin icons exist for map markers', () => {
@@ -57,8 +49,8 @@ test('initializeMap shows all places first without forcing user location jump', 
   assert.match(mapPageSource, /selectedFacilityTypes:\s*\[\]/)
 })
 
-test('toMapPlaceMarker keeps MapPlaceResponse fields and legacy aliases', () => {
-  const { toMapPlaceMarker } = loadMapApiModule()
+test('toMapPlaceMarker keeps MapPlaceResponse fields and legacy aliases', async () => {
+  const { toMapPlaceMarker } = await loadMapApiCore()
   const marker = toMapPlaceMarker({
     id: 2,
     parentId: null,
@@ -86,8 +78,8 @@ test('toMapPlaceMarker keeps MapPlaceResponse fields and legacy aliases', () => 
   assert.equal(marker.sceneType, 'OTHER')
 })
 
-test('toMapPlaceMarker keeps children floorPlan and indoorPosition from detail', () => {
-  const { toMapPlaceMarker, formatFloorTabLabel, isBuildingPlaceType } = loadMapApiModule()
+test('toMapPlaceMarker keeps children floorPlan and indoorPosition from detail', async () => {
+  const { toMapPlaceMarker, formatFloorTabLabel, isBuildingPlaceType } = await loadMapApiCore()
   const marker = toMapPlaceMarker({
     id: 10,
     parentId: null,
@@ -130,8 +122,8 @@ test('toMapPlaceMarker keeps children floorPlan and indoorPosition from detail',
   assert.equal(isBuildingPlaceType('LANDSCAPE'), false)
 })
 
-test('compactParams drops undefined keyword that would empty map-places', () => {
-  const { compactParams } = loadMapApiModule()
+test('compactParams drops undefined keyword that would empty map-places', async () => {
+  const { compactParams } = await loadMapApiCore()
   assert.equal(
     JSON.stringify(compactParams({ keyword: undefined, status: 'ENABLED' })),
     JSON.stringify({ status: 'ENABLED' })

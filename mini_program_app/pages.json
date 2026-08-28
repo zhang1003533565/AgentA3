@@ -617,6 +617,24 @@
 					}
 				},
 				{
+					"path": "goalDecompose/goalDecompose",
+					"style": {
+						"navigationBarTitleText": "学习计划拆解",
+						"navigationStyle": "custom",
+						"navigationBarBackgroundColor": "#FFFFFF",
+						"navigationBarTextStyle": "black"
+					}
+				},
+				{
+					"path": "goalPlanList/goalPlanList",
+					"style": {
+						"navigationBarTitleText": "我的学习计划",
+						"navigationStyle": "custom",
+						"navigationBarBackgroundColor": "#FFFFFF",
+						"navigationBarTextStyle": "black"
+					}
+				},
+				{
 					"path": "smartWriting/smartWriting",
 					"style": {
 						"navigationBarTitleText": "",

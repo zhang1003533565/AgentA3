@@ -75,6 +75,14 @@ class RagApiRoutesTest(unittest.TestCase):
             }
             for item in ({"name": name} for name in AGENT_ORDER)
         }
+        self.agent_model_configs["vision_agent"] = {
+            "configPrefix": "ai.agent.vision_agent",
+            "provider": "qwen",
+            "baseUrl": "https://llm.test/v1",
+            "apiKey": "test-key",
+            "model": "qwen3-vl-plus",
+            "tested": True,
+        }
         self._patched_modules = []
         self._patched_image_modules = []
         self._patch_model_providers()
@@ -366,6 +374,35 @@ class RagApiRoutesTest(unittest.TestCase):
         self.assertEqual(["tool_call"], [item["stage"] for item in payload["trace"]])
         self.assertEqual("direct_tool_test", payload["metadata"]["executionMode"])
         self.assertEqual("text_to_txt_tool", payload["metadata"]["executedAgent"])
+
+    def test_admin_image_stitching_tool_runs_directly_without_leader_route(self):
+        tiny_png = (
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+        )
+        response = self.client.post(
+            "/internal/rag/query",
+            headers=self.headers,
+            json={
+                "input": "请将我上传的图片按照上传顺序拼接成一张图片。",
+                "agentName": "leader_agent",
+                "imageDataUrls": [
+                    f"data:image/png;base64,{tiny_png}",
+                    f"data:image/png;base64,{tiny_png}",
+                ],
+                "metadata": {
+                    "testFrom": "admin_tool_console",
+                    "directToolTest": True,
+                    "expectedToolName": "image_stitching_tool",
+                },
+            },
+        )
+
+        self.assertEqual(200, response.status_code)
+        payload = response.json()
+        self.assertEqual("direct_tool_test", payload["metadata"]["executionMode"])
+        self.assertEqual("image_stitching_tool", payload["metadata"]["executedAgent"])
+        self.assertNotIn("leader_route", [item["stage"] for item in payload["trace"]])
+        self.assertEqual(1, len(payload["attachments"]))
 
     def test_free_text_word_export_skips_clarification_message_and_uses_previous_substantive_candidate(self):
         response = self.client.post(
@@ -1616,6 +1653,11 @@ def _fake_question_payload(question_type):
 
 
 class FakeRagModelProvider:
+    def complete_vision(self, system_prompt, user_text, image_urls, reasoning_effort=None):
+        if image_urls:
+            return "图中是一张测试截图，可见主体清晰。"
+        return "未收到图片"
+
     def complete(self, system_prompt, user_prompt, reasoning_effort=None):
         if "系统接口返回的数据" in system_prompt:
             payload = json.loads(user_prompt)

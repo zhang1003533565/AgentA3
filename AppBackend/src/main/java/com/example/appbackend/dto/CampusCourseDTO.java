@@ -37,7 +37,7 @@ public final class CampusCourseDTO {
         private String summary;
         private String content;
         private String qaJson;
-        @Min(1)
+        @Min(0)
         @Max(100000)
         private Integer estimatedMinutes;
         private Boolean required = true;

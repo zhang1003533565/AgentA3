@@ -16,13 +16,21 @@ def _outline_markdown(page_count=5):
         "",
     ]
     for index in range(1, page_count + 1):
+        page_type = "封面页" if index == 1 else ("总结页" if index == page_count else "内容页")
+        title = "数据结构" if index == 1 else ("总结与下一步" if index == page_count else f"第{index}页")
         lines.extend([
             f"### 第{index}页",
-            f"- 页标题：第{index}页",
-            "- 页面类型：内容页",
+            f"- 页标题：{title}",
+            f"- 大纲层级：{'章节' if index in (1, page_count) else '小节'}",
+            f"- 页面类型：{page_type}",
             "- 本页目标：理解本页重点",
             "- 核心内容：",
-            f"  - 要点{index}",
+            f"  - 要点{index}一",
+            f"  - 要点{index}二",
+            f"  - 要点{index}三",
+            "- 页面节点：",
+            f"  - 节点1：要点{index}一｜说明第一个信息单元",
+            f"  - 节点2：要点{index}二｜说明第二个信息单元",
             "- 展示建议：突出核心信息",
             "- 素材建议：简洁配图",
             "",

@@ -48,6 +48,7 @@ public class PythonAiProxyService {
     private static final Logger log = LoggerFactory.getLogger(PythonAiProxyService.class);
     private static final String DEFAULT_AGENT_NAME = "leader_agent";
     private static final String ARCHITECTURE_AGENT_NAME = "diagram_architecture_agent";
+    private static final String GOAL_DECOMPOSITION_AGENT_NAME = "goal_decomposition_agent";
     private static final String CODING_TUTOR_AGENT_NAME = "python_coding_tutor_agent";
     private static final String GENERATOR_AGENT_NAME = "python_problem_generator_agent";
     private static final String RESUME_POLISH_EXPAND_AGENT_NAME = "resume_polish_expand_agent";
@@ -299,13 +300,13 @@ public class PythonAiProxyService {
 
     public Object queryRag(Map<String, Object> request, String authorization) {
         String requestedModel = resolveRequestedModel(request);
-        boolean localImageStitchingRequest = isLocalImageStitchingRequest(request);
-        if (!localImageStitchingRequest && !StringUtils.hasText(requestedModel)) {
+        boolean modelOptional = isModelOptionalRagQuery(request);
+        if (!modelOptional && !StringUtils.hasText(requestedModel)) {
             throw new BusinessException(Result.ERROR_CODE, "请选择已测试成功的模型后再执行智能体");
         }
         Map<String, Object> sanitized = sanitizeRagRequest(withAgentToggles(request));
         return postRagObject("/internal/rag/query", sanitized, authorization,
-                localImageStitchingRequest ? null : requestedModel);
+                modelOptional ? null : requestedModel);
     }
 
     /**
@@ -572,8 +573,8 @@ public class PythonAiProxyService {
                                 String authorization,
                                 SseEventHandler eventHandler) {
         String requestedModel = resolveRequestedModel(request);
-        boolean localImageStitchingRequest = isLocalImageStitchingRequest(request);
-        if (!localImageStitchingRequest && !StringUtils.hasText(requestedModel)) {
+        boolean modelOptional = isModelOptionalRagQuery(request);
+        if (!modelOptional && !StringUtils.hasText(requestedModel)) {
             throw new BusinessException(Result.ERROR_CODE, "请选择已测试成功的模型后再执行智能体");
         }
         Map<String, Object> sanitized = sanitizeRagRequest(withAgentToggles(request));
@@ -581,9 +582,32 @@ public class PythonAiProxyService {
                 "/internal/rag/query/stream",
                 sanitized,
                 authorization,
-                localImageStitchingRequest ? null : requestedModel,
+                modelOptional ? null : requestedModel,
                 eventHandler
         );
+    }
+
+    private boolean isAdminDirectToolTest(Map<String, Object> request) {
+        if (request == null) {
+            return false;
+        }
+        Object rawMetadata = request.get("metadata");
+        if (!(rawMetadata instanceof Map<?, ?> metadata)) {
+            return false;
+        }
+        return "admin_tool_console".equals(String.valueOf(metadata.get("testFrom")))
+                && Boolean.TRUE.equals(metadata.get("directToolTest"));
+    }
+
+    private boolean isModelOptionalRagQuery(Map<String, Object> request) {
+        if (isAdminDirectToolTest(request)) {
+            Object rawMetadata = request.get("metadata");
+            if (rawMetadata instanceof Map<?, ?> metadata
+                    && "image_stitching_tool".equals(String.valueOf(metadata.get("expectedToolName")))) {
+                return true;
+            }
+        }
+        return isLocalImageStitchingRequest(request);
     }
 
     private boolean isLocalImageStitchingRequest(Map<String, Object> request) {
@@ -592,9 +616,12 @@ public class PythonAiProxyService {
         }
         Object rawMetadata = request.get("metadata");
         if (rawMetadata instanceof Map<?, ?> metadata
-                && "admin_agent_console".equals(String.valueOf(metadata.get("testFrom")))
                 && "image_stitching_tool".equals(String.valueOf(metadata.get("expectedToolName")))) {
-            return true;
+            String testFrom = String.valueOf(metadata.get("testFrom"));
+            if ("admin_agent_console".equals(testFrom)
+                    || ("admin_tool_console".equals(testFrom) && Boolean.TRUE.equals(metadata.get("directToolTest")))) {
+                return true;
+            }
         }
         for (String field : List.of("imageDataUrls", "images", "imageUrls")) {
             Object rawImages = request.get(field);
@@ -1004,6 +1031,40 @@ public class PythonAiProxyService {
         }
     }
 
+    /**
+     * 调用 Python 学习计划拆解服务，返回 { goal, tasks } 纯 JSON。
+     * 模型优先级：ai.agent-bindings.goal_decomposition_agent.model -> 默认智能体绑定 -> 文本模型配置。
+     */
+    public Object generateGoalDecomposition(Map<String, Object> request, String authorization) {
+        validateAuthorization(authorization);
+        String token = normalizeBearerToken(authorization);
+        Long userId = extractUserId(token);
+        String requestedModel = resolveTextModelConfigPrefix(GOAL_DECOMPOSITION_AGENT_NAME);
+        if (!StringUtils.hasText(requestedModel)) {
+            throw new BusinessException(
+                    Result.ERROR_CODE,
+                    "AI 文本模型未配置，请在系统配置中维护 ai.service.text.* 或 ai.agent-bindings."
+                            + GOAL_DECOMPOSITION_AGENT_NAME + ".model"
+            );
+        }
+        try {
+            return webClientBuilder.build()
+                    .post()
+                    .uri(buildUri("/internal/goal-decomposition/decompose"))
+                    .headers(headers -> applyPythonHeaders(headers, authorization, userId, requestedModel))
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .bodyValue(request == null ? Map.of() : request)
+                    .retrieve()
+                    .bodyToMono(Object.class)
+                    .timeout(Duration.ofSeconds(timeoutSeconds))
+                    .block();
+        } catch (WebClientResponseException e) {
+            throw new BusinessException(Result.ERROR_CODE, "Python 目标拆解服务调用失败: " + extractRemoteMessage(e));
+        } catch (Exception e) {
+            throw new BusinessException(Result.ERROR_CODE, "Python 目标拆解服务调用失败: " + e.getMessage());
+        }
+    }
+
     public Object getVideoTask(String taskId, String authorization) {
         return getVideoObject("/internal/videos/tasks/" + taskId, authorization);
     }
@@ -1190,7 +1251,10 @@ public class PythonAiProxyService {
         String token = normalizeBearerToken(authorization);
         Long userId = extractUserId(token);
         try {
-            return webClientBuilder.build()
+            WebClient client = path != null && path.startsWith("/internal/rag/query")
+                    ? buildFileResponseWebClient()
+                    : webClientBuilder.build();
+            return client
                     .post()
                     .uri(buildUri(path))
                     .headers(headers -> {
@@ -1208,6 +1272,9 @@ public class PythonAiProxyService {
         } catch (WebClientResponseException e) {
             throw new BusinessException(Result.ERROR_CODE, "Python AI 服务调用失败: " + extractRemoteMessage(e));
         } catch (Exception e) {
+            if (hasCause(e, DataBufferLimitException.class)) {
+                throw new BusinessException(413, "AI 响应体超过允许大小，请减少测试图片数量或尺寸后重试");
+            }
             throw new BusinessException(Result.ERROR_CODE, "Python AI 服务调用失败: " + e.getMessage());
         }
     }
@@ -1358,7 +1425,7 @@ public class PythonAiProxyService {
         ExchangeStrategies strategies = ExchangeStrategies.builder()
                 .codecs(configurer -> configurer.defaultCodecs().maxInMemorySize(fileResponseMaxInMemoryBytes))
                 .build();
-        return webClientBuilder.clone()
+        return WebClient.builder()
                 .exchangeStrategies(strategies)
                 .build();
     }
@@ -1476,8 +1543,12 @@ public class PythonAiProxyService {
     }
 
     private String resolveArchitectureModelConfigPrefix() {
+        return resolveTextModelConfigPrefix(ARCHITECTURE_AGENT_NAME);
+    }
+
+    private String resolveTextModelConfigPrefix(String agentName) {
         return firstText(
-                resolveAgentBoundModel(ARCHITECTURE_AGENT_NAME),
+                resolveAgentBoundModel(agentName),
                 resolveAgentBoundModel(DEFAULT_AGENT_NAME),
                 firstTestedTextConfigPrefix(),
                 firstCompleteTextConfigPrefix(),
