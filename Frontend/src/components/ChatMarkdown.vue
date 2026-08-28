@@ -1,6 +1,17 @@
 <script setup>
 import { computed, nextTick, onMounted, onUpdated, ref, watch } from 'vue'
 import { marked } from 'marked'
+import hljs from 'highlight.js/lib/common'
+import dart from 'highlight.js/lib/languages/dart'
+import dockerfile from 'highlight.js/lib/languages/dockerfile'
+import powershell from 'highlight.js/lib/languages/powershell'
+import scala from 'highlight.js/lib/languages/scala'
+import 'highlight.js/styles/atom-one-dark.min.css'
+
+hljs.registerLanguage('dart', dart)
+hljs.registerLanguage('dockerfile', dockerfile)
+hljs.registerLanguage('powershell', powershell)
+hljs.registerLanguage('scala', scala)
 
 const props = defineProps({
   content: { type: String, default: '' },
@@ -8,6 +19,84 @@ const props = defineProps({
 })
 
 const rootRef = ref(null)
+
+const LANGUAGE_ALIASES = {
+  js: 'javascript',
+  ts: 'typescript',
+  tsx: 'typescript',
+  jsx: 'javascript',
+  py: 'python',
+  sh: 'bash',
+  shell: 'bash',
+  zsh: 'bash',
+  yml: 'yaml',
+  md: 'markdown',
+  'c++': 'cpp',
+  cc: 'cpp',
+  hpp: 'cpp',
+  cs: 'csharp',
+  'c#': 'csharp',
+  golang: 'go',
+  rs: 'rust',
+  kt: 'kotlin',
+  kts: 'kotlin',
+  rb: 'ruby',
+  ps1: 'powershell',
+  pwsh: 'powershell',
+  docker: 'dockerfile',
+  vue: 'xml',
+  html: 'xml',
+  htm: 'xml',
+  text: 'plaintext',
+  txt: 'plaintext',
+  plain: 'plaintext',
+  objc: 'objectivec',
+  'objective-c': 'objectivec',
+  vb: 'vbnet',
+  gql: 'graphql',
+  mysql: 'sql',
+  postgres: 'sql',
+  postgresql: 'sql',
+  plpgsql: 'sql',
+}
+
+const AUTO_DETECT_LANGUAGES = [
+  'java', 'javascript', 'typescript', 'python', 'go', 'rust', 'cpp', 'c', 'csharp',
+  'kotlin', 'swift', 'php', 'ruby', 'sql', 'bash', 'shell', 'json', 'yaml', 'xml',
+  'css', 'scss', 'markdown', 'dart', 'scala', 'powershell', 'dockerfile', 'lua',
+  'perl', 'r', 'wasm', 'graphql', 'objectivec', 'vbnet',
+]
+
+function normalizeLanguage(lang) {
+  const raw = String(lang || '').trim().toLowerCase()
+  if (!raw) return 'plaintext'
+  return LANGUAGE_ALIASES[raw] || raw
+}
+
+function formatLanguageLabel(language) {
+  const normalized = normalizeLanguage(language)
+  if (normalized === 'plaintext') return 'TEXT'
+  return normalized.replace(/-/g, ' ').toUpperCase()
+}
+
+function highlightCode(text, lang) {
+  const language = normalizeLanguage(lang)
+  if (language !== 'plaintext' && hljs.getLanguage(language)) {
+    try {
+      return {
+        html: hljs.highlight(text, { language, ignoreIllegals: true }).value,
+        language,
+      }
+    } catch {
+      // fall through to auto-detect
+    }
+  }
+  const auto = hljs.highlightAuto(text, AUTO_DETECT_LANGUAGES)
+  return {
+    html: auto.value,
+    language: auto.language || 'plaintext',
+  }
+}
 
 function escapeHtml(value) {
   return String(value || '')
@@ -20,14 +109,16 @@ function escapeHtml(value) {
 const renderer = new marked.Renderer()
 
 renderer.code = function renderCode({ text, lang }) {
-  const language = String(lang || 'text').trim() || 'text'
-  const encoded = encodeURIComponent(text || '')
+  const source = text || ''
+  const { html: highlighted, language } = highlightCode(source, lang)
+  const displayLang = formatLanguageLabel(language)
+  const encoded = encodeURIComponent(source)
   return `<div class="code-canvas">
     <div class="code-canvas-header">
-      <span class="code-canvas-lang">${escapeHtml(language)}</span>
+      <span class="code-canvas-lang">${escapeHtml(displayLang)}</span>
       <button type="button" class="code-canvas-copy" data-copy="${encoded}" aria-label="复制代码">复制</button>
     </div>
-    <pre class="code-canvas-body"><code>${escapeHtml(text || '')}</code></pre>
+    <pre class="code-canvas-body"><code class="hljs language-${escapeHtml(language)}">${highlighted}</code></pre>
   </div>`
 }
 
@@ -251,6 +342,12 @@ watch(() => props.content, refreshBindings)
 .chat-markdown :deep(.code-canvas-body code) {
   font: inherit;
   color: inherit;
+  background: transparent;
+}
+
+.chat-markdown :deep(.code-canvas-body .hljs) {
+  padding: 0;
+  color: #dce8f4;
   background: transparent;
 }
 

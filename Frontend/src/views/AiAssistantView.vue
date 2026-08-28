@@ -588,12 +588,57 @@ function looksLikeImageResultJson(content) {
   }
 }
 
+function unwrapJsonAnswer(content) {
+  const text = String(content || '').trim()
+  if (!text.startsWith('{')) return text
+  try {
+    const payload = JSON.parse(text)
+    if (typeof payload?.answer === 'string' && payload.answer.trim()) {
+      return payload.answer.trim()
+    }
+  } catch {
+    // keep original text
+  }
+  return text
+}
+
+function autoFenceCodeBlocks(content) {
+  const text = String(content || '').trim()
+  if (!text || text.includes('```')) return text
+
+  const patterns = [
+    { lang: 'java', re: /^\s*(public\s+class|import\s+java|package\s+\w)/m },
+    { lang: 'python', re: /^\s*(def\s+\w|import\s+\w|from\s+\w+\s+import)/m },
+    { lang: 'javascript', re: /^\s*(function\s+\w|const\s+\w+\s*=|export\s+(default\s+)?(function|class|const))/m },
+    { lang: 'typescript', re: /^\s*(interface\s+\w|type\s+\w+\s*=|export\s+type)/m },
+    { lang: 'go', re: /^\s*(package\s+\w|func\s+\w)/m },
+    { lang: 'rust', re: /^\s*(fn\s+\w|use\s+\w|pub\s+fn)/m },
+    { lang: 'cpp', re: /^\s*(#include\s*<|int\s+main\s*\()/m },
+    { lang: 'csharp', re: /^\s*(using\s+System|namespace\s+\w)/m },
+    { lang: 'kotlin', re: /^\s*(fun\s+\w|class\s+\w|import\s+kotlin)/m },
+    { lang: 'swift', re: /^\s*(import\s+Foundation|func\s+\w|class\s+\w)/m },
+    { lang: 'sql', re: /^\s*(SELECT|INSERT|UPDATE|DELETE|CREATE\s+TABLE)\b/im },
+    { lang: 'bash', re: /^\s*(#!\/bin\/|echo\s+|npm\s+|git\s+)/m },
+    { lang: 'json', re: /^\s*[\[{]/m },
+    { lang: 'yaml', re: /^\s*[\w-]+:\s/m },
+  ]
+
+  for (const { lang, re } of patterns) {
+    if (re.test(text)) {
+      return `\`\`\`${lang}\n${text}\n\`\`\``
+    }
+  }
+  return text
+}
+
 function displayAssistantContent(message) {
-  const content = String(message?.content || '').trim()
+  let content = String(message?.content || '').trim()
   if (!content) return ''
   if (message?.answerType === 'image_generation' && looksLikeImageResultJson(content)) {
     return '已根据你的需求生成图片，请查看下方预览。'
   }
+  content = unwrapJsonAnswer(content)
+  content = autoFenceCodeBlocks(content)
   return content
 }
 
