@@ -3,6 +3,7 @@ import base64
 import builtins
 import hashlib
 import hmac
+import io
 import json
 import mimetypes
 import os
@@ -20,6 +21,7 @@ from typing import Any, BinaryIO, Dict, List, Mapping, Optional, Set
 from xml.sax.saxutils import escape
 
 from docx import Document
+from docx.shared import Inches
 from pptx import Presentation
 from pptx.util import Pt
 
@@ -1086,7 +1088,7 @@ def _export_markdown_content(content: str, metadata: Dict[str, Any]) -> Generate
         paths.append(path)
         attachments.append(_attachment_for_file(path, MARKDOWN_EXPORT_TOOL_NAME, "Markdown", title))
     if _wants_export_format(metadata, "docx") and _is_export_tool_enabled(metadata, DOCX_EXPORT_TOOL_NAME):
-        path = _write_markdown_docx(slug, title, content)
+        path = _write_markdown_docx(slug, title, content, metadata.get("embeddedImageBytes"))
         paths.append(path)
         attachments.append(_attachment_for_file(path, DOCX_EXPORT_TOOL_NAME, "Word 文档", title))
     if rows and _wants_export_format(metadata, "xlsx") and _is_export_tool_enabled(metadata, EXCEL_EXPORT_TOOL_NAME):
@@ -1168,7 +1170,12 @@ def _write_text_docx(slug: str, title: str, content: str) -> Path:
     return path
 
 
-def _write_markdown_docx(slug: str, title: str, content: str) -> Path:
+def _write_markdown_docx(
+    slug: str,
+    title: str,
+    content: str,
+    embedded_image_bytes: Optional[List[bytes]] = None,
+) -> Path:
     path = _new_export_path(slug, "docx")
     doc = Document()
     doc.add_heading(title or "知识整理", level=1)
@@ -1197,6 +1204,14 @@ def _write_markdown_docx(slug: str, title: str, content: str) -> Path:
             doc.add_paragraph(_clean_inline_markdown(re.sub(r"^\d+[.)]\s+", "", stripped)), style="List Number")
             continue
         doc.add_paragraph(_clean_inline_markdown(stripped))
+    valid_images = [payload for payload in (embedded_image_bytes or []) if isinstance(payload, bytes) and payload]
+    if valid_images:
+        doc.add_heading("相关配图", level=2)
+        for payload in valid_images[:5]:
+            try:
+                doc.add_picture(io.BytesIO(payload), width=Inches(6.2))
+            except (ValueError, TypeError, OSError):
+                continue
     _atomic_write_payload(path, doc.save)
     return path
 

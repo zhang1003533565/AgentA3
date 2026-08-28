@@ -116,6 +116,16 @@ const workflowStageLabels = {
   tool_result_summary: '工具结果汇总', prompt_agent: '内容格式整理智能体', vision_agent: '图片识别智能体',
   image_generation_tool: '图片生成工具', agent_answer: '智能体生成结果', direct_agent: '专业智能体处理',
   generate_sql: '生成查询语句', retrieval: '检索相关资料', generation_start: '开始生成内容', completed: '处理完成',
+  input_pipeline: '附件输入预处理', input_image_collected: '收集上传图片',
+  input_attachment_skipped: '跳过不可读取附件', file_content_extraction: '文件内容提取工具',
+  file_content_extraction_skipped: '跳过文件内容提取', file_content_extraction_failed: '文件内容提取失败',
+  image_grouping: '图片分组', image_stitching_tool: '图片拼接工具',
+  image_stitching_skipped: '单张图片直接识别', multimodal_context_merged: '多模态内容汇总',
+}
+
+const workflowTriggerLabels = {
+  system: '系统自动触发', leader: 'Leader 协调触发', rule_direct: '规则直接触发',
+  workflow_dependency: '工作流依赖触发',
 }
 
 function workflowDetailText(detail, fallback = '') {
@@ -135,7 +145,7 @@ function normalizeWorkflowStep(entry, index, status = 'completed') {
     stage,
     title: workflowStageLabels[stage] || toolName || agentName || '执行处理',
     description: workflowDetailText(entry?.detail, entry?.message || ''),
-    meta: [toolName, agentName, intent && `意图：${intent}`].filter(Boolean),
+    meta: [workflowTriggerLabels[detail?.triggerType], toolName, agentName, intent && `意图：${intent}`].filter(Boolean),
     status,
   }
 }
@@ -388,11 +398,24 @@ function resourceEntry(file) {
   }
 }
 
+function fileContentBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(String(reader.result || '').split(',', 2)[1] || '')
+    reader.onerror = () => reject(new Error(`读取文件失败：${file.name}`))
+    reader.readAsDataURL(file)
+  })
+}
+
 async function uploadEntry(entry) {
   entry.status = 'uploading'
   entry.error = ''
   try {
-    entry.resource = await uploadAiResource(entry.file)
+    const [resource, contentBase64] = await Promise.all([
+      uploadAiResource(entry.file),
+      fileContentBase64(entry.file),
+    ])
+    entry.resource = { ...resource, contentBase64 }
     entry.status = 'success'
   } catch (cause) {
     entry.status = 'error'
@@ -583,7 +606,9 @@ async function sendMessage(text) {
         streamTouched = true
         syncConversationSession(requestConversationId, payload?.sessionId)
         const current = messages.value.find((item) => item.id === assistantMessageId)
-        if (eventName === 'generation_start') {
+        if (eventName === 'workflow_step') {
+          appendWorkflowStep(assistantMessageId, payload)
+        } else if (eventName === 'generation_start') {
           appendWorkflowStep(assistantMessageId, { stage: 'generation_start', message: payload?.answer || '已进入内容生成阶段' })
           updateChatMessage(assistantMessageId, {
             content: payload?.answer || current?.content || '',

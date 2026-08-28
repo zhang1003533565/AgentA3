@@ -49,6 +49,18 @@ const FILE_CONTENT_TOOL_ACCEPT = {
 }
 const isFileContentTool = (tool) => FILE_CONTENT_TOOL_NAMES.has(tool?.name)
 
+const TOOL_TRIGGER_TYPE_VIEW = {
+  system: { label: '系统主动触发', color: 'blue' },
+  leader: { label: 'Leader 协调', color: 'purple' },
+  rule_direct: { label: '规则直调', color: 'cyan' },
+  workflow_dependency: { label: '工作流依赖', color: 'gold' },
+}
+
+const renderToolTriggerType = (value) => {
+  const view = TOOL_TRIGGER_TYPE_VIEW[value] || { label: value || 'Leader 协调', color: 'default' }
+  return <Tag color={view.color}>{view.label}</Tag>
+}
+
 const TOOL_TEST_PROMPTS = {
   recognize_image_tool: '请识别我上传的图片，概括主要内容并读取其中清晰可见的文字。',
   generate_image_tool: '请生成一张简洁的智慧校园首页插图，浅色背景，蓝灰色调，不包含文字。',
@@ -1045,6 +1057,12 @@ function AgentSettings() {
       render: renderOutputs,
     },
     {
+      title: '调度类型',
+      dataIndex: 'triggerType',
+      width: 130,
+      render: renderToolTriggerType,
+    },
+    {
       title: '绑定智能体',
       dataIndex: 'boundAgent',
       width: 330,
@@ -1202,6 +1220,12 @@ function AgentSettings() {
       dataIndex: 'outputs',
       width: 130,
       render: renderOutputs,
+    },
+    {
+      title: '调度类型',
+      dataIndex: 'triggerType',
+      width: 130,
+      render: renderToolTriggerType,
     },
     {
       title: '绑定智能体',

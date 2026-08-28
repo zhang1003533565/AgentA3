@@ -42,7 +42,7 @@ from app.multi_agents.runner import run_specialist_agent
 from app.multi_agents.textbook_knowledge_agent import resolve_knowledge_source_mode
 from app.multi_agents.tool_intent_router_agent import TOOL_INTENT_ROUTER_TOOL, tool_intent_router_agent
 from app.services.tool_index import tool_index
-from app.services.image_stitching import ImageStitchingError, collect_stitch_images, stitch_images
+from app.services.image_stitching import ImageStitchingError, StitchImage, collect_stitch_images, stitch_images
 from app.services.file_format_registry import get_detectable_extensions, get_file_format_registry, get_output_aliases, resolve_file_format
 from app.learning_workflow import (
     LearningWorkflowRequest,
@@ -820,13 +820,43 @@ def list_rag_agents(
 ) -> Dict[str, Any]:
     _require_authorization(authorization)
     catalog = get_agent_catalog()
-    catalog["leaderTools"] = LEADER_CALLABLE_TOOLS
-    catalog["serviceTools"] = CAMPUS_SERVICE_TOOLS
+    catalog["leaderTools"] = [_annotate_tool_trigger(tool) for tool in LEADER_CALLABLE_TOOLS]
+    catalog["serviceTools"] = [_annotate_tool_trigger(tool) for tool in CAMPUS_SERVICE_TOOLS]
     catalog["leaderCallableCatalog"] = _build_leader_callable_catalog()
-    catalog["generatedTools"] = GENERATED_CONTENT_TOOLS
+    catalog["generatedTools"] = [_annotate_tool_trigger(tool) for tool in GENERATED_CONTENT_TOOLS]
     catalog["internalTools"] = [TOOL_INTENT_ROUTER_TOOL]
     catalog["fileFormats"] = get_file_format_registry()
     return catalog
+
+
+_SYSTEM_TRIGGER_TOOLS = frozenset({
+    IMAGE_RECOGNITION_TOOL_NAME,
+    IMAGE_STITCHING_TOOL["name"],
+    *[tool["name"] for tool in FILE_CONTENT_EXTRACTION_TOOLS],
+})
+_RULE_DIRECT_TRIGGER_TOOLS = frozenset(TEXT_TO_FILE_TOOL_NAMES)
+_WORKFLOW_DEPENDENCY_TOOLS = frozenset({
+    "markdown_export_tool", "docx_export_tool", "excel_export_tool", "pptx_export_tool",
+    "content_archive_tool", "diagram_source_export_tool",
+})
+
+
+def _annotate_tool_trigger(tool: Dict[str, Any]) -> Dict[str, Any]:
+    item = dict(tool or {})
+    name = str(item.get("name") or "").strip()
+    if item.get("invocation") == "unwired":
+        trigger_type, stage = "unwired", "unwired"
+    elif name in _SYSTEM_TRIGGER_TOOLS:
+        trigger_type, stage = "system", "input_preprocessing"
+    elif name in _RULE_DIRECT_TRIGGER_TOOLS:
+        trigger_type, stage = "rule_direct", "direct_conversion"
+    elif name in _WORKFLOW_DEPENDENCY_TOOLS:
+        trigger_type, stage = "workflow_dependency", "output_materialization"
+    else:
+        trigger_type, stage = "leader", "business_orchestration"
+    item["triggerType"] = trigger_type
+    item["pipelineStage"] = stage
+    return item
 
 
 @router.get("/agents/{agent_name}")
@@ -1035,50 +1065,69 @@ async def run_rag_query_stream(
                 profile_context = _profile_context_from_request(request)
                 callable_catalog = _build_leader_callable_catalog(request)
                 conversation_context = _apply_conversation_context(request, authorization or "")
-                try:
-                    plan = _requested_image_stitching_plan(request)
-                    if plan is None:
-                        plan = _requested_image_recognition_plan(request)
-                    if plan is None:
-                        plan = _requested_file_transform_plan(request)
-                    if plan is None:
-                        plan = await asyncio.to_thread(
-                            leader_agent.plan,
-                            request.input,
-                            "",
-                            profile_context=profile_context,
-                            callable_catalog=callable_catalog,
-                            conversation_context=conversation_context,
-                        )
-                except AgentExecutionError:
-                    raise
-                except Exception as exc:
-                    raise AgentExecutionError(
-                        message="Leader 模型规划调用失败，请检查 Leader 智能体的模型配置。",
-                        agent_name="leader_agent",
-                        stage="leader_plan",
-                        status_code=getattr(exc, "status_code", 500) or 500,
-                        raw_message=_exception_message(exc),
-                        model_provider=getattr(llm_config, "provider", "") or "",
-                        model=getattr(llm_config, "model", "") or "",
-                        base_url=getattr(llm_config, "base_url", "") or "",
-                    ) from exc
-                plan_ms = _elapsed_ms(planning_started_at)
-                if getattr(plan, "action", "") == "call_tool" and getattr(plan, "answer", ""):
+                if _should_run_attachment_input_pipeline(request):
+                    plan_ms = _elapsed_ms(planning_started_at)
                     yield build_sse("tool_start", {
-                        "stage": "tool_start",
-                        "message": plan.answer,
-                        "intent": plan.intent,
-                        "toolName": plan.tool_name,
-                        "toolDisplayName": _tool_display_name(plan.tool_name),
-                        "routeReason": plan.route_reason,
+                        "stage": "input_pipeline",
+                        "message": "正在自动提取文件内容并处理图片。",
+                        "triggerType": "system",
+                        "attachmentCount": len(request.attachments or []),
                     })
-                if _should_emit_generation_start(request, plan.target_agent, plan):
-                    yield build_sse("generation_start", _build_generation_start_payload(request, plan))
-                    generation_started = True
-                execution_started_at = time.perf_counter()
-                response = await asyncio.to_thread(_execute_leader_plan, request, authorization or "", profile_context, plan, callable_catalog)
-                execution_ms = _elapsed_ms(execution_started_at)
+                    execution_started_at = time.perf_counter()
+                    response = await asyncio.to_thread(
+                        _run_attachment_input_pipeline,
+                        request,
+                        authorization or "",
+                        profile_context,
+                        callable_catalog,
+                    )
+                    execution_ms = _elapsed_ms(execution_started_at)
+                else:
+                    try:
+                        plan = _requested_image_stitching_plan(request)
+                        if plan is None:
+                            plan = _requested_image_recognition_plan(request)
+                        if plan is None:
+                            plan = _requested_file_transform_plan(request)
+                        if plan is None:
+                            plan = await asyncio.to_thread(
+                                leader_agent.plan,
+                                request.input,
+                                "",
+                                profile_context=profile_context,
+                                callable_catalog=callable_catalog,
+                                conversation_context=conversation_context,
+                            )
+                    except AgentExecutionError:
+                        raise
+                    except Exception as exc:
+                        raise AgentExecutionError(
+                            message="Leader 模型规划调用失败，请检查 Leader 智能体的模型配置。",
+                            agent_name="leader_agent",
+                            stage="leader_plan",
+                            status_code=getattr(exc, "status_code", 500) or 500,
+                            raw_message=_exception_message(exc),
+                            model_provider=getattr(llm_config, "provider", "") or "",
+                            model=getattr(llm_config, "model", "") or "",
+                            base_url=getattr(llm_config, "base_url", "") or "",
+                        ) from exc
+                    plan_ms = _elapsed_ms(planning_started_at)
+                    if getattr(plan, "action", "") == "call_tool" and getattr(plan, "answer", ""):
+                        yield build_sse("tool_start", {
+                            "stage": "tool_start",
+                            "message": plan.answer,
+                            "intent": plan.intent,
+                            "toolName": plan.tool_name,
+                            "toolDisplayName": _tool_display_name(plan.tool_name),
+                            "routeReason": plan.route_reason,
+                            "triggerType": "leader",
+                        })
+                    if _should_emit_generation_start(request, plan.target_agent, plan):
+                        yield build_sse("generation_start", _build_generation_start_payload(request, plan))
+                        generation_started = True
+                    execution_started_at = time.perf_counter()
+                    response = await asyncio.to_thread(_execute_leader_plan, request, authorization or "", profile_context, plan, callable_catalog)
+                    execution_ms = _elapsed_ms(execution_started_at)
             else:
                 if _should_emit_generation_start(request, active_agent):
                     yield build_sse("generation_start", _build_generation_start_payload(request, None, active_agent))
@@ -1107,6 +1156,10 @@ async def run_rag_query_stream(
             if request_metadata.get("profileContextSource"):
                 metadata["profileContextSource"] = request_metadata.get("profileContextSource")
             session_id = str((request.metadata or {}).get("sessionId") or "")
+            for trace_item in response.trace or []:
+                trace_payload = trace_item.model_dump() if hasattr(trace_item, "model_dump") else trace_item
+                if isinstance(trace_payload, dict):
+                    yield build_sse("workflow_step", trace_payload)
             yield build_sse("session", {
                 "sessionId": session_id,
                 "model": metadata.get("model") or getattr(llm_config, "model", "") or "",
@@ -1778,6 +1831,10 @@ def _run_leader_orchestration(request: RagQueryRequest, authorization: str) -> R
     profile_context = _profile_context_from_request(request)
     callable_catalog = _build_leader_callable_catalog(request)
     conversation_context = _apply_conversation_context(request, authorization)
+    if _should_run_attachment_input_pipeline(request):
+        return _run_attachment_input_pipeline(
+            request, authorization, profile_context, callable_catalog,
+        )
     plan = _requested_image_stitching_plan(request)
     if plan is None:
         plan = _requested_image_recognition_plan(request)
@@ -1953,8 +2010,225 @@ def _requested_file_transform_plan(request: RagQueryRequest) -> Optional[LeaderP
 
 
 def _prepare_request_input(request: RagQueryRequest) -> str:
+    metadata = request.metadata if isinstance(request.metadata, dict) else {}
+    request.metadata = metadata
+    metadata.setdefault("contextOriginalInput", str(request.input or ""))
     with_images = append_image_references_to_text(request.input, collect_request_image_references(request))
     return append_attachment_references_to_text(with_images, request.attachments)
+
+
+_FILE_EXTRACTION_TOOL_BY_EXTENSION = {
+    "md": "markdown_to_text_tool",
+    "markdown": "markdown_to_text_tool",
+    "txt": "txt_to_text_tool",
+    "docx": "word_to_text_tool",
+    "pptx": "ppt_to_text_tool",
+    "pdf": "pdf_to_text_tool",
+}
+_INPUT_PIPELINE_MAX_IMAGES = 80
+_INPUT_PIPELINE_STITCH_GROUP_SIZE = 9
+
+
+def _should_run_attachment_input_pipeline(request: RagQueryRequest) -> bool:
+    metadata = request.metadata if isinstance(request.metadata, dict) else {}
+    return bool(request.attachments) and not metadata.get("testFrom")
+
+
+def _decode_attachment_content(raw: Dict[str, Any]) -> bytes:
+    value = str(raw.get("contentBase64") or "").strip()
+    if not value:
+        return b""
+    try:
+        return base64.b64decode(value, validate=True)
+    except (ValueError, base64.binascii.Error):
+        return b""
+
+
+def _attachment_extension(raw: Dict[str, Any]) -> str:
+    name = str(raw.get("name") or raw.get("fileName") or "").strip()
+    return name.rsplit(".", 1)[-1].lower() if "." in name else ""
+
+
+def _attachment_is_image(raw: Dict[str, Any]) -> bool:
+    mime_type = str(raw.get("mimeType") or raw.get("type") or "").lower()
+    return mime_type.startswith("image/") or _attachment_extension(raw) in {
+        "png", "jpg", "jpeg", "gif", "webp", "bmp", "tif", "tiff",
+    }
+
+
+def _data_url_stitch_image(raw: Dict[str, Any], fallback_name: str) -> Optional[StitchImage]:
+    data_url = str(raw.get("dataUrl") or "")
+    match = re.match(r"^data:(image/[^;,]+);base64,(.+)$", data_url, re.IGNORECASE | re.DOTALL)
+    if not match:
+        return None
+    try:
+        content = base64.b64decode(match.group(2), validate=True)
+    except (ValueError, base64.binascii.Error):
+        return None
+    return StitchImage(content, str(raw.get("name") or fallback_name), match.group(1).lower())
+
+
+def _run_attachment_input_pipeline(
+    request: RagQueryRequest,
+    authorization: str,
+    profile_context: Optional[Dict[str, Any]],
+    callable_catalog: Optional[Dict[str, Any]],
+) -> RagQueryResponse:
+    """Normalize uploaded files/images before Leader performs business routing."""
+    original_input = str((request.metadata or {}).get("contextOriginalInput") or request.input or "").strip()
+    trace: List[RagTraceResponse] = []
+    extracted_blocks: List[str] = []
+    images: List[StitchImage] = []
+
+    for index, raw in enumerate(request.attachments or [], start=1):
+        if not isinstance(raw, dict):
+            continue
+        name = str(raw.get("name") or raw.get("fileName") or f"附件-{index}")
+        content = _decode_attachment_content(raw)
+        if not content:
+            trace.append(RagTraceResponse(stage="input_attachment_skipped", detail={
+                "triggerType": "system", "fileName": name,
+                "reason": "附件缺少可供内部工具读取的文件内容",
+            }))
+            continue
+        if _attachment_is_image(raw):
+            images.append(StitchImage(content, name, str(raw.get("mimeType") or "image/png")))
+            trace.append(RagTraceResponse(stage="input_image_collected", detail={
+                "triggerType": "system", "fileName": name, "imageCount": 1,
+            }))
+            continue
+
+        tool_name = _FILE_EXTRACTION_TOOL_BY_EXTENSION.get(_attachment_extension(raw))
+        if not tool_name:
+            trace.append(RagTraceResponse(stage="file_content_extraction_skipped", detail={
+                "triggerType": "system", "fileName": name, "reason": "当前格式没有文件内容提取工具",
+            }))
+            continue
+        if not _is_tool_enabled(request, tool_name):
+            trace.append(RagTraceResponse(stage="file_content_extraction_skipped", detail={
+                "triggerType": "system", "toolName": tool_name, "fileName": name, "reason": "工具已关闭",
+            }))
+            continue
+        started_at = time.perf_counter()
+        try:
+            result = extract_file_content(tool_name, name, content)
+        except FileContentExtractionError as exc:
+            trace.append(RagTraceResponse(stage="file_content_extraction_failed", detail={
+                "triggerType": "system", "toolName": tool_name, "fileName": name,
+                "reason": str(exc), "durationMs": _elapsed_ms(started_at),
+            }))
+            continue
+        text = str(result.get("text") or "").strip()
+        if text:
+            extracted_blocks.append(f"【文件：{name}】\n{text}")
+        for image_index, image in enumerate(result.get("images") or [], start=1):
+            decoded = _data_url_stitch_image(image, f"{name}-图片-{image_index}")
+            if decoded:
+                images.append(decoded)
+        trace.append(RagTraceResponse(stage="file_content_extraction", detail={
+            "triggerType": "system", "toolName": tool_name, "fileName": name,
+            "mode": result.get("mode"), "textLength": result.get("textLength") or 0,
+            "imageCount": result.get("imageCount") or 0, "durationMs": _elapsed_ms(started_at),
+        }))
+
+    if len(images) > _INPUT_PIPELINE_MAX_IMAGES:
+        raise HTTPException(status_code=413, detail=f"单次最多处理 {_INPUT_PIPELINE_MAX_IMAGES} 张图片，请减少文件页数或附件数量。")
+
+    vision_answer = ""
+    if images:
+        vision_inputs: List[str] = []
+        groups = [images[offset:offset + _INPUT_PIPELINE_STITCH_GROUP_SIZE]
+                  for offset in range(0, len(images), _INPUT_PIPELINE_STITCH_GROUP_SIZE)]
+        trace.append(RagTraceResponse(stage="image_grouping", detail={
+            "triggerType": "system", "imageCount": len(images), "groupSize": _INPUT_PIPELINE_STITCH_GROUP_SIZE,
+            "groupCount": len(groups), "groupImageCounts": [len(group) for group in groups],
+        }))
+        for group_index, group in enumerate(groups, start=1):
+            started_at = time.perf_counter()
+            if len(group) == 1:
+                blob = group[0].content
+                mime_type = group[0].mime_type or "image/png"
+                stage = "image_stitching_skipped"
+            else:
+                blob = stitch_images(group, columns=3)
+                mime_type = "image/png"
+                stage = "image_stitching_tool"
+            vision_inputs.append(f"data:{mime_type};base64,{base64.b64encode(blob).decode('ascii')}")
+            trace.append(RagTraceResponse(stage=stage, detail={
+                "triggerType": "system", "toolName": IMAGE_STITCHING_TOOL["name"],
+                "groupIndex": group_index, "inputCount": len(group), "outputCount": 1,
+                "sourceNames": [item.name for item in group], "durationMs": _elapsed_ms(started_at),
+                "reason": "单张图片无需拼接" if len(group) == 1 else "按每组最多9张自动拼接",
+            }))
+
+        if _is_tool_enabled(request, IMAGE_RECOGNITION_TOOL_NAME):
+            vision_request = request.model_copy(deep=True)
+            vision_request.attachments = []
+            vision_request.imageUrls = []
+            vision_request.images = []
+            vision_request.imageDataUrls = vision_inputs
+            vision_request.input = append_image_references_to_text(
+                f"{original_input or '请识别并汇总上传内容。'}\n请按拼接图中的编号和顺序识别内容。",
+                vision_inputs,
+            )
+            started_at = time.perf_counter()
+            vision_plan = LeaderPlan(
+                intent="image_understanding", target_agent=IMAGE_RECOGNITION_AGENT_NAME,
+                need_retrieval=False, rag_strategy="", action="call_tool",
+                tool_name=IMAGE_RECOGNITION_TOOL_NAME,
+                route_reason="输入预处理检测到图片，系统自动调用图片识别工具。",
+                route_mode="input_pipeline",
+            )
+            vision_answer, vision_model_metadata = _run_specialist_agent_with_bound_model(
+                vision_request, IMAGE_RECOGNITION_AGENT_NAME, vision_request.input, [], leader_plan=vision_plan,
+            )
+            trace.extend([
+                RagTraceResponse(stage="tool_call", detail={
+                    "triggerType": "system", "toolName": IMAGE_RECOGNITION_TOOL_NAME,
+                    "toolDisplayName": _tool_display_name(IMAGE_RECOGNITION_TOOL_NAME),
+                    "imageCount": len(vision_inputs), "boundAgent": IMAGE_RECOGNITION_AGENT_NAME,
+                }),
+                RagTraceResponse(stage="vision_agent", detail={
+                    "triggerType": "workflow_dependency", "agentName": IMAGE_RECOGNITION_AGENT_NAME,
+                    "inputImageCount": len(vision_inputs), "answerLength": len(vision_answer or ""),
+                    "durationMs": _elapsed_ms(started_at), **vision_model_metadata,
+                }),
+            ])
+
+    context_parts = [original_input]
+    if extracted_blocks:
+        context_parts.append("文件内容提取结果：\n" + "\n\n".join(extracted_blocks))
+    if vision_answer:
+        context_parts.append("图片识别结果：\n" + vision_answer)
+    enriched_input = "\n\n".join(part for part in context_parts if part).strip()
+    trace.append(RagTraceResponse(stage="multimodal_context_merged", detail={
+        "triggerType": "system", "fileTextCount": len(extracted_blocks),
+        "sourceImageCount": len(images), "visionResultAvailable": bool(vision_answer),
+        "contextLength": len(enriched_input),
+    }))
+
+    leader_request = request.model_copy(deep=True)
+    leader_request.input = enriched_input or original_input
+    leader_request.attachments = []
+    leader_request.imageUrls = []
+    leader_request.images = []
+    leader_request.imageDataUrls = []
+    leader_plan = leader_agent.plan(
+        leader_request.input, "", profile_context=profile_context,
+        callable_catalog=callable_catalog, conversation_context=(request.metadata or {}).get("conversationContext") or {},
+    )
+    response = _execute_leader_plan(
+        leader_request, authorization, profile_context, leader_plan, callable_catalog=callable_catalog,
+    )
+    response.trace = trace + list(response.trace or [])
+    response.metadata = {
+        **dict(response.metadata or {}),
+        "inputPipelineApplied": True,
+        "inputPipelineImageCount": len(images),
+        "inputPipelineFileCount": len(extracted_blocks),
+    }
+    _set_response_route_mode(response, leader_plan)
+    return response
 
 
 def _apply_conversation_context(request: RagQueryRequest, authorization: str) -> Dict[str, Any]:
@@ -2229,6 +2503,15 @@ def _execute_leader_plan(
     plan,
     callable_catalog: Optional[Dict[str, Any]] = None,
 ) -> RagQueryResponse:
+    if (
+        plan.action == "call_tool"
+        and plan.tool_name in VISUAL_GENERATION_TOOL_NAMES
+        and _normalize_requested_file_type(_requested_file_type_from_text(request.input)) == "docx"
+        and _is_tool_enabled(request, "generated_export_tools")
+    ):
+        response = _run_visual_docx_workflow(request, plan)
+        _inject_tool_selection_into_response(response, callable_catalog)
+        return response
     if plan.action == "direct_answer":
         response = _run_leader_direct_answer(plan, profile_context=profile_context)
         _inject_tool_selection_into_response(response, callable_catalog)
@@ -2258,6 +2541,60 @@ def _execute_leader_plan(
         return response
 
     raise HTTPException(status_code=502, detail=f"Leader 只允许直接回答或调用系统工具，已拒绝动作：{plan.action}")
+
+
+def _run_visual_docx_workflow(request: RagQueryRequest, visual_plan: LeaderPlan) -> RagQueryResponse:
+    """Execute the common multi-tool workflow: generate an image, organize content, then export DOCX."""
+    visual_response = _run_visual_generation_tool(request, visual_plan)
+    image_bytes: List[bytes] = []
+    for attachment in visual_response.attachments or []:
+        storage_key = str(attachment.get("storageKey") or "")
+        capability = str(attachment.get("internalCapability") or "")
+        if not storage_key or not capability:
+            continue
+        export_file = open_generated_export(storage_key, capability)
+        try:
+            image_bytes.append(export_file.stream.read())
+        finally:
+            export_file.stream.close()
+
+    export_request = request.model_copy(deep=True)
+    export_request.metadata = dict(export_request.metadata or {})
+    export_request.metadata.update({
+        "requestedOutputType": "docx",
+        "sourceMessageContent": request.input,
+        "embeddedImageBytes": image_bytes,
+    })
+    export_plan = LeaderPlan(
+        intent="document_export",
+        target_agent="leader_agent",
+        need_retrieval=False,
+        rag_strategy="",
+        action="call_tool",
+        tool_name="generated_export_tools",
+        route_reason="图片生成完成，继续调用内容整理和 Word 导出工具。",
+    )
+    export_response = _run_generated_export_tool(export_request, export_plan)
+    export_response.attachments = [*(visual_response.attachments or []), *(export_response.attachments or [])]
+    export_response.trace = [
+        *(visual_response.trace or []),
+        RagTraceResponse(stage="workflow_dependency", detail={
+            "triggerType": "workflow_dependency",
+            "fromTool": visual_plan.tool_name,
+            "toAgent": "file_content_planner_agent",
+            "reason": "生成 Word 前先整理内容和配图布局。",
+        }),
+        *(export_response.trace or []),
+    ]
+    export_response.answer = f"{visual_response.answer}\n\n{export_response.answer}".strip()
+    export_response.metadata = dict(export_response.metadata or {})
+    export_response.metadata.update({
+        "executionMode": "leader_multi_tool_workflow",
+        "executionModeLabel": "Leader 协调图片生成、内容整理和 Word 导出",
+        "workflowTools": [visual_plan.tool_name, "file_content_planner_agent", "docx_export_tool"],
+        "generatedImageCount": len(image_bytes),
+    })
+    return export_response
 
 
 def _inject_tool_selection_into_response(response: RagQueryResponse, callable_catalog: Optional[Dict[str, Any]]) -> None:
@@ -2636,15 +2973,18 @@ def _leader_callable_agent_item(agent_name: str, request: Optional[RagQueryReque
 
 
 def _leader_callable_tool_item(tool: Dict[str, Any], request: Optional[RagQueryRequest]) -> Dict[str, Any]:
-    name = str(tool.get("name") or "").strip()
+    annotated = _annotate_tool_trigger(tool)
+    name = str(annotated.get("name") or "").strip()
     return {
         "name": name,
-        "zhName": tool.get("zhName") or _tool_zh_name(name),
-        "displayName": tool.get("displayName") or _tool_display_name(name),
-        "category": tool.get("category") or "",
-        "purpose": tool.get("purpose") or "",
-        "trigger": tool.get("trigger") or "",
-        "outputs": tool.get("outputs") or [],
+        "zhName": annotated.get("zhName") or _tool_zh_name(name),
+        "displayName": annotated.get("displayName") or _tool_display_name(name),
+        "category": annotated.get("category") or "",
+        "purpose": annotated.get("purpose") or "",
+        "trigger": annotated.get("trigger") or "",
+        "outputs": annotated.get("outputs") or [],
+        "triggerType": annotated.get("triggerType"),
+        "pipelineStage": annotated.get("pipelineStage"),
     }
 
 
@@ -3492,6 +3832,8 @@ def _run_generated_export_tool(request: RagQueryRequest, leader_plan) -> RagQuer
         "allowGeneratedExportTool": True,
         "toolToggles": _tool_toggles_from_request(request),
     }
+    if isinstance(request_metadata.get("embeddedImageBytes"), list):
+        metadata["embeddedImageBytes"] = request_metadata["embeddedImageBytes"]
     metadata.update(_context_metadata_from_request(request))
     source_content = str(request_metadata.get("sourceMessageContent") or "").strip()
     planner_payload = json.dumps({
@@ -3521,6 +3863,7 @@ def _run_generated_export_tool(request: RagQueryRequest, leader_plan) -> RagQuer
             "answerType": "text",
             "fileContentPlannerAction": "clarify",
         }
+        clarification_metadata.pop("embeddedImageBytes", None)
         return _decorate_output_response(RagQueryResponse(
             strategy="file_content_planner_agent",
             answer=question,
@@ -3564,6 +3907,7 @@ def _run_generated_export_tool(request: RagQueryRequest, leader_plan) -> RagQuer
             raise HTTPException(status_code=403, detail="当前没有开启可生成的附件格式，Leader 本次不会调用内容整理工具。")
         raise HTTPException(status_code=400, detail="当前内容无法导出，请提供 Markdown 文本或标准题库 JSON")
     metadata["generatedExports"] = export_result.diagnostics
+    metadata.pop("embeddedImageBytes", None)
     metadata.pop("allowGeneratedExportTool", None)
     formats = "、".join(item.get("ext", "").upper() for item in export_result.attachments if item.get("ext"))
     answer = f"已按文件形式整理完成，生成附件格式：{formats or '文件'}。"
