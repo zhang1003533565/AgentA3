@@ -214,6 +214,50 @@
 				</view>
 			</view>
 
+			<!-- 会议任务：个人视角入口，只展示当前登录用户自己的任务；预约（待开始）会议不展示 -->
+			<view v-if="status !== 'idle'" class="entry-card" @click="onTaskCardClick">
+				<view class="entry-icon entry-icon--task">
+					<image class="entry-icon__img" src="@/static/icons/line/briefcase.svg" mode="aspectFit" />
+				</view>
+				<view class="entry-content">
+					<text class="entry-title">会议任务</text>
+					<text class="entry-subtitle">查看我的会议任务</text>
+				</view>
+				<view class="entry-status" :class="{ 'entry-status--ready': pendingTaskCount > 0 }">
+					<text>{{ taskStatusLabel }}</text>
+				</view>
+				<text class="entry-arrow">></text>
+			</view>
+
+			<!-- 会议任务展开区：仅当前登录用户的任务，不含其他参会人任务 -->
+			<view v-if="showTasks" class="expand-panel">
+				<view v-if="tasksLoading" class="mytask-loading">
+					<text class="empty-text">正在加载我的任务…</text>
+				</view>
+				<view v-else-if="taskError" class="mytask-loading">
+					<text class="empty-text">{{ taskError }}</text>
+				</view>
+				<view v-else-if="!myTasks.length" class="mytask-loading">
+					<text class="empty-text">暂无待办任务</text>
+				</view>
+				<view v-else>
+					<view class="mytask-scope-tip">
+						<text class="mytask-scope-tip__text">仅显示我负责的会议任务</text>
+					</view>
+					<view v-for="task in myTasks" :key="task.id" class="result-block mytask-item">
+						<view class="block-meta">
+							<text class="record-tag" :class="{ 'mytask-tag--done': task.status === 'COMPLETED' }">
+								{{ task.status === 'COMPLETED' ? '已完成' : '待完成' }}
+							</text>
+							<text class="block-time">{{ task.deadlineText }}</text>
+						</view>
+						<text class="block-text mytask-title">{{ task.title }}</text>
+						<text v-if="task.description" class="mytask-desc">{{ task.description }}</text>
+						<text v-if="task.evidence" class="mytask-evidence">依据：{{ task.evidence }}</text>
+					</view>
+				</view>
+			</view>
+
 		</view>
 
 	</view>
@@ -221,7 +265,8 @@
 
 <script>
 import NavBar from '@/components/nav-bar/nav-bar.vue'
-import { deleteMeeting as deleteMeetingApi, getMeetingDetail } from '@/api/ai.js'
+import { deleteMeeting as deleteMeetingApi, getMeetingDetail, getMyMeetingTasks } from '@/api/ai.js'
+import { getCurrentUserId } from '@/utils/storage.js'
 
 export default {
 	components: { NavBar },
@@ -240,7 +285,13 @@ export default {
 			organizing: false,
 			showAiResults: false,
 			showRecords: false,
-			parsedAiResult: null // 已解析的 AI 会议纪要 JSON
+			parsedAiResult: null, // 已解析的 AI 会议纪要 JSON
+			// 会议任务（个人视角）：只承载当前登录用户自己的任务
+			showTasks: false,
+			myTasks: [],
+			tasksLoaded: false,
+			tasksLoading: false,
+			taskError: ''
 		}
 	},
 	computed: {
@@ -313,6 +364,17 @@ export default {
 		aiMinutesStatusText() {
 			const map = { generated: '已生成', generating: '生成中', empty: '未生成' }
 			return map[this.aiMinutesStatus] || '未生成'
+		},
+		/** 我的待办任务数量（个人视角，仅当前登录用户） */
+		pendingTaskCount() {
+			return this.myTasks.filter(task => task.status !== 'COMPLETED').length
+		},
+		/** 卡片右侧状态标签：加载前不谎报数量 */
+		taskStatusLabel() {
+			if (this.tasksLoading) return '加载中'
+			if (!this.tasksLoaded) return '我的任务'
+			if (this.taskError) return '未获取'
+			return this.pendingTaskCount > 0 ? `${this.pendingTaskCount} 项待办` : '无待办'
 		}
 	},
 	onLoad(options) {
@@ -359,6 +421,47 @@ export default {
 		onRecordCardClick() {
 			if (!this.hasRecords) return
 			this.showRecords = !this.showRecords
+		},
+		/** 「会议任务」卡片：个人视角入口，展开时才拉取，避免每次进详情页都请求 */
+		onTaskCardClick() {
+			this.showTasks = !this.showTasks
+			if (this.showTasks) this.loadMyTasks()
+		},
+		/** 只加载当前登录用户自己的会议任务 */
+		async loadMyTasks(force = false) {
+			if (this.tasksLoading) return
+			if (this.tasksLoaded && !force) return
+			this.tasksLoading = true
+			this.taskError = ''
+			try {
+				const res = await getMyMeetingTasks()
+				const list = Array.isArray(res?.data) ? res.data : []
+				// 后端 GET /api/meeting-tasks/my 已按 JWT 解析的 currentUserId 过滤；
+				// 这里再用本地 userId 做一次兜底收窄，确保任何异常数据都不会把他人任务展示给当前用户。
+				// 取不到本地 userId 时保持后端结果（隔离仍由服务端保证）。
+				const currentUserId = String(getCurrentUserId() || '')
+				const mine = currentUserId
+					? list.filter(task => String(task?.assigneeId ?? '') === currentUserId)
+					: list
+				this.myTasks = mine.map(task => ({
+					id: task.id,
+					title: task.title || '未命名任务',
+					description: task.description || '',
+					status: task.status || 'PENDING',
+					evidence: task.evidence || '',
+					deadlineText: task.deadline ? `截止 ${this.formatTaskDeadline(task.deadline)}` : '未设截止时间'
+				}))
+				this.tasksLoaded = true
+			} catch (error) {
+				this.taskError = '我的任务加载失败，请稍后重试'
+			} finally {
+				this.tasksLoading = false
+			}
+		},
+		/** 后端 deadline 为 LocalDateTime（如 2026-08-30T23:59:59），只展示日期 */
+		formatTaskDeadline(value) {
+			const text = String(value || '')
+			return text.split('T')[0] || text
 		},
 		deleteCurrentMeeting() {
 			if (!this.sessionId) return
@@ -776,6 +879,10 @@ $card-radius: 24rpx;
 	&--record {
 		background: #DBEAFE;
 	}
+
+	&--task {
+		background: #CCFBF1;
+	}
 }
 
 .entry-icon__img {
@@ -1139,6 +1246,51 @@ $card-radius: 24rpx;
 	line-height: 1.6;
 	white-space: pre-wrap;
 	word-break: break-word;
+}
+
+/* 会议任务（个人视角）：类名统一用 mytask- 前缀，避免与 AI 会议纪要的 task-card / task-description 混淆 */
+.mytask-loading {
+	display: flex;
+	justify-content: center;
+	padding: 16rpx 0;
+}
+
+.mytask-scope-tip {
+	padding-bottom: 4rpx;
+}
+
+.mytask-scope-tip__text {
+	font-size: 22rpx;
+	color: $text-muted;
+}
+
+.mytask-item {
+	display: flex;
+	flex-direction: column;
+	gap: 8rpx;
+}
+
+.mytask-title {
+	font-weight: 700;
+}
+
+.mytask-desc {
+	font-size: 24rpx;
+	color: $text-secondary;
+	line-height: 1.6;
+	word-break: break-word;
+}
+
+.mytask-evidence {
+	font-size: 22rpx;
+	color: $text-muted;
+	line-height: 1.5;
+	word-break: break-word;
+}
+
+.mytask-tag--done {
+	background: #DCFCE7;
+	color: #16A34A;
 }
 
 /* 底部操作 */
