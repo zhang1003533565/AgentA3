@@ -2340,6 +2340,9 @@ def _contextualize_followup_input(input_text: str, context: Dict[str, Any]) -> s
     knowledge_source_choice = _contextualize_knowledge_source_choice(text, compact, context)
     if knowledge_source_choice:
         return knowledge_source_choice
+    image_generation_followup = _contextualize_image_generation_followup(text, compact, context)
+    if image_generation_followup:
+        return image_generation_followup
     if _has_explicit_current_schedule_intent(compact):
         return text
     if not text or not _is_contextual_followup(compact):
@@ -2356,6 +2359,96 @@ def _contextualize_followup_input(input_text: str, context: Dict[str, Any]) -> s
     if any(token in compact for token in ("在哪", "哪里", "哪儿", "教室", "地点")):
         return f"{subject}在哪里上课？"
     return f"{subject} {text}"
+
+
+def _contextualize_image_generation_followup(input_text: str, compact_text: str, context: Dict[str, Any]) -> str:
+    if not compact_text:
+        return ""
+    referential_tokens = (
+        "这样的", "这种", "同款", "类似", "相似", "照着", "按照上面", "按上面", "像刚才", "像上面",
+        "刚才那个", "上面那个", "前文", "前面说的",
+    )
+    generation_tokens = ("生成", "做一张", "画一张", "画个", "来一张", "海报", "配图", "封面", "图片")
+    if not any(token in compact_text for token in referential_tokens):
+        return ""
+    if not any(token in compact_text for token in generation_tokens):
+        return ""
+    last_assistant = _latest_context_assistant_answer(context)
+    if not last_assistant:
+        return ""
+    return (
+        f"用户最新请求：{input_text}\n\n"
+        "请基于以下会话上下文，整理出用于生成同款/类似海报或配图所需的完整需求，"
+        "保留主题、文案、风格、版式与关键视觉元素：\n"
+        f"{last_assistant[:2200]}"
+    )
+
+
+def _latest_context_assistant_answer(context: Dict[str, Any]) -> str:
+    summary = str((context or {}).get("summary") or "").strip()
+    for turn in reversed((context or {}).get("turns") or []):
+        if not isinstance(turn, dict):
+            continue
+        assistant = str(turn.get("assistant") or "").strip()
+        if assistant:
+            if summary and summary not in assistant:
+                return f"{summary}\n\n{assistant}"
+            return assistant
+    return summary
+
+
+def _needs_visual_prompt_composition(input_text: str, context: Dict[str, Any]) -> bool:
+    compact = normalize_text(input_text or "")
+    if not compact:
+        return False
+    referential_tokens = (
+        "这样的", "这种", "同款", "类似", "相似", "照着", "按照上面", "按上面", "像刚才", "像上面",
+        "刚才那个", "上面那个",
+    )
+    if any(token in compact for token in referential_tokens):
+        return True
+    if _latest_context_assistant_answer(context) and len(compact) <= 36:
+        generation_tokens = ("生成", "做一张", "画一张", "海报", "配图", "封面", "图片")
+        if any(token in compact for token in generation_tokens):
+            return True
+    return False
+
+
+def _compose_visual_generation_prompt(request: RagQueryRequest, input_text: str) -> str:
+    text = str(input_text or "").strip()
+    metadata = request.metadata if isinstance(request.metadata, dict) else {}
+    context = metadata.get("conversationContext") if isinstance(metadata.get("conversationContext"), dict) else {}
+    if not _needs_visual_prompt_composition(text, context):
+        return text
+    from app.model_providers.runtime import get_chat_model_provider
+
+    provider = get_chat_model_provider()
+    payload = {
+        "user_request": text,
+        "conversation_summary": str(context.get("summary") or "")[:1800],
+        "recent_turns": (context.get("turns") or [])[-4:],
+        "requirements": [
+            "根据用户最新请求和会话上下文，整理成一段可直接交给文生图模型的中文提示词。",
+            "如果用户说「这样的」「类似」「同款」海报/图片，必须从上文识图结果或讨论内容提取主题、文案、风格、布局与配色。",
+            "只输出提示词正文，不要 JSON，不要解释，不要 Markdown 标题。",
+        ],
+    }
+    composed = provider.complete(
+        system_prompt="你是图片生成提示词整理器。你只负责把用户需求和会话上下文整理成一段完整的中文文生图提示词。",
+        user_prompt=json.dumps(payload, ensure_ascii=False),
+    )
+    composed_text = str(composed or "").strip()
+    return composed_text or text
+
+
+def _visual_generation_answer_text(prompt_text: str, attachments: List[Dict[str, Any]]) -> str:
+    if not attachments:
+        return ""
+    preview = re.sub(r"\s+", " ", str(prompt_text or "").strip())[:240]
+    lines = ["已根据你的需求生成图片，请查看下方预览。"]
+    if preview:
+        lines.extend(["", f"**生成要点**：{preview}"])
+    return "\n".join(lines)
 
 
 def _contextualize_knowledge_source_choice(input_text: str, compact_text: str, context: Dict[str, Any]) -> str:
@@ -3375,16 +3468,22 @@ def _run_visual_generation_tool(
         return _run_disabled_tool_response(request, tool_name, leader_plan=leader_plan)
 
     evidence = _profile_evidence_from_request(request)
-    prompt_text = request.input
+    generation_input = _compose_visual_generation_prompt(request, request.input)
+    prompt_text = generation_input
     prompt_model_metadata: Dict[str, Any] = {}
     if prompt_agent:
         prompt_text, prompt_model_metadata = _run_specialist_agent_with_bound_model(
             request,
             prompt_agent,
-            request.input,
+            generation_input,
             evidence,
             leader_plan=leader_plan,
         )
+    elif generation_input != request.input:
+        prompt_model_metadata = {
+            "promptComposedFromContext": True,
+            "promptSource": "conversation_context",
+        }
     image_answer, image_model_metadata = _run_specialist_agent_with_bound_model(
         request,
         "image_agent",
@@ -3397,6 +3496,8 @@ def _run_visual_generation_tool(
         display_stem=str(config.get("zhName") or "生成图片").removesuffix("工具"),
         tool_name=tool_name,
     )
+    if image_attachments:
+        image_answer = _visual_generation_answer_text(prompt_text, image_attachments)
     metadata = {
         "agentName": "leader_agent",
         "targetAgent": tool_name,

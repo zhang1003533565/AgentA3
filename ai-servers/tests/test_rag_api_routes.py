@@ -276,6 +276,29 @@ class RagApiRoutesTest(unittest.TestCase):
     def test_plain_number_is_not_rewritten_without_source_selection_context(self):
         self.assertEqual("3", self._rag_routes._contextualize_followup_input("3", {"turns": []}))
 
+    def test_contextualize_image_generation_followup_uses_previous_assistant_answer(self):
+        context = {
+            "summary": "用户上传了排球队招新海报",
+            "turns": [
+                {
+                    "user": "这个图片有什么",
+                    "assistant": "这是广东财经大学财税学院排球队招新海报，口号是扣响青春，税月同行。",
+                    "metadata": {},
+                },
+            ],
+        }
+        expanded = self._rag_routes._contextualize_followup_input("给我生成一个这样的海报可以吗", context)
+        self.assertIn("排球队", expanded)
+        self.assertIn("这样的海报", expanded)
+
+    def test_visual_generation_answer_text_prefers_friendly_message(self):
+        answer = self._rag_routes._visual_generation_answer_text(
+            "广东财经大学排球队招新海报，蓝白配色，口号扣响青春",
+            [{"fileName": "通用图片生成.png"}],
+        )
+        self.assertIn("已根据你的需求生成图片", answer)
+        self.assertIn("生成要点", answer)
+
     def test_confirmed_model_source_is_reused_for_short_continuation(self):
         context = {
             "turns": [{

@@ -3,6 +3,7 @@ import { computed, h, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 
 import AppTabBar from '../components/AppTabBar.vue'
+import ChatMarkdown from '../components/ChatMarkdown.vue'
 import { deleteLeaderSession, getLeaderSessionDetail, getLeaderSessions, queryLeaderAgent, streamLeaderAgent } from '../api/aiGeneration'
 import { API_BASE_URL } from '../api/request'
 import { AI_RESOURCE_ACCEPT, uploadAiResource } from '../api/upload'
@@ -245,6 +246,8 @@ function normalizeHistoryMessage(item, index) {
     attachments: Array.isArray(item?.attachments) ? item.attachments : [],
     workflowSteps: traceWorkflowSteps(trace),
     workflowExpanded: false,
+    exportSessionId: item?.sessionId || '',
+    exportMessageId: item?.messageId || item?.id || '',
     workflowStatus: 'completed',
     streaming: false,
   }
@@ -260,7 +263,10 @@ async function openConversation(id) {
     const response = await getLeaderSessionDetail(sessionId)
     const data = response || {}
     conversationSessionIds.value = { ...conversationSessionIds.value, [sessionId]: sessionId }
-    messages.value = (data.messages || []).map(normalizeHistoryMessage)
+    messages.value = (data.messages || []).map((item, index) => ({
+      ...normalizeHistoryMessage(item, index),
+      exportSessionId: sessionId,
+    }))
     await scrollMessages()
   } catch (cause) {
     historyError.value = cause.message || '加载会话内容失败'
@@ -505,16 +511,44 @@ function isImageAttachment(item) {
     || /\.(jpe?g|png|webp|gif)$/i.test(String(item?.name || item?.fileName || item?.title || item?.url || ''))
 }
 
-function attachmentUrl(item) {
-  return item?.previewUrl || item?.url || item?.sourceUrl || item?.downloadUrl || ''
+function looksLikeImageResultJson(content) {
+  const text = String(content || '').trim()
+  if (!text.startsWith('{')) return false
+  try {
+    const payload = JSON.parse(text)
+    return Array.isArray(payload?.images)
+  } catch {
+    return false
+  }
+}
+
+function displayAssistantContent(message) {
+  const content = String(message?.content || '').trim()
+  if (!content) return ''
+  if (message?.answerType === 'image_generation' && looksLikeImageResultJson(content)) {
+    return '已根据你的需求生成图片，请查看下方预览。'
+  }
+  return content
+}
+
+function attachmentUrl(item, message = null) {
+  const direct = item?.previewUrl || item?.url || item?.sourceUrl || item?.downloadUrl || ''
+  if (direct) return direct.startsWith('/') ? `${API_BASE_URL}${direct}` : direct
+  const storageKey = String(item?.storageKey || '').trim()
+  const sessionId = String(message?.exportSessionId || message?.sessionId || activeConversationId.value || '').trim()
+  const messageId = message?.exportMessageId || message?.messageId
+  if (storageKey && sessionId && messageId) {
+    return `${API_BASE_URL}/api/ai/leader/sessions/${encodeURIComponent(sessionId)}/messages/${messageId}/exports/${encodeURIComponent(storageKey)}`
+  }
+  return ''
 }
 
 function attachmentName(item) {
   return item?.name || item?.fileName || item?.title || '上传图片'
 }
 
-async function loadAttachmentBlob(item) {
-  const source = attachmentUrl(item)
+async function loadAttachmentBlob(item, message = null) {
+  const source = attachmentUrl(item, message)
   if (!source) throw new Error('该附件缺少可用地址')
   const token = getToken()
   const response = await fetch(source.startsWith('/') ? `${API_BASE_URL}${source}` : source, {
@@ -524,10 +558,10 @@ async function loadAttachmentBlob(item) {
   return response.blob()
 }
 
-async function openAttachment(item) {
+async function openAttachment(item, message = null) {
   const previewWindow = window.open('about:blank', '_blank')
   try {
-    const objectUrl = URL.createObjectURL(await loadAttachmentBlob(item))
+    const objectUrl = URL.createObjectURL(await loadAttachmentBlob(item, message))
     if (previewWindow) {
       previewWindow.opener = null
       previewWindow.location.href = objectUrl
@@ -541,9 +575,9 @@ async function openAttachment(item) {
   }
 }
 
-async function downloadAttachment(item) {
+async function downloadAttachment(item, message = null) {
   try {
-    const objectUrl = URL.createObjectURL(await loadAttachmentBlob(item))
+    const objectUrl = URL.createObjectURL(await loadAttachmentBlob(item, message))
     const link = document.createElement('a')
     link.href = objectUrl
     link.download = attachmentName(item)
@@ -745,6 +779,8 @@ async function sendMessage(text) {
           streaming: false,
           receivedDelta: false,
           answerType: payload?.answerType || 'text',
+          exportSessionId: payload?.sessionId || conversationSessionIds.value[requestConversationId] || requestConversationId || '',
+          exportMessageId: payload?.messageId || '',
           workflowSteps,
           workflowStatus: 'completed',
         })
@@ -1452,17 +1488,22 @@ function handleUpload(event) {
                         </div>
                       </div>
                     </div>
-                    <p>{{ message.content }}</p>
+                    <ChatMarkdown
+                      v-if="message.role === 'assistant' && displayAssistantContent(message)"
+                      :content="displayAssistantContent(message)"
+                      :streaming="Boolean(message.streaming)"
+                    />
+                    <p v-else-if="message.content">{{ message.content }}</p>
                     <div v-if="message.attachments?.length" class="message-attachments">
                       <template v-for="item in message.attachments" :key="item.id || item.url || item.name">
                         <div :class="['message-attachment-card', { 'is-image': isImageAttachment(item) }]">
                           <img
-                            v-if="isImageAttachment(item) && attachmentUrl(item)"
+                            v-if="isImageAttachment(item) && attachmentUrl(item, message)"
                             class="message-image"
-                            :src="attachmentUrl(item)"
+                            :src="attachmentUrl(item, message)"
                             :alt="attachmentName(item)"
                             loading="lazy"
-                            @click="openAttachment(item)"
+                            @click="openAttachment(item, message)"
                           />
                           <div v-else class="message-file">
                             <img v-if="fileIconAsset(item)" class="file-type-image" :src="fileIconAsset(item)" :alt="fileExtension(item)" />
@@ -1470,8 +1511,8 @@ function handleUpload(event) {
                             <span :title="attachmentName(item)">{{ attachmentName(item) }}</span>
                           </div>
                           <div class="message-attachment-actions">
-                            <button type="button" @click="openAttachment(item)"><IconLine name="file" :size="14" />打开</button>
-                            <button type="button" @click="downloadAttachment(item)"><IconLine name="download" :size="14" />下载</button>
+                            <button type="button" @click="openAttachment(item, message)"><IconLine name="file" :size="14" />打开</button>
+                            <button type="button" @click="downloadAttachment(item, message)"><IconLine name="download" :size="14" />下载</button>
                           </div>
                         </div>
                       </template>

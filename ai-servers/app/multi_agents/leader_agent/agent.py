@@ -1207,7 +1207,8 @@ class LeaderAgent:
             "answer_requirements": [
                 "用自然中文回答用户，不要输出 JSON。",
                 "严格按用户问题的范围回答；不要主动扩展成文档、报告、分析或完整明细。",
-                "前端按纯文本展示；不要使用 Markdown 标题、加粗、分隔线、代码块或表格语法。",
+                "前端支持 Markdown 渲染：优先用 ##/### 标题、列表、加粗组织层级；代码用 ```语言 围栏；表格仅在确有必要时使用。",
+                "answer_policy 若要求纯文本或固定格式，则遵守该策略，不要强行套 Markdown。",
                 "不要在答案末尾反问用户还要哪部分；用户需要会继续问。",
                 "只能基于 tool_results 里的数据整理，不要编造课程、活动、会议、菜品、位置、物品、时间、地点或数量。",
                 "当用户提到简称、英文缩写、别名或不完整名称时，由你在 tool_results 中做语义匹配；不要要求完全同名。",
@@ -1222,7 +1223,8 @@ class LeaderAgent:
         text = provider.complete(
             system_prompt=(
                 "你负责把智慧校园系统接口返回的数据整理成给用户看的最终回答。"
-                "你不是路由器，不要重新选择工具或智能体；不要输出 JSON、代码块、内部字段名或文档式大纲。"
+                "你不是路由器，不要重新选择工具或智能体；不要输出 JSON 或内部字段名。"
+                "默认用清晰的 Markdown 层级组织答案；若 answer_policy 指定纯文本或固定格式，则严格遵守。"
                 "必须遵守用户意图对应的 answer_policy，答案短而准。"
             ),
             user_prompt=json.dumps(payload, ensure_ascii=False),
@@ -1522,6 +1524,7 @@ def _leader_profile_usage_policy(callable_catalog: Optional[Dict[str, Any]]) -> 
         "所有图片、思维导图、流程图、活动图、架构图、知识图谱和 PPT 配图请求都必须 action=call_tool，并从 leader_callable_catalog.tools 选择对应 generate_*_image_tool；不要单独委派任何智能体。",
         "target_agent 固定为 leader_agent；call_tool 时 tool_name 必须来自 leader_callable_catalog.tools.name。",
         "action=call_tool 时，answer 必须是一句简短自然的进行中回复，例如“正在为你查询今日课表。”；最终结果会在工具返回后再由模型整理。",
+        "用户要求生成图片/海报/配图，且出现「这样的」「类似」「同款」等指代时，必须先结合 conversation_context 与最近识图/讨论结果整理完整画面需求，再调用 generate_image_tool；不要只把用户最后一句话直接交给图片工具。",
     ])
     return policies
 
