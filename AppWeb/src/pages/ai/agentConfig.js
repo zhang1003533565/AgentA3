@@ -12,6 +12,15 @@ export const AGENT_SUB_MODEL_BINDING_LABELS = {
 export const AGENT_SUB_MODEL_BINDING_HINTS = {
   'minutes-model': '仅作用于会后纪要（Agent 2），不会修改默认模型（会中实时总结）',
 }
+/**
+ * 声明各智能体暴露哪些子用途模型绑定，与"是否已配置"无关。
+ * 这样管理员取消专属绑定（配置行被删除）后，后台仍显示该行并标注"跟随系统默认"，
+ * 而不是整行消失导致无法重新绑定。
+ */
+export const AGENT_SUB_MODEL_BINDINGS = {
+  meeting_summary_agent: ['minutes-model'],
+}
+export const AGENT_SUB_MODEL_UNBOUND_TEXT = '跟随系统默认'
 export const AGENT_ENABLED_CONFIG_PREFIX = 'ai.agent-enabled.'
 export const TOOL_ENABLED_CONFIG_PREFIX = 'ai.tool-enabled.'
 export const TOOL_BOUND_CONFIG_PREFIX = 'ai.tool-bound.'
@@ -146,6 +155,24 @@ export const buildAgentSubModelBindings = (configRows = []) => {
     bindings[agentName] = { ...(bindings[agentName] || {}), [purposeModel]: configPrefix }
   })
   return bindings
+}
+
+/**
+ * 解析子用途模型绑定对应的系统配置行 id：{ [agentName]: { [purposeModel]: id } }。
+ * 「取消专属绑定」需要按 id 调用现有 DELETE /api/system-config/{id} 真删除该行，
+ * 而不是写入空值（空值会让后端 upsert 出一条语义不明的配置）。
+ */
+export const buildAgentSubModelBindingIds = (configRows = []) => {
+  const ids = {}
+  configRows.forEach((item) => {
+    const match = String(item.configKey || '').match(AGENT_SUB_MODEL_BINDING_PATTERN)
+    if (!match) return
+    const [, agentName, purposeModel] = match
+    const id = item.id ?? item.configId
+    if (id === undefined || id === null) return
+    ids[agentName] = { ...(ids[agentName] || {}), [purposeModel]: id }
+  })
+  return ids
 }
 
 /**
