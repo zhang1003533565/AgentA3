@@ -22,6 +22,7 @@ from app.model_providers.multimodal import (
     append_attachment_references_to_text,
     append_image_references_to_text,
     collect_request_image_references,
+    extract_image_references,
 )
 from app.model_providers.runtime_config import build_llm_runtime_config, reset_active_llm_config, set_active_llm_config
 from app.observability.langfuse import observe_request, settings_from_headers, use_settings
@@ -3145,6 +3146,12 @@ def _run_image_recognition_tool(
     image_urls = collect_request_image_references(request)
     if not image_urls:
         raise HTTPException(status_code=400, detail="图片识别工具需要至少一个图片资源。")
+    _, embedded_urls = extract_image_references(request.input)
+    if not embedded_urls:
+        request.input = append_image_references_to_text(request.input, image_urls)
+        _, embedded_urls = extract_image_references(request.input)
+    if not embedded_urls:
+        raise HTTPException(status_code=400, detail="图片识别工具未能将上传图片注入请求上下文。")
     answer, model_metadata = _run_specialist_agent_with_bound_model(
         request,
         IMAGE_RECOGNITION_AGENT_NAME,
@@ -3185,6 +3192,7 @@ def _run_image_recognition_tool(
         RagTraceResponse(stage="vision_agent", detail={
             "agentName": IMAGE_RECOGNITION_AGENT_NAME,
             "answerLength": len(answer or ""),
+            "multimodalImageCount": len(embedded_urls),
             **model_metadata,
         }),
     ]

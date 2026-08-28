@@ -75,6 +75,14 @@ class RagApiRoutesTest(unittest.TestCase):
             }
             for item in ({"name": name} for name in AGENT_ORDER)
         }
+        self.agent_model_configs["vision_agent"] = {
+            "configPrefix": "ai.agent.vision_agent",
+            "provider": "qwen",
+            "baseUrl": "https://llm.test/v1",
+            "apiKey": "test-key",
+            "model": "qwen3-vl-plus",
+            "tested": True,
+        }
         self._patched_modules = []
         self._patched_image_modules = []
         self._patch_model_providers()
@@ -1645,6 +1653,11 @@ def _fake_question_payload(question_type):
 
 
 class FakeRagModelProvider:
+    def complete_vision(self, system_prompt, user_text, image_urls, reasoning_effort=None):
+        if image_urls:
+            return "图中是一张测试截图，可见主体清晰。"
+        return "未收到图片"
+
     def complete(self, system_prompt, user_prompt, reasoning_effort=None):
         if "系统接口返回的数据" in system_prompt:
             payload = json.loads(user_prompt)

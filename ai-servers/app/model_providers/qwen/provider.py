@@ -5,7 +5,7 @@ from typing import Any, Dict, Iterator, List, Optional
 from fastapi import HTTPException
 
 from app.model_providers.base import ChatModelProvider, extract_response_text
-from app.model_providers.multimodal import build_multimodal_human_content, extract_image_references
+from app.model_providers.multimodal import build_explicit_multimodal_content, build_multimodal_human_content, extract_image_references, extract_image_references
 from app.model_providers.runtime_config import (
     LlmRuntimeConfig,
     get_active_llm_timeout_seconds,
@@ -251,6 +251,33 @@ class QwenProvider(ChatModelProvider):
         if not content and isinstance(getattr(response, "additional_kwargs", None), dict):
             content = str(response.additional_kwargs.get("reasoning_content") or "").strip()
         return content
+
+    def complete_vision(
+        self,
+        system_prompt: str,
+        user_text: str,
+        image_urls: List[str],
+        reasoning_effort: Optional[str] = None,
+    ) -> str:
+        from langchain_core.messages import HumanMessage, SystemMessage
+
+        content = build_explicit_multimodal_content(user_text, image_urls)
+        if len(content) < 2:
+            raise HTTPException(status_code=400, detail="视觉模型调用缺少有效图片输入")
+        logger.info(
+            "vision complete start model=%s images=%s text_len=%s",
+            self.model,
+            len(image_urls),
+            len(user_text or ""),
+        )
+        response = self._invoke_with_fallback([
+            SystemMessage(content=system_prompt),
+            HumanMessage(content=content),
+        ], reasoning_effort, use_thinking=False)
+        result = extract_response_text(response)
+        if not result and isinstance(getattr(response, "additional_kwargs", None), dict):
+            result = str(response.additional_kwargs.get("reasoning_content") or "").strip()
+        return result
 
     def stream_complete(self, system_prompt: str, user_prompt: str, reasoning_effort: Optional[str] = None) -> Iterator[str]:
         from langchain_core.messages import HumanMessage, SystemMessage
