@@ -29,6 +29,35 @@ import {
 import './AgentSettings.css'
 
 const { Text, Title } = Typography
+
+const TOOL_TAB_GROUPS = [
+  { key: 'campus', label: '校园服务', categories: ['campus_service'] },
+  { key: 'vision', label: '图片理解', categories: ['vision_understanding'] },
+  { key: 'visual', label: '视觉生成', categories: ['visual_generation'] },
+  { key: 'content', label: '内容导出', categories: ['content_export'] },
+  { key: 'presentation', label: 'PPT 生成', categories: ['presentation_generation'] },
+  { key: 'diagram', label: '图表导出', categories: ['diagram_export'] },
+  { key: 'file_content', label: '文件识别', categories: ['file_content_extraction'] },
+  { key: 'capability', label: '能力查询', categories: ['capability_query'] },
+]
+
+const DEFAULT_TOOL_TAB_KEY = TOOL_TAB_GROUPS[0].key
+
+const getToolsForTabGroup = (tools, tabKey) => {
+  const tab = TOOL_TAB_GROUPS.find((item) => item.key === tabKey)
+  if (!tab) return []
+  const categories = new Set(tab.categories)
+  return tools.filter((item) => categories.has(item.category))
+}
+
+const getToolTabStats = (tools, tabKey) => {
+  const tabTools = getToolsForTabGroup(tools, tabKey)
+  return {
+    enabled: tabTools.filter((item) => item.enabled !== false).length,
+    total: tabTools.length,
+  }
+}
+
 const TOOL_TEST_IMAGE_MAX_BYTES = 10 * 1024 * 1024
 const TOOL_TEST_IMAGE_MAX_EDGE = 1920
 const TOOL_TEST_IMAGE_JPEG_QUALITY = 0.82
@@ -172,13 +201,15 @@ const getToolDisplayName = (tool) => {
 
 const getToolCategoryLabel = (category) => {
   const labels = {
-    campus_service: '系统能力',
+    campus_service: '校园服务',
+    visual_generation: '视觉生成',
+    vision_understanding: '图片理解',
     structured_query: '结构化查询',
-    content_export: '内容整理',
-    file_content_extraction: '文件内容识别',
+    content_export: '内容导出',
+    file_content_extraction: '文件识别',
     diagram_export: '图表导出',
     presentation_generation: 'PPT 生成',
-    vision_understanding: '图片理解',
+    capability_query: '能力查询',
   }
   return labels[category] || category || '-'
 }
@@ -313,7 +344,7 @@ function AgentSettings() {
   const [retrievalGeneratedProfile, setRetrievalGeneratedProfile] = useState(null)
   const [retrievalGenerating, setRetrievalGenerating] = useState('')
   const [activeTab, setActiveTab] = useState('overview')
-  const [leaderObjectType, setLeaderObjectType] = useState('all')
+  const [leaderObjectType, setLeaderObjectType] = useState(DEFAULT_TOOL_TAB_KEY)
   const [toolTriggerType, setToolTriggerType] = useState('all')
   const [leaderToolFilter, setLeaderToolFilter] = useState('all')
   const [selectedToolKeys, setSelectedToolKeys] = useState([])
@@ -1447,31 +1478,21 @@ function AgentSettings() {
   const boundCount = configuredAgents.filter((item) => item.boundModel).length
   const unboundAgentCount = configuredAgents.filter((item) => !item.boundModel).length
   const callableToolCount = allConfiguredTools.filter((item) => item.enabled !== false).length
-  const campusServiceTools = allConfiguredTools.filter((item) => item.category === 'campus_service')
-  const enabledCampusServiceCount = campusServiceTools.filter((item) => item.enabled !== false).length
-  const visualTools = allConfiguredTools.filter((item) => item.category === 'visual_generation')
-  const contentCategoryTools = allConfiguredTools.filter((item) => item.category === 'content_export')
-  const fileContentTools = allConfiguredTools.filter((item) => item.category === 'file_content_extraction')
-  const structuredTools = allConfiguredTools.filter((item) => item.category === 'structured_query')
-  const systemTriggeredTools = allConfiguredTools.filter((item) => item.triggerType === 'system')
-  const leaderTriggeredTools = allConfiguredTools.filter((item) => item.triggerType === 'leader')
-  const ruleDirectTools = allConfiguredTools.filter((item) => item.triggerType === 'rule_direct')
-  const workflowDependencyTools = allConfiguredTools.filter((item) => item.triggerType === 'workflow_dependency')
+  const leaderToolSource = useMemo(
+    () => getToolsForTabGroup(allConfiguredTools, leaderObjectType),
+    [allConfiguredTools, leaderObjectType],
+  )
+  const tabTriggerStats = useMemo(() => ({
+    all: leaderToolSource.length,
+    system: leaderToolSource.filter((item) => item.triggerType === 'system').length,
+    leader: leaderToolSource.filter((item) => item.triggerType === 'leader').length,
+    rule_direct: leaderToolSource.filter((item) => item.triggerType === 'rule_direct').length,
+    workflow_dependency: leaderToolSource.filter((item) => item.triggerType === 'workflow_dependency').length,
+  }), [leaderToolSource])
   const mappedQuestionAgentCount = questionAgentRows.filter((item) => item.agentName && item.exists).length
   const validQuestionAgentCount = questionAgentRows.filter((item) => (
     item.agentName && item.exists && item.enabled !== false && item.boundModel
   )).length
-  const leaderToolSource = leaderObjectType === 'all'
-    ? allConfiguredTools
-    : leaderObjectType === 'campus'
-      ? campusServiceTools
-      : leaderObjectType === 'visual'
-        ? visualTools
-        : leaderObjectType === 'content'
-          ? contentCategoryTools
-          : leaderObjectType === 'file_content'
-            ? fileContentTools
-            : structuredTools
 
   const overviewIssues = [
     unboundAgentCount ? {
@@ -1611,33 +1632,34 @@ function AgentSettings() {
               label: '工具开关',
               children: (
                 <div className="agent-settings-tab-panel">
-                  <div className="agent-settings-table-tools">
+                  <div className="agent-settings-table-tools agent-settings-table-tools-stacked">
                     <Segmented
-                      className="agent-settings-segmented"
+                      className="agent-settings-segmented agent-settings-tool-tabs"
                       value={leaderObjectType}
-                      options={[
-                        { label: `全部工具 ${callableToolCount}/${allConfiguredTools.length}`, value: 'all' },
-                        { label: `校园服务 ${enabledCampusServiceCount}/${campusServiceTools.length}`, value: 'campus' },
-                        { label: `视觉能力 ${visualTools.filter((item) => item.enabled !== false).length}/${visualTools.length}`, value: 'visual' },
-                        { label: `内容处理 ${contentCategoryTools.filter((item) => item.enabled !== false).length}/${contentCategoryTools.length}`, value: 'content' },
-                        { label: `文件内容识别 ${fileContentTools.filter((item) => item.enabled !== false).length}/${fileContentTools.length}`, value: 'file_content' },
-                        { label: `结构化查询 ${structuredTools.filter((item) => item.enabled !== false).length}/${structuredTools.length}`, value: 'structured' },
-                      ]}
+                      options={TOOL_TAB_GROUPS.map((tab) => {
+                        const stats = getToolTabStats(allConfiguredTools, tab.key)
+                        return {
+                          label: `${tab.label} ${stats.enabled}/${stats.total}`,
+                          value: tab.key,
+                        }
+                      })}
                       onChange={(value) => {
                         setLeaderObjectType(value)
                         setToolTriggerType('all')
                         setLeaderToolFilter('all')
+                        setSelectedToolKeys([])
                       }}
                     />
+                    <div className="agent-settings-table-tools-filters">
                     <Segmented
                       className="agent-settings-segmented"
                       value={toolTriggerType}
                       options={[
-                        { label: `全部调度 ${allConfiguredTools.length}`, value: 'all' },
-                        { label: `系统主动触发 ${systemTriggeredTools.length}`, value: 'system' },
-                        { label: `Leader 调用 ${leaderTriggeredTools.length}`, value: 'leader' },
-                        { label: `规则直调 ${ruleDirectTools.length}`, value: 'rule_direct' },
-                        { label: `工作流依赖 ${workflowDependencyTools.length}`, value: 'workflow_dependency' },
+                        { label: `全部调度 ${tabTriggerStats.all}`, value: 'all' },
+                        { label: `系统主动触发 ${tabTriggerStats.system}`, value: 'system' },
+                        { label: `Leader 调用 ${tabTriggerStats.leader}`, value: 'leader' },
+                        { label: `规则直调 ${tabTriggerStats.rule_direct}`, value: 'rule_direct' },
+                        { label: `工作流依赖 ${tabTriggerStats.workflow_dependency}`, value: 'workflow_dependency' },
                       ]}
                       onChange={(value) => {
                         setToolTriggerType(value)
@@ -1655,6 +1677,7 @@ function AgentSettings() {
                       ]}
                       onChange={setLeaderToolFilter}
                     />
+                    </div>
                   </div>
                   {selectedToolKeys.length > 0 && (
                     <Space style={{ marginBottom: 8 }} size={8}>
