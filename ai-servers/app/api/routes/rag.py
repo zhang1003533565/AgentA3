@@ -102,12 +102,6 @@ VISUAL_GENERATION_TOOL_CONFIG = {
         "trigger": "用户要求生成系统架构图、技术架构图或模块依赖图。",
         "promptAgent": "architecture_prompt_agent",
     },
-    "generate_knowledge_graph_image_tool": {
-        "zhName": "知识图谱图片生成工具",
-        "purpose": "先生成知识图谱专用提示词，再统一调用图片生成入口。",
-        "trigger": "用户要求生成知识图谱、实体关系图或概念关系图。",
-        "promptAgent": "knowledge_graph_prompt_agent",
-    },
     "generate_ppt_image_tool": {
         "zhName": "PPT 配图生成工具",
         "purpose": "先生成 PPT 配图专用提示词，再统一调用图片生成入口。",
@@ -484,17 +478,6 @@ TOOL_CAPABILITY_QUERY = {
 LEADER_CALLABLE_TOOLS = [
     IMAGE_RECOGNITION_TOOL,
     *VISUAL_GENERATION_TOOLS,
-    {
-        "name": "text_to_sql",
-        "zhName": "结构化查询工具",
-        "displayName": "结构化查询工具（text_to_sql）",
-        "category": "structured_query",
-        "purpose": "把统计、列表、数量类问题转换为只读 SQL，并返回可展示查询结果。",
-        "trigger": "用户询问优惠券、食堂、菜品、课程、课表等结构化数据的统计、数量、列表或排名。",
-        "outputs": ["sql", "text"],
-        "status": "implemented",
-        "configurable": True,
-    },
     *CAMPUS_SERVICE_TOOLS,
     TOOL_CAPABILITY_QUERY,
     {
@@ -1651,8 +1634,6 @@ def _build_direct_tool_test_plan(tool_name: str) -> LeaderPlan:
         intent = "image_understanding"
     elif tool_name in VISUAL_GENERATION_TOOL_NAMES:
         intent = "image_generation"
-    elif tool_name == "text_to_sql":
-        intent = "structured_query"
     elif tool_name in SERVICE_TOOL_NAMES:
         intent = "campus_service"
     elif tool_name == TOOL_CAPABILITY_QUERY_NAME:
@@ -2778,8 +2759,6 @@ def _execute_leader_plan(
             )
         if plan.tool_name == TOOL_CAPABILITY_QUERY_NAME:
             response = _run_tool_capability_query(request, plan)
-        elif plan.tool_name == "text_to_sql":
-            response = _run_text_to_sql_tool(request, plan)
         elif plan.tool_name in SERVICE_TOOL_NAMES:
             response = _run_service_tool(request, authorization, plan)
         elif plan.tool_name == "generated_export_tools":
@@ -4032,60 +4011,6 @@ def _build_stream_error_payload(
     }
 
 
-def _run_text_to_sql_tool(request: RagQueryRequest, leader_plan) -> RagQueryResponse:
-    result = TextToSqlService().plan(request.input)
-    metadata = {
-        "sql": result.sql,
-        "rows": result.rows,
-        "rowCount": len(result.rows),
-        "readonly": bool(result.sql),
-        "error": result.error,
-    }
-    try:
-        answer = leader_agent.summarize_tool_result(
-            input_text=request.input,
-            plan=leader_plan,
-            tool_display_name=_tool_display_name(leader_plan.tool_name),
-            tool_results=[{"type": "text_to_sql_result", **metadata}],
-        )
-    except Exception as exc:
-        raise HTTPException(status_code=502, detail="模型未能生成 Text-to-SQL 结果回复，已禁止系统兜底回复。") from exc
-    if not str(answer or "").strip():
-        raise HTTPException(status_code=502, detail="模型返回空的 Text-to-SQL 结果回复，已禁止系统兜底回复。")
-    metadata.update({
-        "agentName": "leader_agent",
-        "targetAgent": "text_to_sql",
-        "executedAgent": "text_to_sql",
-        "intent": leader_plan.intent,
-        "needRetrieval": False,
-        "retrievalSkipped": True,
-        "leaderAction": leader_plan.action,
-        "leaderActionLabel": _leader_action_label(leader_plan.action),
-        "toolName": leader_plan.tool_name,
-        "toolDisplayName": _tool_display_name(leader_plan.tool_name),
-        "routeReason": leader_plan.route_reason,
-        "strategyLabel": _strategy_label("text_to_sql"),
-        "executionMode": "leader_call_tool",
-        "executionModeLabel": "Leader 调用 Text-to-SQL 接口",
-        "answerType": "tool_result",
-        "toolToggles": _tool_toggles_from_request(request),
-    })
-    metadata.update(_context_metadata_from_request(request))
-    trace = [
-        RagTraceResponse(stage="leader_route", detail=_leader_plan_detail(leader_plan)),
-        RagTraceResponse(stage="generate_sql", detail={"readonly": bool(result.sql), "sql": result.sql, "error": result.error}),
-        RagTraceResponse(stage="tool_call", detail={"toolName": "text_to_sql", "toolDisplayName": _tool_display_name("text_to_sql"), "strategy": "text_to_sql"}),
-    ]
-    return _decorate_output_response(RagQueryResponse(
-        strategy="text_to_sql",
-        answer=answer,
-        answerType="tool_result",
-        documents=[],
-        trace=trace,
-        metadata=metadata,
-    ))
-
-
 def _run_generated_export_tool(request: RagQueryRequest, leader_plan) -> RagQueryResponse:
     request_metadata = request.metadata if isinstance(request.metadata, dict) else {}
     requested_output_type = _normalize_requested_file_type(
@@ -4664,7 +4589,6 @@ def _follow_up_actions_for_output(answer_type: str, metadata: Dict[str, Any], ou
         "ppt_outline_agent",
         "diagram_mind_map_agent",
         "diagram_flowchart_agent",
-        "diagram_activity_agent",
         "diagram_architecture_agent",
     }
 
@@ -4944,7 +4868,6 @@ def _strategy_label(strategy_name: str) -> str:
         "java_secondhand_api": "旧物查询工具",
         "generated_export_tools": "内容导出工具",
         **TEXT_TO_FILE_TOOL_LABELS,
-        "text_to_sql": "Text-to-SQL",
         IMAGE_RECOGNITION_TOOL_NAME: "图片识别工具",
         IMAGE_STITCHING_TOOL["name"]: "图片拼接工具",
         **{
@@ -4962,7 +4885,6 @@ def _tool_zh_name(tool_name: str) -> str:
         TOOL_CAPABILITY_QUERY_NAME: "工具能力查询",
         IMAGE_RECOGNITION_TOOL_NAME: "图片识别工具",
         IMAGE_STITCHING_TOOL["name"]: "图片拼接工具",
-        "text_to_sql": "结构化查询工具",
         "java_schedule_api": "课表查询工具",
         "java_activity_api": "活动查询工具",
         "java_meeting_api": "会议查询工具",
@@ -5001,7 +4923,6 @@ def _answer_type_for_agent(agent_name: str) -> str:
         "mind_map_agent": "image_prompt",
         "diagram_mind_map_agent": "mermaid_mindmap",
         "diagram_flowchart_agent": "mermaid_flowchart",
-        "diagram_activity_agent": "mermaid_activity_flowchart",
         "diagram_architecture_agent": "mermaid_architecture",
         "textbook_knowledge_agent": "markdown",
         "ppt_outline_agent": "ppt_outline",

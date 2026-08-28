@@ -394,7 +394,7 @@ class JavaReuseIntegrationTest(unittest.TestCase):
             "image_agent",
             "mind_map_agent",
             "diagram_flowchart_prompt_agent",
-            "knowledge_graph_prompt_agent",
+            "architecture_prompt_agent",
             "ppt_image_agent",
         ):
             with self.subTest(agent_name=agent_name):

@@ -492,22 +492,20 @@ class RagApiRoutesTest(unittest.TestCase):
 
         self.assertEqual(404, response.status_code)
 
-    def test_query_endpoint_runs_strategy(self):
+    def test_query_endpoint_runs_campus_service_tool(self):
         response = self.client.post(
             "/internal/rag/query",
             headers=self.headers,
             json={
-                "input": "统计食堂优惠券数量",
-                "keyword": "优惠券",
-                "ragStrategy": "text_to_sql",
+                "input": "食堂有什么优惠",
+                "keyword": "食堂",
             },
         )
 
         self.assertEqual(200, response.status_code)
         payload = response.json()
-        self.assertEqual("text_to_sql", payload["strategy"])
-        self.assertTrue(payload["metadata"]["readonly"])
-        self.assertIn("SELECT", payload["metadata"]["sql"])
+        self.assertEqual("java_canteen_api", payload["metadata"]["toolName"])
+        self.assertTrue(payload["answer"])
 
     def test_rag_routes_require_authorization(self):
         response = self.client.get(
@@ -751,8 +749,6 @@ class RagApiRoutesTest(unittest.TestCase):
             "mind_map_agent",
             "architecture_prompt_agent",
             "diagram_flowchart_prompt_agent",
-            "diagram_activity_prompt_agent",
-            "knowledge_graph_prompt_agent",
             "ppt_image_agent",
         }.isdisjoint(leader_callable_names))
         leader_tool_names = {item["name"] for item in payload["leaderCallableCatalog"]["tools"]}
@@ -1578,21 +1574,6 @@ class RagApiRoutesTest(unittest.TestCase):
                 self.assertEqual("direct_agent", payload["strategy"])
                 self.assertTrue(payload["answer"])
 
-    def test_query_endpoint_text_to_sql_returns_tool_answer_without_local_synthesizer(self):
-        response = self.client.post(
-            "/internal/rag/query",
-            headers=self.headers,
-            json={
-                "input": "统计食堂优惠券数量",
-                "keyword": "优惠券",
-                "ragStrategy": "text_to_sql",
-            },
-        )
-
-        self.assertEqual(200, response.status_code)
-        payload = response.json()
-        self.assertTrue(payload["answer"])
-        self.assertNotIn("answerSynthesizer", payload["metadata"])
 
     def test_ppt_outline_normalizer_rewrites_legacy_fields(self):
         raw = """## PPT 大纲
@@ -1732,15 +1713,26 @@ class FakeRagModelProvider:
 
     def _build_leader_plan(self, input_text, rag_strategy=""):
         text = input_text or ""
-        if "统计" in text:
+        if "统计" in text and "二手" in text:
             return {
-                "intent": "structured_query",
+                "intent": "secondhand_query",
                 "target_agent": "leader_agent",
                 "need_retrieval": False,
-                "rag_strategy": "text_to_sql",
+                "rag_strategy": "",
                 "action": "call_tool",
-                "tool_name": "text_to_sql",
-                "route_reason": "LLM 根据 Java 后台模型配置完成结构化查询识别。",
+                "tool_name": "java_secondhand_api",
+                "route_reason": "LLM 根据启用工具清单选择旧物查询工具。",
+                "answer": "",
+            }
+        if "统计" in text:
+            return {
+                "intent": "canteen_query",
+                "target_agent": "leader_agent",
+                "need_retrieval": False,
+                "rag_strategy": "",
+                "action": "call_tool",
+                "tool_name": "java_canteen_api",
+                "route_reason": "LLM 根据启用工具清单选择食堂餐饮查询工具。",
                 "answer": "",
             }
         if "食堂" in text or "黄焖鸡" in text or "吃什么" in text:
@@ -1828,20 +1820,14 @@ class FakeRagModelProvider:
             return "```mermaid\nmindmap\n  root((测试思维导图))\n```"
         if "diagram_flowchart_prompt_agent" in system_prompt:
             return "专业流程图图片提示词：蓝白教学风格，清晰展示开始、处理步骤、判断分支和结束节点。"
-        if "diagram_activity_prompt_agent" in system_prompt:
-            return "专业活动图图片提示词：使用泳道清晰展示角色、任务和状态变化。"
         if "architecture_prompt_agent" in system_prompt:
             return "专业架构图图片提示词：分层展示客户端、服务层和数据层及其依赖关系。"
         if "mind_map_agent" in system_prompt:
             return "专业思维导图图片提示词：中心主题向外分层展开，节点清晰可读。"
-        if "knowledge_graph_prompt_agent" in system_prompt:
-            return "专业知识图谱图片提示词：实体节点分组清晰，关系名称明确，使用带方向箭头连接。"
         if "思维导图智能体" in system_prompt:
             return "```mermaid\nmindmap\n  root((测试思维导图))\n```"
         if "diagram_flowchart_agent" in system_prompt:
             return "```mermaid\nflowchart TD\n  Start([开始]) --> End([结束])\n```"
-        if "diagram_activity_agent" in system_prompt:
-            return "```mermaid\nflowchart TD\n  Start([开始]) --> Task[执行任务] --> End([结束])\n```"
         if "diagram_architecture_agent" in system_prompt:
             return "```mermaid\nflowchart LR\n  Web[Web] --> API[API]\n```"
         if "教材知识点智能体" in system_prompt:

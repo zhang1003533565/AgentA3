@@ -26,7 +26,6 @@ LEADER_OUTPUT_PUSH_STRATEGIES = [
             "generate_mind_map_image_tool",
             "generate_flowchart_image_tool",
             "generate_architecture_image_tool",
-            "generate_knowledge_graph_image_tool",
             "generate_ppt_image_tool",
         ],
         "display_policy": "返回图片 URL 或图片生成 JSON 时，App 会话页以图片卡片展示，支持点击预览。",
@@ -59,7 +58,6 @@ VISUAL_GENERATION_TOOL_NAMES = {
     "generate_mind_map_image_tool",
     "generate_flowchart_image_tool",
     "generate_architecture_image_tool",
-    "generate_knowledge_graph_image_tool",
     "generate_ppt_image_tool",
 }
 
@@ -621,18 +619,8 @@ class LeaderAgent:
                 route_reason="命中课表意图，优先调用 Java 后端课表接口。",
                 answer=answer,
             )
-        if self._is_structured_query(normalized):
-            return LeaderPlan(
-                intent="structured_query",
-                target_agent="leader_agent",
-                need_retrieval=False,
-                rag_strategy="text_to_sql",
-                action="call_tool",
-                tool_name="text_to_sql",
-                route_reason="命中统计/查询结构化数据意图，使用 Text-to-SQL 查询接口。",
-            )
         if any(token in normalized for token in ("知识图谱", "实体关系图", "概念关系图", "knowledge graph")):
-            return LeaderPlan("knowledge_graph_image", "leader_agent", False, "", action="call_tool", tool_name="generate_knowledge_graph_image_tool", route_reason="命中知识图谱生成意图，调用知识图谱图片生成工具。")
+            return LeaderPlan("knowledge_graph_image", "leader_agent", False, "", action="call_tool", tool_name="generate_image_tool", route_reason="命中知识图谱生成意图，调用通用图片生成工具。")
         if "架构图" in normalized and "提示词" in normalized:
             return LeaderPlan("architecture_diagram_prompt", "leader_agent", False, "", action="call_tool", tool_name="generate_architecture_image_tool", route_reason="命中架构图生成意图，调用架构图图片生成工具。")
         if any(token in normalized for token in ("架构图", "系统架构图", "architecture diagram", "architecture")):
@@ -1113,9 +1101,7 @@ class LeaderAgent:
         target_agent = "leader_agent"
         need_retrieval = False
         rag_strategy = self._normalize_rag_strategy(plan.get("rag_strategy") or plan.get("ragStrategy"))
-        if action == "call_tool" and tool_name == "text_to_sql" and not rag_strategy:
-            rag_strategy = "text_to_sql"
-        elif action != "call_tool":
+        if action != "call_tool":
             rag_strategy = ""
         return LeaderPlan(
             intent=str(plan.get("intent") or "campus_search").strip() or "campus_search",
@@ -1138,11 +1124,6 @@ class LeaderAgent:
             return None
         # 专业智能体不再作为 Leader 的独立路由目标；相关能力必须以系统工具形式进入工具目录。
         return None
-
-    def _is_structured_query(self, normalized_text: str) -> bool:
-        query_tokens = ("统计", "数量", "多少", "有多少", "列表", "查询", "查一下", "排名")
-        domain_tokens = ("优惠券", "优惠", "满减", "食堂", "餐厅", "档口", "菜品", "课程", "课表")
-        return any(token in normalized_text for token in query_tokens) and any(token in normalized_text for token in domain_tokens)
 
     def load_memory(self, session_token: str) -> List[Dict[str, str]]:
         return memory_store.get_history(session_token)
@@ -1460,7 +1441,7 @@ class LeaderAgent:
         rag_strategy = str(value or "").strip()
         if not rag_strategy or rag_strategy in {"按目标智能体默认策略", "默认策略", "目标智能体默认策略"}:
             return ""
-        return "text_to_sql" if rag_strategy == "text_to_sql" else ""
+        return ""
 
 
 leader_agent = LeaderAgent()
