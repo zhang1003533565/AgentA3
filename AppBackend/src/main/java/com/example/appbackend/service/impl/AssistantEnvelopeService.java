@@ -99,7 +99,7 @@ public class AssistantEnvelopeService {
             "resourceKind", "resourceType", "reviewStatus");
     private static final Set<String> SAFE_STEP_DETAIL_KEYS = Set.of(
             "agentName", "targetAgent", "toolName", "toolDisplayName", "routeReason", "intent",
-            "resultCount", "documentCount", "strategy", "summarizedByModel");
+            "resultCount", "documentCount", "strategy", "summarizedByModel", "message", "promptPreview");
     private static final Set<String> DEFAULT_SSE_FIELDS = Set.of(
             "message", "status", "stage", "progress");
     private static final Set<String> LEARNING_SSE_EVENTS = Set.of(
@@ -113,6 +113,7 @@ public class AssistantEnvelopeService {
             "status", Set.of("message", "status", "stage", "progress", "agentName"),
             "tool_start", Set.of("message", "status", "stage", "agentName", "toolName", "toolDisplayName", "routeReason", "intent", "triggerType"),
             "workflow_step", Set.of("stage", "detail", "message", "status"),
+            "generation_progress", Set.of("phase", "status", "imageGenerating", "content"),
             "error", Set.of(
                     "message", "status", "stage", "agentName", "failedAgent", "toolName", "toolDisplayName",
                     "failurePhase", "failureStage", "failureLocation", "statusCode", "intent", "routeReason"
@@ -303,6 +304,25 @@ public class AssistantEnvelopeService {
         Set<String> allowed = SSE_EVENT_FIELDS.getOrDefault(eventName, DEFAULT_SSE_FIELDS);
         Map<String, Object> safe = new LinkedHashMap<>();
         for (String key : allowed) {
+            if ("detail".equals(key) && "workflow_step".equals(eventName) && source.get(key) instanceof Map<?, ?> detailSource) {
+                Map<String, Object> detail = new LinkedHashMap<>();
+                for (String detailKey : SAFE_STEP_DETAIL_KEYS) {
+                    Object value = detailSource.get(detailKey);
+                    if (value instanceof Number number && finite(number)) {
+                        detail.put(detailKey, value);
+                    } else if (value instanceof Boolean) {
+                        detail.put(detailKey, value);
+                    } else if (value instanceof String text
+                            && text.length() <= 1_000
+                            && !unsafePublicText(text, internalCapabilities)) {
+                        detail.put(detailKey, text);
+                    }
+                }
+                if (!detail.isEmpty()) {
+                    safe.put(key, detail);
+                }
+                continue;
+            }
             Object value = source.get(key);
             if (value instanceof Number number && finite(number)) {
                 safe.put(key, value);

@@ -3,7 +3,9 @@ import { computed, h, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 
 import AppTabBar from '../components/AppTabBar.vue'
+import ChatImageAttachment from '../components/ChatImageAttachment.vue'
 import ChatMarkdown from '../components/ChatMarkdown.vue'
+import ImageGenerationCanvas from '../components/ImageGenerationCanvas.vue'
 import { deleteLeaderSession, getLeaderSessionDetail, getLeaderSessions, queryLeaderAgent, streamLeaderAgent } from '../api/aiGeneration'
 import { API_BASE_URL } from '../api/request'
 import { AI_RESOURCE_ACCEPT, uploadAiResource } from '../api/upload'
@@ -113,8 +115,9 @@ let activeStreamTask = null
 
 const workflowStageLabels = {
   request_submitted: '请求已提交', session_ready: '会话已建立', leader_route: 'Leader 意图识别与路由',
-  leader_plan: 'Leader 制定执行计划', tool_start: '工具开始执行', tool_call: '调用工具',
-  tool_result_summary: '工具结果汇总', prompt_agent: '内容格式整理智能体', vision_agent: '图片识别智能体',
+  leader_plan: 'Leader 制定执行计划', leader_visual_prompt: 'Leader 汇总生图提示词',
+  tool_start: '工具开始执行', tool_call: '调用工具',
+  tool_result_summary: '工具结果汇总', prompt_agent: '专业提示词智能体', vision_agent: '图片识别智能体',
   image_generation_tool: '图片生成工具', agent_answer: '智能体生成结果', direct_agent: '专业智能体处理',
   generate_sql: '生成查询语句', retrieval: '检索相关资料', generation_start: '开始生成内容', completed: '处理完成',
   input_pipeline: '附件输入预处理', input_image_collected: '收集上传图片',
@@ -139,6 +142,8 @@ function workflowDetailText(detail, fallback = '') {
   if (typeof detail === 'string') return detail
   if (!detail || typeof detail !== 'object') return fallback
   return detail.message
+    || detail.summary
+    || detail.promptPreview
     || detail.failureReason
     || detail.rawMessage
     || detail.routeReason
@@ -169,17 +174,18 @@ function buildWorkflowFailureDescription(entry, detail, fallback = '') {
 function normalizeWorkflowStep(entry, index, status = 'completed') {
   const stage = String(entry?.stage || entry?.event || 'processing')
   const detail = entry?.detail && typeof entry.detail === 'object' ? entry.detail : entry
+  const resolvedStatus = entry?.status || status
   const toolName = detail?.toolDisplayName || detail?.toolName || detail?.tool || entry?.toolDisplayName || entry?.toolName || ''
   const agentName = detail?.agentDisplayName || detail?.agentName || detail?.targetAgent || detail?.executedAgent || detail?.failedAgent || entry?.agentName || ''
   const intent = detail?.intent || entry?.intent || ''
   const failurePhase = detail?.failurePhase || entry?.failurePhase || detail?.failureStage || entry?.failureStage || ''
-  const isFailed = status === 'failed' || stage === 'failed'
+  const isFailed = resolvedStatus === 'failed' || stage === 'failed'
   const title = isFailed
     ? `执行失败${failurePhase ? ` · ${failurePhase}` : ''}`
     : (workflowStageLabels[stage] || toolName || agentName || '执行处理')
   const description = isFailed
     ? buildWorkflowFailureDescription(entry, detail, entry?.message || '')
-    : workflowDetailText(entry?.detail, entry?.message || '')
+    : workflowDetailText(detail, entry?.message || '')
   return {
     id: `${stage}-${index}-${toolName || agentName}`,
     stage,
@@ -193,7 +199,7 @@ function normalizeWorkflowStep(entry, index, status = 'completed') {
       intent && `意图：${intent}`,
       detail?.routeReason || entry?.routeReason,
     ].filter(Boolean),
-    status,
+    status: isFailed ? 'failed' : resolvedStatus,
   }
 }
 
@@ -206,6 +212,29 @@ function appendWorkflowStep(messageId, entry, status = 'running') {
   if (!target) return
   const current = (target.workflowSteps || []).map((step) => step.status === 'running' ? { ...step, status: 'completed' } : step)
   target.workflowSteps = [...current, normalizeWorkflowStep(entry, current.length, status)]
+}
+
+function upsertWorkflowStep(messageId, entry, status = 'running') {
+  const target = messages.value.find((item) => item.id === messageId)
+  if (!target) return
+  const stage = String(entry?.stage || entry?.event || 'processing')
+  const steps = (target.workflowSteps || []).map((step) => (
+    step.status === 'running' && step.stage !== stage ? { ...step, status: 'completed' } : step
+  ))
+  const index = steps.findIndex((step) => step.stage === stage)
+  const normalized = normalizeWorkflowStep(entry, index >= 0 ? index : steps.length, status)
+  if (index >= 0) {
+    steps[index] = normalized
+  } else {
+    steps.push(normalized)
+  }
+  target.workflowSteps = steps
+}
+
+function markWorkflowStepsCompleted(steps = []) {
+  return (steps || []).map((step) => (
+    step.status === 'failed' ? step : { ...step, status: 'completed' }
+  ))
 }
 
 const messages = ref([
@@ -243,7 +272,7 @@ function normalizeHistoryMessage(item, index) {
     outputType: item?.outputType || '',
     agentName: item?.agentName || 'leader_agent',
     resources: Array.isArray(item?.resources) ? item.resources : [],
-    attachments: Array.isArray(item?.attachments) ? item.attachments : [],
+    attachments: normalizeMessageAttachments(item?.attachments, item?.resources),
     workflowSteps: traceWorkflowSteps(trace),
     workflowExpanded: false,
     exportSessionId: item?.sessionId || '',
@@ -499,6 +528,43 @@ function handleResourceSelect(event) {
   event.target.value = ''
 }
 
+function normalizeMessageAttachments(attachments = [], resources = []) {
+  const direct = Array.isArray(attachments) ? attachments.filter(Boolean).map((item) => ({ ...item })) : []
+  if (direct.length) return direct
+  return (Array.isArray(resources) ? resources : [])
+    .filter((item) => {
+      const kind = String(item?.kind || '').toLowerCase()
+      const mimeType = String(item?.mimeType || '').toLowerCase()
+      return kind === 'image' || mimeType.startsWith('image/')
+    })
+    .map((item) => ({
+      name: item?.title || item?.fileName || '生成图片',
+      fileName: item?.title || item?.fileName || '生成图片.png',
+      type: 'image',
+      mimeType: item?.mimeType || 'image/png',
+      url: item?.url || '',
+      previewUrl: item?.previewUrl || '',
+      storageKey: item?.storageKey || '',
+      serverGenerated: true,
+    }))
+}
+
+function buildAttachmentFetchUrl(item, message = null) {
+  const direct = item?.previewUrl || item?.url || item?.sourceUrl || item?.downloadUrl || ''
+  if (direct) {
+    if (direct.startsWith('http://') || direct.startsWith('https://')) return direct
+    if (direct.startsWith('/')) return `${API_BASE_URL}${direct}`
+    return `${API_BASE_URL}/${direct}`
+  }
+  const storageKey = String(item?.storageKey || '').trim()
+  const sessionId = String(message?.exportSessionId || message?.sessionId || activeConversationId.value || '').trim()
+  const messageId = message?.exportMessageId || message?.messageId
+  if (storageKey && sessionId && messageId) {
+    return `${API_BASE_URL}/api/ai/leader/sessions/${encodeURIComponent(sessionId)}/messages/${messageId}/exports/${encodeURIComponent(storageKey)}`
+  }
+  return ''
+}
+
 function removeResource(localId) {
   const item = pendingResources.value.find((entry) => entry.localId === localId)
   if (item?.previewUrl) URL.revokeObjectURL(item.previewUrl)
@@ -532,30 +598,22 @@ function displayAssistantContent(message) {
 }
 
 function attachmentUrl(item, message = null) {
-  const direct = item?.previewUrl || item?.url || item?.sourceUrl || item?.downloadUrl || ''
-  if (direct) return direct.startsWith('/') ? `${API_BASE_URL}${direct}` : direct
-  const storageKey = String(item?.storageKey || '').trim()
-  const sessionId = String(message?.exportSessionId || message?.sessionId || activeConversationId.value || '').trim()
-  const messageId = message?.exportMessageId || message?.messageId
-  if (storageKey && sessionId && messageId) {
-    return `${API_BASE_URL}/api/ai/leader/sessions/${encodeURIComponent(sessionId)}/messages/${messageId}/exports/${encodeURIComponent(storageKey)}`
-  }
-  return ''
-}
-
-function attachmentName(item) {
-  return item?.name || item?.fileName || item?.title || '上传图片'
+  return buildAttachmentFetchUrl(item, message)
 }
 
 async function loadAttachmentBlob(item, message = null) {
-  const source = attachmentUrl(item, message)
+  const source = buildAttachmentFetchUrl(item, message)
   if (!source) throw new Error('该附件缺少可用地址')
   const token = getToken()
-  const response = await fetch(source.startsWith('/') ? `${API_BASE_URL}${source}` : source, {
+  const response = await fetch(source, {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   })
   if (!response.ok) throw new Error(`读取附件失败（${response.status}）`)
   return response.blob()
+}
+
+function attachmentName(item) {
+  return item?.name || item?.fileName || item?.title || '上传图片'
 }
 
 async function openAttachment(item, message = null) {
@@ -698,12 +756,46 @@ async function sendMessage(text) {
         syncConversationSession(requestConversationId, payload?.sessionId)
         const current = messages.value.find((item) => item.id === assistantMessageId)
         if (eventName === 'workflow_step') {
-          appendWorkflowStep(assistantMessageId, payload)
-        } else if (eventName === 'generation_start') {
-          appendWorkflowStep(assistantMessageId, { stage: 'generation_start', message: payload?.answer || '已进入内容生成阶段' })
+          upsertWorkflowStep(assistantMessageId, payload, payload?.status || 'completed')
+        } else if (eventName === 'generation_progress') {
+          const phase = payload?.phase || 'image_generation_tool'
+          const stage = phase === 'leader_visual_prompt' ? 'leader_visual_prompt' : 'image_generation_tool'
+          const workflowMessage = phase === 'leader_visual_prompt'
+            ? (payload?.status === 'completed' ? '生图提示词已整理完成' : '正在根据会话上下文整理生图提示词…')
+            : '正在生成图片，请稍候…'
+          upsertWorkflowStep(assistantMessageId, {
+            stage,
+            detail: { message: workflowMessage },
+            status: payload?.status || 'running',
+          }, payload?.status === 'completed' ? 'completed' : 'running')
+          if (payload?.imageGenerating && phase === 'leader_visual_prompt' && payload?.status === 'completed') {
+            upsertWorkflowStep(assistantMessageId, {
+              stage: 'image_generation_tool',
+              detail: { message: '正在生成图片，请稍候…', toolDisplayName: '图片生成工具' },
+              status: 'running',
+            }, 'running')
+          }
           updateChatMessage(assistantMessageId, {
-            content: payload?.answer || current?.content || '',
+            content: payload?.content || current?.content || '',
             streaming: true,
+            imageGenerating: Boolean(payload?.imageGenerating),
+            imageGeneratingLabel: payload?.phase === 'leader_visual_prompt' && payload?.status !== 'completed'
+              ? '正在整理生图提示词…'
+              : '正在生成更详细的图片，请稍等。',
+            answerType: 'image_generation',
+            workflowExpanded: true,
+          })
+        } else if (eventName === 'generation_start') {
+          upsertWorkflowStep(assistantMessageId, { stage: 'generation_start', message: '开始生成内容' }, 'completed')
+          if (Array.isArray(payload?.trace)) {
+            payload.trace.forEach((step) => upsertWorkflowStep(assistantMessageId, step, 'completed'))
+          }
+          updateChatMessage(assistantMessageId, {
+            content: payload?.answer || current?.content || '正在整理生图方案…',
+            streaming: true,
+            imageGenerating: false,
+            answerType: payload?.answerType || current?.answerType || 'text',
+            workflowExpanded: true,
           })
         } else if (eventName === 'tool_start') {
           appendWorkflowStep(assistantMessageId, { stage: 'tool_start', ...payload })
@@ -769,15 +861,18 @@ async function sendMessage(text) {
         const current = messages.value.find((item) => item.id === assistantMessageId)
         const finalContent = String(payload?.answer || current?.content || '').trim()
         const finalWorkflow = traceWorkflowSteps(payload?.trace)
-        const workflowSteps = finalWorkflow.length
-          ? finalWorkflow
-          : [...(current?.workflowSteps || []).map((step) => ({ ...step, status: 'completed' })), normalizeWorkflowStep({ stage: 'completed', message: '所有处理步骤已完成' }, (current?.workflowSteps || []).length)]
+        const workflowSteps = current?.workflowSteps?.length
+          ? markWorkflowStepsCompleted(current.workflowSteps)
+          : finalWorkflow.length
+            ? finalWorkflow
+            : [...markWorkflowStepsCompleted(current?.workflowSteps || []), normalizeWorkflowStep({ stage: 'completed', message: '所有处理步骤已完成' }, (current?.workflowSteps || []).length)]
         updateChatMessage(assistantMessageId, {
           content: finalContent || 'AI 已完成本次资源分析。',
-          attachments: payload?.attachments || [],
+          attachments: normalizeMessageAttachments(payload?.attachments, payload?.resources),
           resources: payload?.resources || [],
           streaming: false,
           receivedDelta: false,
+          imageGenerating: false,
           answerType: payload?.answerType || 'text',
           exportSessionId: payload?.sessionId || conversationSessionIds.value[requestConversationId] || requestConversationId || '',
           exportMessageId: payload?.messageId || '',
@@ -830,7 +925,7 @@ async function sendMessage(text) {
         syncConversationSession(requestConversationId, response?.sessionId)
         updateChatMessage(assistantMessageId, {
           content: response?.answer || response?.content || 'AI 已完成本次资源分析。',
-          attachments: response?.attachments || [],
+          attachments: normalizeMessageAttachments(response?.attachments, response?.resources),
           resources: response?.resources || [],
           streaming: false,
           workflowSteps: traceWorkflowSteps(response?.trace).length
@@ -1494,18 +1589,22 @@ function handleUpload(event) {
                       :streaming="Boolean(message.streaming)"
                     />
                     <p v-else-if="message.content">{{ message.content }}</p>
+                    <ImageGenerationCanvas
+                      v-if="message.role === 'assistant' && message.imageGenerating && !message.attachments?.length"
+                      :label="message.imageGeneratingLabel || '正在生成更详细的图片，请稍等。'"
+                    />
                     <div v-if="message.attachments?.length" class="message-attachments">
-                      <template v-for="item in message.attachments" :key="item.id || item.url || item.name">
-                        <div :class="['message-attachment-card', { 'is-image': isImageAttachment(item) }]">
-                          <img
-                            v-if="isImageAttachment(item) && attachmentUrl(item, message)"
-                            class="message-image"
-                            :src="attachmentUrl(item, message)"
-                            :alt="attachmentName(item)"
-                            loading="lazy"
-                            @click="openAttachment(item, message)"
-                          />
-                          <div v-else class="message-file">
+                      <template v-for="item in message.attachments" :key="item.storageKey || item.url || item.id || item.name">
+                        <ChatImageAttachment
+                          v-if="isImageAttachment(item)"
+                          :item="item"
+                          :message="message"
+                          :session-id="message.exportSessionId || activeConversationId"
+                          @open="openAttachment(item, message)"
+                          @download="downloadAttachment(item, message)"
+                        />
+                        <div v-else class="message-attachment-card">
+                          <div class="message-file">
                             <img v-if="fileIconAsset(item)" class="file-type-image" :src="fileIconAsset(item)" :alt="fileExtension(item)" />
                             <i v-else :class="['file-type-icon', `file-type-icon--${fileIconClass(item)}`]">{{ fileExtension(item) }}</i>
                             <span :title="attachmentName(item)">{{ attachmentName(item) }}</span>
