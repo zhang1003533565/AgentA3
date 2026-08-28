@@ -367,6 +367,35 @@ class RagApiRoutesTest(unittest.TestCase):
         self.assertEqual("direct_tool_test", payload["metadata"]["executionMode"])
         self.assertEqual("text_to_txt_tool", payload["metadata"]["executedAgent"])
 
+    def test_admin_image_stitching_tool_runs_directly_without_leader_route(self):
+        tiny_png = (
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+        )
+        response = self.client.post(
+            "/internal/rag/query",
+            headers=self.headers,
+            json={
+                "input": "请将我上传的图片按照上传顺序拼接成一张图片。",
+                "agentName": "leader_agent",
+                "imageDataUrls": [
+                    f"data:image/png;base64,{tiny_png}",
+                    f"data:image/png;base64,{tiny_png}",
+                ],
+                "metadata": {
+                    "testFrom": "admin_tool_console",
+                    "directToolTest": True,
+                    "expectedToolName": "image_stitching_tool",
+                },
+            },
+        )
+
+        self.assertEqual(200, response.status_code)
+        payload = response.json()
+        self.assertEqual("direct_tool_test", payload["metadata"]["executionMode"])
+        self.assertEqual("image_stitching_tool", payload["metadata"]["executedAgent"])
+        self.assertNotIn("leader_route", [item["stage"] for item in payload["trace"]])
+        self.assertEqual(1, len(payload["attachments"]))
+
     def test_free_text_word_export_skips_clarification_message_and_uses_previous_substantive_candidate(self):
         response = self.client.post(
             "/internal/rag/query",

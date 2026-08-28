@@ -300,13 +300,13 @@ public class PythonAiProxyService {
 
     public Object queryRag(Map<String, Object> request, String authorization) {
         String requestedModel = resolveRequestedModel(request);
-        boolean localImageStitchingRequest = isLocalImageStitchingRequest(request);
-        if (!localImageStitchingRequest && !StringUtils.hasText(requestedModel)) {
+        boolean modelOptional = isModelOptionalRagQuery(request);
+        if (!modelOptional && !StringUtils.hasText(requestedModel)) {
             throw new BusinessException(Result.ERROR_CODE, "请选择已测试成功的模型后再执行智能体");
         }
         Map<String, Object> sanitized = sanitizeRagRequest(withAgentToggles(request));
         return postRagObject("/internal/rag/query", sanitized, authorization,
-                localImageStitchingRequest ? null : requestedModel);
+                modelOptional ? null : requestedModel);
     }
 
     /**
@@ -573,8 +573,8 @@ public class PythonAiProxyService {
                                 String authorization,
                                 SseEventHandler eventHandler) {
         String requestedModel = resolveRequestedModel(request);
-        boolean localImageStitchingRequest = isLocalImageStitchingRequest(request);
-        if (!localImageStitchingRequest && !StringUtils.hasText(requestedModel)) {
+        boolean modelOptional = isModelOptionalRagQuery(request);
+        if (!modelOptional && !StringUtils.hasText(requestedModel)) {
             throw new BusinessException(Result.ERROR_CODE, "请选择已测试成功的模型后再执行智能体");
         }
         Map<String, Object> sanitized = sanitizeRagRequest(withAgentToggles(request));
@@ -582,9 +582,32 @@ public class PythonAiProxyService {
                 "/internal/rag/query/stream",
                 sanitized,
                 authorization,
-                localImageStitchingRequest ? null : requestedModel,
+                modelOptional ? null : requestedModel,
                 eventHandler
         );
+    }
+
+    private boolean isAdminDirectToolTest(Map<String, Object> request) {
+        if (request == null) {
+            return false;
+        }
+        Object rawMetadata = request.get("metadata");
+        if (!(rawMetadata instanceof Map<?, ?> metadata)) {
+            return false;
+        }
+        return "admin_tool_console".equals(String.valueOf(metadata.get("testFrom")))
+                && Boolean.TRUE.equals(metadata.get("directToolTest"));
+    }
+
+    private boolean isModelOptionalRagQuery(Map<String, Object> request) {
+        if (isAdminDirectToolTest(request)) {
+            Object rawMetadata = request.get("metadata");
+            if (rawMetadata instanceof Map<?, ?> metadata
+                    && "image_stitching_tool".equals(String.valueOf(metadata.get("expectedToolName")))) {
+                return true;
+            }
+        }
+        return isLocalImageStitchingRequest(request);
     }
 
     private boolean isLocalImageStitchingRequest(Map<String, Object> request) {
@@ -593,9 +616,12 @@ public class PythonAiProxyService {
         }
         Object rawMetadata = request.get("metadata");
         if (rawMetadata instanceof Map<?, ?> metadata
-                && "admin_agent_console".equals(String.valueOf(metadata.get("testFrom")))
                 && "image_stitching_tool".equals(String.valueOf(metadata.get("expectedToolName")))) {
-            return true;
+            String testFrom = String.valueOf(metadata.get("testFrom"));
+            if ("admin_agent_console".equals(testFrom)
+                    || ("admin_tool_console".equals(testFrom) && Boolean.TRUE.equals(metadata.get("directToolTest")))) {
+                return true;
+            }
         }
         for (String field : List.of("imageDataUrls", "images", "imageUrls")) {
             Object rawImages = request.get(field);
@@ -1225,7 +1251,10 @@ public class PythonAiProxyService {
         String token = normalizeBearerToken(authorization);
         Long userId = extractUserId(token);
         try {
-            return webClientBuilder.build()
+            WebClient client = path != null && path.startsWith("/internal/rag/query")
+                    ? buildFileResponseWebClient()
+                    : webClientBuilder.build();
+            return client
                     .post()
                     .uri(buildUri(path))
                     .headers(headers -> {
@@ -1243,6 +1272,9 @@ public class PythonAiProxyService {
         } catch (WebClientResponseException e) {
             throw new BusinessException(Result.ERROR_CODE, "Python AI 服务调用失败: " + extractRemoteMessage(e));
         } catch (Exception e) {
+            if (hasCause(e, DataBufferLimitException.class)) {
+                throw new BusinessException(413, "AI 响应体超过允许大小，请减少测试图片数量或尺寸后重试");
+            }
             throw new BusinessException(Result.ERROR_CODE, "Python AI 服务调用失败: " + e.getMessage());
         }
     }
@@ -1393,7 +1425,7 @@ public class PythonAiProxyService {
         ExchangeStrategies strategies = ExchangeStrategies.builder()
                 .codecs(configurer -> configurer.defaultCodecs().maxInMemorySize(fileResponseMaxInMemoryBytes))
                 .build();
-        return webClientBuilder.clone()
+        return WebClient.builder()
                 .exchangeStrategies(strategies)
                 .build();
     }

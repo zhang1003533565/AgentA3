@@ -9,6 +9,8 @@ from typing import Any, Iterable, List, Tuple
 
 MAX_STITCH_DIMENSION = 12_000
 MAX_STITCH_COLUMNS = 3
+MAX_SOURCE_EDGE = 2048
+STITCH_OUTPUT_PNG_COMPRESS_LEVEL = 9
 SEQUENCE_LABEL_MIN_FONT_SIZE = 18
 SEQUENCE_LABEL_MAX_FONT_SIZE = 64
 SEQUENCE_LABEL_FILL = (96, 117, 134)
@@ -179,7 +181,9 @@ def _stitch_with_pillow(
     normalized_images = []
     for item in images:
         with Image.open(io.BytesIO(item.content)) as source:
-            normalized_images.append(ImageOps.exif_transpose(source).convert("RGB"))
+            normalized_images.append(
+                _resize_if_needed(ImageOps.exif_transpose(source).convert("RGB"))
+            )
 
     widths = [image.width for image in normalized_images]
     heights = [image.height for image in normalized_images]
@@ -253,8 +257,22 @@ def _stitch_with_pillow(
         canvas.paste(image, position)
 
     output = io.BytesIO()
-    canvas.save(output, format="PNG")
+    canvas.save(output, format="PNG", optimize=True, compress_level=STITCH_OUTPUT_PNG_COMPRESS_LEVEL)
     return output.getvalue()
+
+
+def _resize_if_needed(image: Any, max_edge: int = MAX_SOURCE_EDGE) -> Any:
+    from PIL import Image as PilImage
+
+    width, height = image.size
+    longest = max(width, height)
+    if longest <= max_edge:
+        return image
+    scale = max_edge / longest
+    return image.resize(
+        (max(1, int(round(width * scale))), max(1, int(round(height * scale)))),
+        PilImage.Resampling.LANCZOS,
+    )
 
 
 def _sequence_label_metrics(width: float, height: float) -> Tuple[int, int]:

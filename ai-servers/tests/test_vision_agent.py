@@ -132,12 +132,11 @@ class VisionAgentTest(unittest.TestCase):
             StitchImage(b"first", "one.png", "image/png"),
             StitchImage(b"second", "two.png", "image/png"),
         ]
+        tiny_png = base64.b64decode(
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+        )
         with patch.object(self.rag_routes, "collect_stitch_images", return_value=images), \
-                patch.object(self.rag_routes, "stitch_images", return_value=b"stitched"), \
-                patch.object(self.rag_routes, "materialize_generated_image_answer", return_value=(
-                    "sanitized",
-                    [{"type": "image", "fileName": "图片拼接结果.png"}],
-                )):
+                patch.object(self.rag_routes, "stitch_images", return_value=tiny_png):
             response = self.rag_routes._run_image_stitching_tool(request, plan)
 
         self.assertEqual("image_stitching_tool", response.strategy)

@@ -1472,7 +1472,7 @@ def _build_learning_error_payload(
 
 def _run_rag_query_core(request: RagQueryRequest, authorization: str) -> RagQueryResponse:
     request.input = _prepare_request_input(request)
-    direct_tool_response = _run_admin_direct_tool_test(request)
+    direct_tool_response = _run_admin_direct_tool_test(request, authorization)
     if direct_tool_response is not None:
         return direct_tool_response
     requested_agent = _normalize_requested_agent(request)
@@ -1497,18 +1497,50 @@ def _run_rag_query_core(request: RagQueryRequest, authorization: str) -> RagQuer
     return _run_agent_without_local_retrieval(request, active_agent)
 
 
-def _run_admin_direct_tool_test(request: RagQueryRequest) -> Optional[RagQueryResponse]:
-    """Run an explicitly selected admin-console tool without Leader routing."""
+ADMIN_SUB_EXPORT_TOOL_TARGETS = {
+    "markdown_export_tool": ("generated_export_tools", "md"),
+    "docx_export_tool": ("generated_export_tools", "docx"),
+    "excel_export_tool": ("generated_export_tools", "xlsx"),
+    "pptx_export_tool": ("generated_export_tools", "pptx"),
+    "content_archive_tool": ("generated_export_tools", "zip"),
+    "diagram_source_export_tool": ("generated_export_tools", "mmd"),
+}
+
+
+def _admin_direct_testable_tool_names() -> frozenset:
+    names = set()
+    for tool in [*LEADER_CALLABLE_TOOLS, *GENERATED_CONTENT_TOOLS]:
+        name = str(tool.get("name") or "").strip()
+        if name:
+            names.add(name)
+    return frozenset(names)
+
+
+def _is_admin_tool_console_request(request: RagQueryRequest) -> bool:
     metadata = request.metadata if isinstance(request.metadata, dict) else {}
-    if metadata.get("testFrom") != "admin_tool_console" or metadata.get("directToolTest") is not True:
-        return None
-    tool_name = str(metadata.get("expectedToolName") or "").strip()
-    if tool_name not in TEXT_TO_FILE_TOOL_NAMES:
-        raise HTTPException(status_code=400, detail="当前工具暂不支持直接测试。")
-    if not _is_tool_enabled(request, tool_name):
-        raise HTTPException(status_code=403, detail=f"工具 {_tool_display_name(tool_name)} 已在后台关闭，无法运行测试。")
-    plan = LeaderPlan(
-        intent="document_export",
+    if metadata.get("testFrom") == "admin_tool_console" and metadata.get("directToolTest") is True:
+        return True
+    return metadata.get("testFrom") == "admin_agent_console"
+
+
+def _build_direct_tool_test_plan(tool_name: str) -> LeaderPlan:
+    intent = "tool_test"
+    if tool_name == IMAGE_STITCHING_TOOL["name"]:
+        intent = "image_stitching"
+    elif tool_name in TEXT_TO_FILE_TOOL_NAMES or tool_name == "generated_export_tools":
+        intent = "document_export"
+    elif tool_name == IMAGE_RECOGNITION_TOOL_NAME:
+        intent = "image_understanding"
+    elif tool_name in VISUAL_GENERATION_TOOL_NAMES:
+        intent = "image_generation"
+    elif tool_name == "text_to_sql":
+        intent = "structured_query"
+    elif tool_name in SERVICE_TOOL_NAMES:
+        intent = "campus_service"
+    elif tool_name == TOOL_CAPABILITY_QUERY_NAME:
+        intent = "capability_inquiry"
+    return LeaderPlan(
+        intent=intent,
         target_agent=tool_name,
         need_retrieval=False,
         rag_strategy="",
@@ -1517,7 +1549,67 @@ def _run_admin_direct_tool_test(request: RagQueryRequest) -> Optional[RagQueryRe
         route_reason="管理台直接运行指定工具。",
         route_mode="direct_tool_test",
     )
-    return _run_text_to_file_tool(request, plan, direct_tool_test=True)
+
+
+def _resolve_admin_direct_tool_test(request: RagQueryRequest, tool_name: str) -> Tuple[str, RagQueryRequest]:
+    mapped = ADMIN_SUB_EXPORT_TOOL_TARGETS.get(tool_name)
+    if not mapped:
+        return tool_name, request
+    executable_tool, output_type = mapped
+    metadata = dict(request.metadata or {})
+    metadata["requestedOutputType"] = output_type
+    request.metadata = metadata
+    return executable_tool, request
+
+
+def _normalize_direct_tool_test_response(
+    response: RagQueryResponse,
+    requested_tool: str,
+) -> RagQueryResponse:
+    tool_label = _tool_zh_name(requested_tool) or requested_tool
+    metadata = dict(response.metadata or {})
+    metadata.update({
+        "executionMode": "direct_tool_test",
+        "executionModeLabel": f"管理台直接运行{tool_label}",
+        "routeMode": "direct_tool_test",
+        "agentName": requested_tool,
+        "targetAgent": requested_tool,
+        "executedAgent": requested_tool,
+        "toolName": requested_tool,
+        "toolDisplayName": _tool_display_name(requested_tool),
+    })
+    response.metadata = metadata
+    response.trace = [
+        item for item in (response.trace or [])
+        if getattr(item, "stage", None) != "leader_route"
+    ]
+    return response
+
+
+def _run_admin_direct_tool_test(
+    request: RagQueryRequest,
+    authorization: str,
+) -> Optional[RagQueryResponse]:
+    """Run an explicitly selected admin-console tool without Leader routing."""
+    metadata = request.metadata if isinstance(request.metadata, dict) else {}
+    if metadata.get("testFrom") != "admin_tool_console" or metadata.get("directToolTest") is not True:
+        return None
+    requested_tool = str(metadata.get("expectedToolName") or "").strip()
+    if not requested_tool:
+        raise HTTPException(status_code=400, detail="请选择要测试的工具。")
+    if requested_tool not in _admin_direct_testable_tool_names():
+        raise HTTPException(status_code=400, detail="当前工具暂不支持直接测试。")
+    if not _is_tool_enabled(request, requested_tool):
+        raise HTTPException(
+            status_code=403,
+            detail=f"工具 {_tool_display_name(requested_tool)} 已在后台关闭，无法运行测试。",
+        )
+    executable_tool, request = _resolve_admin_direct_tool_test(request, requested_tool)
+    plan = _build_direct_tool_test_plan(executable_tool)
+    if executable_tool in TEXT_TO_FILE_TOOL_NAMES:
+        return _run_text_to_file_tool(request, plan, direct_tool_test=True)
+    response = _execute_leader_plan(request, authorization, None, plan, callable_catalog=None)
+    return _normalize_direct_tool_test_response(response, requested_tool)
 
 
 def _normalize_requested_agent(request: RagQueryRequest) -> Optional[str]:
@@ -2969,15 +3061,8 @@ def _run_image_stitching_tool(
         display_stem="图片拼接结果",
         tool_name=IMAGE_STITCHING_TOOL["name"],
     )
-    # The admin tool console has no persisted session/message URL to download
-    # the generated export, so provide a preview only for that test response.
-    if (
-        isinstance(request.metadata, dict)
-        and request.metadata.get("testFrom") == "admin_agent_console"
-    ):
-        for attachment in attachments:
-            if attachment.get("type") == "image":
-                attachment["previewDataUrl"] = f"data:image/png;base64,{encoded}"
+    # Admin tool tests preview images through the export download API instead of
+    # embedding another base64 copy in the JSON response.
     metadata = {
         "agentName": "leader_agent",
         "targetAgent": IMAGE_STITCHING_TOOL["name"],
