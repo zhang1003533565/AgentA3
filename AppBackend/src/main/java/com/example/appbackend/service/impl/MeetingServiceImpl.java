@@ -619,7 +619,7 @@ public class MeetingServiceImpl implements MeetingService {
             }
             try {
                 LlmChatRequest chatRequest = new LlmChatRequest();
-                chatRequest.setSessionId(session.getSessionId() + "-post-" + agentName);
+                chatRequest.setSessionId(buildAgentChatSessionId(session.getSessionId(), "post", agentName));
                 chatRequest.setAgentName(agentName);
                 chatRequest.setLlmModel(resolveMeetingLlmModel(null));
                 chatRequest.setInput(truncate(buildPostMeetingAgentInput(session, content, agentName), LLM_INPUT_LIMIT));
@@ -1287,6 +1287,52 @@ public class MeetingServiceImpl implements MeetingService {
         };
     }
 
+    /**
+     * Python 侧 ChatRequest.sessionId / CodingAssistRequest.sessionId 的 Pydantic 上限。
+     * 超过该长度会被 FastAPI 直接以 422 拒绝（string_too_long）。
+     */
+    static final int CHAT_SESSION_ID_MAX = 64;
+
+    /**
+     * 生成不超过 {@link #CHAT_SESSION_ID_MAX} 的会话 ID。
+     *
+     * <p>未超限时返回值与原先的 {@code base + "-" + purpose + "-" + agentName} 拼接完全一致，
+     * 因此不改变既有会话（含会议记忆）的键；仅在超限时压缩：
+     * <ol>
+     *   <li>会议标识 base 优先完整保留（它是跨会议的唯一性来源）；</li>
+     *   <li>压缩智能体名，并附加其 MD5 前 8 位十六进制摘要，
+     *       保证不同智能体即便前缀被截断成同样的字符串也不会互相碰撞；</li>
+     *   <li>极端情况下 base 本身超长时，保留 base 末尾（UUID 尾部才含熵），
+     *       确保总长度仍然不超限。</li>
+     * </ol>
+     */
+    static String buildAgentChatSessionId(String baseSessionId, String purpose, String agentName) {
+        String base = baseSessionId == null ? "" : baseSessionId.trim();
+        String normalizedPurpose = purpose == null ? "" : purpose.trim();
+        String agent = agentName == null ? "" : agentName.trim();
+        String infix = normalizedPurpose.isEmpty() ? "" : "-" + normalizedPurpose;
+        String raw = base + infix + (agent.isEmpty() ? "" : "-" + agent);
+        if (raw.length() <= CHAT_SESSION_ID_MAX) {
+            return raw;
+        }
+
+        // 摘要取智能体名（无智能体时取用途），保证被截断的部分仍以稳定方式参与唯一性
+        String digestSource = agent.isEmpty() ? normalizedPurpose : agent;
+        String digest = org.springframework.util.DigestUtils
+                .md5DigestAsHex(digestSource.getBytes(java.nio.charset.StandardCharsets.UTF_8))
+                .substring(0, 8);
+
+        String fixed = base + infix;
+        if (fixed.length() + 1 + digest.length() > CHAT_SESSION_ID_MAX) {
+            // 极端情况：会议标识本身就超长。保留其尾部（UUID 尾部才含熵），保证跨会议仍可区分。
+            int keep = Math.max(0, CHAT_SESSION_ID_MAX - infix.length() - 1 - digest.length());
+            fixed = base.substring(Math.max(0, base.length() - keep)) + infix;
+        }
+        int agentBudget = CHAT_SESSION_ID_MAX - fixed.length() - 1 - digest.length();
+        String agentHead = agentBudget > 0 ? agent.substring(0, Math.min(agentBudget, agent.length())) : "";
+        return fixed + "-" + agentHead + digest;
+    }
+
     @Override
     public MeetingDTO.AIMinutesResult aiMinutesAnalysis(Long userId, String sessionId, String authorization) {
         // 验证会议可访问性
@@ -1300,7 +1346,7 @@ public class MeetingServiceImpl implements MeetingService {
         
         // 调用 Agent 2 (meeting_summary_agent)
         LlmChatRequest chatRequest = new LlmChatRequest();
-        chatRequest.setSessionId(session.getSessionId() + "-ai-minutes");
+        chatRequest.setSessionId(buildAgentChatSessionId(session.getSessionId(), "ai-minutes", ""));
         chatRequest.setAgentName("meeting_summary_agent");
         chatRequest.setLlmModel(resolveMeetingLlmModel(null));
         chatRequest.setInput(truncate(meetingContent, LLM_INPUT_LIMIT));

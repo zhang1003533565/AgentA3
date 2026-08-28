@@ -3241,7 +3241,9 @@ def _run_meeting_task_tool(
     - update_task_status: 更新任务状态
     """
     import asyncio
-    from app.task_tools.meeting_task_tool import handle_meeting_task_tool
+    # handle_meeting_task_tool 定义在 rag_integration（对 meeting_task_tool_handler 的薄封装），
+    # 此前误从 meeting_task_tool 导入会抛 ImportError，导致 Leader 路由到该工具时失败。
+    from app.task_tools.rag_integration import handle_meeting_task_tool
     
     tool_name = leader_plan.tool_name
     tool_display_name = _tool_display_name(tool_name)
