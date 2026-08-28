@@ -29,8 +29,13 @@ const versionManifestPath = path.join(
 );
 const packageJsonFile = path.join(repoRoot, "package.json");
 const cacheDir = path.join(repoRoot, ".cache", "presentation-export");
-const exportRepoBase =
-  "https://github.com/presenton/presenton-export/releases/download";
+const exportRepoBase = (
+  process.env.PRESENTON_EXPORT_REPO_BASE ||
+  "https://github.com/presenton/presenton-export/releases/download"
+).replace(/\/$/, "");
+const downloadTimeoutMs = Number(
+  process.env.PRESENTON_DOWNLOAD_TIMEOUT_MS || 120000
+);
 
 const cliArgs = new Set(process.argv.slice(2));
 const forceDownload = cliArgs.has("--force");
@@ -153,6 +158,9 @@ function requestJson(url, redirects = 5) {
         });
       }
     );
+    req.setTimeout(downloadTimeoutMs, () => {
+      req.destroy(new Error(`Request timed out after ${downloadTimeoutMs}ms: ${url}`));
+    });
     req.on("error", reject);
   });
 }
@@ -338,6 +346,9 @@ function downloadFile(url, outputPath, redirects = 5) {
         fileStream.on("error", reject);
       }
     );
+    req.setTimeout(downloadTimeoutMs, () => {
+      req.destroy(new Error(`Download timed out after ${downloadTimeoutMs}ms: ${url}`));
+    });
     req.on("error", reject);
   });
 }

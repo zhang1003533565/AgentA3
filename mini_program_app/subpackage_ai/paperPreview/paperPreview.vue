@@ -1,0 +1,67 @@
+<template>
+  <view class="page">
+    <nav-bar title="试卷预览" :showBack="true" placeholder :rightText="allExpanded ? '全部收起' : '全部展开'" @right-click="toggleAll" />
+    <view class="steps"><view class="step"><text class="step-no">1</text><text>试卷信息与选题</text></view><view class="step"><text class="step-no">2</text><text>页面格式</text></view><view class="step active"><text class="step-no">3</text><text>预览与确认</text></view></view>
+    <scroll-view scroll-y class="paper">
+      <view class="header">
+        <view class="layout-entry" @click="openLayout">纸质版式</view>
+        <text class="title">{{ paper.name }}</text>
+        <text>{{ paper.subject }} · {{ paper.category }}</text>
+        <text>{{ paper.duration ? paper.duration + '分钟 · ' : '' }}{{ paper.questionCount || 0 }}题 · {{ paper.totalScore || 0 }}分</text>
+        <text v-if="paper.remark" class="remark">{{ paper.remark }}</text>
+      </view>
+
+      <view v-for="(item, index) in paper.questions" :key="questionId(item)" class="question">
+        <view class="q-title"><text>{{ index + 1 }}. {{ item.question.content }}</text><text>（{{ item.score }}分）</text></view>
+        <view v-if="options(item.question.options).length" class="options">
+          <text v-for="(option, optionIndex) in options(item.question.options)" :key="optionIndex">{{ String.fromCharCode(65 + optionIndex) }}. {{ option }}</text>
+        </view>
+
+        <button class="answer-toggle" @click="toggleQuestion(item)">{{ isExpanded(item) ? '收起答案解析' : '查看答案解析' }}</button>
+        <view v-if="isExpanded(item)" class="answer">
+          <text><text class="answer-label">正确答案：</text>{{ item.question.answer || '暂无' }}</text>
+          <text><text class="answer-label">答案解析：</text>{{ item.question.analysis || '暂无' }}</text>
+        </view>
+      </view>
+    </scroll-view>
+
+    <view class="bottom"><button class="secondary" @click="save">保存草稿</button><button class="primary" :loading="saving" @click="complete">完成组卷</button></view>
+  </view>
+</template>
+
+<script>
+import NavBar from '@/components/nav-bar/nav-bar.vue'
+import { getPaper, completePaper } from '@/api/paper.js'
+
+export default {
+  components: { NavBar },
+  data() { return { paperId: null, paper: { questions: [] }, expandedQuestionIds: [], saving: false } },
+  computed: {
+    allExpanded() { return this.paper.questions.length > 0 && this.expandedQuestionIds.length === this.paper.questions.length }
+  },
+  onLoad(query) { this.paperId = query.paperId; this.load() },
+  methods: {
+    async load() { const result = await getPaper(this.paperId); this.paper = result.data || { questions: [] }; this.expandedQuestionIds = [] },
+    questionId(item) { return item.questionId || item.question?.id || item.id },
+    isExpanded(item) { return this.expandedQuestionIds.includes(this.questionId(item)) },
+    toggleQuestion(item) {
+      const id = this.questionId(item)
+      this.expandedQuestionIds = this.isExpanded(item) ? this.expandedQuestionIds.filter(value => value !== id) : [...this.expandedQuestionIds, id]
+    },
+    toggleAll() { this.expandedQuestionIds = this.allExpanded ? [] : this.paper.questions.map(item => this.questionId(item)) },
+    options(value) { if (!value) return []; if (Array.isArray(value)) return value; try { return JSON.parse(value) } catch (error) { return [] } },
+    openLayout() { uni.navigateTo({ url: `/subpackage_ai/paperLayout/paperLayout?paperId=${this.paperId}` }) },
+    save() { uni.showToast({ title: '草稿已保存', icon: 'success' }) },
+    async complete() {
+      if (!this.paper.questions.length) return uni.showToast({ title: '至少选择一道题', icon: 'none' })
+      if (this.paper.questions.some(item => Number(item.score) <= 0)) return uni.showToast({ title: '题目分值必须大于0', icon: 'none' })
+      this.saving = true
+      try { await completePaper(this.paperId); uni.showToast({ title: '组卷完成', icon: 'success' }); setTimeout(() => uni.redirectTo({ url: '/subpackage_ai/paperMine/paperMine' }), 700) } finally { this.saving = false }
+    }
+  }
+}
+</script>
+
+<style scoped lang="scss">
+.page{min-height:100vh;background:#f5f7fa;padding-bottom:120rpx}.steps{display:flex;align-items:center;padding:20rpx;background:#fff;border-bottom:1rpx solid #e2e7ed}.step{flex:1;display:flex;flex-direction:column;align-items:center;gap:6rpx;color:#98a2b3;font-size:19rpx}.step-no{width:38rpx;height:38rpx;line-height:38rpx;text-align:center;border-radius:50%;background:#eef1f4;color:#697586}.step.active{color:#1e6bb8;font-weight:600}.step.active .step-no{background:#1e6bb8;color:#fff}.paper{height:calc(100vh - 330rpx);background:#fff;margin:20rpx 24rpx;width:auto;padding:34rpx;box-sizing:border-box;border:1rpx solid #e2e7ed;border-radius:10rpx;box-shadow:0 5rpx 18rpx rgba(16,24,40,.04)}.header{position:relative;text-align:center;border-bottom:1rpx solid #d9dee7;padding-bottom:24rpx;color:#69758a}.layout-entry{position:absolute;right:0;top:0;padding:8rpx 16rpx;border:1rpx solid #9abbd6;border-radius:8rpx;color:#1e6bb8;font-size:22rpx;background:#f5faff}.header text{display:block;margin:8rpx}.title{font-size:36rpx!important;font-weight:700;color:#202d42}.remark{font-size:23rpx}.question{padding:26rpx 0;border-bottom:1rpx solid #edf0f5}.q-title{display:flex;justify-content:space-between;gap:20rpx;color:#26354c;font-size:27rpx;line-height:1.6}.options text,.answer>text{display:block;font-size:25rpx;line-height:1.8;color:#566379}.options{margin:10rpx 0 0 30rpx}.answer-toggle{margin:18rpx 0 0;background:#eef4ff;color:#1e6bb8;border-radius:8rpx;font-size:23rpx;line-height:56rpx}.answer{background:#f5f8fb;padding:18rpx;border-radius:8rpx;margin-top:14rpx}.answer-label{color:#1e6bb8;font-weight:600}.bottom{position:fixed;bottom:0;left:0;right:0;background:#fff;display:flex;gap:16rpx;padding:16rpx 24rpx calc(16rpx + env(safe-area-inset-bottom));border-top:1rpx solid #e2e7ed}.bottom button{flex:1;border-radius:8rpx;font-size:26rpx}.secondary{background:#edf2f7;color:#475467}.primary{background:#1e6bb8;color:#fff}
+</style>
