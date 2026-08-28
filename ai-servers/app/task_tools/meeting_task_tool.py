@@ -62,15 +62,25 @@ class MeetingTaskHTTPClient:
     def __init__(self, backend_url: str = JAVA_BACKEND_URL):
         self.backend_url = backend_url.rstrip("/")
         self.base_url = f"{self.backend_url}{API_PREFIX}"
-        
+
         # 创建 HTTP 客户端会话
-        self.session: Optional[httpx.AsyncSession] = None
-        
+        self.session: Optional[httpx.AsyncClient] = None
+        self._session_loop: Optional[asyncio.AbstractEventLoop] = None
+
     async def ensure_session(self):
-        """确保会话已创建"""
+        """确保会话已创建（且绑定当前事件循环）"""
+        try:
+            current_loop = asyncio.get_running_loop()
+        except RuntimeError:
+            current_loop = None
+        # httpx AsyncClient 绑定创建时的事件循环；跨循环复用会报 "Event loop is closed"。
+        # 检测到循环变化时丢弃旧会话，在当前循环上重建。
+        if self.session is not None and self._session_loop is not current_loop:
+            self.session = None
         if self.session is None or self.session.is_closed:
             timeout = httpx.Timeout(30.0, connect=10.0)
             self.session = httpx.AsyncClient(timeout=timeout, base_url=self.backend_url)
+            self._session_loop = current_loop
             
     async def close_session(self):
         """关闭会话"""
@@ -147,8 +157,18 @@ class MeetingTaskHTTPClient:
                 )
             
             # 判断 success 字段
-            is_success = response_data.get("success", False)
-            
+            # Java 后端统一返回 {code, msg, data} 格式（code=200 表示成功）；
+            # 同时兼容直接返回 {success, data} 的旧格式。
+            if "success" in response_data:
+                is_success = bool(response_data.get("success"))
+            else:
+                code = response_data.get("code")
+                try:
+                    code_value = int(code) if code is not None else None
+                except (TypeError, ValueError):
+                    code_value = None
+                is_success = code_value == 200 or code_value == 0
+
             if is_success:
                 return MeetingTaskResult(
                     success=True,
@@ -157,7 +177,7 @@ class MeetingTaskHTTPClient:
                 )
             else:
                 # 失败情况
-                error_msg = response_data.get("msg", "未知错误")
+                error_msg = response_data.get("msg") or response_data.get("error") or "未知错误"
                 return MeetingTaskResult(
                     success=False,
                     error=error_msg,

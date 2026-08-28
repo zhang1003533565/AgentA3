@@ -28,6 +28,24 @@ import java.util.stream.Collectors;
 @Service
 public class MeetingTaskServiceImpl implements MeetingTaskService {
 
+    /**
+     * 从确认完成的 evidence 中提取 [说话人：XXX] 标记，用于服务端复核发言人身份
+     */
+    private static final java.util.regex.Pattern SPEAKER_PATTERN =
+            java.util.regex.Pattern.compile("\\[说话人[：:]\\s*([^\\]]+?)\\s*\\]");
+
+    /**
+     * 提取任务标题中的核心词：连续中文段或英文单词，用于 evidence 关联性校验
+     */
+    private static final java.util.regex.Pattern TITLE_TOKEN_PATTERN =
+            java.util.regex.Pattern.compile("[\\u4e00-\\u9fa5]{2,}|[A-Za-z]{2,}");
+
+    /**
+     * evidence 与任务标题的二元组覆盖率阈值：达到该比例视为原句确实在讲这个任务。
+     * 取 0.4 以容纳负责人自然语序的复述（如"部署文档我写完了"对应标题"编写新的部署文档"）。
+     */
+    private static final double TITLE_BIGRAM_THRESHOLD = 0.4;
+
     private final MeetingTaskRepository taskRepository;
     private final MeetingParticipantRepository participantRepository;
 
@@ -209,12 +227,107 @@ public class MeetingTaskServiceImpl implements MeetingTaskService {
             throw new BusinessException("确认失败：该负责人不是本次会议的参会人，无法确认其发言身份");
         }
 
+        // 说话人强校验（第六步真实测试发现的缺口）：evidence 中 [说话人：XXX] 必须是任务负责人本人。
+        // AI 判断"谁在说话"不可信，必须由服务端复核，防止非负责人代报完成。
+        String evidence = request.getEvidence() == null ? "" : request.getEvidence().trim();
+        java.util.regex.Matcher speakerMatcher = SPEAKER_PATTERN.matcher(evidence);
+        if (!speakerMatcher.find()) {
+            // evidence 必须是带说话人标记的会议原句；缺失说明 AI 未正确引用原文，拒绝确认
+            throw new BusinessException("确认失败：evidence 缺少 [说话人：XXX] 标记，无法核验发言人身份");
+        }
+        String speakerName = speakerMatcher.group(1).trim();
+        String assigneeName = task.getAssigneeName() == null ? "" : task.getAssigneeName().trim();
+        if (!speakerName.equals(assigneeName)) {
+            throw new BusinessException("确认失败：发言人是「" + speakerName + "」，不是任务负责人本人「" + assigneeName + "」，不能代报完成");
+        }
+
+        // 完成语义校验（第六步真实测试发现的缺口）："已经开始整理"含标题词且说话人正确，
+        // 但语义是"进行中"不是"完成"。evidence 原句含未完成标记词时拒绝确认。
+        String incompleteMarker = findIncompleteMarker(evidence);
+        if (incompleteMarker != null) {
+            throw new BusinessException("确认失败：evidence 原句含进行中表述「" + incompleteMarker + "」，不满足负责人本人明确确认完成，任务保持待完成");
+        }
+
+        // 关联性校验（第六步真实测试发现的缺口）："之前那个事情处理好了"这类模糊原句无法唯一对应任务。
+        // 要求 evidence 与任务标题有足够的字符重叠，防止 AI 把无法唯一匹配的原句强行关联到某任务。
+        if (!evidenceContainsTaskTitle(evidence, task.getTitle())) {
+            throw new BusinessException("确认失败：evidence 原句与任务「" + task.getTitle() + "」无明确关联，不能确认完成");
+        }
+
         task.setStatus(TaskStatus.COMPLETED);
         task.setCompletedAt(LocalDateTime.now());
         // completedBy 记录任务负责人本人，而不是调用方（主持人/AI）的 userId
         task.setCompletedBy(task.getAssigneeId());
         task = taskRepository.save(task);
         return convertToVO(task);
+    }
+
+    /**
+     * 未完成/进行中标记词：原句含这些词时语义不是"明确完成"，拒绝确认。
+     */
+    private static final java.util.List<String> INCOMPLETE_MARKERS = java.util.List.of(
+            "开始", "着手", "进行中", "正在", "一部分", "部分完成", "差不多了", "差不多",
+            "基本完成", "快完成", "接近完成", "尽快", "准备", "计划", "打算",
+            "还差", "尚未", "还没", "继续", "整理中", "处理中", "写了一半", "做了一半"
+    );
+
+    /**
+     * 检测 evidence 原句是否含未完成/进行中标记词，命中返回该词，否则返回 null。
+     */
+    private String findIncompleteMarker(String evidence) {
+        for (String marker : INCOMPLETE_MARKERS) {
+            if (evidence.contains(marker)) {
+                return marker;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * 校验 evidence 原句与任务标题的关联性。
+     * 采用字符二元组（bigram）覆盖率而非整词包含：负责人常以自然语序复述任务
+     * （标题"编写新的部署文档" → 原句"新的部署文档我已经编写完成了"），
+     * 整词包含会误拒；而"之前那个事情已经处理好了"这类无关原句覆盖率为 0，仍能拦住。
+     */
+    private boolean evidenceContainsTaskTitle(String evidence, String title) {
+        if (title == null || title.trim().isEmpty()) {
+            return true;
+        }
+        java.util.List<String> tokens = new ArrayList<>();
+        java.util.regex.Matcher matcher = TITLE_TOKEN_PATTERN.matcher(title);
+        while (matcher.find()) {
+            String token = matcher.group().trim();
+            if (token.length() >= 2) {
+                tokens.add(token);
+            }
+        }
+        if (tokens.isEmpty()) {
+            return true;
+        }
+        for (String token : tokens) {
+            if (evidence.contains(token)) {
+                return true;
+            }
+            if (bigramCoverage(evidence, token) >= TITLE_BIGRAM_THRESHOLD) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * 计算 token 的字符二元组在 evidence 中出现的比例（0.0 ~ 1.0）。
+     */
+    private double bigramCoverage(String evidence, String token) {
+        int total = 0;
+        int hit = 0;
+        for (int i = 0; i + 1 < token.length(); i++) {
+            total++;
+            if (evidence.contains(token.substring(i, i + 2))) {
+                hit++;
+            }
+        }
+        return total == 0 ? 0.0 : (double) hit / total;
     }
 
     /**
