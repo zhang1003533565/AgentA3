@@ -3353,7 +3353,7 @@ def _leader_agent_category(agent_name: str) -> str:
         return "meeting"
     if agent_name.startswith("ppt_"):
         return "ppt"
-    if agent_name.startswith("diagram_") or agent_name in {"mind_map_agent", "architecture_prompt_agent"}:
+    if agent_name.startswith("diagram_"):
         return "diagram"
     if agent_name == "image_agent":
         return "image"
@@ -5119,7 +5119,6 @@ def _answer_type_for_agent(agent_name: str) -> str:
         "leader_agent": "text",
         "profile_summary_agent": "profile_summary_json",
         IMAGE_RECOGNITION_AGENT_NAME: "image_analysis",
-        "mind_map_agent": "image_prompt",
         "diagram_mind_map_agent": "mermaid_mindmap",
         "diagram_flowchart_agent": "mermaid_flowchart",
         "diagram_architecture_agent": "mermaid_architecture",

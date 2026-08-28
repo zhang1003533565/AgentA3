@@ -37,7 +37,7 @@ class DiagramAgentsTest(unittest.TestCase):
         self.assertEqual("diagram_flowchart_agent", normalize_agent_name("流程图"))
         self.assertEqual("diagram_architecture_agent", normalize_agent_name("架构图"))
         self.assertIsNone(normalize_agent_name("活动图"))
-        self.assertEqual("mind_map_agent", normalize_agent_name("mind_map_agent"))
+        self.assertIsNone(normalize_agent_name("mind_map_agent"))
 
     def test_rule_router_uses_visual_tools_instead_of_agent_delegation(self):
         cases = {
@@ -82,7 +82,7 @@ class DiagramAgentsTest(unittest.TestCase):
             set(rag_routes.STRUCTURED_DIAGRAM_TOOL_CONFIG),
         )
         callable_catalog = rag_routes._build_leader_callable_catalog()
-        callable_agents = {item["name"] for item in callable_catalog["agents"]}
+        catalog_agent_names = {item["name"] for item in get_agent_catalog()["agents"]}
         callable_tools = {item["name"] for item in callable_catalog["tools"]}
         self.assertGreaterEqual(
             callable_tools,
@@ -93,10 +93,10 @@ class DiagramAgentsTest(unittest.TestCase):
                 "generate_architecture_tool",
             },
         )
-        self.assertNotIn("mind_map_agent", callable_agents)
-        self.assertNotIn("diagram_flowchart_prompt_agent", callable_agents)
-        self.assertNotIn("architecture_prompt_agent", callable_agents)
-        self.assertNotIn("image_agent", callable_agents)
+        self.assertNotIn("mind_map_agent", catalog_agent_names)
+        self.assertNotIn("diagram_flowchart_prompt_agent", catalog_agent_names)
+        self.assertNotIn("architecture_prompt_agent", catalog_agent_names)
+        self.assertIn("image_agent", catalog_agent_names)
 
     def test_diagram_agents_only_return_mermaid_text(self):
         mind_map = diagram_mind_map_agent.build_mind_map(

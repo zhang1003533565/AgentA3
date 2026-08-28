@@ -248,7 +248,6 @@ const agentExampleInputs = {
   diagram_mind_map_agent: '操作系统：进程调度\n\n进程调度是操作系统按照一定策略从就绪队列中选择进程分配 CPU 的过程。常见算法包括先来先服务、短作业优先、优先级调度、时间片轮转和多级反馈队列。',
   diagram_flowchart_agent: '括号匹配算法流程\n\n从左到右扫描字符串。遇到左括号时入栈；遇到右括号时，如果栈为空则匹配失败，否则弹出栈顶左括号并判断类型是否对应。扫描结束后，如果栈为空则括号匹配成功，否则匹配失败。',
   diagram_architecture_agent: '智慧校园 AI 智能体架构材料\n\n前端 AppWeb 负责展示智能体列表、输入材料、模型选择和执行结果。Java 后端 AppBackend 负责鉴权、读取模型配置、接入第三方知识库并代理调用 Python AI 服务。Python ai-servers 负责智能体路由、工具编排和专业智能体执行。',
-  mind_map_agent: '操作系统：进程调度\n\n进程调度是操作系统按照一定策略从就绪队列中选择进程分配 CPU 的过程。常见算法包括先来先服务、短作业优先、优先级调度、时间片轮转和多级反馈队列。',
   textbook_knowledge_agent: '数据结构：栈与队列\n\n栈是后进先出的受限线性表。队列是先进先出的受限线性表。循环队列用于解决顺序队列假溢出问题。',
   textbook_question_single_choice_agent: '数据结构：栈与队列\n\n栈只允许在栈顶进行插入和删除。队列只允许在队尾插入、队头删除。栈常用于括号匹配，队列常用于任务排队。',
   textbook_question_fill_blank_agent: '数据结构：栈与队列\n\n栈顶、栈底、入栈、出栈、队头、队尾、入队、出队、LIFO、FIFO、循环队列、front、rear。',

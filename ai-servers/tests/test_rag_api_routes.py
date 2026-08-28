@@ -762,9 +762,6 @@ class RagApiRoutesTest(unittest.TestCase):
         )
         self.assertTrue({
             "image_agent",
-            "mind_map_agent",
-            "architecture_prompt_agent",
-            "diagram_flowchart_prompt_agent",
         }.isdisjoint(leader_callable_names))
         leader_tool_names = {item["name"] for item in payload["leaderCallableCatalog"]["tools"]}
         self.assertGreaterEqual(leader_tool_names, set(self._rag_routes.VISUAL_GENERATION_TOOL_NAMES))
@@ -966,7 +963,6 @@ class RagApiRoutesTest(unittest.TestCase):
                 for agent_name in (
                     "ppt_outline_agent",
                     "diagram_flowchart_agent",
-                    "diagram_flowchart_prompt_agent",
                     "image_agent",
                 )
             }
@@ -1018,7 +1014,6 @@ class RagApiRoutesTest(unittest.TestCase):
                 {"ppt_outline_agent"},
             )
             self.assertIn("generate_flowchart_tool", callable_tools)
-            self.assertNotIn("diagram_flowchart_prompt_agent", callable_names)
             self.assertNotIn("image_agent", callable_names)
 
     def test_leader_agent_answers_smalltalk_with_model_without_rag(self):
@@ -1845,12 +1840,6 @@ class FakeRagModelProvider:
             }, ensure_ascii=False)
         if "diagram_mind_map_agent" in system_prompt:
             return "```mermaid\nmindmap\n  root((测试思维导图))\n```"
-        if "diagram_flowchart_prompt_agent" in system_prompt:
-            return "专业流程图图片提示词：蓝白教学风格，清晰展示开始、处理步骤、判断分支和结束节点。"
-        if "architecture_prompt_agent" in system_prompt:
-            return "专业架构图图片提示词：分层展示客户端、服务层和数据层及其依赖关系。"
-        if "mind_map_agent" in system_prompt:
-            return "专业思维导图图片提示词：中心主题向外分层展开，节点清晰可读。"
         if "思维导图智能体" in system_prompt:
             return "```mermaid\nmindmap\n  root((测试思维导图))\n```"
         if "diagram_flowchart_agent" in system_prompt:
