@@ -559,7 +559,9 @@ TOOL_CAPABILITY_QUERY = {
 LEADER_CALLABLE_TOOLS = [
     IMAGE_RECOGNITION_TOOL,
     *VISUAL_GENERATION_TOOLS,
-    MEETING_TASK_TOOL,
+    # 个人任务管理工具（MEETING_TASK_TOOL）已登记在 CAMPUS_SERVICE_TOOLS 中，
+    # 由下方 *CAMPUS_SERVICE_TOOLS 展开进入本列表；此处不再显式添加，
+    # 否则后台工具列表会出现两条"个人任务管理工具"。Leader 仍可发现并调用它。
     {
         "name": "text_to_sql",
         "zhName": "结构化查询工具",

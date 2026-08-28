@@ -1,5 +1,17 @@
 export const AI_MODEL_CONFIG_PATTERN = /^ai\.service\.(text|vision|image|video|audio)(?:\.([A-Za-z0-9_-]+))?\.(provider|base-url|api-key|model)$/
 export const AGENT_MODEL_BINDING_PATTERN = /^ai\.agent-bindings\.([A-Za-z0-9_-]+)\.model$/
+/**
+ * 智能体子用途模型绑定：ai.agent-bindings.{agent}.{purpose}-model
+ * 例如 meeting_summary_agent.minutes-model 只作用于"会后会议纪要"，
+ * 与通用 .model（会中实时总结等默认链路）相互独立，互不影响。
+ */
+export const AGENT_SUB_MODEL_BINDING_PATTERN = /^ai\.agent-bindings\.([A-Za-z0-9_-]+)\.([a-z]+-model)$/
+export const AGENT_SUB_MODEL_BINDING_LABELS = {
+  'minutes-model': '会后会议纪要模型',
+}
+export const AGENT_SUB_MODEL_BINDING_HINTS = {
+  'minutes-model': '仅作用于会后纪要（Agent 2），不会修改默认模型（会中实时总结）',
+}
 export const AGENT_ENABLED_CONFIG_PREFIX = 'ai.agent-enabled.'
 export const TOOL_ENABLED_CONFIG_PREFIX = 'ai.tool-enabled.'
 export const TOOL_BOUND_CONFIG_PREFIX = 'ai.tool-bound.'
@@ -116,6 +128,44 @@ export const buildAgentModelBindings = (configRows = []) => {
     }
   })
   return bindings
+}
+
+/**
+ * 解析智能体子用途模型绑定，返回 { [agentName]: { [purposeModel]: configPrefix } }。
+ * 例如 meeting_summary_agent 的 minutes-model 指向 ai.service.text.qwen3-8-max。
+ */
+export const buildAgentSubModelBindings = (configRows = []) => {
+  const bindings = {}
+  configRows.forEach((item) => {
+    const match = String(item.configKey || '').match(AGENT_SUB_MODEL_BINDING_PATTERN)
+    if (!match) return
+    if (Number(item.status) === 0) return
+    const [, agentName, purposeModel] = match
+    const configPrefix = String(item.configValue || '').trim()
+    if (!configPrefix) return
+    bindings[agentName] = { ...(bindings[agentName] || {}), [purposeModel]: configPrefix }
+  })
+  return bindings
+}
+
+/**
+ * 解析「模型配置前缀 → 模型 ID」映射，用于把绑定的配置前缀还原成可读模型名。
+ * 前端不硬编码任何模型名，一律取后端真实配置值。
+ */
+export const buildAiModelLabelByPrefix = (configRows = []) => {
+  const labels = {}
+  configRows.forEach((item) => {
+    const match = String(item.configKey || '').match(AI_MODEL_CONFIG_PATTERN)
+    if (!match) return
+    const [, modality, configName, field] = match
+    if (field !== 'model') return
+    const value = String(item.configValue || '').trim()
+    if (!value) return
+    labels[configName === undefined || !configName
+      ? `ai.service.${modality}`
+      : `ai.service.${modality}.${configName}`] = value
+  })
+  return labels
 }
 
 const parseEnabledConfigValue = (value) => {
