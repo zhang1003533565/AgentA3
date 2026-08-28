@@ -131,6 +131,11 @@ IMAGE_STITCHING_TOOL = {
 }
 VISUAL_GENERATION_TOOLS.insert(1, IMAGE_STITCHING_TOOL)
 VISUAL_GENERATION_TOOL_NAMES = frozenset(VISUAL_GENERATION_TOOL_CONFIG)
+REMOVED_TOOL_NAMES = frozenset({
+    "generate_ppt_image_tool",
+    "generate_activity_image_tool",
+    "generate_knowledge_graph_image_tool",
+})
 IMAGE_RECOGNITION_TOOL_NAME = "recognize_image_tool"
 IMAGE_RECOGNITION_AGENT_NAME = "vision_agent"
 FILE_CONTENT_PLANNER_AGENT_NAME = "file_content_planner_agent"
@@ -850,16 +855,28 @@ def get_rag_framework(
     }
 
 
+def _filter_removed_tools(tools: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    return [
+        tool for tool in tools
+        if str(tool.get("name") or "").strip() not in REMOVED_TOOL_NAMES
+    ]
+
+
 @router.get("/agents")
 def list_rag_agents(
     authorization: Optional[str] = Header(default=None, alias="Authorization"),
 ) -> Dict[str, Any]:
     _require_authorization(authorization)
     catalog = get_agent_catalog()
-    catalog["leaderTools"] = [_annotate_tool_trigger(tool) for tool in LEADER_CALLABLE_TOOLS]
+    catalog["leaderTools"] = [
+        _annotate_tool_trigger(tool) for tool in _filter_removed_tools(LEADER_CALLABLE_TOOLS)
+    ]
     catalog["serviceTools"] = [_annotate_tool_trigger(tool) for tool in CAMPUS_SERVICE_TOOLS]
     catalog["leaderCallableCatalog"] = _build_leader_callable_catalog()
-    catalog["generatedTools"] = [_annotate_tool_trigger(tool) for tool in GENERATED_CONTENT_TOOLS]
+    catalog["generatedTools"] = [
+        _annotate_tool_trigger(tool) for tool in _filter_removed_tools(GENERATED_CONTENT_TOOLS)
+    ]
+    catalog["visualTools"] = _filter_removed_tools(catalog.get("visualTools") or VISUAL_GENERATION_TOOLS)
     catalog["internalTools"] = [TOOL_INTENT_ROUTER_TOOL]
     catalog["fileFormats"] = get_file_format_registry()
     return catalog
@@ -3070,8 +3087,11 @@ def _require_tool_enabled(request: RagQueryRequest, tool_name: str) -> None:
 
 def _build_leader_callable_catalog(request: Optional[RagQueryRequest] = None) -> Dict[str, Any]:
     # 所有能力统一进入 tools；内容导出工具只通过 category=content_export 区分。
-    tool_by_name = {str(tool.get("name") or "").strip(): tool for tool in LEADER_CALLABLE_TOOLS}
-    for tool in GENERATED_CONTENT_TOOLS:
+    tool_by_name = {
+        str(tool.get("name") or "").strip(): tool
+        for tool in _filter_removed_tools(LEADER_CALLABLE_TOOLS)
+    }
+    for tool in _filter_removed_tools(GENERATED_CONTENT_TOOLS):
         tool_by_name.setdefault(str(tool.get("name") or "").strip(), tool)
     # 运行时目录只暴露当前已启用的工具；禁用项留在后台管理接口，不进入 Leader 上下文。
     available_tools = [

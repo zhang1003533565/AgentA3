@@ -204,6 +204,13 @@ class RagApiRoutesTest(unittest.TestCase):
         response = self.client.get("/internal/rag/agents", headers=self.headers)
 
         self.assertEqual(200, response.status_code)
+        leader_tool_names = {item["name"] for item in response.json()["leaderTools"]}
+        for removed_tool in (
+            "generate_ppt_image_tool",
+            "generate_activity_image_tool",
+            "generate_knowledge_graph_image_tool",
+        ):
+            self.assertNotIn(removed_tool, leader_tool_names)
         generated_tools = response.json()["generatedTools"]
         tools_by_name = {item["name"]: item for item in generated_tools}
         expected_formats = {

@@ -68,6 +68,11 @@ public class PythonAiProxyService {
             "ppt_to_text_tool", Set.of(".pptx"),
             "pdf_to_text_tool", Set.of(".pdf")
     );
+    private static final Set<String> REMOVED_TOOL_NAMES = Set.of(
+            "generate_ppt_image_tool",
+            "generate_activity_image_tool",
+            "generate_knowledge_graph_image_tool"
+    );
 
     private final WebClient.Builder webClientBuilder;
     private final ObjectMapper objectMapper;
@@ -1793,7 +1798,7 @@ public class PythonAiProxyService {
         Object toolsValue = sourceMap.get("generatedTools");
         if (toolsValue instanceof List<?> toolsList) {
             List<Object> mergedTools = new ArrayList<>();
-            for (Object tool : toolsList) {
+            for (Object tool : filterRemovedTools(toolsList)) {
                 mergedTools.add(mergeToolEnabledState(tool, toolToggles));
             }
             copy.put("generatedTools", mergedTools);
@@ -1801,7 +1806,7 @@ public class PythonAiProxyService {
         Object leaderToolsValue = sourceMap.get("leaderTools");
         if (leaderToolsValue instanceof List<?> leaderToolsList) {
             List<Object> mergedLeaderTools = new ArrayList<>();
-            for (Object tool : leaderToolsList) {
+            for (Object tool : filterRemovedTools(leaderToolsList)) {
                 mergedLeaderTools.add(mergeToolEnabledState(tool, toolToggles));
             }
             copy.put("leaderTools", mergedLeaderTools);
@@ -1809,10 +1814,14 @@ public class PythonAiProxyService {
         Object serviceToolsValue = sourceMap.get("serviceTools");
         if (serviceToolsValue instanceof List<?> serviceToolsList) {
             List<Object> mergedServiceTools = new ArrayList<>();
-            for (Object tool : serviceToolsList) {
+            for (Object tool : filterRemovedTools(serviceToolsList)) {
                 mergedServiceTools.add(mergeToolEnabledState(tool, toolToggles));
             }
             copy.put("serviceTools", mergedServiceTools);
+        }
+        Object visualToolsValue = sourceMap.get("visualTools");
+        if (visualToolsValue instanceof List<?> visualToolsList) {
+            copy.put("visualTools", filterRemovedTools(visualToolsList));
         }
         Object leaderCallableCatalogValue = sourceMap.get("leaderCallableCatalog");
         if (leaderCallableCatalogValue instanceof Map<?, ?> leaderCallableCatalogMap) {
@@ -1862,12 +1871,29 @@ public class PythonAiProxyService {
         Object toolsValue = sourceMap.get("tools");
         if (toolsValue instanceof List<?> toolsList) {
             List<Object> mergedTools = new ArrayList<>();
-            for (Object tool : toolsList) {
+            for (Object tool : filterRemovedTools(toolsList)) {
                 mergedTools.add(mergeToolEnabledState(tool, toolToggles));
             }
             copy.put("tools", mergedTools);
         }
         return copy;
+    }
+
+    private List<Object> filterRemovedTools(List<?> toolsList) {
+        List<Object> filtered = new ArrayList<>();
+        for (Object tool : toolsList) {
+            if (!(tool instanceof Map<?, ?> toolMap)) {
+                filtered.add(tool);
+                continue;
+            }
+            Object nameValue = toolMap.get("name");
+            String toolName = nameValue == null ? "" : String.valueOf(nameValue).trim();
+            if (REMOVED_TOOL_NAMES.contains(toolName)) {
+                continue;
+            }
+            filtered.add(tool);
+        }
+        return filtered;
     }
 
     private Map<String, Boolean> loadAgentToggles() {
