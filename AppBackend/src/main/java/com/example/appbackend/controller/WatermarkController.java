@@ -95,8 +95,11 @@ public class WatermarkController {
 
             System.out.println("【调试1】去水印请求发起，Base64 长度: " + dataUrl.length());
 
-            // 【你自己的百炼专属 Key】
-            String apiKey = "sk-ws-H.EPYRPPL.1JmV.MEUCIQCKbGSoYRNDuijfOWZVyT67wkKEOoY5jb3LNDed9B5NcQIgAXA8SskzqdKN0Zrp4bntl40Cl9Xmr0UNSVzUEUTV9xw"; 
+            String apiKey = System.getenv("WANX_API_KEY");
+            if (apiKey == null || apiKey.isBlank()) {
+                throw new IllegalStateException("WANX_API_KEY 未配置");
+            }
+            apiKey = apiKey.trim();
 
             // 【极重要修复 2】：用最标准的老版地址！
             String apiUrl = "https://dashscope.aliyuncs.com/api/v1/services/aigc/image-generation/generation";

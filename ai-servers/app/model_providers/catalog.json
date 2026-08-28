@@ -1030,7 +1030,7 @@
           "status": "implemented",
           "models": [
             {
-              "id": "mimo-v2.5",
+              "id": "deepseek-v4-flash",
               "features": [
                 "text_generation",
                 "deep_thinking",
@@ -1054,6 +1054,14 @@
           "label": "语言模型",
           "status": "implemented",
           "models": [
+            {
+              "id": "deepseek-v4-flash-vision-exp",
+              "features": [
+                "chat",
+                "vision",
+                "reasoning_optional"
+              ]
+            },
             {
               "id": "deepseek-v4-flash",
               "features": [

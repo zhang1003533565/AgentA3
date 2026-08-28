@@ -11,6 +11,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
+import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -23,6 +24,7 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 
 @Component
+@Order(100)
 public class StudentPracticeExamInitializer implements ApplicationRunner {
     private static final String SOURCE_AGENT = "system-practice-bank";
     private static final String SOURCE_TITLE = "Python基础综合题库（500题）";

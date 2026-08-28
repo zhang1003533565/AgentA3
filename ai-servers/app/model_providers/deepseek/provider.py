@@ -1,12 +1,15 @@
+import os
 import time
 from typing import Any, Dict, Iterator, List, Optional
 
 from fastapi import HTTPException
 
-from app.model_providers.base import ChatModelProvider
+from app.model_providers.base import ChatModelProvider, extract_response_text
+from app.model_providers.multimodal import build_explicit_multimodal_content, extract_image_references
 from app.model_providers.runtime_config import (
     LlmRuntimeConfig,
     get_active_llm_timeout_seconds,
+    get_active_max_output_tokens,
     resolve_llm_config,
 )
 from app.observability.langfuse import langchain_callbacks
@@ -25,8 +28,9 @@ class DeepSeekProvider(ChatModelProvider):
             raise RuntimeError(f"缺少 langchain_openai 依赖: {exc}") from exc
 
         runtime_config = resolve_llm_config(config)
-        # opencode: OpenCode zen GO 等套餐走 OpenAI 兼容接口，复用本通用客户端
-        if runtime_config.normalized_provider() not in {"deepseek", "openai_compatible", "openai-compatible", "opencode"}:
+        provider_name = runtime_config.normalized_provider()
+        # opencode 与 DeepSeek 官方均使用 OpenAI 兼容接口，但请求参数不同。
+        if provider_name not in {"deepseek", "openai_compatible", "openai-compatible", "opencode"}:
             raise RuntimeError(f"暂不支持的模型服务商: {runtime_config.provider}")
 
         deepseek_api_key = runtime_config.api_key
@@ -41,45 +45,99 @@ class DeepSeekProvider(ChatModelProvider):
             raise RuntimeError("LLM 模型未配置：缺少 X-AI-Model(ai.service.text.model)")
 
         self.model = deepseek_model
-        self.llm = ChatOpenAI(
-            api_key=deepseek_api_key,
-            base_url=normalize_base_url(deepseek_base_url),
-            model=deepseek_model,
-            temperature=0.2,
-            timeout=get_active_llm_timeout_seconds(),
-            max_retries=1,
-            callbacks=langchain_callbacks(),
-        )
+        self.is_opencode = provider_name == "opencode"
+        self.is_official_deepseek = provider_name == "deepseek"
+        # 推理开销占单次调用 70%+ 的 token 与时间（实测 15 页大纲 115s→35s）。
+        # deepseek-v4-flash 支持 reasoning_optional：默认关推理换速度，
+        # 需要深度思考的功能可设 LLM_REASONING_EFFORT=medium/high 恢复。
+        reasoning_effort = os.getenv("LLM_REASONING_EFFORT", "none").strip().lower()
+        if reasoning_effort not in {"none", "low", "medium", "high"}:
+            reasoning_effort = "none"
+        client_kwargs = {
+            "api_key": deepseek_api_key,
+            "base_url": deepseek_base_url.rstrip("/") if self.is_official_deepseek else normalize_base_url(deepseek_base_url),
+            "model": deepseek_model,
+            "timeout": get_active_llm_timeout_seconds(),
+            # PPT 任务自己负责一次性失败收敛；客户端内层重试会把单批等待时间翻倍。
+            "max_retries": 0,
+            **({"max_tokens": get_active_max_output_tokens()} if get_active_max_output_tokens() else {}),
+            "callbacks": langchain_callbacks(),
+        }
+        if not self.is_opencode and not self.is_official_deepseek:
+            client_kwargs.update({
+                "temperature": 0.2,
+                "reasoning_effort": reasoning_effort,
+            })
+        self.llm = ChatOpenAI(**client_kwargs)
 
-    def complete(self, system_prompt: str, user_prompt: str) -> str:
+    def complete(self, system_prompt: str, user_prompt: str, reasoning_effort: Optional[str] = None) -> str:
         from langchain_core.messages import HumanMessage, SystemMessage
 
-        response = self.llm.invoke([
-            SystemMessage(content=system_prompt),
-            HumanMessage(content=user_prompt),
-        ])
-        content = str(response.content or "").strip()
-        if not content:
-            reasoning = (
-                response.additional_kwargs.get("reasoning_content")
-                if isinstance(response.additional_kwargs, dict)
-                else None
+        # Text completion must not silently upgrade to multimodal; vision calls use complete_vision().
+        cleaned_prompt, image_urls = extract_image_references(user_prompt)
+        if image_urls:
+            logger.warning(
+                "complete() stripped %s embedded image reference(s); use complete_vision() for image input",
+                len(image_urls),
             )
-            if reasoning:
-                content = str(reasoning).strip()
-        return content
+        extra = self._request_options(reasoning_effort)
+        response = self.llm.invoke(
+            [
+                SystemMessage(content=system_prompt),
+                HumanMessage(content=cleaned_prompt or user_prompt),
+            ],
+            **extra,
+        )
+        return extract_response_text(response)
 
-    def stream_complete(self, system_prompt: str, user_prompt: str) -> Iterator[str]:
+    def complete_vision(
+        self,
+        system_prompt: str,
+        user_text: str,
+        image_urls: List[str],
+        reasoning_effort: Optional[str] = None,
+    ) -> str:
         from langchain_core.messages import HumanMessage, SystemMessage
 
+        content = build_explicit_multimodal_content(user_text, image_urls)
+        if len(content) < 2:
+            raise HTTPException(status_code=400, detail="视觉模型调用缺少有效图片输入")
+        extra = self._request_options(reasoning_effort)
+        response = self.llm.invoke(
+            [
+                SystemMessage(content=system_prompt),
+                HumanMessage(content=content),
+            ],
+            **extra,
+        )
+        return extract_response_text(response)
+
+    def stream_complete(self, system_prompt: str, user_prompt: str, reasoning_effort: Optional[str] = None) -> Iterator[str]:
+        from langchain_core.messages import HumanMessage, SystemMessage
+
+        extra = self._request_options(reasoning_effort)
         messages = [
             SystemMessage(content=system_prompt),
-            HumanMessage(content=user_prompt),
+            HumanMessage(content=build_multimodal_human_content(user_prompt)),
         ]
-        for chunk in self.llm.stream(messages):
+        for chunk in self.llm.stream(messages, **extra):
             content = getattr(chunk, "content", "")
             if content:
                 yield str(content)
+
+    def _request_options(self, reasoning_effort: Optional[str]) -> Dict[str, Any]:
+        if self.is_opencode:
+            return {}
+        if not self.is_official_deepseek:
+            return {} if reasoning_effort is None else {"reasoning_effort": reasoning_effort}
+        effort = str(reasoning_effort or os.getenv("LLM_REASONING_EFFORT", "none")).strip().lower()
+        if effort in {"", "none", "off", "disabled"}:
+            return {"extra_body": {"thinking": {"type": "disabled"}}}
+        mapped_effort = "max" if effort == "high" else "high"
+        return {
+            "reasoning_effort": mapped_effort,
+            "extra_body": {"thinking": {"type": "enabled"}},
+        }
 
     def extract_search_keyword(self, input_text: str) -> str:
         from langchain_core.messages import HumanMessage, SystemMessage
@@ -111,7 +169,7 @@ class DeepSeekProvider(ChatModelProvider):
         if search_keyword or search_results:
             messages.append(SystemMessage(content=build_search_facts_prompt(search_keyword, search_results)))
         messages.extend(to_llm_messages(history))
-        messages.append(HumanMessage(content=input_text))
+        messages.append(HumanMessage(content=build_multimodal_human_content(input_text)))
 
         started = time.perf_counter()
         logger.info(

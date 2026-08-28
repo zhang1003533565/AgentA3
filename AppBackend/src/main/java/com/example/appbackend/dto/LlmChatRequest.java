@@ -37,7 +37,6 @@ public class LlmChatRequest {
     @Schema(description = "用户输入内容", requiredMode = Schema.RequiredMode.REQUIRED, example = "帮我推荐一个食堂")
     private String input;
 
-    @Size(max = 8, message = "单次最多上传 8 个资源")
     @Schema(description = "随本次提问上传的资源，支持图片、文档、表格、演示文稿、音视频和压缩包")
     private List<Map<String, Object>> attachments;
 

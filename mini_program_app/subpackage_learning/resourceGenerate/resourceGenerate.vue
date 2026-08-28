@@ -96,7 +96,7 @@ import { createLearningState, reduceLearningEvent, restoreLearningState } from '
 import { classifyLearningError, learningErrorMessage, responseData, stateCopy } from '@/subpackage_learning/learningView.js'
 
 const WORKFLOW_STORAGE_KEY = 'pythonLearningWorkflowId'
-const CORE_RESOURCE_TYPES = ['knowledge_note', 'mind_map', 'practice_set', 'code_lab', 'presentation', 'extended_reading']
+const CORE_RESOURCE_TYPES = ['knowledge_note', 'mind_map', 'practice_set', 'code_lab', 'extended_reading']
 
 export default {
   components: { NavBar, AiPresentationFlow, LearningResourceViewer },
@@ -114,7 +114,7 @@ export default {
       resourceTypeOptions: [
         { value: 'knowledge_note', label: '讲义' }, { value: 'mind_map', label: '思维导图' },
         { value: 'practice_set', label: '练习题' }, { value: 'code_lab', label: '代码实验' },
-        { value: 'presentation', label: 'PPT' }, { value: 'extended_reading', label: '拓展阅读' }
+        { value: 'extended_reading', label: '拓展阅读' }
       ]
     }
   },
@@ -138,9 +138,16 @@ export default {
   onLoad(options = {}) {
     this.topic = this.decodeOption(options.topic || options.prompt || '')
     const requestedType = this.decodeOption(options.resourceType || '')
-    const requestedEntry = this.decodeOption(options.presentationEntry || '')
-    this.isPresentationMode = requestedType === 'presentation'
-    this.presentationEntryMode = requestedEntry === 'templateFirst' || String(options.templateFirst || '') === '1' ? 'templateFirst' : 'sourceFirst'
+    const requestedEntry = this.decodeOption(options.presentationEntry || '') || (String(options.templateFirst || '') === '1' ? 'templateFirst' : '')
+    const normalizedType = requestedType.trim().toLowerCase()
+    const templateFirst = requestedEntry === 'templateFirst'
+    // 兼容旧版本入口和外部卡片传入的别名；否则页面会落回学习资源页，
+    // AIPresentationFlow 根本不会挂载，也就不会发出 PPT options 请求。
+    this.isPresentationMode = templateFirst || [
+      'presentation', 'ppt', 'aippt', 'ai_ppt', 'ppt_generation', 'ppt_outline',
+      'ppt生成', 'ppt大纲'
+    ].includes(normalizedType)
+    this.presentationEntryMode = requestedEntry === 'templateFirst' ? 'templateFirst' : 'sourceFirst'
     if (CORE_RESOURCE_TYPES.includes(requestedType)) this.selectedResourceTypes = [requestedType]
     if (this.isPresentationMode) return
     const workflowId = this.decodeOption(options.workflowId || '') || uni.getStorageSync(WORKFLOW_STORAGE_KEY) || ''

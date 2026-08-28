@@ -34,16 +34,18 @@ export function getApiBaseUrl() {
   // #ifndef H5
   // App/小程序真机不能用 localhost，需指向电脑局域网地址。
   // 正式环境请用 VITE_API_BASE_URL 覆盖。
-  return 'http://192.168.31.122:8080'
+  // 当前本地联调机局域网地址；正式环境和其他电脑请使用
+  // VITE_API_BASE_URL（例如 mini_program_app/.env.development.local）覆盖。
+  return 'http://192.168.5.2:8080'
   // #endif
 }
 
 export const BASE_URL = getApiBaseUrl()
 
-// PPT 场景配置缓存调试开关：
+// PPT 模板配置缓存调试开关：
 // true  = 跳过并清除本地缓存，每次进入 PPT 页面都请求后端，方便联调。
 // false = 启用后端 TTL 缓存策略，用于线上环境。
-export const PPT_OPTIONS_BYPASS_CACHE = true
+export const PPT_OPTIONS_BYPASS_CACHE = false
 
 // Keep this list aligned with AppBackend's AI_ASSISTANT_PUBLIC_RESOURCE_HOSTS.
 // Empty is intentionally fail-closed: only same-origin /uploads and owned exports remain usable.

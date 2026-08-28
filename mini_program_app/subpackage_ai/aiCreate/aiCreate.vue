@@ -85,7 +85,7 @@
             <text class="course-state-subtitle">管理员发布课程后会显示在这里</text>
           </view>
           <view v-else class="tools-grid">
-            <view class="tool-item" v-for="tool in currentTools" :key="tool.courseId || tool.name" @tap="handleToolTap(tool)">
+            <view class="tool-item" :class="{ 'tool-item--study-plan': tool.name === '学习计划拆解' }" v-for="tool in currentTools" :key="tool.courseId || tool.name" @tap="handleToolTap(tool)">
               <view v-if="tool.courseId" class="course-cover-wrapper">
                 <image class="course-cover-image" :src="tool.icon" mode="aspectFill"></image>
               </view>
@@ -133,6 +133,7 @@ const quickActions = ref([
 // 工具分类 Mock 数据
 const toolCategories = {
   hot: [
+    { name: '学习计划拆解', desc: '数据表一键拆成任务', icon: '/static/icons/ai create/plan.png', themeColor: '#5B7F80', lightColor: 'rgba(91, 127, 128, 0.22)' },
     { name: '试卷生成', desc: '智能生成标准化试卷', icon: '/static/icons/ai create/exam.png', themeColor: '#FF6B6B', lightColor: 'rgba(255, 107, 107, 0.35)' },
     { name: '题库生成', desc: '资料一键生成练习题', icon: '/static/icons/ai create/exam.png', themeColor: '#5E7387', lightColor: 'rgba(94, 115, 135, 0.35)' },
     { name: 'PPT生成', desc: '一键生成演示文稿', icon: '/static/icons/ai create/ppt-pdf.png', themeColor: '#FF9F43', lightColor: 'rgba(255, 159, 67, 0.35)' },
@@ -141,7 +142,8 @@ const toolCategories = {
     { name: '架构图', desc: '系统架构可视化', icon: '/static/icons/ai create/plan.png', themeColor: '#5C7A99', lightColor: 'rgba(92, 122, 153, 0.35)' },
     { name: '流程图', desc: '逻辑流程一键绘制', icon: '/static/icons/ai create/video-convert.png', themeColor: '#1DD1A1', lightColor: 'rgba(29, 209, 161, 0.35)' },
     { name: '复习资料', desc: '智能整理复习重点', icon: '/static/icons/ai create/review.png', themeColor: '#FECA57', lightColor: 'rgba(254, 202, 87, 0.35)' },
-    { name: 'Python个性化学习', desc: '按基础规划学习路径', icon: '/static/icons/ai create/course.png', themeColor: '#2563EB', lightColor: 'rgba(37, 99, 235, 0.35)' }
+    { name: 'Python个性化学习', desc: '按基础规划学习路径', icon: '/static/icons/ai create/course.png', themeColor: '#2563EB', lightColor: 'rgba(37, 99, 235, 0.35)' },
+    { name: 'Python在线编程', desc: '在线刷题编程练习', icon: '/static/icons/ai create/code.png', emoji: '🐍', themeColor: '#10B981', lightColor: 'rgba(16, 185, 129, 0.35)' }
   ],
   format: [
     { name: 'PDF转Word', desc: 'PDF转Word快准稳', icon: '/static/icons/ai create/pdf-word.png', themeColor: '#5C7A99', lightColor: 'rgba(92, 122, 153, 0.35)' },
@@ -231,6 +233,10 @@ const goToSmartWriting = () => {
 const handleToolTap = (tool) => {
   if (tool?.courseId) {
     uni.navigateTo({ url: `/subpackage_learning/campusCourseDetail/campusCourseDetail?courseId=${encodeURIComponent(tool.courseId)}` })
+    return
+  }
+  if (tool?.name === 'Python在线编程') {
+    uni.navigateTo({ url: '/subpackage_learning/pythonOnlineIDE/questionBank/questionBank' })
     return
   }
   const destination = resolveAiToolDestination(tool)
@@ -611,5 +617,18 @@ const handleToolTap = (tool) => {
   font-size: 22rpx;
   color: #999999;
   line-height: 1.4;
+}
+
+.tool-item--study-plan {
+  background: #F7FAFD;
+}
+
+.tool-item--study-plan .tool-name {
+  color: #233047;
+  font-weight: 600;
+}
+.tool-emoji {
+  font-size: 32rpx;
+  line-height: 1;
 }
 </style>

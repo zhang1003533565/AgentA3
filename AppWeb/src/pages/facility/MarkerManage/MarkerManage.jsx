@@ -34,9 +34,9 @@ const STATUS_MAP = {
 const TYPE_META = {
   1: { color: '#FF6B6B', label: '食堂', short: '食' },
   2: { color: '#1DD1A1', label: '运动场', short: '运' },
-  3: { color: '#3B82F6', label: '教学楼', short: '教' },
-  4: { color: '#A55EEA', label: '综合服务', short: '服' },
-  5: { color: '#FECA57', label: '校内商铺', short: '商' },
+  5: { color: '#FECA57', label: '其他', short: '其' },
+  6: { color: '#3B82F6', label: '教学楼', short: '教' },
+  7: { color: '#A55EEA', label: '宿舍', short: '宿' },
   99: { color: '#9CA3AF', label: '其他', short: '?' },
 }
 const tmeta = (t) => TYPE_META[t] || TYPE_META[99]
@@ -137,8 +137,9 @@ const mapPlaceToMarker = (place) => ({
   facilityType: ({
     CANTEEN: 1,
     SPORTS: 2,
-    TEACHING: 3,
-    DORMITORY: 4,
+    TEACHING: 6,
+    DORMITORY: 7,
+    OTHER: 5,
   })[place.sceneType] || 99,
   facilityTypeName: place.placeType,
   location: place.locationDesc || '',

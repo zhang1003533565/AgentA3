@@ -8,7 +8,10 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.http.ContentDisposition;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -17,6 +20,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.nio.charset.StandardCharsets;
 import java.util.Map;
 
 @RestController
@@ -97,6 +101,15 @@ public class AiRagController {
         return Result.success(pythonAiProxyService.convertPdf(file, targetFormat, adminAuthorization(request)));
     }
 
+    @PostMapping(value = "/tools/{toolName}/test-file", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @Operation(summary = "手动上传文件测试内容提取工具")
+    public Result<Object> testFileContentTool(
+            @PathVariable String toolName,
+            @RequestParam("file") MultipartFile file,
+            HttpServletRequest request) {
+        return Result.success(pythonAiProxyService.testFileContentTool(toolName, file, adminAuthorization(request)));
+    }
+
     @PostMapping(value = "/ppt/convert", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     @Operation(summary = "PPTX 转换为 DOCX")
     public Result<Object> convertPpt(
@@ -115,6 +128,35 @@ public class AiRagController {
     @Operation(summary = "执行 Text-to-SQL")
     public Result<Object> executeTextToSql(@RequestBody Map<String, Object> body, HttpServletRequest request) {
         return Result.success(pythonAiProxyService.executeTextToSql(body, adminAuthorization(request)));
+    }
+
+    @GetMapping("/export")
+    @Operation(summary = "下载 AI 生成的导出文件")
+    public ResponseEntity<byte[]> exportDownload(
+            @RequestParam String storageKey,
+            @RequestParam String capability,
+            @RequestParam(required = false) String filename,
+            HttpServletRequest request) {
+        adminAuthorization(request);
+        PythonAiProxyService.GeneratedExportResponse exported = pythonAiProxyService
+                .downloadGeneratedExport(storageKey, capability);
+        byte[] bytes = exported == null || exported.bytes() == null ? new byte[0] : exported.bytes();
+        String safeName = sanitizeExportFilename(filename == null || filename.isBlank() ? "ai-export" : filename);
+        ContentDisposition disposition = ContentDisposition.attachment()
+                .filename(safeName, StandardCharsets.UTF_8)
+                .build();
+        MediaType mediaType = exported.contentType() == null
+                ? MediaType.APPLICATION_OCTET_STREAM
+                : exported.contentType();
+        return ResponseEntity.ok()
+                .contentType(mediaType)
+                .header(HttpHeaders.CONTENT_DISPOSITION, disposition.toString())
+                .body(bytes);
+    }
+
+    private String sanitizeExportFilename(String filename) {
+        String sanitized = filename.replaceAll("[\\\\/:*?\"<>|\\r\\n]", "_").trim();
+        return sanitized.isEmpty() ? "ai-export" : sanitized;
     }
 
     private String adminAuthorization(HttpServletRequest request) {

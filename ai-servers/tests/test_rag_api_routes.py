@@ -75,6 +75,14 @@ class RagApiRoutesTest(unittest.TestCase):
             }
             for item in ({"name": name} for name in AGENT_ORDER)
         }
+        self.agent_model_configs["vision_agent"] = {
+            "configPrefix": "ai.agent.vision_agent",
+            "provider": "qwen",
+            "baseUrl": "https://llm.test/v1",
+            "apiKey": "test-key",
+            "model": "qwen3-vl-plus",
+            "tested": True,
+        }
         self._patched_modules = []
         self._patched_image_modules = []
         self._patch_model_providers()
@@ -192,6 +200,29 @@ class RagApiRoutesTest(unittest.TestCase):
         self.assertEqual("registered", content_tool["status"])
         self.assertIn("ai_ppt_generation_tool", {item["name"] for item in catalog["tools"]})
 
+    def test_file_content_extraction_tools_are_exposed_for_admin_toggles(self):
+        response = self.client.get("/internal/rag/agents", headers=self.headers)
+
+        self.assertEqual(200, response.status_code)
+        generated_tools = response.json()["generatedTools"]
+        tools_by_name = {item["name"]: item for item in generated_tools}
+        expected_formats = {
+            "markdown_to_text_tool": ["md", "markdown"],
+            "txt_to_text_tool": ["txt"],
+            "word_to_text_tool": ["doc", "docx"],
+            "ppt_to_text_tool": ["ppt", "pptx"],
+            "pdf_to_text_tool": ["pdf"],
+        }
+
+        for tool_name, input_formats in expected_formats.items():
+            with self.subTest(tool_name=tool_name):
+                tool = tools_by_name[tool_name]
+                self.assertEqual("file_content_extraction", tool["category"])
+                self.assertEqual(input_formats, tool["inputFormats"])
+                self.assertEqual(["text", "image"], tool["outputs"])
+                self.assertEqual("implemented", tool["status"])
+                self.assertTrue(tool["configurable"])
+
     def test_file_transform_action_forces_real_export_tool(self):
         request = SimpleNamespace(metadata={
             "interactionType": "transform",
@@ -204,7 +235,7 @@ class RagApiRoutesTest(unittest.TestCase):
 
         self.assertIsNotNone(plan)
         self.assertEqual("call_tool", plan.action)
-        self.assertEqual("generated_export_tools", plan.tool_name)
+        self.assertEqual("text_to_docx_tool", plan.tool_name)
         self.assertEqual("rules", plan.route_mode)
 
     def test_second_source_option_is_expanded_to_explicit_model_authorization(self):
@@ -244,6 +275,29 @@ class RagApiRoutesTest(unittest.TestCase):
 
     def test_plain_number_is_not_rewritten_without_source_selection_context(self):
         self.assertEqual("3", self._rag_routes._contextualize_followup_input("3", {"turns": []}))
+
+    def test_contextualize_image_generation_followup_uses_previous_assistant_answer(self):
+        context = {
+            "summary": "用户上传了排球队招新海报",
+            "turns": [
+                {
+                    "user": "这个图片有什么",
+                    "assistant": "这是广东财经大学财税学院排球队招新海报，口号是扣响青春，税月同行。",
+                    "metadata": {},
+                },
+            ],
+        }
+        expanded = self._rag_routes._contextualize_followup_input("给我生成一个这样的海报可以吗", context)
+        self.assertIn("排球队", expanded)
+        self.assertIn("这样的海报", expanded)
+
+    def test_visual_generation_answer_text_prefers_friendly_message(self):
+        answer = self._rag_routes._visual_generation_answer_text(
+            "广东财经大学排球队招新海报，蓝白配色，口号扣响青春",
+            [{"fileName": "通用图片生成.png"}],
+        )
+        self.assertIn("已根据你的需求生成图片", answer)
+        self.assertIn("生成要点", answer)
 
     def test_confirmed_model_source_is_reused_for_short_continuation(self):
         context = {
@@ -321,6 +375,58 @@ class RagApiRoutesTest(unittest.TestCase):
         self.assertEqual(["docx"], [item["ext"] for item in payload["attachments"]])
         self.assertEqual(["leader_route", "agent_answer", "tool_call"], [item["stage"] for item in payload["trace"]])
 
+    def test_admin_text_to_file_tool_runs_directly_without_leader_route(self):
+        response = self.client.post(
+            "/internal/rag/query",
+            headers=self.headers,
+            json={
+                "input": "请把以下内容按原文转成纯文本文件：校园二手交易应当当面验货。",
+                "agentName": "leader_agent",
+                "metadata": {
+                    "testFrom": "admin_tool_console",
+                    "directToolTest": True,
+                    "expectedToolName": "text_to_txt_tool",
+                    "requestedOutputType": "txt",
+                },
+            },
+        )
+
+        self.assertEqual(200, response.status_code)
+        payload = response.json()
+        self.assertEqual(["txt"], [item["ext"] for item in payload["attachments"]])
+        self.assertEqual(["tool_call"], [item["stage"] for item in payload["trace"]])
+        self.assertEqual("direct_tool_test", payload["metadata"]["executionMode"])
+        self.assertEqual("text_to_txt_tool", payload["metadata"]["executedAgent"])
+
+    def test_admin_image_stitching_tool_runs_directly_without_leader_route(self):
+        tiny_png = (
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+        )
+        response = self.client.post(
+            "/internal/rag/query",
+            headers=self.headers,
+            json={
+                "input": "请将我上传的图片按照上传顺序拼接成一张图片。",
+                "agentName": "leader_agent",
+                "imageDataUrls": [
+                    f"data:image/png;base64,{tiny_png}",
+                    f"data:image/png;base64,{tiny_png}",
+                ],
+                "metadata": {
+                    "testFrom": "admin_tool_console",
+                    "directToolTest": True,
+                    "expectedToolName": "image_stitching_tool",
+                },
+            },
+        )
+
+        self.assertEqual(200, response.status_code)
+        payload = response.json()
+        self.assertEqual("direct_tool_test", payload["metadata"]["executionMode"])
+        self.assertEqual("image_stitching_tool", payload["metadata"]["executedAgent"])
+        self.assertNotIn("leader_route", [item["stage"] for item in payload["trace"]])
+        self.assertEqual(1, len(payload["attachments"]))
+
     def test_free_text_word_export_skips_clarification_message_and_uses_previous_substantive_candidate(self):
         response = self.client.post(
             "/internal/rag/query",
@@ -377,7 +483,7 @@ class RagApiRoutesTest(unittest.TestCase):
         self.assertEqual([], decorated.attachments)
         self.assertEqual("output_format_not_selected", decorated.outputMeta["generatedExports"]["reason"])
         self.assertEqual(
-            ["docx", "xlsx", "md", "pptx"],
+            ["md", "txt", "docx"],
             [item["outputType"] for item in decorated.outputMeta["followUpActions"]],
         )
 
@@ -691,7 +797,6 @@ class RagApiRoutesTest(unittest.TestCase):
         self.assertFalse(payload["metadata"]["needRetrieval"])
         self.assertIn("PPT 大纲", payload["answer"])
         self.assertIn("### 大纲信息", payload["answer"])
-        self.assertIn("- 使用场景：", payload["answer"])
         self.assertIn("- 受众：", payload["answer"])
         self.assertNotIn("讲解目标", payload["answer"])
         self.assertNotIn("页面内容建议", payload["answer"])
@@ -782,7 +887,7 @@ class RagApiRoutesTest(unittest.TestCase):
             def __init__(self):
                 self.callable_catalogs = []
 
-            def complete(self, system_prompt, user_prompt):
+            def complete(self, system_prompt, user_prompt, reasoning_effort=None):
                 if "Leader 智能体" in system_prompt:
                     payload = json.loads(user_prompt)
                     self.callable_catalogs.append(payload["leader_callable_catalog"])
@@ -800,7 +905,7 @@ class RagApiRoutesTest(unittest.TestCase):
                             },
                             ensure_ascii=False,
                         )
-                return super().complete(system_prompt, user_prompt)
+                return super().complete(system_prompt, user_prompt, reasoning_effort=reasoning_effort)
 
         rag_routes = importlib.import_module("app.api.routes.rag")
         leader_module = importlib.import_module("app.multi_agents.leader_agent.agent")
@@ -1415,6 +1520,20 @@ class RagApiRoutesTest(unittest.TestCase):
 
         self.assertEqual(400, response.status_code)
 
+    def test_admin_agent_console_can_directly_test_registered_internal_visual_agent(self):
+        request = self._rag_routes.RagQueryRequest(
+            input="识别图片",
+            agentName="vision_agent",
+            metadata={"testFrom": "admin_agent_console"},
+        )
+        ordinary_request = self._rag_routes.RagQueryRequest(
+            input="识别图片",
+            agentName="vision_agent",
+        )
+
+        self.assertEqual("vision_agent", self._rag_routes._normalize_requested_agent(request))
+        self.assertIsNone(self._rag_routes._normalize_requested_agent(ordinary_request))
+
     def test_learning_workflow_internal_agents_cannot_be_directly_requested(self):
         for requested_agent in ("learning_path_agent", "Python 学习路径智能体"):
             with self.subTest(requested_agent=requested_agent):
@@ -1490,10 +1609,9 @@ class RagApiRoutesTest(unittest.TestCase):
 """
         normalized = normalize_ppt_outline_answer(
             raw,
-            "topic: 数据结构中的栈与队列; scene_type: academic; audience: 学生; slide_count: 6",
+            "topic: 数据结构中的栈与队列; audience: 学生; slide_count: 6",
         )
         self.assertIn("### 大纲信息", normalized)
-        self.assertIn("- 使用场景：学术", normalized)
         self.assertIn("- 受众：学生", normalized)
         self.assertIn("- 页面类型：封面页", normalized)
         self.assertIn("- 本页目标：明确主题。", normalized)
@@ -1558,7 +1676,12 @@ def _fake_question_payload(question_type):
 
 
 class FakeRagModelProvider:
-    def complete(self, system_prompt, user_prompt):
+    def complete_vision(self, system_prompt, user_text, image_urls, reasoning_effort=None):
+        if image_urls:
+            return "图中是一张测试截图，可见主体清晰。"
+        return "未收到图片"
+
+    def complete(self, system_prompt, user_prompt, reasoning_effort=None):
         if "系统接口返回的数据" in system_prompt:
             payload = json.loads(user_prompt)
             if payload.get("answer_policy", {}).get("mode") == "canteen_query":
@@ -1747,6 +1870,18 @@ class FakeRagModelProvider:
             return "## 资源推荐\n- 成员A：推荐复习资料"
         if "语音播报智能体" in system_prompt:
             return "## 语音播报稿\n请大家关注会议结论。"
+        if "Presenton's presentation structure agent" in system_prompt:
+            return json.dumps({"layouts": [{"slideIndex": 1, "layoutId": "content"}]}, ensure_ascii=False)
+        if "PPT 逐页内容智能体" in system_prompt:
+            return json.dumps({
+                "slides": [{
+                    "index": 1,
+                    "title": "数据结构中的栈与队列",
+                    "content": ["栈遵循后进先出，队列遵循先进先出。"],
+                    "componentContent": {},
+                    "speakerNote": "说明两种结构的访问顺序。",
+                }]
+            }, ensure_ascii=False)
         if "PPT 大纲智能体" in system_prompt:
             return """## PPT 大纲
 ### 第 1 页：课程导入
@@ -1780,8 +1915,8 @@ class FakeRagModelProvider:
     def answer(self, prompt, input_text, history, search_keyword, search_results):
         return f"已检索到{len(search_results or [])}条候选，关键词={search_keyword}"
 
-    def stream_complete(self, system_prompt, user_prompt):
-        yield self.complete(system_prompt, user_prompt)
+    def stream_complete(self, system_prompt, user_prompt, reasoning_effort=None):
+        yield self.complete(system_prompt, user_prompt, reasoning_effort=reasoning_effort)
 
 
 class FakeImageProvider:

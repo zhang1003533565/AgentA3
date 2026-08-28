@@ -617,6 +617,24 @@
 					}
 				},
 				{
+					"path": "goalDecompose/goalDecompose",
+					"style": {
+						"navigationBarTitleText": "学习计划拆解",
+						"navigationStyle": "custom",
+						"navigationBarBackgroundColor": "#FFFFFF",
+						"navigationBarTextStyle": "black"
+					}
+				},
+				{
+					"path": "goalPlanList/goalPlanList",
+					"style": {
+						"navigationBarTitleText": "我的学习计划",
+						"navigationStyle": "custom",
+						"navigationBarBackgroundColor": "#FFFFFF",
+						"navigationBarTextStyle": "black"
+					}
+				},
+				{
 					"path": "smartWriting/smartWriting",
 					"style": {
 						"navigationBarTitleText": "",
@@ -709,24 +727,6 @@
 				},
 				{
 					"path": "questionBankGenerate/questionBankGenerate",
-					"style": {
-						"navigationBarTitleText": "",
-						"navigationStyle": "custom",
-						"navigationBarBackgroundColor": "#FFFFFF",
-						"navigationBarTextStyle": "black"
-					}
-				},
-				{
-					"path": "pptGenerate/pptGenerate",
-					"style": {
-						"navigationBarTitleText": "",
-						"navigationStyle": "custom",
-						"navigationBarBackgroundColor": "#FFFFFF",
-						"navigationBarTextStyle": "black"
-					}
-				},
-				{
-					"path": "pptPreview/pptPreview",
 					"style": {
 						"navigationBarTitleText": "",
 						"navigationStyle": "custom",
@@ -941,6 +941,39 @@
         			"navigationBarTextStyle": "black"
     				}
 			}
+			]
+		},
+		{
+			"root": "subpackage_learning/pythonOnlineIDE",
+			"pages": [
+				{
+					"path": "questionBank/questionBank",
+					"style": {
+						"navigationBarTitleText": "题库",
+						"navigationStyle": "custom",
+						"navigationBarBackgroundColor": "#FFFFFF",
+						"navigationBarTextStyle": "black",
+						"enablePullDownRefresh": true
+					}
+				},
+				{
+					"path": "problemDetail/problemDetail",
+					"style": {
+						"navigationBarTitleText": "题目详情",
+						"navigationStyle": "custom",
+						"navigationBarBackgroundColor": "#FFFFFF",
+						"navigationBarTextStyle": "black"
+					}
+				},
+				{
+					"path": "practice/practice",
+					"style": {
+						"navigationBarTitleText": "Python 在线编程",
+						"navigationStyle": "custom",
+						"navigationBarBackgroundColor": "#FFFFFF",
+						"navigationBarTextStyle": "black"
+					}
+				}
 			]
 		},
 		{
@@ -1211,7 +1244,8 @@
 				"subpackage_ai",
 				"subpackage_meeting",
 				"subpackage_notice",
-				"subpackage_learning"
+				"subpackage_learning",
+				"subpackage_learning_pythonOnlineIDE"
 			]
 		}
 	},

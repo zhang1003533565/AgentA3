@@ -3,8 +3,11 @@ import { computed, h, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 
 import AppTabBar from '../components/AppTabBar.vue'
+import ChatMarkdown from '../components/ChatMarkdown.vue'
 import { deleteLeaderSession, getLeaderSessionDetail, getLeaderSessions, queryLeaderAgent, streamLeaderAgent } from '../api/aiGeneration'
+import { API_BASE_URL } from '../api/request'
 import { AI_RESOURCE_ACCEPT, uploadAiResource } from '../api/upload'
+import { getToken } from '../utils/auth'
 import pdfIcon from '../assets/file-icons/pdf.png'
 import pptIcon from '../assets/file-icons/ppt.png'
 import excelIcon from '../assets/file-icons/excel.png'
@@ -101,9 +104,109 @@ const pendingResources = ref([])
 const onlineSearch = ref(true)
 const deepThinking = ref(false)
 const messageList = ref(null)
+const timelineProgress = ref(0)
+const timelineHoverIndex = ref(-1)
+const timelineDragging = ref(false)
 const quickPrompts = ['查课表', '图书馆时间', '奖学金申请', '校园卡补办']
 const feedback = ref({})
 let activeStreamTask = null
+
+const workflowStageLabels = {
+  request_submitted: '请求已提交', session_ready: '会话已建立', leader_route: 'Leader 意图识别与路由',
+  leader_plan: 'Leader 制定执行计划', tool_start: '工具开始执行', tool_call: '调用工具',
+  tool_result_summary: '工具结果汇总', prompt_agent: '内容格式整理智能体', vision_agent: '图片识别智能体',
+  image_generation_tool: '图片生成工具', agent_answer: '智能体生成结果', direct_agent: '专业智能体处理',
+  generate_sql: '生成查询语句', retrieval: '检索相关资料', generation_start: '开始生成内容', completed: '处理完成',
+  input_pipeline: '附件输入预处理', input_image_collected: '收集上传图片',
+  input_attachment_skipped: '跳过不可读取附件', file_content_extraction: '文件内容提取工具',
+  file_content_extraction_skipped: '跳过文件内容提取', file_content_extraction_failed: '文件内容提取失败',
+  image_grouping: '图片分组', image_stitching_tool: '图片拼接工具',
+  image_stitching_skipped: '单张图片直接识别', multimodal_context_merged: '多模态内容汇总', failed: '执行失败',
+}
+
+const workflowTriggerLabels = {
+  system: '系统自动触发', leader: 'Leader 协调触发', rule_direct: '规则直接触发',
+  workflow_dependency: '工作流依赖触发',
+}
+
+const workflowFailureLocationLabels = {
+  java_proxy: 'Java 代理层',
+  web_client: '前端请求',
+  python_runtime: 'Python 执行层',
+}
+
+function workflowDetailText(detail, fallback = '') {
+  if (typeof detail === 'string') return detail
+  if (!detail || typeof detail !== 'object') return fallback
+  return detail.message
+    || detail.failureReason
+    || detail.rawMessage
+    || detail.routeReason
+    || detail.reason
+    || detail.summary
+    || detail.toolDisplayName
+    || fallback
+}
+
+function buildWorkflowFailureDescription(entry, detail, fallback = '') {
+  const lines = []
+  const failurePhase = entry?.failurePhase || detail?.failurePhase || detail?.failureStage || entry?.failureStage || ''
+  const failureLocation = entry?.failureLocation || detail?.failureLocation || ''
+  const toolName = detail?.toolDisplayName || detail?.toolName || entry?.toolDisplayName || entry?.toolName || ''
+  const agentName = detail?.agentDisplayName || detail?.agentName || detail?.failedAgent || detail?.targetAgent || entry?.agentName || ''
+  const stage = entry?.stage || detail?.stage || ''
+  const message = workflowDetailText(detail, entry?.message || fallback)
+  const locationLabel = workflowFailureLocationLabels[failureLocation] || failureLocation
+  if (locationLabel) lines.push(`失败位置：${locationLabel}`)
+  if (failurePhase) lines.push(`失败阶段：${failurePhase}`)
+  if (stage && stage !== 'failed') lines.push(`步骤：${workflowStageLabels[stage] || stage}`)
+  if (toolName) lines.push(`工具：${toolName}`)
+  if (agentName) lines.push(`智能体：${agentName}`)
+  if (message) lines.push(message)
+  return lines.join('\n')
+}
+
+function normalizeWorkflowStep(entry, index, status = 'completed') {
+  const stage = String(entry?.stage || entry?.event || 'processing')
+  const detail = entry?.detail && typeof entry.detail === 'object' ? entry.detail : entry
+  const toolName = detail?.toolDisplayName || detail?.toolName || detail?.tool || entry?.toolDisplayName || entry?.toolName || ''
+  const agentName = detail?.agentDisplayName || detail?.agentName || detail?.targetAgent || detail?.executedAgent || detail?.failedAgent || entry?.agentName || ''
+  const intent = detail?.intent || entry?.intent || ''
+  const failurePhase = detail?.failurePhase || entry?.failurePhase || detail?.failureStage || entry?.failureStage || ''
+  const isFailed = status === 'failed' || stage === 'failed'
+  const title = isFailed
+    ? `执行失败${failurePhase ? ` · ${failurePhase}` : ''}`
+    : (workflowStageLabels[stage] || toolName || agentName || '执行处理')
+  const description = isFailed
+    ? buildWorkflowFailureDescription(entry, detail, entry?.message || '')
+    : workflowDetailText(entry?.detail, entry?.message || '')
+  return {
+    id: `${stage}-${index}-${toolName || agentName}`,
+    stage,
+    title,
+    description,
+    meta: [
+      workflowTriggerLabels[detail?.triggerType || entry?.triggerType],
+      failurePhase && `阶段：${failurePhase}`,
+      toolName && `工具：${toolName}`,
+      agentName && `智能体：${agentName}`,
+      intent && `意图：${intent}`,
+      detail?.routeReason || entry?.routeReason,
+    ].filter(Boolean),
+    status,
+  }
+}
+
+function traceWorkflowSteps(trace) {
+  return (Array.isArray(trace) ? trace : []).map((entry, index) => normalizeWorkflowStep(entry, index))
+}
+
+function appendWorkflowStep(messageId, entry, status = 'running') {
+  const target = messages.value.find((item) => item.id === messageId)
+  if (!target) return
+  const current = (target.workflowSteps || []).map((step) => step.status === 'running' ? { ...step, status: 'completed' } : step)
+  target.workflowSteps = [...current, normalizeWorkflowStep(entry, current.length, status)]
+}
 
 const messages = ref([
   {
@@ -132,9 +235,6 @@ function normalizeConversation(item) {
 function normalizeHistoryMessage(item, index) {
   const role = item?.role === 'user' ? 'user' : 'assistant'
   const trace = Array.isArray(item?.trace) ? item.trace : []
-  const steps = trace
-    .map((entry) => entry?.message || entry?.detail || entry?.stage || '')
-    .filter(Boolean)
   return {
     id: item?.id || `${role}-${index}`,
     role,
@@ -144,7 +244,11 @@ function normalizeHistoryMessage(item, index) {
     agentName: item?.agentName || 'leader_agent',
     resources: Array.isArray(item?.resources) ? item.resources : [],
     attachments: Array.isArray(item?.attachments) ? item.attachments : [],
-    steps,
+    workflowSteps: traceWorkflowSteps(trace),
+    workflowExpanded: false,
+    exportSessionId: item?.sessionId || '',
+    exportMessageId: item?.messageId || item?.id || '',
+    workflowStatus: 'completed',
     streaming: false,
   }
 }
@@ -159,7 +263,10 @@ async function openConversation(id) {
     const response = await getLeaderSessionDetail(sessionId)
     const data = response || {}
     conversationSessionIds.value = { ...conversationSessionIds.value, [sessionId]: sessionId }
-    messages.value = (data.messages || []).map(normalizeHistoryMessage)
+    messages.value = (data.messages || []).map((item, index) => ({
+      ...normalizeHistoryMessage(item, index),
+      exportSessionId: sessionId,
+    }))
     await scrollMessages()
   } catch (cause) {
     historyError.value = cause.message || '加载会话内容失败'
@@ -263,6 +370,57 @@ async function scrollMessages() {
   messageList.value?.scrollTo({ top: messageList.value.scrollHeight, behavior: 'smooth' })
 }
 
+function syncTimelineProgress() {
+  const element = messageList.value
+  if (!element) return
+  const maximum = Math.max(0, element.scrollHeight - element.clientHeight)
+  timelineProgress.value = maximum ? element.scrollTop / maximum : 0
+}
+
+function scrollToTimelineProgress(progress) {
+  const element = messageList.value
+  if (!element) return
+  const maximum = Math.max(0, element.scrollHeight - element.clientHeight)
+  element.scrollTop = maximum * Math.max(0, Math.min(1, progress))
+}
+
+function timelineProgressFromPointer(event) {
+  const track = event.currentTarget?.closest?.('.conversation-timeline') || document.querySelector('.conversation-timeline')
+  if (!track) return 0
+  const bounds = track.getBoundingClientRect()
+  return (event.clientY - bounds.top) / bounds.height
+}
+
+function beginTimelineDrag(event) {
+  timelineDragging.value = true
+  scrollToTimelineProgress(timelineProgressFromPointer(event))
+  window.addEventListener('pointermove', moveTimelineDrag)
+  window.addEventListener('pointerup', endTimelineDrag, { once: true })
+}
+
+function moveTimelineDrag(event) {
+  if (!timelineDragging.value) return
+  const track = document.querySelector('.conversation-timeline')
+  if (!track) return
+  const bounds = track.getBoundingClientRect()
+  scrollToTimelineProgress((event.clientY - bounds.top) / bounds.height)
+}
+
+function endTimelineDrag() {
+  timelineDragging.value = false
+  window.removeEventListener('pointermove', moveTimelineDrag)
+}
+
+function jumpToMessage(index) {
+  const target = messageList.value?.querySelector(`[data-message-index="${index}"]`)
+  target?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+}
+
+onBeforeUnmount(() => {
+  window.removeEventListener('pointermove', moveTimelineDrag)
+  window.removeEventListener('pointerup', endTimelineDrag)
+})
+
 function createConversation() {
   activeStreamTask?.abort?.('conversation_changed')
   activeConversationId.value = ''
@@ -293,15 +451,37 @@ function resourceEntry(file) {
   }
 }
 
+function fileContentBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(String(reader.result || '').split(',', 2)[1] || '')
+    reader.onerror = () => reject(new Error(`读取文件失败：${file.name}`))
+    reader.readAsDataURL(file)
+  })
+}
+
+function patchPendingResource(localId, patch) {
+  const index = pendingResources.value.findIndex((item) => item.localId === localId)
+  if (index < 0) return
+  pendingResources.value[index] = { ...pendingResources.value[index], ...patch }
+}
+
 async function uploadEntry(entry) {
-  entry.status = 'uploading'
-  entry.error = ''
+  patchPendingResource(entry.localId, { status: 'uploading', error: '' })
   try {
-    entry.resource = await uploadAiResource(entry.file)
-    entry.status = 'success'
+    const [resource, contentBase64] = await Promise.all([
+      uploadAiResource(entry.file),
+      fileContentBase64(entry.file),
+    ])
+    patchPendingResource(entry.localId, {
+      resource: { ...resource, contentBase64 },
+      status: 'success',
+    })
   } catch (cause) {
-    entry.status = 'error'
-    entry.error = cause.message || '上传失败'
+    patchPendingResource(entry.localId, {
+      status: 'error',
+      error: cause.message || '上传失败',
+    })
   }
 }
 
@@ -331,12 +511,83 @@ function isImageAttachment(item) {
     || /\.(jpe?g|png|webp|gif)$/i.test(String(item?.name || item?.fileName || item?.title || item?.url || ''))
 }
 
-function attachmentUrl(item) {
-  return item?.previewUrl || item?.url || item?.sourceUrl || item?.downloadUrl || ''
+function looksLikeImageResultJson(content) {
+  const text = String(content || '').trim()
+  if (!text.startsWith('{')) return false
+  try {
+    const payload = JSON.parse(text)
+    return Array.isArray(payload?.images)
+  } catch {
+    return false
+  }
+}
+
+function displayAssistantContent(message) {
+  const content = String(message?.content || '').trim()
+  if (!content) return ''
+  if (message?.answerType === 'image_generation' && looksLikeImageResultJson(content)) {
+    return '已根据你的需求生成图片，请查看下方预览。'
+  }
+  return content
+}
+
+function attachmentUrl(item, message = null) {
+  const direct = item?.previewUrl || item?.url || item?.sourceUrl || item?.downloadUrl || ''
+  if (direct) return direct.startsWith('/') ? `${API_BASE_URL}${direct}` : direct
+  const storageKey = String(item?.storageKey || '').trim()
+  const sessionId = String(message?.exportSessionId || message?.sessionId || activeConversationId.value || '').trim()
+  const messageId = message?.exportMessageId || message?.messageId
+  if (storageKey && sessionId && messageId) {
+    return `${API_BASE_URL}/api/ai/leader/sessions/${encodeURIComponent(sessionId)}/messages/${messageId}/exports/${encodeURIComponent(storageKey)}`
+  }
+  return ''
 }
 
 function attachmentName(item) {
   return item?.name || item?.fileName || item?.title || '上传图片'
+}
+
+async function loadAttachmentBlob(item, message = null) {
+  const source = attachmentUrl(item, message)
+  if (!source) throw new Error('该附件缺少可用地址')
+  const token = getToken()
+  const response = await fetch(source.startsWith('/') ? `${API_BASE_URL}${source}` : source, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  })
+  if (!response.ok) throw new Error(`读取附件失败（${response.status}）`)
+  return response.blob()
+}
+
+async function openAttachment(item, message = null) {
+  const previewWindow = window.open('about:blank', '_blank')
+  try {
+    const objectUrl = URL.createObjectURL(await loadAttachmentBlob(item, message))
+    if (previewWindow) {
+      previewWindow.opener = null
+      previewWindow.location.href = objectUrl
+    } else {
+      window.open(objectUrl, '_blank', 'noopener,noreferrer')
+    }
+    window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60000)
+  } catch (cause) {
+    previewWindow?.close()
+    showToast(cause.message || '打开附件失败')
+  }
+}
+
+async function downloadAttachment(item, message = null) {
+  try {
+    const objectUrl = URL.createObjectURL(await loadAttachmentBlob(item, message))
+    const link = document.createElement('a')
+    link.href = objectUrl
+    link.download = attachmentName(item)
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    URL.revokeObjectURL(objectUrl)
+  } catch (cause) {
+    showToast(cause.message || '下载附件失败')
+  }
 }
 
 function fileExtension(item) {
@@ -417,7 +668,12 @@ async function sendMessage(text) {
     role: 'assistant',
     content: attachments.length ? '正在读取并分析上传的资源…' : '正在思考…',
     streaming: true,
-    steps: [attachments.length ? '正在读取并分析上传的资源' : '已提交给智能助手，正在思考'],
+    workflowSteps: [normalizeWorkflowStep({
+      stage: 'request_submitted',
+      message: attachments.length ? `已提交请求，包含 ${attachments.length} 个附件` : '已提交给智能助手，等待分析',
+    }, 0, 'running')],
+    workflowExpanded: false,
+    workflowStatus: 'running',
   })
   chatBusy.value = true
   void scrollMessages()
@@ -441,17 +697,29 @@ async function sendMessage(text) {
         streamTouched = true
         syncConversationSession(requestConversationId, payload?.sessionId)
         const current = messages.value.find((item) => item.id === assistantMessageId)
-        if (eventName === 'generation_start') {
+        if (eventName === 'workflow_step') {
+          appendWorkflowStep(assistantMessageId, payload)
+        } else if (eventName === 'generation_start') {
+          appendWorkflowStep(assistantMessageId, { stage: 'generation_start', message: payload?.answer || '已进入内容生成阶段' })
           updateChatMessage(assistantMessageId, {
             content: payload?.answer || current?.content || '',
             streaming: true,
-            steps: [...(current?.steps || []), '开始生成回答'],
           })
-        } else if (eventName === 'tool_start' && payload?.message) {
+        } else if (eventName === 'tool_start') {
+          appendWorkflowStep(assistantMessageId, { stage: 'tool_start', ...payload })
           updateChatMessage(assistantMessageId, {
-            content: current?.receivedDelta ? current.content : '',
+            content: current?.receivedDelta ? current.content : (payload?.message || current?.content || ''),
             streaming: true,
-            steps: [...(current?.steps || []), payload.message],
+            workflowExpanded: true,
+          })
+        } else if (eventName === 'error') {
+          const failureContent = buildWorkflowFailureDescription(payload, payload, payload?.message || '执行失败')
+          appendWorkflowStep(assistantMessageId, { stage: 'failed', ...payload }, 'failed')
+          updateChatMessage(assistantMessageId, {
+            content: failureContent,
+            streaming: false,
+            workflowExpanded: true,
+            workflowStatus: 'failed',
           })
         }
         void scrollMessages()
@@ -460,19 +728,24 @@ async function sendMessage(text) {
         streamTouched = true
         syncConversationSession(requestConversationId, payload?.sessionId)
         const current = messages.value.find((item) => item.id === assistantMessageId)
-        updateChatMessage(assistantMessageId, {
-          steps: [...(current?.steps || []), `已建立会话${payload?.agentName ? `，由 ${payload.agentName} 处理` : ''}${payload?.model ? ` · ${payload.model}` : ''}`],
+        appendWorkflowStep(assistantMessageId, {
+          stage: 'session_ready',
+          message: `会话已建立${payload?.agentName ? `，由 ${payload.agentName} 处理` : ''}${payload?.model ? `，模型 ${payload.model}` : ''}`,
         })
+        updateChatMessage(assistantMessageId, { workflowExpanded: current?.workflowExpanded || false })
       },
       onSearch(payload) {
         streamTouched = true
         const current = messages.value.find((item) => item.id === assistantMessageId)
         if (current?.streaming) {
+          appendWorkflowStep(assistantMessageId, {
+            stage: 'retrieval',
+            message: payload?.searchKeyword ? `检索关键词：${payload.searchKeyword}` : '正在检索相关资料',
+          })
           updateChatMessage(assistantMessageId, {
             content: payload?.searchKeyword
               ? `正在检索“${payload.searchKeyword}”…`
               : '正在检索相关资料…',
-            steps: [...(current.steps || []), payload?.searchKeyword ? `正在检索：${payload.searchKeyword}` : '正在检索相关资料'],
           })
         }
         void scrollMessages()
@@ -495,6 +768,10 @@ async function sendMessage(text) {
         syncConversationSession(requestConversationId, payload?.sessionId)
         const current = messages.value.find((item) => item.id === assistantMessageId)
         const finalContent = String(payload?.answer || current?.content || '').trim()
+        const finalWorkflow = traceWorkflowSteps(payload?.trace)
+        const workflowSteps = finalWorkflow.length
+          ? finalWorkflow
+          : [...(current?.workflowSteps || []).map((step) => ({ ...step, status: 'completed' })), normalizeWorkflowStep({ stage: 'completed', message: '所有处理步骤已完成' }, (current?.workflowSteps || []).length)]
         updateChatMessage(assistantMessageId, {
           content: finalContent || 'AI 已完成本次资源分析。',
           attachments: payload?.attachments || [],
@@ -502,13 +779,25 @@ async function sendMessage(text) {
           streaming: false,
           receivedDelta: false,
           answerType: payload?.answerType || 'text',
-          steps: [...(current?.steps || []), '回答完成'],
+          exportSessionId: payload?.sessionId || conversationSessionIds.value[requestConversationId] || requestConversationId || '',
+          exportMessageId: payload?.messageId || '',
+          workflowSteps,
+          workflowStatus: 'completed',
         })
         void scrollMessages()
       },
       onError(payload) {
+        const failureContent = buildWorkflowFailureDescription(payload, payload, payload?.message || '流式请求失败')
+        appendWorkflowStep(assistantMessageId, { stage: 'failed', ...payload }, 'failed')
+        updateChatMessage(assistantMessageId, {
+          content: failureContent,
+          streaming: false,
+          workflowExpanded: true,
+          workflowStatus: 'failed',
+        })
         const error = new Error(payload?.message || '流式请求失败')
         error.payload = payload
+        error.handled = true
         throw error
       },
     })
@@ -533,6 +822,7 @@ async function sendMessage(text) {
           : '已停止生成。',
         streaming: false,
         receivedDelta: false,
+        workflowStatus: 'stopped',
       })
     } else if (cause?.fallbackToNormalRequest && !streamTouched) {
       try {
@@ -543,17 +833,37 @@ async function sendMessage(text) {
           attachments: response?.attachments || [],
           resources: response?.resources || [],
           streaming: false,
+          workflowSteps: traceWorkflowSteps(response?.trace).length
+            ? traceWorkflowSteps(response.trace)
+            : (messages.value.find((item) => item.id === assistantMessageId)?.workflowSteps || []).map((step) => ({ ...step, status: 'completed' })),
+          workflowStatus: 'completed',
         })
       } catch (fallbackError) {
+        appendWorkflowStep(assistantMessageId, { stage: 'failed', message: fallbackError.message || 'AI 请求失败' }, 'failed')
         updateChatMessage(assistantMessageId, {
           content: fallbackError.message || 'AI 请求失败，请稍后重试。',
           streaming: false,
+          workflowStatus: 'failed',
         })
       }
     } else {
+      if (!cause?.handled) {
+        appendWorkflowStep(assistantMessageId, {
+          stage: 'failed',
+          message: cause.message || 'AI 请求失败',
+          failurePhase: cause?.payload?.failurePhase || '前端请求',
+          failureLocation: cause?.payload?.failureLocation || 'web_client',
+          ...cause?.payload,
+        }, 'failed')
+      }
+      const failureContent = cause?.handled
+        ? (messages.value.find((item) => item.id === assistantMessageId)?.content || cause.message || 'AI 请求失败，请稍后重试。')
+        : buildWorkflowFailureDescription(cause?.payload || {}, {}, cause.message || 'AI 请求失败，请稍后重试。')
       updateChatMessage(assistantMessageId, {
-        content: cause.message || 'AI 请求失败，请稍后重试。',
+        content: failureContent,
         streaming: false,
+        workflowExpanded: true,
+        workflowStatus: 'failed',
       })
     }
   } finally {
@@ -1062,9 +1372,9 @@ function handleUpload(event) {
 
       <section class="history-section">
         <div class="section-heading">
-          <span>最近记录</span>
-          <button type="button" title="新建对话" @click="createConversation(); selectModule('chat')">
-            <IconLine name="plus" :size="16" />
+          <span>对话</span>
+          <button type="button" title="新建对话" aria-label="新建对话" @click="createConversation(); selectModule('chat')">
+            <IconLine name="plus" :size="15" />
           </button>
         </div>
         <p v-if="historyError" class="history-error">{{ historyError }}</p>
@@ -1141,40 +1451,70 @@ function handleUpload(event) {
       <main class="main-content">
         <!-- 智能问答 -->
         <section v-if="activeModule === 'chat'" class="module-page chat-page page-enter">
-          <div ref="messageList" class="chat-scroll">
+          <div ref="messageList" class="chat-scroll" @scroll="syncTimelineProgress">
             <div v-if="isFreshChat" class="empty-chat-state">
-              <h1>你今天在想些什么？</h1>
+              <span class="empty-chat-logo"><IconLine name="logo" :size="28" /></span>
+              <h1>你想让校园 AI 帮你做什么？</h1>
             </div>
 
             <div v-else class="message-stream">
               <article
-                v-for="message in messages"
+                v-for="(message, messageIndex) in messages"
                 :key="message.id"
                 :class="['message-row', message.role]"
+                :data-message-index="messageIndex"
               >
                 <span v-if="message.role === 'assistant'" class="ai-avatar"><IconLine name="logo" :size="17" /></span>
                 <div class="message-wrap">
                   <div class="message-bubble">
-                    <div v-if="message.role === 'assistant' && message.steps?.length" class="thinking-steps">
-                      <div v-for="(step, stepIndex) in message.steps" :key="`${message.id}-step-${stepIndex}`" class="thinking-step">
-                        <i></i><span>{{ step }}</span>
+                    <div v-if="message.role === 'assistant' && message.workflowSteps?.length" class="workflow-panel">
+                      <button class="workflow-summary" type="button" :aria-expanded="message.workflowExpanded" @click="message.workflowExpanded = !message.workflowExpanded">
+                        <span :class="['workflow-state-dot', { running: message.streaming, failed: message.workflowStatus === 'failed' }]"></span>
+                        <span class="workflow-summary-copy">
+                          <strong>{{ message.streaming ? '正在执行' : message.workflowStatus === 'failed' ? '执行流程失败' : message.workflowStatus === 'stopped' ? '执行已停止' : '执行流程已完成' }}</strong>
+                          <small>{{ message.workflowSteps[message.workflowSteps.length - 1]?.title }} · 共 {{ message.workflowSteps.length }} 步</small>
+                        </span>
+                        <span class="workflow-toggle">{{ message.workflowExpanded ? '收起' : '展开详情' }} <IconLine name="chevron" :size="13" /></span>
+                      </button>
+                      <div v-if="message.workflowExpanded" class="workflow-details">
+                        <div v-for="(step, stepIndex) in message.workflowSteps" :key="step.id || `${message.id}-workflow-${stepIndex}`" :class="['workflow-step', step.status]">
+                          <span class="workflow-step-index">{{ stepIndex + 1 }}</span>
+                          <div class="workflow-step-copy">
+                            <strong>{{ step.title }}</strong>
+                            <p v-if="step.description">{{ step.description }}</p>
+                            <div v-if="step.meta?.length" class="workflow-step-meta"><span v-for="meta in step.meta" :key="meta">{{ meta }}</span></div>
+                          </div>
+                          <span class="workflow-step-status">{{ step.status === 'running' ? '进行中' : step.status === 'failed' ? '失败' : '已完成' }}</span>
+                        </div>
                       </div>
                     </div>
-                    <p>{{ message.content }}</p>
+                    <ChatMarkdown
+                      v-if="message.role === 'assistant' && displayAssistantContent(message)"
+                      :content="displayAssistantContent(message)"
+                      :streaming="Boolean(message.streaming)"
+                    />
+                    <p v-else-if="message.content">{{ message.content }}</p>
                     <div v-if="message.attachments?.length" class="message-attachments">
                       <template v-for="item in message.attachments" :key="item.id || item.url || item.name">
-                        <img
-                          v-if="isImageAttachment(item) && attachmentUrl(item)"
-                          class="message-image"
-                          :src="attachmentUrl(item)"
-                          :alt="attachmentName(item)"
-                          loading="lazy"
-                        />
-                        <span v-else class="message-file">
-                          <img v-if="fileIconAsset(item)" class="file-type-image" :src="fileIconAsset(item)" :alt="fileExtension(item)" />
-                          <i v-else :class="['file-type-icon', `file-type-icon--${fileIconClass(item)}`]">{{ fileExtension(item) }}</i>
-                          <span>{{ attachmentName(item) }}</span>
-                        </span>
+                        <div :class="['message-attachment-card', { 'is-image': isImageAttachment(item) }]">
+                          <img
+                            v-if="isImageAttachment(item) && attachmentUrl(item, message)"
+                            class="message-image"
+                            :src="attachmentUrl(item, message)"
+                            :alt="attachmentName(item)"
+                            loading="lazy"
+                            @click="openAttachment(item, message)"
+                          />
+                          <div v-else class="message-file">
+                            <img v-if="fileIconAsset(item)" class="file-type-image" :src="fileIconAsset(item)" :alt="fileExtension(item)" />
+                            <i v-else :class="['file-type-icon', `file-type-icon--${fileIconClass(item)}`]">{{ fileExtension(item) }}</i>
+                            <span :title="attachmentName(item)">{{ attachmentName(item) }}</span>
+                          </div>
+                          <div class="message-attachment-actions">
+                            <button type="button" @click="openAttachment(item, message)"><IconLine name="file" :size="14" />打开</button>
+                            <button type="button" @click="downloadAttachment(item, message)"><IconLine name="download" :size="14" />下载</button>
+                          </div>
+                        </div>
                       </template>
                     </div>
                     <pre v-if="message.code"><code>{{ message.code }}</code></pre>
@@ -1203,6 +1543,30 @@ function handleUpload(event) {
               </article>
             </div>
           </div>
+
+          <nav v-if="!isFreshChat && messages.length > 1" class="conversation-timeline" aria-label="对话时间轴" @pointerdown.prevent="beginTimelineDrag">
+            <button
+              v-for="(message, index) in messages"
+              :key="`timeline-${message.id}`"
+              class="timeline-mark"
+              type="button"
+              :style="{ top: `${messages.length === 1 ? 0 : index / (messages.length - 1) * 100}%` }"
+              :aria-label="`跳转到第 ${index + 1} 条消息`"
+              @pointerdown.stop
+              @click.stop="jumpToMessage(index)"
+              @mouseenter="timelineHoverIndex = index"
+              @mouseleave="timelineHoverIndex = -1"
+            ></button>
+            <span class="timeline-thumb" :class="{ dragging: timelineDragging }" :style="{ top: `${timelineProgress * 100}%` }"></span>
+            <aside
+              v-if="timelineHoverIndex >= 0"
+              class="timeline-preview"
+              :style="{ top: `${messages.length === 1 ? 0 : timelineHoverIndex / (messages.length - 1) * 100}%` }"
+            >
+              <small>{{ messages[timelineHoverIndex]?.role === 'user' ? '你' : '校园 AI' }}</small>
+              <strong>{{ messages[timelineHoverIndex]?.content?.slice(0, 34) || '附件消息' }}</strong>
+            </aside>
+          </nav>
 
           <div class="composer-zone">
             <div v-if="pendingResources.length" class="upload-queue">
@@ -1550,9 +1914,9 @@ function handleUpload(event) {
   inset: 60px auto 0 0;
   z-index: 30;
   display: flex;
-  width: 252px;
+  width: 286px;
   flex-direction: column;
-  padding: 22px 16px 106px;
+  padding: 20px 12px 14px;
   border-right: 1px solid var(--line);
   background: var(--surface);
   transition: width .24s ease, padding .24s ease;
@@ -1579,7 +1943,7 @@ function handleUpload(event) {
 .side-nav:not(.collapsed) .sidebar-toggle svg { transform: rotate(180deg); }
 .sidebar-toggle svg { transition: transform .24s ease; }
 
-.brand { display: flex; align-items: center; gap: 11px; padding: 0 8px 24px; }
+.brand { display: flex; align-items: center; gap: 10px; padding: 0 8px 22px; }
 .brand-mark {
   display: grid;
   width: 38px;
@@ -1619,24 +1983,40 @@ function handleUpload(event) {
 .module-nav button.active { color: var(--primary); background: var(--primary-soft); }
 .side-nav.collapsed .module-nav button { justify-content: center; padding: 0; }
 
-.history-section { min-height: 0; flex: 1; margin-top: 28px; }
-.section-heading { display: flex; align-items: center; justify-content: space-between; padding: 0 8px 9px; color: var(--subtle); font-size: 11px; font-weight: 700; }
+.history-section { display: flex; min-height: 0; flex: 1; flex-direction: column; margin-top: 4px; overflow: hidden; }
+.section-heading { display: flex; flex: none; align-items: center; justify-content: space-between; padding: 0 8px 8px; color: var(--subtle); font-size: 11px; font-weight: 700; }
 .section-heading button { display: grid; width: 26px; height: 26px; place-items: center; border-radius: 7px; background: transparent; }
 .section-heading button:hover { color: var(--primary); background: var(--primary-soft); }
-.history-list { display: grid; gap: 4px; }
+.history-list {
+  display: grid;
+  min-height: 0;
+  align-content: start;
+  flex: 1;
+  gap: 3px;
+  overflow-x: hidden;
+  overflow-y: scroll;
+  padding-right: 8px;
+  scrollbar-color: #b9bec5 transparent;
+  scrollbar-width: thin;
+}
+.history-list::-webkit-scrollbar { width: 7px; }
+.history-list::-webkit-scrollbar-track { background: transparent; }
+.history-list::-webkit-scrollbar-thumb { border: 2px solid transparent; border-radius: 999px; background: #b9bec5; background-clip: padding-box; }
+.history-list::-webkit-scrollbar-thumb:hover { background: #969da6; background-clip: padding-box; }
 .history-list button {
   display: flex;
   align-items: center;
   gap: 9px;
   min-width: 0;
-  min-height: 38px;
-  padding: 0 10px;
-  border-radius: 8px;
+  min-height: 36px;
+  padding: 0 9px;
+  border-radius: 7px;
   color: var(--muted);
   background: transparent;
   text-align: left;
 }
-.history-list button:hover, .history-list button.active { color: var(--primary); background: var(--surface-soft); }
+.history-list button:hover { color: var(--text); background: #f1f1f1; }
+.history-list button.active { color: var(--text); background: #e8e8e8; }
 .history-list button > span:nth-child(2) { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .history-delete {
   display: grid;
@@ -1659,7 +2039,8 @@ function handleUpload(event) {
   min-height: 42px;
   align-items: center;
   gap: 10px;
-  margin: 8px 0;
+  flex: none;
+  margin: 8px 0 2px;
   padding: 0 11px;
   border-radius: 9px;
   color: var(--muted);
@@ -1680,6 +2061,7 @@ function handleUpload(event) {
   border-top: 1px solid var(--line);
   background: transparent;
   text-align: left;
+  flex: none;
 }
 .sidebar-user > span:nth-child(2) { display: grid; gap: 2px; }
 .sidebar-user strong { font-size: 13px; }
@@ -1699,13 +2081,13 @@ function handleUpload(event) {
 }
 .avatar { width: 34px; height: 34px; }
 
-.app-area { min-height: calc(100vh - 60px); margin-left: 252px; transition: margin-left .24s ease; }
+.app-area { min-height: calc(100vh - 60px); margin-left: 286px; transition: margin-left .24s ease; }
 .app-area.sidebar-collapsed { margin-left: 76px; }
 .global-header {
   position: fixed;
-  inset: 60px 0 auto 252px;
+  inset: 60px 0 auto 286px;
   z-index: 20;
-  display: flex;
+  display: none;
   height: 68px;
   align-items: center;
   justify-content: center;
@@ -1766,14 +2148,76 @@ function handleUpload(event) {
 .user-popover button { display: flex; width: 100%; align-items: center; gap: 9px; padding: 9px; border-radius: 7px; background: transparent; text-align: left; font-size: 13px; }
 .user-popover button:hover { background: var(--primary-soft); }
 
-.main-content { min-height: calc(100vh - 60px); padding-top: 68px; }
-.module-page { min-height: calc(100vh - 128px); }
+.main-content { min-height: calc(100vh - 60px); padding-top: 0; }
+.module-page { min-height: calc(100vh - 60px); }
 .page-enter { animation: page-fade .28s ease both; }
 @keyframes page-fade { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: none; } }
 
-.chat-page { position: relative; height: calc(100vh - 128px); min-height: 600px; overflow: hidden; }
-.chat-scroll { height: 100%; overflow-y: auto; padding: 42px clamp(24px, 6vw, 88px) 230px; }
-.empty-chat-state { display: flex; min-height: 100%; align-items: center; justify-content: center; padding: 0 0 125px; }
+.chat-page { position: relative; height: calc(100vh - 60px); min-height: 600px; overflow: hidden; background: var(--surface); }
+.chat-scroll { height: 100%; overflow-y: auto; padding: 48px clamp(24px, 6vw, 88px) 220px; }
+.conversation-timeline {
+  position: absolute;
+  z-index: 8;
+  top: 82px;
+  bottom: 188px;
+  left: 18px;
+  width: 24px;
+  cursor: ns-resize;
+  touch-action: none;
+  user-select: none;
+}
+.conversation-timeline::before {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 7px;
+  width: 1px;
+  background: repeating-linear-gradient(to bottom, var(--line-strong) 0 3px, transparent 3px 10px);
+  content: '';
+}
+.timeline-mark {
+  position: absolute;
+  left: 4px;
+  width: 7px;
+  height: 1px;
+  padding: 0;
+  border: 0;
+  background: var(--subtle) !important;
+  transform: translateY(-50%);
+  transition: width .15s ease, background .15s ease;
+}
+.timeline-mark:hover { width: 14px; background: var(--text) !important; }
+.timeline-thumb {
+  position: absolute;
+  left: 0;
+  width: 16px;
+  height: 3px;
+  border-radius: 999px;
+  background: var(--text);
+  box-shadow: 0 0 0 4px var(--surface);
+  transform: translateY(-50%);
+  transition: height .15s ease;
+  pointer-events: none;
+}
+.timeline-thumb.dragging { height: 5px; }
+.timeline-preview {
+  position: absolute;
+  left: 30px;
+  display: grid;
+  width: 280px;
+  gap: 7px;
+  padding: 13px 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+  box-shadow: 0 10px 30px rgba(15, 23, 42, .12);
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+.timeline-preview small { color: var(--subtle); font-size: 11px; }
+.timeline-preview strong { overflow: hidden; color: var(--text); font-size: 13px; font-weight: 600; line-height: 1.55; }
+.empty-chat-state { display: flex; min-height: 100%; align-items: center; justify-content: center; flex-direction: column; gap: 24px; padding: 0 0 90px; }
+.empty-chat-logo { display: grid; width: 52px; height: 52px; place-items: center; border: 2px solid var(--line-strong); border-radius: 18px; color: var(--muted); }
 .empty-chat-state h1 { margin: 0; color: var(--text); font-size: clamp(24px, 2.4vw, 32px); font-weight: 500; letter-spacing: -.025em; }
 .welcome-block { width: min(860px, 100%); margin: 0 auto 38px; }
 .eyebrow { color: var(--accent); font-size: 11px; font-weight: 800; letter-spacing: .13em; }
@@ -1790,17 +2234,37 @@ function handleUpload(event) {
   transition: .18s ease;
 }
 .quick-prompts button:hover { border-color: var(--accent); color: var(--primary); background: var(--primary-soft); transform: scale(1.025); }
-.message-stream { width: min(860px, 100%); margin: 0 auto; }
+.message-stream { width: min(760px, 100%); margin: 0 auto; }
 .message-row { display: flex; align-items: flex-start; gap: 11px; margin: 26px 0; }
 .message-row.user { justify-content: flex-end; }
-.ai-avatar { display: grid; width: 32px; height: 32px; place-items: center; flex: none; border-radius: 9px; color: #fff; background: #1e3a5f; }
+.ai-avatar { display: grid; width: 32px; height: 32px; place-items: center; flex: none; border: 1px solid var(--line); border-radius: 10px; color: var(--text); background: var(--surface); }
 .message-wrap { max-width: min(720px, 82%); }
-.message-bubble { padding: 15px 17px; border: 1px solid var(--line); border-radius: 5px 16px 16px 16px; background: var(--surface); box-shadow: 0 4px 14px rgba(30, 58, 95, .045); line-height: 1.72; }
-.message-row.user .message-bubble { max-width: 620px; border: 0; border-radius: 16px 5px 16px 16px; color: #fff; background: #1e3a5f; }
-.thinking-steps { display: grid; gap: 5px; margin: 0 0 11px; padding-bottom: 10px; border-bottom: 1px solid var(--line); color: var(--muted); font-size: 12px; line-height: 1.5; }
-.thinking-step { display: flex; align-items: center; gap: 7px; }
-.thinking-step i { width: 6px; height: 6px; flex: 0 0 6px; border-radius: 50%; background: var(--accent); }
-.thinking-step:last-child i { box-shadow: 0 0 0 3px var(--primary-soft); }
+.message-bubble { padding: 4px 2px; border: 0; border-radius: 0; background: transparent; box-shadow: none; line-height: 1.72; }
+.message-row.user .message-bubble { max-width: 620px; padding: 11px 15px; border: 1px solid var(--line); border-radius: 18px; color: var(--text); background: #f1f1f1; }
+.workflow-panel { width: min(620px, 100%); margin-bottom: 10px; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: var(--surface-soft); }
+.workflow-summary { display: flex; width: 100%; align-items: center; gap: 9px; padding: 9px 11px; color: var(--text); background: transparent; text-align: left; }
+.workflow-state-dot { width: 8px; height: 8px; flex: none; border-radius: 50%; background: #3a8a62; box-shadow: 0 0 0 3px color-mix(in srgb, #3a8a62 14%, transparent); }
+.workflow-state-dot.running { background: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 14%, transparent); animation: workflow-pulse 1.4s ease-in-out infinite; }
+.workflow-state-dot.failed { background: #c44f4f; box-shadow: 0 0 0 3px color-mix(in srgb, #c44f4f 14%, transparent); }
+.workflow-summary-copy { display: flex; min-width: 0; flex: 1; flex-direction: column; }
+.workflow-summary-copy strong { font-size: 12px; }
+.workflow-summary-copy small { overflow: hidden; color: var(--muted); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.workflow-toggle { display: inline-flex; flex: none; align-items: center; gap: 2px; color: var(--primary); font-size: 10px; }
+.workflow-summary[aria-expanded='true'] .workflow-toggle svg { transform: rotate(180deg); }
+.workflow-details { padding: 3px 10px 10px 15px; border-top: 1px solid var(--line); background: var(--surface); }
+.workflow-step { position: relative; display: grid; grid-template-columns: 22px minmax(0, 1fr) auto; gap: 8px; padding: 10px 0; }
+.workflow-step:not(:last-child)::after { position: absolute; top: 31px; bottom: -3px; left: 10px; width: 1px; background: var(--line-strong); content: ''; }
+.workflow-step-index { display: grid; z-index: 1; width: 21px; height: 21px; place-items: center; border: 1px solid var(--line-strong); border-radius: 50%; color: var(--muted); background: var(--surface); font-size: 9px; }
+.workflow-step.running .workflow-step-index { border-color: var(--accent); color: var(--accent); }
+.workflow-step-copy { min-width: 0; }
+.workflow-step-copy strong { display: block; font-size: 11px; }
+.workflow-step-copy p { margin: 2px 0 0; color: var(--muted); font-size: 10px; line-height: 1.45; white-space: pre-line; }
+.workflow-step-meta { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 5px; }
+.workflow-step-meta span { padding: 2px 5px; border-radius: 4px; color: var(--muted); background: var(--surface-soft); font-size: 9px; }
+.workflow-step-status { align-self: start; color: #3a8a62; font-size: 9px; }
+.workflow-step.running .workflow-step-status { color: var(--accent); }
+.workflow-step.failed .workflow-step-index, .workflow-step.failed .workflow-step-status { border-color: #c44f4f; color: #c44f4f; }
+@keyframes workflow-pulse { 50% { opacity: .45; } }
 .message-bubble > p { margin: 0; }
 .message-bubble pre { overflow-x: auto; margin: 15px 0; padding: 15px; border-radius: 10px; color: #dce8f4; background: #15283e; font: 12px/1.65 Consolas, monospace; }
 .response-table { overflow-x: auto; margin-top: 15px; }
@@ -1821,10 +2285,10 @@ function handleUpload(event) {
 .composer-zone {
   position: absolute;
   inset: auto 0 0;
-  padding: 26px 28px 13px;
-  background: linear-gradient(0deg, var(--bg) 80%, color-mix(in srgb, var(--bg) 0%, transparent));
+  padding: 34px 28px 14px;
+  background: linear-gradient(0deg, var(--surface) 78%, color-mix(in srgb, var(--surface) 0%, transparent));
 }
-.composer-tools { display: flex; width: min(860px, 100%); gap: 8px; margin: 0 auto 8px; }
+.composer-tools { display: flex; width: min(740px, 100%); gap: 8px; margin: 0 auto 8px; }
 .composer-tools > button { display: flex; align-items: center; gap: 6px; min-height: 30px; padding: 0 9px; border-radius: 8px; color: var(--muted); background: var(--surface); font-size: 12px; }
 .composer-tools > button.active { color: var(--primary); background: var(--primary-soft); }
 .mini-switch { width: 24px; height: 14px; padding: 2px; border-radius: 99px; background: var(--line-strong); transition: .2s ease; }
@@ -1851,23 +2315,29 @@ function handleUpload(event) {
 .upload-item small { margin-top: 3px; color: var(--muted); font-size: 10px; }
 .upload-item > button { color: var(--primary); background: transparent; font-size: 11px; }
 .message-attachments { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 9px; }
+.message-attachment-card { display: flex; min-width: 250px; max-width: 430px; align-items: center; gap: 7px; padding: 5px 7px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+.message-attachment-card.is-image { display: block; max-width: 360px; padding: 0; overflow: hidden; }
 .message-image { display: block; width: min(346px, 100%); max-height: 300px; border-radius: 12px; object-fit: cover; cursor: zoom-in; }
-.message-file { display: inline-flex; align-items: center; gap: 5px; padding: 5px 8px; border: 1px solid var(--line); border-radius: 7px; font-size: 11px; }
+.message-file { display: inline-flex; min-width: 0; flex: 1; align-items: center; gap: 5px; padding: 2px; font-size: 11px; }
 .message-file > span { min-width: 0; max-width: 290px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .message-file .file-type-icon { width: 24px; height: 28px; font-size: 7px; }
 .message-file .file-type-image { width: 30px; height: 34px; }
+.message-attachment-actions { display: inline-flex; align-items: center; gap: 3px; }
+.message-attachment-card.is-image .message-attachment-actions { justify-content: flex-end; padding: 5px 7px; border-top: 1px solid var(--line); }
+.message-attachment-actions button { display: inline-flex; align-items: center; gap: 3px; padding: 4px 6px; border-radius: 5px; color: var(--primary); background: transparent; font-size: 10px; }
+.message-attachment-actions button:hover { background: var(--primary-soft); }
 .message-row.user .message-image { border: 1px solid rgba(255, 255, 255, .35); }
 .chat-composer {
   display: flex;
-  width: min(860px, 100%);
+  width: min(740px, 100%);
   align-items: flex-end;
   gap: 10px;
   margin: 0 auto;
   padding: 10px 10px 10px 14px;
   border: 1px solid var(--line-strong);
-  border-radius: 16px;
+  border-radius: 20px;
   background: var(--surface);
-  box-shadow: var(--shadow);
+  box-shadow: 0 8px 26px rgba(0, 0, 0, .08);
 }
 .chat-composer:focus-within { border-color: var(--accent); box-shadow: var(--shadow), 0 0 0 3px color-mix(in srgb, var(--accent) 10%, transparent); }
 .chat-input { min-height: 46px; max-height: 120px; flex: 1; resize: none; border: 0; outline: 0; color: var(--text); background: transparent; line-height: 1.55; }
@@ -1879,6 +2349,9 @@ function handleUpload(event) {
 .stop-button { background: #40546b; }
 .send-button:disabled { cursor: not-allowed; opacity: .4; }
 .composer-zone > small { display: block; margin-top: 7px; color: var(--subtle); font-size: 10px; text-align: center; }
+.campus-ai[data-theme="dark"] .history-list button:hover { background: #1d2937; }
+.campus-ai[data-theme="dark"] .history-list button.active { background: #263445; }
+.campus-ai[data-theme="dark"] .message-row.user .message-bubble { background: #263445; }
 
 .writing-page, .meeting-page { padding: 34px clamp(22px, 4vw, 56px) 44px; }
 .page-heading { display: flex; align-items: flex-end; justify-content: space-between; gap: 20px; }
@@ -2148,7 +2621,7 @@ function handleUpload(event) {
 @media (max-width: 760px) {
   .side-nav { display: none; }
   .app-area { margin-left: 0; }
-  .global-header { left: 0; height: 58px; justify-content: space-between; padding: 0 14px; }
+  .global-header { left: 0; display: flex; height: 58px; justify-content: space-between; padding: 0 14px; }
   .app-area.sidebar-collapsed { margin-left: 0; }
   .global-header.sidebar-collapsed { left: 0; }
   .mobile-brand { display: flex; align-items: center; gap: 8px; }
@@ -2175,6 +2648,7 @@ function handleUpload(event) {
   .mobile-tabs button.active { color: var(--primary); background: var(--primary-soft); }
   .chat-page { height: calc(100vh - 184px); min-height: 520px; }
   .chat-scroll { padding: 25px 14px 212px; }
+  .conversation-timeline { display: none; }
   .welcome-block { margin-bottom: 28px; }
   .welcome-block h1 { font-size: 26px; }
   .quick-prompts { gap: 7px; }
