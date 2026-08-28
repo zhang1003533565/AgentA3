@@ -2038,6 +2038,11 @@ def _decode_attachment_content(raw: Dict[str, Any]) -> bytes:
     value = str(raw.get("contentBase64") or "").strip()
     if not value:
         return b""
+    if value.lower().startswith("data:"):
+        marker_index = value.find(",")
+        if marker_index < 0 or ";base64" not in value[:marker_index].lower():
+            return b""
+        value = value[marker_index + 1:].strip()
     try:
         return base64.b64decode(value, validate=True)
     except (ValueError, base64.binascii.Error):

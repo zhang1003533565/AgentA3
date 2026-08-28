@@ -120,7 +120,7 @@ const workflowStageLabels = {
   input_attachment_skipped: '跳过不可读取附件', file_content_extraction: '文件内容提取工具',
   file_content_extraction_skipped: '跳过文件内容提取', file_content_extraction_failed: '文件内容提取失败',
   image_grouping: '图片分组', image_stitching_tool: '图片拼接工具',
-  image_stitching_skipped: '单张图片直接识别', multimodal_context_merged: '多模态内容汇总',
+  image_stitching_skipped: '单张图片直接识别', multimodal_context_merged: '多模态内容汇总', failed: '执行失败',
 }
 
 const workflowTriggerLabels = {
@@ -154,11 +154,11 @@ function traceWorkflowSteps(trace) {
   return (Array.isArray(trace) ? trace : []).map((entry, index) => normalizeWorkflowStep(entry, index))
 }
 
-function appendWorkflowStep(messageId, entry) {
+function appendWorkflowStep(messageId, entry, status = 'running') {
   const target = messages.value.find((item) => item.id === messageId)
   if (!target) return
   const current = (target.workflowSteps || []).map((step) => step.status === 'running' ? { ...step, status: 'completed' } : step)
-  target.workflowSteps = [...current, normalizeWorkflowStep(entry, current.length, 'running')]
+  target.workflowSteps = [...current, normalizeWorkflowStep(entry, current.length, status)]
 }
 
 const messages = ref([
@@ -199,6 +199,7 @@ function normalizeHistoryMessage(item, index) {
     attachments: Array.isArray(item?.attachments) ? item.attachments : [],
     workflowSteps: traceWorkflowSteps(trace),
     workflowExpanded: false,
+    workflowStatus: 'completed',
     streaming: false,
   }
 }
@@ -583,6 +584,7 @@ async function sendMessage(text) {
       message: attachments.length ? `已提交请求，包含 ${attachments.length} 个附件` : '已提交给智能助手，等待分析',
     }, 0, 'running')],
     workflowExpanded: false,
+    workflowStatus: 'running',
   })
   chatBusy.value = true
   void scrollMessages()
@@ -679,6 +681,7 @@ async function sendMessage(text) {
           receivedDelta: false,
           answerType: payload?.answerType || 'text',
           workflowSteps,
+          workflowStatus: 'completed',
         })
         void scrollMessages()
       },
@@ -709,6 +712,7 @@ async function sendMessage(text) {
           : '已停止生成。',
         streaming: false,
         receivedDelta: false,
+        workflowStatus: 'stopped',
       })
     } else if (cause?.fallbackToNormalRequest && !streamTouched) {
       try {
@@ -722,17 +726,22 @@ async function sendMessage(text) {
           workflowSteps: traceWorkflowSteps(response?.trace).length
             ? traceWorkflowSteps(response.trace)
             : (messages.value.find((item) => item.id === assistantMessageId)?.workflowSteps || []).map((step) => ({ ...step, status: 'completed' })),
+          workflowStatus: 'completed',
         })
       } catch (fallbackError) {
+        appendWorkflowStep(assistantMessageId, { stage: 'failed', message: fallbackError.message || 'AI 请求失败' }, 'failed')
         updateChatMessage(assistantMessageId, {
           content: fallbackError.message || 'AI 请求失败，请稍后重试。',
           streaming: false,
+          workflowStatus: 'failed',
         })
       }
     } else {
+      appendWorkflowStep(assistantMessageId, { stage: 'failed', message: cause.message || 'AI 请求失败' }, 'failed')
       updateChatMessage(assistantMessageId, {
         content: cause.message || 'AI 请求失败，请稍后重试。',
         streaming: false,
+        workflowStatus: 'failed',
       })
     }
   } finally {
@@ -1338,9 +1347,9 @@ function handleUpload(event) {
                   <div class="message-bubble">
                     <div v-if="message.role === 'assistant' && message.workflowSteps?.length" class="workflow-panel">
                       <button class="workflow-summary" type="button" :aria-expanded="message.workflowExpanded" @click="message.workflowExpanded = !message.workflowExpanded">
-                        <span :class="['workflow-state-dot', { running: message.streaming }]"></span>
+                        <span :class="['workflow-state-dot', { running: message.streaming, failed: message.workflowStatus === 'failed' }]"></span>
                         <span class="workflow-summary-copy">
-                          <strong>{{ message.streaming ? '正在执行' : '执行流程已完成' }}</strong>
+                          <strong>{{ message.streaming ? '正在执行' : message.workflowStatus === 'failed' ? '执行流程失败' : message.workflowStatus === 'stopped' ? '执行已停止' : '执行流程已完成' }}</strong>
                           <small>{{ message.workflowSteps[message.workflowSteps.length - 1]?.title }} · 共 {{ message.workflowSteps.length }} 步</small>
                         </span>
                         <span class="workflow-toggle">{{ message.workflowExpanded ? '收起' : '展开详情' }} <IconLine name="chevron" :size="13" /></span>
@@ -2109,6 +2118,7 @@ function handleUpload(event) {
 .workflow-summary { display: flex; width: 100%; align-items: center; gap: 9px; padding: 9px 11px; color: var(--text); background: transparent; text-align: left; }
 .workflow-state-dot { width: 8px; height: 8px; flex: none; border-radius: 50%; background: #3a8a62; box-shadow: 0 0 0 3px color-mix(in srgb, #3a8a62 14%, transparent); }
 .workflow-state-dot.running { background: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 14%, transparent); animation: workflow-pulse 1.4s ease-in-out infinite; }
+.workflow-state-dot.failed { background: #c44f4f; box-shadow: 0 0 0 3px color-mix(in srgb, #c44f4f 14%, transparent); }
 .workflow-summary-copy { display: flex; min-width: 0; flex: 1; flex-direction: column; }
 .workflow-summary-copy strong { font-size: 12px; }
 .workflow-summary-copy small { overflow: hidden; color: var(--muted); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
@@ -2126,6 +2136,7 @@ function handleUpload(event) {
 .workflow-step-meta span { padding: 2px 5px; border-radius: 4px; color: var(--muted); background: var(--surface-soft); font-size: 9px; }
 .workflow-step-status { align-self: start; color: #3a8a62; font-size: 9px; }
 .workflow-step.running .workflow-step-status { color: var(--accent); }
+.workflow-step.failed .workflow-step-index, .workflow-step.failed .workflow-step-status { border-color: #c44f4f; color: #c44f4f; }
 @keyframes workflow-pulse { 50% { opacity: .45; } }
 .message-bubble > p { margin: 0; }
 .message-bubble pre { overflow-x: auto; margin: 15px 0; padding: 15px; border-radius: 10px; color: #dce8f4; background: #15283e; font: 12px/1.65 Consolas, monospace; }

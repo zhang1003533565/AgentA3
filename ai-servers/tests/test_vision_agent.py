@@ -312,7 +312,7 @@ class VisionAgentTest(unittest.TestCase):
             attachments=[{
                 "name": f"{index}.png",
                 "mimeType": "image/png",
-                "contentBase64": encoded,
+                "contentBase64": f"data:image/png;base64,{encoded}",
             } for index in range(10)],
             metadata={},
         )

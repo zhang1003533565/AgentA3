@@ -317,6 +317,7 @@ function AgentSettings() {
   const [retrievalGenerating, setRetrievalGenerating] = useState('')
   const [activeTab, setActiveTab] = useState('overview')
   const [leaderObjectType, setLeaderObjectType] = useState('all')
+  const [toolTriggerType, setToolTriggerType] = useState('all')
   const [leaderToolFilter, setLeaderToolFilter] = useState('all')
   const [selectedToolKeys, setSelectedToolKeys] = useState([])
   const [runtimeAgentFilter, setRuntimeAgentFilter] = useState('all')
@@ -1388,6 +1389,10 @@ function AgentSettings() {
   const contentCategoryTools = allConfiguredTools.filter((item) => item.category === 'content_export')
   const fileContentTools = allConfiguredTools.filter((item) => item.category === 'file_content_extraction')
   const structuredTools = allConfiguredTools.filter((item) => item.category === 'structured_query')
+  const systemTriggeredTools = allConfiguredTools.filter((item) => item.triggerType === 'system')
+  const leaderTriggeredTools = allConfiguredTools.filter((item) => item.triggerType === 'leader')
+  const ruleDirectTools = allConfiguredTools.filter((item) => item.triggerType === 'rule_direct')
+  const workflowDependencyTools = allConfiguredTools.filter((item) => item.triggerType === 'workflow_dependency')
   const mappedQuestionAgentCount = questionAgentRows.filter((item) => item.agentName && item.exists).length
   const validQuestionAgentCount = questionAgentRows.filter((item) => (
     item.agentName && item.exists && item.enabled !== false && item.boundModel
@@ -1432,14 +1437,17 @@ function AgentSettings() {
   ].filter(Boolean)
 
   const filteredLeaderTools = useMemo(() => {
+    const triggerFiltered = toolTriggerType === 'all'
+      ? leaderToolSource
+      : leaderToolSource.filter((item) => item.triggerType === toolTriggerType)
     if (leaderToolFilter === 'enabled') {
-      return leaderToolSource.filter((item) => item.enabled !== false)
+      return triggerFiltered.filter((item) => item.enabled !== false)
     }
     if (leaderToolFilter === 'disabled') {
-      return leaderToolSource.filter((item) => item.enabled === false)
+      return triggerFiltered.filter((item) => item.enabled === false)
     }
-    return leaderToolSource
-  }, [leaderToolFilter, leaderToolSource])
+    return triggerFiltered
+  }, [leaderToolFilter, leaderToolSource, toolTriggerType])
 
   const filteredConfiguredAgents = useMemo(() => {
     if (runtimeAgentFilter === 'enabled') {
@@ -1548,6 +1556,22 @@ function AgentSettings() {
                       ]}
                       onChange={(value) => {
                         setLeaderObjectType(value)
+                        setToolTriggerType('all')
+                        setLeaderToolFilter('all')
+                      }}
+                    />
+                    <Segmented
+                      className="agent-settings-segmented"
+                      value={toolTriggerType}
+                      options={[
+                        { label: `全部调度 ${allConfiguredTools.length}`, value: 'all' },
+                        { label: `系统主动触发 ${systemTriggeredTools.length}`, value: 'system' },
+                        { label: `Leader 调用 ${leaderTriggeredTools.length}`, value: 'leader' },
+                        { label: `规则直调 ${ruleDirectTools.length}`, value: 'rule_direct' },
+                        { label: `工作流依赖 ${workflowDependencyTools.length}`, value: 'workflow_dependency' },
+                      ]}
+                      onChange={(value) => {
+                        setToolTriggerType(value)
                         setLeaderToolFilter('all')
                       }}
                     />
