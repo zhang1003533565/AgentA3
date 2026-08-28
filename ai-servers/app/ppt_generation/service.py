@@ -9,12 +9,14 @@ import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Mapping, Optional
+from typing import Any, Callable, Dict, List, Mapping, Optional, Tuple
 
 from fastapi import HTTPException
 
 from app.model_providers.factory import get_chat_model_provider
 from app.model_providers.runtime_config import (
+    LlmRuntimeConfig,
+    get_active_llm_config,
     reset_active_llm_config,
     reset_active_max_output_tokens,
     reset_active_llm_timeout,
@@ -133,6 +135,31 @@ _SERIAL_CONTENT_PROVIDER_ALIASES = {
     "deepseek", "openai_compatible", "openai-compatible", "opencode",
 }
 
+# 这是运行时免费模型链的安全副本，仅用于校验从大纲返回的模型选择元数据。
+# 不接受前端任意写入的模型名，避免编辑/复用历史大纲时改变服务端模型路由。
+_PPT_MODEL_SELECTION_ALLOWLIST = frozenset({
+    "deepseek-v4-flash-0731",
+    "glm-5.2",
+    "kimi-k2.7-code",
+    "deepseek-v4-pro-0813",
+    "qwen3.5-ocr",
+    "qwen3.7-plus-2026-05-26",
+    "qwen3.8-2.4t-a95b",
+    "qwen3.8-max",
+    "kimi-k3",
+})
+
+
+def _outline_model_selection(config: Any) -> Dict[str, str]:
+    """Return non-sensitive model metadata that can travel with an outline."""
+    if config is None:
+        return {}
+    provider = str(getattr(config, "provider", "") or "").strip()
+    model = str(getattr(config, "model", "") or "").strip()
+    if not model:
+        return {}
+    return {"provider": provider, "model": model}
+
 
 def _content_worker_count(llm_config: Any, batch_count: int) -> int:
     """Choose bounded concurrency without reintroducing known provider disconnects."""
@@ -154,6 +181,10 @@ class PptGenerationService:
     def __init__(self) -> None:
         self._tasks: Dict[str, Dict[str, Any]] = {}
         self._lock = threading.RLock()
+        # Outline and slide generation are separate HTTP requests. Keep the
+        # actual successful model in memory so the second request can reuse it
+        # without exposing or asking the client to resend another API key.
+        self._outline_llm_configs: Dict[str, LlmRuntimeConfig] = {}
         self._task_store = PptTaskStore()
         self._deadline_timers: Dict[str, threading.Timer] = {}
         self._source_files = PptSourceFileStore()
@@ -168,6 +199,54 @@ class PptGenerationService:
         self._layout_models: Dict[str, SlideLayoutModel] = {}
         self._recover_interrupted_tasks()
         self._start_template_preview_warmup()
+
+    def _remember_outline_llm_config(self, outline_id: str, config: Any) -> None:
+        """Remember a successful model for the next slide-generation request."""
+        if not outline_id or not isinstance(config, LlmRuntimeConfig) or not config.model:
+            return
+        with self._lock:
+            self._outline_llm_configs[outline_id] = config
+            # This is a short-lived routing cache, not a task history store.
+            # Bound it so repeated outline regeneration cannot retain keys
+            # indefinitely in the process heap.
+            while len(self._outline_llm_configs) > 256:
+                self._outline_llm_configs.pop(next(iter(self._outline_llm_configs)))
+
+    def _llm_config_for_outline(self, outline: Mapping[str, Any], requested: Any) -> Any:
+        """Use the model that actually produced the outline when available.
+
+        The in-memory entry carries the complete runtime config, including the
+        correct key for a cross-provider fallback. The outline metadata is a
+        safe restart/history fallback and can only change the model while
+        keeping the current request's provider, endpoint and key.
+        """
+        outline_id = str(outline.get("outlineId") or "").strip()
+        if outline_id:
+            with self._lock:
+                remembered = self._outline_llm_configs.get(outline_id)
+            if remembered is not None:
+                return remembered
+
+        selection = outline.get("_llmSelection")
+        if not isinstance(selection, Mapping) or requested is None:
+            return requested
+        selected_model = str(selection.get("model") or "").strip()
+        if not selected_model:
+            return requested
+        requested_model = str(getattr(requested, "model", "") or "").strip()
+        if selected_model.lower() != requested_model.lower() and selected_model.lower() not in _PPT_MODEL_SELECTION_ALLOWLIST:
+            return requested
+        selected_provider = str(selection.get("provider") or "").strip().lower()
+        requested_provider = str(getattr(requested, "provider", "") or "").strip().lower()
+        if selected_provider and requested_provider and selected_provider != requested_provider:
+            # A cross-provider key cannot be inferred from the current request.
+            return requested
+        return LlmRuntimeConfig(
+            provider=str(getattr(requested, "provider", "") or ""),
+            base_url=str(getattr(requested, "base_url", "") or ""),
+            api_key=str(getattr(requested, "api_key", "") or ""),
+            model=selected_model,
+        )
 
     def _recover_interrupted_tasks(self) -> None:
         """服务重启后，不能让持久化的排队任务伪装成仍在运行。"""
@@ -925,10 +1004,32 @@ class PptGenerationService:
                 "storyline": "叙事阶段由主题类型决定；只覆盖与主题直接相关的背景、问题、事实、选择、方法、应用、总结或下一步，不强行补齐不适用的阶段。",
                 "page_roles": "每页只承担一个核心结论，明确与前后页的关系；封面和目录不得吞掉正文内容。",
             },
+            "output_contract": {
+                "page_count": (
+                    f"必须恰好输出 {min_pages} 页"
+                    if min_pages == max_pages
+                    else f"必须输出 {min_pages} 至 {max_pages} 页"
+                ),
+                "required_page_fields": list(_OUTLINE_CONTRACT_FIELDS),
+                "minimum_core_points": "封面/目录至少1条，其余每页至少3条；每条单独占一行",
+                "minimum_page_nodes": "封面/目录至少1个，其余每页至少2个；每个节点都要有标题和具体说明",
+                "first_page": "页标题必须与演示文稿标题完全一致",
+                "last_page": "必须是总结页或行动页，不能用谢谢、待补充或空泛结语",
+                "forbidden": "不能省略页面、合并页面、返回局部结果、使用默认占位语句",
+            },
             # 只保留主题路由这一项语义增强；不把模板字段、布局或生产指令
             # 继续塞进大纲提示词，避免主题规划与模板生成互相约束。
             "topic_interpretation": _outline_topic_guidance(topic, audience=str(request.get("audience") or "通用受众"), source_mode=source_mode),
         }
+        if source_mode != "topic_only":
+            source_headings = _source_chapter_titles(source)
+            prompt_payload["material_structure"] = {
+                "major_sections": source_headings[:24],
+                "coverage_rule": (
+                    "在请求页数内覆盖这些主要章节；页数不足时可以在同一页合并相邻章节，"
+                    "但不得只保留资料开头，也不得为每个章节机械生成空壳页。"
+                ),
+            }
         report_progress(
             "planning",
             22,
@@ -944,12 +1045,12 @@ class PptGenerationService:
         token = set_active_llm_config(llm_config)
         model_name = str(getattr(llm_config, "model", "") or "")
         recovery_reason = ""
+        selected_llm_config: Optional[LlmRuntimeConfig] = None
         try:
             markdown = ""
             items: List[Dict[str, Any]] = []
             min_acceptable = min_pages
             attempt = 0
-            topic_page_completion = False
             while True:
                 report_progress(
                     "model_generation",
@@ -966,7 +1067,28 @@ class PptGenerationService:
                         ),
                         max_retries=PPT_OUTLINE_LLM_MAX_RETRIES,
                     )
+                    active_config = get_active_llm_config()
+                    if isinstance(active_config, LlmRuntimeConfig) and active_config.model:
+                        selected_llm_config = active_config
                 except HTTPException as exc:
+                    if _is_outline_format_error(exc):
+                        if attempt >= PPT_OUTLINE_MAX_RETRIES:
+                            raise HTTPException(
+                                status_code=502,
+                                detail=f"PPT 大纲模型连续返回不完整格式：{_safe_error_message(exc)}",
+                            ) from exc
+                        attempt += 1
+                        prompt_payload["correction"] = (
+                            "上一轮输出格式不完整。请只输出一份完整大纲，逐页补齐大纲层级、页面节点和所有必填字段；"
+                            f"本次必须完整输出 {min_acceptable} 页，不能用占位语句、不能省略页面、不能只返回修复说明。"
+                        )
+                        logger.warning(
+                            "PPT outline format invalid; retrying complete outline attempt=%s/%s error=%s",
+                            attempt,
+                            PPT_OUTLINE_MAX_RETRIES,
+                            _safe_error_message(exc),
+                        )
+                        continue
                     if not _is_recoverable_outline_error(exc):
                         raise
                     recovery_reason = _safe_error_message(exc)
@@ -997,110 +1119,71 @@ class PptGenerationService:
                     markdown = ""
                     items = []
                     break
-                items = _normalize_outline_topic_items(_outline_items(markdown), topic)
+                raw_items = _outline_items(markdown)
+                items = _normalize_outline_topic_items(raw_items, topic)
                 report_progress(
                     "parsing",
                     48 + min(attempt * 24, 48),
                     "模型已返回，正在解析大纲结构",
                     "正在整理页面标题、要点和层级信息",
                 )
-                if _is_generic_topic_scaffold(items, topic, source_mode):
-                    recovery_reason = "模型返回了与主题无关的通用大纲骨架，已按主题语义重排"
-                    logger.warning(
-                        "PPT outline returned generic scaffold for topic=%s; replacing with semantic scaffold",
-                        topic,
-                    )
-                    items = _topic_outline_items(
-                        topic,
-                        min_pages,
-                        max_pages,
-                        audience=str(request.get("audience") or "通用受众"),
-                        tone=str(request.get("tone") or "简洁清晰"),
-                        seed_items=items,
-                    )
-                    markdown = _outline_markdown_from_items(items, topic)
-                items, coverage_repaired = _repair_material_outline_coverage(
+                contract_deficits = _outline_contract_deficits(
+                    markdown,
+                    items,
+                    min_pages,
+                    max_pages,
+                    topic,
+                    source_mode,
+                )
+                # 资料章节覆盖也必须由模型在纠正请求中补齐；不能先在本地
+                # 改写页面，再把改写后的结果当作“AI 已生成完整大纲”。
+                _coverage_candidate, coverage_repaired = _repair_material_outline_coverage(
                     items, source, topic, max_pages
                 )
-                if coverage_repaired:
-                    markdown = _outline_markdown_from_items(items, topic)
-                depth_deficits = (
-                    _outline_depth_deficits(items)
-                    if source_mode != "outline_grounded"
-                    else []
-                )
+                if coverage_repaired and source_mode == "outline_grounded":
+                    contract_deficits.append("模型未覆盖资料中的全部主要章节")
                 report_progress(
                     "quality_check",
                     56 + min(attempt * 20, 40),
                     "正在检查大纲质量",
-                    f"正在检查页数、内容覆盖和结构完整性（当前 {len(items)} 页）",
+                    f"正在检查页数、字段、内容密度和主题一致性（当前 {len(items)} 页）",
                 )
-                # 主题模式只要已经返回至少一页可解析内容，就不再因为页数
-                # 短缺而重新请求模型。后面用主题语义骨架补齐缺页，避免一次
-                # 可用的 1/5 或 3/5 页结果被第二次不稳定请求拖入连接错误和兜底链。
-                # 真正的空响应会在模型调用异常分支中直接进入恢复链。
-                if topic_only and items and len(items) < min_acceptable:
-                    topic_page_completion = True
-                    logger.info(
-                        "PPT outline accepted usable topic outline pages=%d/%d; completing missing pages locally",
-                        len(items),
-                        min_acceptable,
-                    )
+                if not contract_deficits:
                     break
-                # 其他模式仍保留页数质量重试；内容稀疏改为后面的定向页面修复，
-                # 避免一页缺两个要点时再次等待整份大纲。
-                if len(items) >= min_acceptable or attempt >= PPT_OUTLINE_MAX_RETRIES:
+                if attempt >= PPT_OUTLINE_MAX_RETRIES:
                     break
                 attempt += 1
                 report_progress(
                     "model_retry",
                     60 + min((attempt - 1) * 30, 30),
                     f"大纲页数不足，正在进行第 {attempt + 1} 次补充生成",
-                    f"当前已整理 {len(items)} 页，目标至少 {min_acceptable} 页",
+                    "；".join(contract_deficits[:8]),
                 )
                 logger.warning(
-                    "PPT outline 质量不足（页数=%d/%d，薄弱页面=%s），带纠正提示重试（第 %d/%d 次）",
+                    "PPT outline contract rejected pages=%d/%d deficits=%s，带纠正提示重试（第 %d/%d 次）",
                     len(items),
                     min_acceptable,
-                    ",".join(depth_deficits[:6]) or "无",
+                    "；".join(contract_deficits[:8]),
                     attempt,
                     PPT_OUTLINE_MAX_RETRIES,
                 )
-                corrections = []
-                if len(items) < min_acceptable:
-                    corrections.append(
-                        f"上次输出只有 {len(items)} 页，少于下限 {min_acceptable} 页；请展开到 {min_acceptable}-{max_pages} 页。"
-                    )
-                prompt_payload["correction"] = "".join(corrections) + (
-                    "逐页使用 ### 第N页 编号，不得合并页面，不得只输出章节标题或一句概括。"
+                prompt_payload["correction"] = (
+                    "上一轮大纲未通过硬契约，请修正以下问题："
+                    + "；".join(contract_deficits[:12])
+                    + f"。请重新输出完整大纲，必须恰好输出 {min_acceptable} 页（若上限相同），"
+                    "不要只输出修复说明，不要合并页面，也不要返回半成品。"
+                    "先在内部逐一规划第1页到第N页，再严格按顺序逐页使用 ### 第N页输出；"
+                    "每页必须包含大纲层级、页面节点、展示建议、素材建议和其余全部字段。"
+                    "除封面/目录外，每页核心内容必须使用至少3行独立的具体要点，页面节点必须使用至少2行"
+                    "‘节点标题｜面向观众的具体说明’，不得把多条内容合并在一行。"
+                    "第一页面标题必须等于演示文稿标题，最后一页必须是总结或行动页，严禁默认占位语句。"
                 )
-            # 重试后仍不足两条：先把单页的要点拆成逐页；主题模式再用通用结构补齐，
-            # 避免把“只有一个主题”误判成模型不可恢复。该结构只补充内容组织方式，
-            # 不添加具体事实。
-            if len(items) < 2:
-                items = _expand_single_page_outline(items, topic)
-                if len(items) >= 2:
-                    markdown = _outline_markdown_from_items(items, topic)
-            if topic_only and len(items) < min_acceptable:
-                if topic_page_completion and not recovery_reason:
-                    logger.info(
-                        "PPT outline topic completion pages=%d/%d uses semantic scaffold without fallback",
-                        len(items),
-                        min_acceptable,
+            if recovery_reason:
+                if topic_only:
+                    raise HTTPException(
+                        status_code=502,
+                        detail=f"PPT 大纲模型不可用，主题模式拒绝生成未经模型确认的本地大纲：{recovery_reason}",
                     )
-                else:
-                    recovery_reason = recovery_reason or f"主题模式模型仅返回 {len(items)} 页，已按主题扩展为可编辑结构"
-                items = _topic_outline_items(
-                    topic,
-                    min_acceptable,
-                    max_pages,
-                    audience=str(request.get("audience") or "通用受众"),
-                    tone=str(request.get("tone") or "简洁清晰"),
-                    seed_items=items,
-                )
-                markdown = _outline_markdown_from_items(items, topic)
-            if len(items) < 2:
-                recovery_reason = recovery_reason or f"模型仅返回 {len(items)} 页，无法形成可编辑大纲"
                 items = _source_outline_items(source, topic, max_pages)
                 if len(items) < 2:
                     raise HTTPException(
@@ -1108,24 +1191,20 @@ class PptGenerationService:
                         detail=f"PPT 大纲无法从模型或原始资料中恢复：{recovery_reason}",
                     )
                 markdown = _outline_markdown_from_items(items, topic)
-            if not topic_only:
-                items, coverage_repaired = _repair_material_outline_coverage(
-                    items, source, topic, max_pages
-                )
-                if coverage_repaired:
-                    markdown = _outline_markdown_from_items(items, topic)
-            if source_mode != "outline_grounded" and not (
-                topic_only and topic_page_completion
-            ):
-                repaired_items, repaired = _repair_outline_sparse_pages(
+            else:
+                final_deficits = _outline_contract_deficits(
+                    markdown,
                     items,
-                    prompt_payload,
+                    min_pages,
+                    max_pages,
                     topic,
-                    evidence,
+                    source_mode,
                 )
-                if repaired:
-                    items = repaired_items
-                    markdown = _outline_markdown_from_items(items, topic)
+                if final_deficits:
+                    raise HTTPException(
+                        status_code=502,
+                        detail="PPT 大纲连续生成后仍未通过完整性校验：" + "；".join(final_deficits[:12]),
+                    )
             report_progress(
                 "finalizing",
                 96,
@@ -1137,12 +1216,16 @@ class PptGenerationService:
             reset_active_reasoning_effort(effort_token)
             reset_active_llm_timeout(timeout_token)
             reset_active_max_output_tokens(output_token)
+        outline_id = f"outline_{uuid.uuid4().hex}"
         result = {
-            "outlineId": f"outline_{uuid.uuid4().hex}",
+            "outlineId": outline_id,
             "title": topic,
             "items": items,
             "outlineMarkdown": markdown,
         }
+        if selected_llm_config is not None:
+            self._remember_outline_llm_config(outline_id, selected_llm_config)
+            result["_llmSelection"] = _outline_model_selection(selected_llm_config)
         source_trace = build_source_trace(
             str(request.get("sourceName") or topic),
             source,
@@ -1155,12 +1238,8 @@ class PptGenerationService:
         result["sourceTrace"] = source_trace
         result["contentQuality"] = {"outline": outline_quality}
         if recovery_reason:
-            if topic_only:
-                result["generationMode"] = "topic_recovery"
-                result["warnings"] = ["模型未按目标页数展开，已依据主题补齐可编辑大纲结构；未添加具体未提供事实。"]
-            else:
-                result["generationMode"] = "source_recovery"
-                result["warnings"] = ["模型服务暂时不可用，已依据上传资料生成可编辑大纲；内容未补造事实。"]
+            result["generationMode"] = "source_recovery"
+            result["warnings"] = ["模型服务暂时不可用，已依据上传资料生成可编辑大纲；内容未补造事实。"]
         else:
             result["generationMode"] = "ai"
         result.setdefault("warnings", []).extend(
@@ -1185,6 +1264,10 @@ class PptGenerationService:
             items = _outline_items(markdown)
         if not items:
             raise HTTPException(status_code=422, detail="outline.items 不能为空")
+        # The outline and slide pages are separate requests. Reuse the model
+        # that actually produced the outline instead of restarting from the
+        # configured primary model for structure/content generation.
+        llm_config = self._llm_config_for_outline(outline, llm_config)
         settings = request.get("settings") if isinstance(request.get("settings"), Mapping) else {}
         # 受众/语气参数化：注入 settings，随内容提示词传给模型
         content_settings = dict(settings)
@@ -1561,6 +1644,7 @@ class PptGenerationService:
         items = outline.get("items")
         if not isinstance(items, list) or len(items) < 2:
             raise HTTPException(status_code=422, detail="outline.items 至少需要两页")
+        llm_config = self._llm_config_for_outline(outline, llm_config)
         task_id = f"ppt_task_{uuid.uuid4().hex}"
         now = int(time.time() * 1000)
         task = {
@@ -1804,6 +1888,13 @@ class PptGenerationService:
             list(range(i, min(i + batch_size, total)))
             for i in range(0, total, batch_size)
         ]
+        # Thread-local ContextVars cannot carry the successful fallback model
+        # from one content worker to another. Share only the selected runtime
+        # config explicitly so later batches do not restart at a known-empty
+        # primary model. The lock only protects the tiny config swap, never the
+        # network call itself.
+        content_model_lock = threading.Lock()
+        content_model = [llm_config]
 
         def _generate_batch(indices: List[int]) -> List[Dict[str, Any]]:
             if self._task_is_stopped(task_id):
@@ -1942,8 +2033,11 @@ class PptGenerationService:
                 started_at = time.perf_counter()
                 timeout_token = set_active_llm_timeout(PPT_PAGE_LLM_TIMEOUT_SECONDS)
                 output_token = set_active_max_output_tokens(PPT_CONTENT_MAX_OUTPUT_TOKENS)
-                content_token = set_active_llm_config(llm_config)
+                with content_model_lock:
+                    request_llm_config = content_model[0]
+                content_token = set_active_llm_config(request_llm_config)
                 effort_token = set_active_reasoning_effort(PPT_CONTENT_REASONING_EFFORT)
+                used_llm_config = request_llm_config
                 try:
                     # 资料已通过 payload.sourceMaterial 全量进入 user_input；
                     # 不再放 evidence（会被截断到 1200 字符，纯浪费 token）
@@ -1952,12 +2046,17 @@ class PptGenerationService:
                         json.dumps(request_payload, ensure_ascii=False),
                         [],
                     )
+                    active_config = get_active_llm_config()
+                    if str(answer or "").strip() and isinstance(active_config, LlmRuntimeConfig):
+                        used_llm_config = active_config
+                        with content_model_lock:
+                            content_model[0] = active_config
                     logger.info(
                         "PPT content LLM completed task=%s slides=%s-%s model=%s elapsed_ms=%s output_chars=%s",
                         task_id or "",
                         first,
                         last,
-                        str(getattr(llm_config, "model", "") or ""),
+                        str(getattr(used_llm_config, "model", "") or ""),
                         int((time.perf_counter() - started_at) * 1000),
                         len(str(answer or "")),
                     )
@@ -1968,7 +2067,7 @@ class PptGenerationService:
                         task_id or "",
                         first,
                         last,
-                        str(getattr(llm_config, "model", "") or ""),
+                        str(getattr(used_llm_config, "model", "") or ""),
                         int((time.perf_counter() - started_at) * 1000),
                     )
                     reset_active_reasoning_effort(effort_token)
@@ -2658,8 +2757,13 @@ def _outline_items(markdown: str) -> List[Dict[str, Any]]:
             if field and field.group(1).strip() in known_fields:
                 active = field.group(1).strip()
                 fields[active] = field.group(2).strip()
-            elif active in {"核心内容", "页面节点"} and line.startswith("-"):
-                fields[active] = f"{fields.get(active, '')}\n{line.lstrip('- ').strip()}".strip()
+            elif active in {"核心内容", "页面节点"} and line:
+                # 模型有时会把字段内容写成缩进文本而不是 Markdown 列表。
+                # 不能让质量检查读得到、而编辑数据解析不到；两条路径必须
+                # 消费同一份内容。保留普通文本行，同时继续兼容带短横线的写法。
+                value = line.lstrip("- ").strip()
+                if value:
+                    fields[active] = f"{fields.get(active, '')}\n{value}".strip()
         points = [line.strip(" -") for line in fields.get("核心内容", "").splitlines() if line.strip(" -")]
         nodes = _parse_outline_nodes(fields.get("页面节点", ""), points)
         title = fields.get("页标题") or f"第 {page_no} 页"
@@ -2800,6 +2904,144 @@ def _outline_depth_deficits(items: List[Dict[str, Any]]) -> List[str]:
     ]
 
 
+_OUTLINE_CONTRACT_FIELDS = (
+    "页标题", "大纲层级", "页面类型", "本页目标", "核心内容", "页面节点", "展示建议", "素材建议",
+)
+_OUTLINE_LEVEL_LABELS = {"章节", "小节", "知识点"}
+_OUTLINE_PAGE_TYPES = {"封面页", "目录页", "内容页", "对比页", "流程页", "案例页", "数据页", "总结页", "过渡页"}
+_OUTLINE_PLACEHOLDER_MARKERS = (
+    "概括本页希望传达的关键信息",
+    "提炼本页的核心要点并控制信息密度",
+    "第 1 页内容",
+    "第1页内容",
+    "按内容需要使用模板组件",
+    "按内容需要使用图示、图表或简洁配图",
+    "围绕该信息单元展开具体说明",
+    "说明该信息单元对本页结论的作用",
+)
+
+
+def _outline_contract_page_blocks(markdown: str) -> List[Tuple[str, str]]:
+    text = str(markdown or "")
+    standard = list(_PAGE_HEADING.finditer(text))
+    if standard:
+        matches = [(match.group(1), match.start(), match.end()) for match in standard]
+    else:
+        matches = [
+            (str(index), match.start(), match.end())
+            for index, match in enumerate(
+                re.finditer(r"^###\s+(?!大纲信息\s*$)(.+)$", text, flags=re.MULTILINE),
+                start=1,
+            )
+        ]
+    return [
+        (page_no, text[start: (matches[index + 1][1] if index + 1 < len(matches) else len(text))].strip())
+        for index, (page_no, start, _end) in enumerate(matches)
+    ]
+
+
+def _outline_contract_field(block: str, field: str) -> str:
+    fields = "|".join(re.escape(value) for value in _OUTLINE_CONTRACT_FIELDS)
+    match = re.search(
+        rf"^\s*-\s*{re.escape(field)}\s*[：:]\s*(.*?)(?=^\s*-\s*(?:{fields})\s*[：:]|^###|\Z)",
+        str(block or ""),
+        flags=re.MULTILINE | re.DOTALL,
+    )
+    return match.group(1).strip() if match else ""
+
+
+def _outline_contract_bullets(value: str) -> List[str]:
+    return [
+        re.sub(r"^[-*•]\s*", "", line.strip()).strip()
+        for line in str(value or "").splitlines()
+        if re.sub(r"^[-*•]\s*", "", line.strip()).strip()
+    ]
+
+
+def _outline_contract_deficits(
+    markdown: str,
+    items: List[Dict[str, Any]],
+    min_pages: int,
+    max_pages: int,
+    topic: str,
+    source_mode: str,
+) -> List[str]:
+    """Validate the model contract before any local normalisation can hide omissions.
+
+    `_ensure_outline_item_structure` intentionally fills missing values for old
+    saved outlines and downstream compatibility. It must not be used as proof
+    that a fresh model response was complete, so this check inspects the raw
+    markdown first and rejects synthetic/default text.
+    """
+    blocks = _outline_contract_page_blocks(markdown)
+    deficits: List[str] = []
+    if len(blocks) < int(min_pages):
+        deficits.append(f"页数不足：当前 {len(blocks)} 页，至少需要 {min_pages} 页")
+    if len(blocks) > int(max_pages):
+        deficits.append(f"页数超限：当前 {len(blocks)} 页，最多允许 {max_pages} 页")
+    if not blocks:
+        return deficits or ["未解析出任何页面"]
+
+    seen_titles: set[str] = set()
+    for index, (_page_no, block) in enumerate(blocks, start=1):
+        missing = [field for field in _OUTLINE_CONTRACT_FIELDS if not _outline_contract_field(block, field)]
+        if missing:
+            deficits.append(f"第{index}页缺少字段：{'、'.join(missing)}")
+            continue
+        title = _outline_contract_field(block, "页标题").strip()
+        normalized_title = re.sub(r"\s+", "", title)
+        if not normalized_title:
+            deficits.append(f"第{index}页标题为空")
+        elif normalized_title in seen_titles:
+            deficits.append(f"第{index}页标题重复：{title[:30]}")
+        else:
+            seen_titles.add(normalized_title)
+        level = _outline_contract_field(block, "大纲层级").strip()
+        if level not in _OUTLINE_LEVEL_LABELS:
+            deficits.append(f"第{index}页大纲层级无效：{level[:20]}")
+        page_type = _outline_contract_field(block, "页面类型").strip()
+        if page_type not in _OUTLINE_PAGE_TYPES:
+            deficits.append(f"第{index}页页面类型无效：{page_type[:20]}")
+        core_points = _outline_contract_bullets(_outline_contract_field(block, "核心内容"))
+        node_lines = [
+            line for line in str(_outline_contract_field(block, "页面节点")).splitlines()
+            if re.match(r"^\s*(?:[-*•]\s*)?节点\s*\d*\s*[:：]", line)
+            and re.search(r"[|｜]", line)
+        ]
+        minimum_points = 1 if page_type in {"封面页", "目录页"} else 3
+        minimum_nodes = 1 if page_type in {"封面页", "目录页"} else 2
+        if len(core_points) < minimum_points:
+            deficits.append(f"第{index}页核心内容不足：{len(core_points)}/{minimum_points}条")
+        normalized_nodes = []
+        if len(node_lines) < minimum_nodes and index <= len(items):
+            for node in items[index - 1].get("nodes") or []:
+                if not isinstance(node, Mapping):
+                    continue
+                node_title = str(node.get("title") or "").strip()
+                node_content = str(node.get("content") or "").strip()
+                if node_title and node_content:
+                    normalized_nodes.append(f"节点：{node_title}｜{node_content}")
+            if len(normalized_nodes) >= minimum_nodes:
+                node_lines = normalized_nodes
+        if len(node_lines) < minimum_nodes:
+            deficits.append(f"第{index}页页面节点不足：{len(node_lines)}/{minimum_nodes}个")
+        all_visible_text = " ".join([title, _outline_contract_field(block, "本页目标"), *core_points, *node_lines])
+        if any(marker in all_visible_text for marker in _OUTLINE_PLACEHOLDER_MARKERS):
+            deficits.append(f"第{index}页含默认占位语句")
+
+    expected_title = re.sub(r"\s+", "", str(topic or "演示文稿")).strip()
+    first_title = re.sub(r"\s+", "", _outline_contract_field(blocks[0][1], "页标题"))
+    if expected_title and first_title and first_title != expected_title:
+        deficits.append(f"第1页标题未与演示文稿标题一致：{first_title[:30]}")
+    last_type = _outline_contract_field(blocks[-1][1], "页面类型").strip()
+    last_title = _outline_contract_field(blocks[-1][1], "页标题")
+    if last_type != "总结页" and not re.search(r"总结|结论|行动|下一步|回顾|收束", last_title):
+        deficits.append("最后一页不是总结或行动页")
+    if source_mode in {"topic_only", "non_outline"} and _is_generic_topic_scaffold(items, topic, source_mode):
+        deficits.append("页面标题仍是与主题无关的通用骨架")
+    return deficits
+
+
 def _outline_depth_deficit_indices(items: List[Dict[str, Any]]) -> List[int]:
     """Return zero-based indices of non-cover pages that are too sparse."""
     deficits: List[int] = []
@@ -2822,7 +3064,9 @@ def _outline_output_token_budget(min_pages: int, max_pages: int) -> int:
     the latency cost of a large cap for small decks.
     """
     requested_pages = max(int(min_pages or 1), int(max_pages or min_pages or 1))
-    estimated = 3200 + max(0, requested_pages - 5) * 150
+    # 5 页大纲包含 8 个页面字段、每页 3-5 个要点和 2-4 个节点；
+    # 给推理模型留出完整序列化空间，避免模型在第 3 页附近提前收束。
+    estimated = 4800 + max(0, requested_pages - 5) * 300
     return max(1200, min(PPT_OUTLINE_MAX_OUTPUT_TOKENS, estimated))
 
 
@@ -3059,7 +3303,7 @@ def _ensure_outline_item_structure(item: Mapping[str, Any]) -> Dict[str, Any]:
     # 这两项是后续布局的轻量提示，不应因为模型漏填而触发整份大纲失败。
     # 具体版式仍由布局智能体和模板能力决定，不在这里固化模板指令。
     normalized.setdefault("displaySuggestion", "突出本页核心信息，控制文字密度。")
-    normalized.setdefault("assetSuggestion", "按内容需要使用图示、图表或简洁配图。")
+    normalized.setdefault("assetSuggestion", "根据页面节点关系选择结构图、流程图、对比表或简洁图标。")
     hierarchy_type = normalized.get("type") if str(normalized.get("type") or "").strip() in {
         "章节", "小节", "节点", "知识点"
     } else None
@@ -3240,14 +3484,77 @@ def _outline_topic_guidance(topic: str, audience: str, source_mode: str) -> Dict
     ]
     for keywords, guidance in routes:
         if any(keyword in topic_text for keyword in keywords):
-            return {**guidance, "audience_focus": audience_text}
+            return {
+                **guidance,
+                "audience_focus": audience_text,
+                "recommended_page_roles": _topic_page_roles(guidance["intent"]),
+            }
     return {
         "intent": "先识别主题的核心问题和受众需要带走的结论，再组织一条自然的演示叙事",
         "recommended_narrative": "主题目标/问题 → 核心对象或事实 → 关系、过程或方案 → 关键洞察/应用 → 结论与下一步；仅保留适用阶段",
         "must_cover": ["主题的核心对象", "受众真正关心的关系或结论", "能够支撑理解或行动的具体信息"],
         "avoid": ["默认套用背景-概念-知识结构-方法-总结", "用抽象标题代替主题对象", "为了适应模板虚构章节或事实"],
         "audience_focus": audience_text,
+        "recommended_page_roles": [
+            "主题与目标",
+            "核心对象或关键问题",
+            "关系、过程或解决路径",
+            "应用、判断或行动依据",
+            "结论与下一步",
+        ],
     }
+
+
+def _topic_page_roles(intent: str) -> List[str]:
+    """Provide a semantic page arc, not a layout/template constraint."""
+    value = str(intent or "")
+    if "方向选择" in value or "岗位" in value:
+        return [
+            "主题与目标",
+            "就业方向与岗位地图",
+            "岗位差异与能力要求",
+            "学习与项目准备路径",
+            "求职行动与决策清单",
+        ]
+    if "方案价值" in value or "落地路径" in value:
+        return [
+            "问题背景与建设目标",
+            "方案框架与关键机制",
+            "实施路径与资源条件",
+            "风险控制与验证方式",
+            "落地计划与下一步",
+        ]
+    if "对象、价值" in value:
+        return [
+            "对象定位与受众问题",
+            "核心能力与使用流程",
+            "典型场景与价值",
+            "差异、边界与选择依据",
+            "行动建议与下一步",
+        ]
+    if "研究问题" in value:
+        return [
+            "研究问题与范围",
+            "背景与方法",
+            "主要发现与证据",
+            "解释、局限与边界",
+            "结论与后续工作",
+        ]
+    if "理解、应用和复习" in value:
+        return [
+            "主题与学习目标",
+            "核心概念",
+            "结构、机制或关系",
+            "方法、示例与应用",
+            "总结与复习行动",
+        ]
+    return [
+        "主题与目标",
+        "核心对象或关键问题",
+        "关系、过程或解决路径",
+        "应用、判断或行动依据",
+        "结论与下一步",
+    ]
 
 
 def _is_topic_only_outline_request(
@@ -3582,10 +3889,11 @@ def _outline_markdown_from_items(items: List[Dict[str, Any]], topic: str) -> str
         item = _ensure_outline_item_structure(item)
         points = item.get("keyPoints") or []
         nodes = item.get("nodes") or _outline_nodes_from_points(points)
+        level = {1: "章节", 2: "小节", 3: "知识点"}.get(int(item.get("level") or 1), "小节")
         lines.extend([
             f"### 第{index}页",
             f"- 页标题：{item.get('title') or f'第 {index} 页'}",
-            f"- 大纲层级：{item.get('level') or 1}",
+            f"- 大纲层级：{level}",
             f"- 页面类型：{item.get('type') or '内容页'}",
             f"- 本页目标：{item.get('objective') or '明确本页需要掌握的重点。'}",
             "- 核心内容：",
@@ -5810,6 +6118,17 @@ def _is_recoverable_outline_error(error: HTTPException) -> bool:
         return True
     message = str(getattr(error, "detail", error) or "").lower()
     return "timed out" in message or "request timeout" in message or "timeout" in message
+
+
+def _is_outline_format_error(error: HTTPException) -> bool:
+    """格式不合规要交给大纲纠正，不应直接进入资料兜底。"""
+    message = str(getattr(error, "detail", error) or "").lower()
+    return (
+        int(getattr(error, "status_code", 0) or 0) == 422
+        or "输出格式无效" in message
+        or "不符合约定格式" in message
+        or "自动规范化失败" in message
+    )
 
 
 def _is_outline_transport_error(error: BaseException) -> bool:

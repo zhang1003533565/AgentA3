@@ -44,8 +44,8 @@ def test_structure_agent_retries_once_after_invalid_json(monkeypatch):
     assert "只返回一个可直接 json.loads 的 JSON 对象" in prompts[1]
 
 
-def test_outline_agent_retries_once_after_invalid_format(monkeypatch):
-    answers = iter(["first response", "valid outline"])
+def test_outline_agent_reports_format_error_to_service_without_hidden_retry(monkeypatch):
+    answers = iter(["first response"])
     prompts = []
     normalize_calls = []
 
@@ -63,11 +63,12 @@ def test_outline_agent_retries_once_after_invalid_format(monkeypatch):
         return answer
 
     monkeypatch.setattr(outline_module, "normalize_ppt_outline_answer", fake_normalize)
-    result = outline_module.ppt_outline_agent.process("原始请求", [])
+    with pytest.raises(HTTPException) as error:
+        outline_module.ppt_outline_agent.process("原始请求", [])
 
-    assert result == "valid outline"
-    assert len(prompts) == 2
-    assert "严格按要求重新输出完整大纲" in prompts[1]
+    assert error.value.status_code == 422
+    assert len(prompts) == 1
+    assert len(normalize_calls) == 1
 
 
 @pytest.mark.parametrize(
