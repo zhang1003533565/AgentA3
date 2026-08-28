@@ -36,7 +36,6 @@
 | 架构图提示词 | `architecture_prompt_agent` | 直接处理输入上下文 | `input` 为系统说明、模块依赖或数据流材料 |
 | 思维导图图片 | `generate_mind_map_image_tool` | 工具编排 | 工具内部调用 `mind_map_agent` 生成提示词，再调用唯一图片入口 |
 | 流程图图片 | `generate_flowchart_image_tool` | 工具编排 | 工具内部调用 `diagram_flowchart_prompt_agent` 生成提示词，再调用唯一图片入口 |
-| 活动图图片 | `generate_activity_image_tool` | 工具编排 | 工具内部调用 `diagram_activity_prompt_agent` 生成提示词，再调用唯一图片入口 |
 | 架构图图片 | `generate_architecture_image_tool` | 工具编排 | 工具内部调用 `architecture_prompt_agent` 生成提示词，再调用唯一图片入口 |
 | 知识图谱图片 | `generate_knowledge_graph_image_tool` | 工具编排 | 工具内部调用 `knowledge_graph_prompt_agent` 生成提示词，再调用唯一图片入口 |
 | 教材知识点 | `textbook_knowledge_agent` | Java 后端负责第三方知识库接入 | `input` 为章节、知识点问题或 Markdown 教材文本 |

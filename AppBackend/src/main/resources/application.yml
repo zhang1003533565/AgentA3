@@ -25,9 +25,9 @@ spring:
       mode: ${SPRING_SQL_INIT_MODE:never}
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
-    url: ${SPRING_DATASOURCE_URL:jdbc:mysql://localhost:3306/smart-campus?useUnicode=true&characterEncoding=UTF-8&serverTimezone=Asia/Shanghai}
-    username: ${SPRING_DATASOURCE_USERNAME:root}
-    password: ${SPRING_DATASOURCE_PASSWORD:123456}
+    url: jdbc:mysql://localhost:3306/smart-campus?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai
+    username: root
+    password: 762412@Wm
   jpa:
     defer-datasource-initialization: true
     hibernate:

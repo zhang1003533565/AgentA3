@@ -96,12 +96,6 @@ VISUAL_GENERATION_TOOL_CONFIG = {
         "trigger": "用户要求生成流程图、算法流程或步骤流程图片。",
         "promptAgent": "diagram_flowchart_prompt_agent",
     },
-    "generate_activity_image_tool": {
-        "zhName": "活动图图片生成工具",
-        "purpose": "先生成活动图专用提示词，再统一调用图片生成入口。",
-        "trigger": "用户要求生成活动图、泳道图或角色任务流程图片。",
-        "promptAgent": "diagram_activity_prompt_agent",
-    },
     "generate_architecture_image_tool": {
         "zhName": "架构图图片生成工具",
         "purpose": "先生成架构图专用提示词，再统一调用图片生成入口。",
@@ -1192,7 +1186,72 @@ async def run_rag_query_stream(
                         yield build_sse("generation_start", _build_generation_start_payload(request, plan))
                         generation_started = True
                     execution_started_at = time.perf_counter()
-                    response = await asyncio.to_thread(_execute_leader_plan, request, authorization or "", profile_context, plan, callable_catalog)
+                    if _is_visual_generation_plan(plan) and _is_tool_enabled(request, plan.tool_name):
+                        yield build_sse("workflow_step", _workflow_step_payload(
+                            "leader_route",
+                            _leader_plan_detail(plan),
+                        ))
+                        yield build_sse("workflow_step", _workflow_step_payload(
+                            "leader_visual_prompt",
+                            {"message": "正在根据会话上下文整理生图提示词…", "agentName": "leader_agent"},
+                            status="running",
+                        ))
+                        yield build_sse("generation_progress", {
+                            "phase": "leader_visual_prompt",
+                            "status": "running",
+                            "imageGenerating": False,
+                            "content": _build_visual_generation_progress_content(phase="composing"),
+                        })
+                        precomposed = await asyncio.to_thread(
+                            _compose_visual_generation_prompt,
+                            request,
+                            request.input,
+                            tool_name=str(getattr(plan, "tool_name", "") or "").strip(),
+                        )
+                        generation_input, leader_composed, leader_meta = precomposed
+                        prompt_preview = str(leader_meta.get("promptPreview") or generation_input or "")[:600]
+                        yield build_sse("workflow_step", _workflow_step_payload(
+                            "leader_visual_prompt",
+                            {
+                                **leader_meta,
+                                "message": "生图提示词已整理完成",
+                                "promptPreview": prompt_preview,
+                            },
+                        ))
+                        yield build_sse("generation_progress", {
+                            "phase": "leader_visual_prompt",
+                            "status": "completed",
+                            "imageGenerating": True,
+                            "content": _build_visual_generation_progress_content(
+                                phase="generating_image",
+                                prompt_text=generation_input,
+                            ),
+                        })
+                        yield build_sse("workflow_step", _workflow_step_payload(
+                            "image_generation_tool",
+                            {
+                                "message": "正在生成图片，请稍候…",
+                                "toolName": plan.tool_name,
+                                "toolDisplayName": _tool_display_name(plan.tool_name),
+                                "agentName": "image_agent",
+                            },
+                            status="running",
+                        ))
+                        response = await asyncio.to_thread(
+                            _run_visual_generation_tool,
+                            request,
+                            plan,
+                            precomposed=precomposed,
+                        )
+                    else:
+                        response = await asyncio.to_thread(
+                            _execute_leader_plan,
+                            request,
+                            authorization or "",
+                            profile_context,
+                            plan,
+                            callable_catalog,
+                        )
                     execution_ms = _elapsed_ms(execution_started_at)
             else:
                 if _should_emit_generation_start(request, active_agent):
@@ -1222,9 +1281,13 @@ async def run_rag_query_stream(
             if request_metadata.get("profileContextSource"):
                 metadata["profileContextSource"] = request_metadata.get("profileContextSource")
             session_id = str((request.metadata or {}).get("sessionId") or "")
+            streamed_visual_stages = frozenset({"leader_route", "leader_visual_prompt", "image_generation_tool"})
             for trace_item in response.trace or []:
                 trace_payload = trace_item.model_dump() if hasattr(trace_item, "model_dump") else trace_item
                 if isinstance(trace_payload, dict):
+                    stage = str(trace_payload.get("stage") or "").strip()
+                    if _is_visual_generation_plan(plan) and stage in streamed_visual_stages:
+                        continue
                     yield build_sse("workflow_step", trace_payload)
             yield build_sse("session", {
                 "sessionId": session_id,
@@ -2468,7 +2531,7 @@ def _needs_visual_prompt_composition(input_text: str, context: Dict[str, Any]) -
         return False
     referential_tokens = (
         "这样的", "这种", "同款", "类似", "相似", "照着", "按照上面", "按上面", "像刚才", "像上面",
-        "刚才那个", "上面那个",
+        "刚才那个", "上面那个", "上面图片", "根据我上面", "根据上面", "重新生成",
     )
     if any(token in compact for token in referential_tokens):
         return True
@@ -2479,12 +2542,23 @@ def _needs_visual_prompt_composition(input_text: str, context: Dict[str, Any]) -
     return False
 
 
-def _compose_visual_generation_prompt(request: RagQueryRequest, input_text: str) -> str:
+def _should_leader_compose_visual_prompt(tool_name: str, input_text: str, context: Dict[str, Any]) -> bool:
+    if tool_name == "generate_image_tool":
+        return True
+    return _needs_visual_prompt_composition(input_text, context)
+
+
+def _compose_visual_generation_prompt(
+    request: RagQueryRequest,
+    input_text: str,
+    *,
+    tool_name: str = "",
+) -> Tuple[str, bool, Dict[str, Any]]:
     text = str(input_text or "").strip()
     metadata = request.metadata if isinstance(request.metadata, dict) else {}
     context = metadata.get("conversationContext") if isinstance(metadata.get("conversationContext"), dict) else {}
-    if not _needs_visual_prompt_composition(text, context):
-        return text
+    if not _should_leader_compose_visual_prompt(tool_name, text, context):
+        return text, False, {}
     from app.model_providers.factory import get_chat_model_provider
 
     provider = get_chat_model_provider()
@@ -2494,16 +2568,23 @@ def _compose_visual_generation_prompt(request: RagQueryRequest, input_text: str)
         "recent_turns": (context.get("turns") or [])[-4:],
         "requirements": [
             "根据用户最新请求和会话上下文，整理成一段可直接交给文生图模型的中文提示词。",
-            "如果用户说「这样的」「类似」「同款」海报/图片，必须从上文识图结果或讨论内容提取主题、文案、风格、布局与配色。",
+            "如果用户说「这样的」「类似」「同款」「根据上面图片」海报/图片，必须从上文识图结果或讨论内容提取主题、文案、风格、布局与配色。",
             "只输出提示词正文，不要 JSON，不要解释，不要 Markdown 标题。",
         ],
     }
     composed = provider.complete(
-        system_prompt="你是图片生成提示词整理器。你只负责把用户需求和会话上下文整理成一段完整的中文文生图提示词。",
+        system_prompt="你是 Leader 调用的图片提示词整理器。你只负责把用户需求和会话上下文整理成一段完整的中文文生图提示词。",
         user_prompt=json.dumps(payload, ensure_ascii=False),
     )
-    composed_text = str(composed or "").strip()
-    return composed_text or text
+    composed_text = str(composed or "").strip() or text
+    return composed_text, True, {
+        "agentName": "leader_agent",
+        "message": "已根据用户请求与会话上下文整理生图提示词",
+        "summary": composed_text[:320],
+        "promptPreview": composed_text[:320],
+        "promptLength": len(composed_text),
+        "promptSource": "leader_agent",
+    }
 
 
 def _visual_generation_answer_text(prompt_text: str, attachments: List[Dict[str, Any]]) -> str:
@@ -2514,6 +2595,30 @@ def _visual_generation_answer_text(prompt_text: str, attachments: List[Dict[str,
     if preview:
         lines.extend(["", f"**生成要点**：{preview}"])
     return "\n".join(lines)
+
+
+def _build_visual_generation_progress_content(*, phase: str, prompt_text: str = "") -> str:
+    preview = re.sub(r"\s+", " ", str(prompt_text or "").strip())
+    if phase == "composing":
+        return "正在根据会话上下文整理生图提示词…"
+    if phase == "composed" and preview:
+        return f"## 生图方案\n\n{preview[:600]}\n\n*正在生成图片，请稍候…*"
+    if phase == "generating_image":
+        header = f"## 生图方案\n\n{preview[:600]}\n\n" if preview else ""
+        return f"{header}正在生成更详细的图片，请稍等。"
+    return "正在准备生成图片…"
+
+
+def _is_visual_generation_plan(plan) -> bool:
+    if plan is None or getattr(plan, "action", "") != "call_tool":
+        return False
+    tool_name = str(getattr(plan, "tool_name", "") or "").strip()
+    return tool_name in VISUAL_GENERATION_TOOL_NAMES
+
+
+def _workflow_step_payload(stage: str, detail: Optional[Dict[str, Any]] = None, *, status: str = "completed") -> Dict[str, Any]:
+    payload = {"stage": stage, "detail": detail or {}, "status": status}
+    return payload
 
 
 def _contextualize_knowledge_source_choice(input_text: str, compact_text: str, context: Dict[str, Any]) -> str:
@@ -2854,7 +2959,7 @@ def _build_generation_start_payload(
     route_reason = getattr(plan, "route_reason", "") or profile.get("purpose") or ""
     answer_type = "image_generation" if visual_tool_name else _answer_type_for_agent(target_agent)
     role = str(profile.get("role") or target_agent or "图片智能体")
-    answer = f"已识别到你要生成图片，正在调用「{role}」处理中。你可以继续提问，生成完成后我会把结果更新到这里。"
+    answer = "正在分析你的需求，并整理生图方案…"
     metadata = {
         "agentName": "leader_agent" if plan else target_agent,
         "targetAgent": target_agent,
@@ -3521,6 +3626,8 @@ def _run_leader_direct_answer(plan, profile_context: Optional[Dict[str, Any]] = 
 def _run_visual_generation_tool(
     request: RagQueryRequest,
     leader_plan,
+    *,
+    precomposed: Optional[Tuple[str, bool, Dict[str, Any]]] = None,
 ) -> RagQueryResponse:
     tool_name = str(getattr(leader_plan, "tool_name", "") or "").strip()
     config = VISUAL_GENERATION_TOOL_CONFIG.get(tool_name)
@@ -3533,9 +3640,16 @@ def _run_visual_generation_tool(
         return _run_disabled_tool_response(request, tool_name, leader_plan=leader_plan)
 
     evidence = _profile_evidence_from_request(request)
-    generation_input = _compose_visual_generation_prompt(request, request.input)
+    if precomposed is not None:
+        generation_input, leader_prompt_composed, leader_prompt_metadata = precomposed
+    else:
+        generation_input, leader_prompt_composed, leader_prompt_metadata = _compose_visual_generation_prompt(
+            request,
+            request.input,
+            tool_name=tool_name,
+        )
     prompt_text = generation_input
-    prompt_model_metadata: Dict[str, Any] = {}
+    prompt_model_metadata: Dict[str, Any] = dict(leader_prompt_metadata) if leader_prompt_composed else {}
     if prompt_agent:
         prompt_text, prompt_model_metadata = _run_specialist_agent_with_bound_model(
             request,
@@ -3544,11 +3658,6 @@ def _run_visual_generation_tool(
             evidence,
             leader_plan=leader_plan,
         )
-    elif generation_input != request.input:
-        prompt_model_metadata = {
-            "promptComposedFromContext": True,
-            "promptSource": "conversation_context",
-        }
     image_answer, image_model_metadata = _run_specialist_agent_with_bound_model(
         request,
         "image_agent",
@@ -3591,23 +3700,27 @@ def _run_visual_generation_tool(
     metadata.update(_context_metadata_from_request(request))
     trace = [
         RagTraceResponse(stage="leader_route", detail=_leader_plan_detail(leader_plan)),
-        RagTraceResponse(stage="tool_call", detail={
-            "toolName": tool_name,
-            "toolDisplayName": _tool_display_name(tool_name),
-            "promptAgent": prompt_agent,
-            "imageAgent": "image_agent",
-        }),
     ]
+    if leader_prompt_composed:
+        trace.append(RagTraceResponse(stage="leader_visual_prompt", detail=leader_prompt_metadata))
     if prompt_agent:
         trace.append(RagTraceResponse(stage="prompt_agent", detail={
             "agentName": prompt_agent,
             "output": "image_prompt",
+            "message": "专业提示词智能体已整理画面描述",
             "answerLength": len(prompt_text or ""),
             **prompt_model_metadata,
         }))
     trace.append(RagTraceResponse(stage="image_generation_tool", detail={
         "agentName": "image_agent",
-        "input": "prompt_agent_output" if prompt_agent else "user_input",
+        "toolName": tool_name,
+        "toolDisplayName": _tool_display_name(tool_name),
+        "message": "正在调用图片生成工具生成图片",
+        "input": (
+            "leader_visual_prompt"
+            if leader_prompt_composed and not prompt_agent
+            else "prompt_agent_output" if prompt_agent else "user_input"
+        ),
         "answerLength": len(image_answer or ""),
         **image_model_metadata,
     }))

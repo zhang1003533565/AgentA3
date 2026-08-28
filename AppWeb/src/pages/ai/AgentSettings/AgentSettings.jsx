@@ -67,7 +67,6 @@ const TOOL_TEST_PROMPTS = {
   generate_image_tool: '请生成一张简洁的智慧校园首页插图，浅色背景，蓝灰色调，不包含文字。',
   generate_mind_map_image_tool: '请生成一张“校园二手交易流程”思维导图图片，包含发布、沟通、线下交易三个分支。',
   generate_flowchart_image_tool: '请生成校园二手商品发布审核流程图图片。',
-  generate_activity_image_tool: '请生成学生、管理员、平台三方参与的二手交易活动图图片。',
   generate_architecture_image_tool: '请生成校园二手交易平台的前端、后端、MySQL、Redis系统架构图图片。',
   generate_knowledge_graph_image_tool: '请生成学生、商品、分类、订单之间关系的知识图谱图片。',
   generate_ppt_image_tool: '请生成一张智慧校园主题的 PPT 封面配图，16:9，蓝灰色，留出标题区域。',

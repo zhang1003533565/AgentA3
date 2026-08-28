@@ -41,7 +41,7 @@ class DiagramAgentsTest(unittest.TestCase):
         cases = {
             "生成进程调度思维导图": "generate_mind_map_image_tool",
             "生成括号匹配流程图": "generate_flowchart_image_tool",
-            "生成会议任务活动图": "generate_activity_image_tool",
+            "生成会议任务活动图": "generate_image_tool",
             "生成系统架构图": "generate_architecture_image_tool",
             "生成操作系统知识图谱": "generate_knowledge_graph_image_tool",
             "生成一张教学配图": "generate_image_tool",
@@ -73,7 +73,6 @@ class DiagramAgentsTest(unittest.TestCase):
             "generate_image_tool": "",
             "generate_mind_map_image_tool": "mind_map_agent",
             "generate_flowchart_image_tool": "diagram_flowchart_prompt_agent",
-            "generate_activity_image_tool": "diagram_activity_prompt_agent",
             "generate_architecture_image_tool": "architecture_prompt_agent",
             "generate_knowledge_graph_image_tool": "knowledge_graph_prompt_agent",
             "generate_ppt_image_tool": "ppt_image_agent",

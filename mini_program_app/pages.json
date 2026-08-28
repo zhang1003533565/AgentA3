@@ -940,6 +940,54 @@
         			"navigationBarBackgroundColor": "#ffffff",
         			"navigationBarTextStyle": "black"
     				}
+			},
+			{
+				"path": "paperHome/paperHome",
+				"style": { "navigationStyle": "custom", "navigationBarTitleText": "试卷生成" }
+			},
+			{
+				"path": "paperInfo/paperInfo",
+				"style": { "navigationStyle": "custom", "navigationBarTitleText": "试卷基本信息" }
+			},
+			{
+				"path": "paperSelect/paperSelect",
+				"style": { "navigationStyle": "custom", "navigationBarTitleText": "选择试题" }
+			},
+			{
+				"path": "paperQuestionDetail/paperQuestionDetail",
+				"style": { "navigationStyle": "custom", "navigationBarTitleText": "题目详情" }
+			},
+			{
+				"path": "paperBank/paperBank",
+				"style": { "navigationStyle": "custom", "navigationBarTitleText": "我的题库组" }
+			},
+			{
+				"path": "paperBankEdit/paperBankEdit",
+				"style": { "navigationStyle": "custom", "navigationBarTitleText": "题库组信息" }
+			},
+			{
+				"path": "paperBankDetail/paperBankDetail",
+				"style": { "navigationStyle": "custom", "navigationBarTitleText": "题库组详情" }
+			},
+			{
+				"path": "paperSelected/paperSelected",
+				"style": { "navigationStyle": "custom", "navigationBarTitleText": "已选题目" }
+			},
+			{
+				"path": "paperPreview/paperPreview",
+				"style": { "navigationStyle": "custom", "navigationBarTitleText": "试卷预览" }
+			},
+			{
+				"path": "paperLayout/paperLayout",
+				"style": { "navigationStyle": "custom", "navigationBarTitleText": "纸质试卷设置" }
+			},
+			{
+				"path": "paperPrintPreview/paperPrintPreview",
+				"style": { "navigationStyle": "custom", "navigationBarTitleText": "纸质试卷预览" }
+			},
+			{
+				"path": "paperMine/paperMine",
+				"style": { "navigationStyle": "custom", "navigationBarTitleText": "我的试卷" }
 			}
 			]
 		},

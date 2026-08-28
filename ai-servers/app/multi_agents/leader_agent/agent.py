@@ -25,7 +25,6 @@ LEADER_OUTPUT_PUSH_STRATEGIES = [
             "generate_image_tool",
             "generate_mind_map_image_tool",
             "generate_flowchart_image_tool",
-            "generate_activity_image_tool",
             "generate_architecture_image_tool",
             "generate_knowledge_graph_image_tool",
             "generate_ppt_image_tool",
@@ -59,7 +58,6 @@ VISUAL_GENERATION_TOOL_NAMES = {
     "generate_image_tool",
     "generate_mind_map_image_tool",
     "generate_flowchart_image_tool",
-    "generate_activity_image_tool",
     "generate_architecture_image_tool",
     "generate_knowledge_graph_image_tool",
     "generate_ppt_image_tool",
@@ -640,9 +638,9 @@ class LeaderAgent:
         if any(token in normalized for token in ("架构图", "系统架构图", "architecture diagram", "architecture")):
             return LeaderPlan("diagram_architecture", "leader_agent", False, "", action="call_tool", tool_name="generate_architecture_image_tool", route_reason="命中架构图生成意图，调用架构图图片生成工具。")
         if "活动图" in normalized and "提示词" in normalized:
-            return LeaderPlan("diagram_activity_prompt", "leader_agent", False, "", action="call_tool", tool_name="generate_activity_image_tool", route_reason="命中活动图生成意图，调用活动图图片生成工具。")
+            return LeaderPlan("diagram_activity_prompt", "leader_agent", False, "", action="call_tool", tool_name="generate_image_tool", route_reason="命中活动图生成意图，调用通用图片生成工具。")
         if any(token in normalized for token in ("活动图", "泳道图", "activity diagram", "任务活动图")):
-            return LeaderPlan("diagram_activity", "leader_agent", False, "", action="call_tool", tool_name="generate_activity_image_tool", route_reason="命中活动图生成意图，调用活动图图片生成工具。")
+            return LeaderPlan("diagram_activity", "leader_agent", False, "", action="call_tool", tool_name="generate_image_tool", route_reason="命中活动图生成意图，调用通用图片生成工具。")
         if "流程图" in normalized and "提示词" in normalized:
             return LeaderPlan("diagram_flowchart_prompt", "leader_agent", False, "", action="call_tool", tool_name="generate_flowchart_image_tool", route_reason="命中流程图生成意图，调用流程图图片生成工具。")
         if any(token in normalized for token in ("流程图", "flowchart", "流程")):
