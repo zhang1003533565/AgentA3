@@ -454,19 +454,28 @@ function fileContentBase64(file) {
   })
 }
 
+function patchPendingResource(localId, patch) {
+  const index = pendingResources.value.findIndex((item) => item.localId === localId)
+  if (index < 0) return
+  pendingResources.value[index] = { ...pendingResources.value[index], ...patch }
+}
+
 async function uploadEntry(entry) {
-  entry.status = 'uploading'
-  entry.error = ''
+  patchPendingResource(entry.localId, { status: 'uploading', error: '' })
   try {
     const [resource, contentBase64] = await Promise.all([
       uploadAiResource(entry.file),
       fileContentBase64(entry.file),
     ])
-    entry.resource = { ...resource, contentBase64 }
-    entry.status = 'success'
+    patchPendingResource(entry.localId, {
+      resource: { ...resource, contentBase64 },
+      status: 'success',
+    })
   } catch (cause) {
-    entry.status = 'error'
-    entry.error = cause.message || '上传失败'
+    patchPendingResource(entry.localId, {
+      status: 'error',
+      error: cause.message || '上传失败',
+    })
   }
 }
 

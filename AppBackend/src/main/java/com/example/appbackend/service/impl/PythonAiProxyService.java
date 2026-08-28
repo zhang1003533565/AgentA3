@@ -305,8 +305,7 @@ public class PythonAiProxyService {
             throw new BusinessException(Result.ERROR_CODE, "请选择已测试成功的模型后再执行智能体");
         }
         Map<String, Object> sanitized = sanitizeRagRequest(withAgentToggles(request));
-        return postRagObject("/internal/rag/query", sanitized, authorization,
-                modelOptional ? null : requestedModel);
+        return postRagObject("/internal/rag/query", sanitized, authorization, requestedModel);
     }
 
     /**
@@ -585,7 +584,7 @@ public class PythonAiProxyService {
                 "/internal/rag/query/stream",
                 sanitized,
                 authorization,
-                modelOptional ? null : requestedModel,
+                requestedModel,
                 eventHandler
         );
     }
@@ -637,7 +636,7 @@ public class PythonAiProxyService {
             return false;
         }
         long directImageCount = attachments.stream().filter(this::isImageAttachment).count();
-        return directImageCount >= 2 || attachments.stream().anyMatch(this::mayContainImages);
+        return directImageCount >= 2;
     }
 
     private boolean isImageAttachment(Object rawAttachment) {
@@ -651,22 +650,6 @@ public class PythonAiProxyService {
         String name = firstAttachmentText(attachment, "name", "fileName");
         return List.of(".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".tif", ".tiff")
                 .stream().anyMatch(name.toLowerCase(Locale.ROOT)::endsWith);
-    }
-
-    private boolean mayContainImages(Object rawAttachment) {
-        if (!(rawAttachment instanceof Map<?, ?> attachment)) {
-            return false;
-        }
-        String mimeType = firstAttachmentText(attachment, "mimeType", "contentType", "type")
-                .toLowerCase(Locale.ROOT);
-        String name = firstAttachmentText(attachment, "name", "fileName").toLowerCase(Locale.ROOT);
-        return mimeType.equals("application/pdf")
-                || mimeType.equals("application/zip")
-                || mimeType.contains("presentationml.presentation")
-                || mimeType.contains("wordprocessingml.document")
-                || mimeType.contains("spreadsheetml.sheet")
-                || List.of(".pdf", ".pptx", ".docx", ".xlsx", ".zip")
-                .stream().anyMatch(name::endsWith);
     }
 
     private String firstAttachmentText(Map<?, ?> attachment, String... keys) {

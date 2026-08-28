@@ -4104,7 +4104,20 @@ def _normalize_requested_file_type(value: Any) -> str:
 def _run_disabled_tool_response(request: RagQueryRequest, tool_name: str, leader_plan) -> RagQueryResponse:
     normalized = str(tool_name or "").strip()
     display_name = _tool_display_name(normalized) or "目标工具"
-    raise HTTPException(status_code=403, detail=f"工具 {display_name}（{normalized}）已在后台关闭，本次未执行。")
+    answer = f"{display_name}当前已在后台关闭，本次未执行。如需使用该能力，请先在管理后台开启对应工具。"
+    disabled_plan = LeaderPlan(
+        intent=str(getattr(leader_plan, "intent", "") or "tool_disabled"),
+        target_agent="leader_agent",
+        need_retrieval=False,
+        rag_strategy="",
+        action="direct_answer",
+        route_reason=(
+            f"Leader 计划调用 {display_name}（{normalized}），但该工具已在后台关闭，未执行工具调用。"
+        ),
+        answer=answer,
+        route_mode="tool_disabled",
+    )
+    return _run_leader_direct_answer(disabled_plan)
 
 
 def _run_service_tool(request: RagQueryRequest, authorization: str, leader_plan) -> RagQueryResponse:

@@ -139,6 +139,19 @@ class LeaderFastRouteTest(unittest.TestCase):
 
         self.assertEqual(0, self.provider.calls)
 
+    def test_disabled_generated_export_tool_returns_direct_answer_instead_of_calling_tool(self):
+        plan = self.agent.plan(
+            "把这些内容整理成 Word 文件",
+            chat_service=self.provider,
+            callable_catalog={"tools": []},
+        )
+
+        self.assertEqual("document_export", plan.intent)
+        self.assertEqual("direct_answer", plan.action)
+        self.assertEqual("tool_disabled", plan.route_mode)
+        self.assertIn("内容整理工具", plan.answer)
+        self.assertEqual(0, self.provider.calls)
+
     def test_generic_python_learning_request_delegates_to_knowledge_agent_not_image(self):
         plan = self.agent.plan(
             "我想学习python",

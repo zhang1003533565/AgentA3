@@ -411,7 +411,7 @@ class LeaderAgent:
         if forced_plan:
             return forced_plan
 
-        file_export_plan = self._plan_explicit_file_export_request(input_text)
+        file_export_plan = self._plan_explicit_file_export_request(input_text, callable_catalog)
         if file_export_plan:
             return file_export_plan
 
@@ -550,7 +550,11 @@ class LeaderAgent:
             "画一个", "画一张", "制作一个", "制作一张", "做一个", "做一张", "转成",
         ))
 
-    def _plan_explicit_file_export_request(self, input_text: str) -> Optional[LeaderPlan]:
+    def _plan_explicit_file_export_request(
+        self,
+        input_text: str,
+        callable_catalog: Optional[Dict[str, Any]] = None,
+    ) -> Optional[LeaderPlan]:
         normalized = self._normalize_fast_route_text(input_text)
         if "ppt大纲" in normalized or "pptx大纲" in normalized or "幻灯片大纲" in normalized:
             return None
@@ -568,6 +572,17 @@ class LeaderAgent:
             return None
         if not any(token in normalized for token in action_tokens):
             return None
+        if not self._catalog_tool_enabled(callable_catalog, "generated_export_tools"):
+            return LeaderPlan(
+                intent="document_export",
+                target_agent="leader_agent",
+                need_retrieval=False,
+                rag_strategy="",
+                answer="内容整理工具当前已在后台关闭，本次不会生成文件。如需导出文件，请先在管理后台开启「内容整理工具」。",
+                action="direct_answer",
+                route_reason="用户请求文件导出，但内容整理工具已关闭，未执行工具调用。",
+                route_mode="tool_disabled",
+            )
         return LeaderPlan(
             intent="document_export",
             target_agent="leader_agent",
