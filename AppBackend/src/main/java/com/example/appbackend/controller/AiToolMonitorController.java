@@ -128,8 +128,6 @@ public class AiToolMonitorController {
                     "diagram_export", "图表导出", "生成思维导图图片"),
             new ToolDefinition("generate_flowchart_image_tool", "流程图生成工具", "流程图生成工具（generate_flowchart_image_tool）",
                     "diagram_export", "图表导出", "生成流程图图片"),
-            new ToolDefinition("generate_activity_image_tool", "活动图生成工具", "活动图生成工具（generate_activity_image_tool）",
-                    "diagram_export", "图表导出", "生成活动图/泳道图图片"),
             new ToolDefinition("generate_architecture_image_tool", "架构图生成工具", "架构图生成工具（generate_architecture_image_tool）",
                     "diagram_export", "图表导出", "生成系统架构图图片"),
             new ToolDefinition("generate_knowledge_graph_image_tool", "知识图谱生成工具", "知识图谱生成工具（generate_knowledge_graph_image_tool）",

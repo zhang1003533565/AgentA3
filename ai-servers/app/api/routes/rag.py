@@ -96,12 +96,6 @@ VISUAL_GENERATION_TOOL_CONFIG = {
         "trigger": "用户要求生成流程图、算法流程或步骤流程图片。",
         "promptAgent": "diagram_flowchart_prompt_agent",
     },
-    "generate_activity_image_tool": {
-        "zhName": "活动图图片生成工具",
-        "purpose": "先生成活动图专用提示词，再统一调用图片生成入口。",
-        "trigger": "用户要求生成活动图、泳道图或角色任务流程图片。",
-        "promptAgent": "diagram_activity_prompt_agent",
-    },
     "generate_architecture_image_tool": {
         "zhName": "架构图图片生成工具",
         "purpose": "先生成架构图专用提示词，再统一调用图片生成入口。",
