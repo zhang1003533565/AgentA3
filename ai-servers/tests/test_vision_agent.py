@@ -1,3 +1,5 @@
+import base64
+import io
 import importlib
 import unittest
 from types import SimpleNamespace
@@ -6,6 +8,7 @@ from unittest.mock import patch
 from app.model_providers.multimodal import collect_request_image_references
 from app.models.schemas import RagQueryRequest
 from app.multi_agents.catalog import get_agent_catalog, normalize_agent_name
+from app.services.image_stitching import StitchImage, collect_stitch_images, stitch_images
 
 
 class VisionAgentTest(unittest.TestCase):
@@ -95,6 +98,127 @@ class VisionAgentTest(unittest.TestCase):
         )
         catalog = self.rag_routes._build_leader_callable_catalog(request)
         self.assertNotIn("recognize_image_tool", {item["name"] for item in catalog["tools"]})
+
+    def test_multiple_uploaded_images_route_to_stitching_before_recognition(self):
+        request = RagQueryRequest(
+            input="请把这些图片拼接起来",
+            imageDataUrls=[
+                "data:image/png;base64,AA==",
+                "data:image/png;base64,AA==",
+            ],
+            metadata={"uploadOnly": True, "toolToggles": {"image_stitching_tool": True}},
+        )
+        plan = self.rag_routes._requested_image_stitching_plan(request)
+        self.assertIsNotNone(plan)
+        self.assertEqual("image_stitching_tool", plan.tool_name)
+        self.assertEqual("attachment", plan.route_mode)
+
+    def test_stitching_tool_returns_one_image_attachment_and_trace(self):
+        request = RagQueryRequest(
+            input="请拼接这些图片",
+            metadata={"toolToggles": {"image_stitching_tool": True}},
+        )
+        plan = self.rag_routes.LeaderPlan(
+            intent="image_stitching",
+            target_agent="leader_agent",
+            need_retrieval=False,
+            rag_strategy="",
+            action="call_tool",
+            tool_name="image_stitching_tool",
+            route_reason="测试图片拼接",
+            route_mode="attachment",
+        )
+        images = [
+            StitchImage(b"first", "one.png", "image/png"),
+            StitchImage(b"second", "two.png", "image/png"),
+        ]
+        with patch.object(self.rag_routes, "collect_stitch_images", return_value=images), \
+                patch.object(self.rag_routes, "stitch_images", return_value=b"stitched"), \
+                patch.object(self.rag_routes, "materialize_generated_image_answer", return_value=(
+                    "sanitized",
+                    [{"type": "image", "fileName": "图片拼接结果.png"}],
+                )):
+            response = self.rag_routes._run_image_stitching_tool(request, plan)
+
+        self.assertEqual("image_stitching_tool", response.strategy)
+        self.assertEqual("image_stitching", response.answerType)
+        self.assertEqual("grid", response.metadata["layout"])
+        self.assertEqual(2, response.metadata["columns"])
+        self.assertTrue(response.metadata["numbered"])
+        self.assertEqual(2, response.metadata["imageCount"])
+        self.assertEqual("image_stitching_tool", response.metadata["toolName"])
+        self.assertEqual("image_stitching_tool", response.trace[-1].stage)
+        self.assertEqual(1, len(response.attachments))
+
+    def test_stitch_images_decodes_png_uploads(self):
+        png = base64.b64decode(
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+        )
+        result = stitch_images([
+            StitchImage(png, "one.png", "image/png"),
+            StitchImage(png, "two.png", "image/png"),
+        ])
+        self.assertTrue(result.startswith(b"\x89PNG\r\n\x1a\n"))
+
+    def test_stitch_images_uses_three_column_grid(self):
+        png = base64.b64decode(
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+        )
+        result = stitch_images([StitchImage(png, f"{index}.png", "image/png") for index in range(9)])
+        from PIL import Image
+
+        with Image.open(io.BytesIO(result)) as output:
+            self.assertEqual(3, output.height)
+            self.assertGreater(output.width, 3)
+
+    def test_stitch_images_draws_sequence_label_on_each_image(self):
+        from PIL import Image
+
+        source = io.BytesIO()
+        Image.new("RGB", (100, 80), "white").save(source, format="PNG")
+        png = source.getvalue()
+        result = stitch_images([
+            StitchImage(png, "one.png", "image/png"),
+            StitchImage(png, "two.png", "image/png"),
+        ])
+
+        with Image.open(io.BytesIO(result)).convert("RGB") as output:
+            item_width = output.width // 2
+            gutter_width = item_width - 100
+            self.assertEqual(80, output.height)
+            self.assertGreater(gutter_width, 0)
+            for left in (0, item_width):
+                label_area = output.crop((left, 0, left + gutter_width, 80)).convert("L")
+                image_area = output.crop((left + gutter_width, 0, left + item_width, 80))
+                self.assertLess(label_area.getextrema()[0], 255)
+                self.assertEqual(((255, 255), (255, 255), (255, 255)), image_area.getextrema())
+
+    def test_stitch_images_aligns_image_edges_within_each_column(self):
+        from PIL import Image
+
+        def make_png(size, color):
+            source = io.BytesIO()
+            Image.new("RGB", size, color).save(source, format="PNG")
+            return source.getvalue()
+
+        result = stitch_images([
+            StitchImage(make_png((100, 80), (220, 40, 40)), "one.png", "image/png"),
+            StitchImage(make_png((100, 80), (40, 180, 80)), "two.png", "image/png"),
+            StitchImage(make_png((100, 80), (40, 80, 220)), "three.png", "image/png"),
+            StitchImage(make_png((100, 300), (220, 180, 40)), "four.png", "image/png"),
+        ])
+
+        with Image.open(io.BytesIO(result)).convert("RGB") as output:
+            red_x = next(x for x in range(output.width) if output.getpixel((x, 20)) == (220, 40, 40))
+            yellow_x = next(x for x in range(output.width) if output.getpixel((x, 100)) == (220, 180, 40))
+            self.assertEqual(red_x, yellow_x)
+
+    def test_stitching_does_not_cap_image_count(self):
+        request = RagQueryRequest(
+            input="请拼接这些图片",
+            imageDataUrls=["data:image/png;base64,AA=="] * 20,
+        )
+        self.assertEqual(20, len(collect_stitch_images(request)))
 
 
 if __name__ == "__main__":

@@ -1,0 +1,395 @@
+INFO:     Started server process [33612]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://127.0.0.1:8081 (Press CTRL+C to quit)
+2026-08-27 20:41:32,738 INFO [api.chat] chat request received session_id=- user_id=1 input_len=10
+2026-08-27 20:41:32,750 INFO [langgraph.workflow] node start name=load_memory_node session_id=bf9193***35c3 keyword= history=0
+2026-08-27 20:41:32,763 INFO [langgraph.workflow] node done name=load_memory_node session_id=bf9193***35c3 elapsed_ms=13 keyword= matched=0 answer_len=0
+2026-08-27 20:41:32,765 INFO [langgraph.workflow] node start name=extract_keyword_node session_id=bf9193***35c3 keyword= history=0
+2026-08-27 20:41:35,662 ERROR [langgraph.workflow] node failed name=extract_keyword_node session_id=bf9193***35c3
+Traceback (most recent call last):
+  File "E:\zzs\github\AgentA3\ai-servers\.venv\Lib\site-packages\httpx\_transports\default.py", line 101, in map_httpcore_exceptions
+    yield
+  File "E:\zzs\github\AgentA3\ai-servers\.venv\Lib\site-packages\httpx\_transports\default.py", line 250, in handle_request
+    resp = self._pool.handle_request(req)
+  File "E:\zzs\github\AgentA3\ai-servers\.venv\Lib\site-packages\httpcore\_sync\connection_pool.py", line 256, in handle_request
+    raise exc from None
+  File "E:\zzs\github\AgentA3\ai-servers\.venv\Lib\site-packages\httpcore\_sync\connection_pool.py", line 236, in handle_request
+    response = connection.handle_request(
+        pool_request.request
+    )
+  File "E:\zzs\github\AgentA3\ai-servers\.venv\Lib\site-packages\httpcore\_sync\connection.py", line 101, in handle_request
+    raise exc
+  File "E:\zzs\github\AgentA3\ai-servers\.venv\Lib\site-packages\httpcore\_sync\connection.py", line 78, in handle_request
+    stream = self._connect(request)
+  File "E:\zzs\github\AgentA3\ai-servers\.venv\Lib\site-packages\httpcore\_sync\connection.py", line 124, in _connect
+    stream = self._network_backend.connect_tcp(**kwargs)
+  File "E:\zzs\github\AgentA3\ai-servers\.venv\Lib\site-packages\httpcore\_backends\sync.py", line 207, in connect_tcp
+    with map_exceptions(exc_map):
+         ~~~~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\zzs\AppData\Roaming\uv\python\cpython-3.13-windows-x86_64-none\Lib\contextlib.py", line 162, in __exit__
+    self.gen.throw(value)
+    ~~~~~~~~~~~~~~^^^^^^^
+  File "E:\zzs\github\AgentA3\ai-servers\.venv\Lib\site-packages\httpcore\_exceptions.py", line 14, in map_exceptions
+    raise to_exc(exc) from exc
+httpcore.ConnectError: [WinError 10061] 由于目标计算机积极拒绝，无法连接。
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "E:\zzs\github\AgentA3\ai-servers\.venv\Lib\site-packages\openai\_base_client.py", line 982, in request
+    response = self._client.send(
+        request,
+        stream=stream or self._should_stream_response_body(request=request),
+        **kwargs,
+    )
+  File "E:\zzs\github\AgentA3\ai-servers\.venv\Lib\site-packages\httpx\_client.py", line 914, in send
+    response = self._send_handling_auth(
+        request,
+    ...<2 lines>...
+        history=[],
+    )
+  File "E:\zzs\github\AgentA3\ai-servers\.venv\Lib\site-packages\httpx\_client.py", line 942, in _send_handling_auth
+    response = self._send_handling_redirects(
+        request,
+        follow_redirects=follow_redirects,
+        history=history,
+    )
+  File "E:\zzs\github\AgentA3\ai-servers\.venv\Lib\site-packages\httpx\_client.py", line 979, in _send_handling_redirects
+    response = self._send_single_request(request)
+  File "E:\zzs\github\AgentA3\ai-servers\.venv\Lib\site-packages\httpx\_client.py", line 1014, in _send_single_request
+    response = transport.handle_request(request)
+  File "E:\zzs\github\AgentA3\ai-servers\.venv\Lib\site-packages\httpx\_transports\default.py", line 249, in handle_request
+    with map_httpcore_exceptions():
+         ~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\zzs\AppData\Roaming\uv\python\cpython-3.13-windows-x86_64-none\Lib\contextlib.py", line 162, in __exit__
+    self.gen.throw(value)
+    ~~~~~~~~~~~~~~^^^^^^^
+  File "E:\zzs\github\AgentA3\ai-servers\.venv\Lib\site-packages\httpx\_transports\default.py", line 118, in map_httpcore_exceptions
+    raise mapped_exc(message) from exc
+httpx.ConnectError: [WinError 10061] 由于目标计算机积极拒绝，无法连接。
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "E:\zzs\github\AgentA3\ai-servers\app\langgraph\graph\workflow.py", line 75, in run_conversation_graph
+    node(state)
+    ~~~~^^^^^^^
+  File "E:\zzs\github\AgentA3\ai-servers\app\langgraph\nodes\extract_keyword.py", line 9, in extract_keyword_node
+    plan = leader_agent.plan(
+        state.input_text,
+        state.rag_strategy if state.rag_strategy_explicit else "",
+        requested_agent=state.requested_agent or None,
+    )
+  File "E:\zzs\github\AgentA3\ai-servers\app\multi_agents\leader_agent\agent.py", line 438, in plan
+    return self._plan_with_llm(
+           ~~~~~~~~~~~~~~~~~~~^
+        input_text,
+        ^^^^^^^^^^^
+    ...<4 lines>...
+        conversation_context=conversation_context,
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "E:\zzs\github\AgentA3\ai-servers\app\multi_agents\leader_agent\agent.py", line 977, in _plan_with_llm
+    text = provider.complete(
+        system_prompt=load_agent_prompt(self.name),
+    ...<6 lines>...
+        ),
+    )
+  File "E:\zzs\github\AgentA3\ai-servers\app\model_providers\qwen\provider.py", line 246, in complete
+    response = self._invoke_with_fallback([
+        SystemMessage(content=system_prompt),
+        HumanMessage(content=build_multimodal_human_content(user_prompt)),
+    ], reasoning_effort)
+  File "E:\zzs\github\AgentA3\ai-servers\app\model_providers\qwen\provider.py", line 219, in _invoke_with_fallback
+    response = candidate_llm.invoke(
+        messages,
+    ...<3 lines>...
+        ),
+    )
+  File "E:\zzs\github\AgentA3\ai-servers\.venv\Lib\site-packages\langchain_core\language_models\chat_models.py", line 286, in invoke
+    self.generate_prompt(
+    ~~~~~~~~~~~~~~~~~~~~^
+        [self._convert_input(input)],
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<6 lines>...
+        **kwargs,
+        ^^^^^^^^^
+    ).generations[0][0],
+    ^
+  File "E:\zzs\github\AgentA3\ai-servers\.venv\Lib\site-packages\langchain_core\language_models\chat_models.py", line 786, in generate_prompt
+    return self.generate(prompt_messages, stop=stop, callbacks=callbacks, **kwargs)
+           ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\zzs\github\AgentA3\ai-servers\.venv\Lib\site-packages\langchain_core\language_models\chat_models.py", line 643, in generate
+    raise e
+  File "E:\zzs\github\AgentA3\ai-servers\.venv\Lib\site-packages\langchain_core\language_models\chat_models.py", line 633, in generate
+    self._generate_with_cache(
+    ~~~~~~~~~~~~~~~~~~~~~~~~~^
+        m,
+        ^^
+    ...<2 lines>...
+        **kwargs,
+        ^^^^^^^^^
+    )
+    ^
+  File "E:\zzs\github\AgentA3\ai-servers\.venv\Lib\site-packages\langchain_core\language_models\chat_models.py", line 851, in _generate_with_cache
+    result = self._generate(
+        messages, stop=stop, run_manager=run_manager, **kwargs
+    )
+  File "E:\zzs\github\AgentA3\ai-servers\.venv\Lib\site-packages\langchain_openai\chat_models\base.py", line 717, in _generate
+    response = self.client.create(**payload)
+  File "E:\zzs\github\AgentA3\ai-servers\.venv\Lib\site-packages\openai\_utils\_utils.py", line 286, in wrapper
+    return func(*args, **kwargs)
+  File "E:\zzs\github\AgentA3\ai-servers\.venv\Lib\site-packages\openai\resources\chat\completions\completions.py", line 1147, in create
+    return self._post(
+           ~~~~~~~~~~^
+        "/chat/completions",
+        ^^^^^^^^^^^^^^^^^^^^
+    ...<46 lines>...
+        stream_cls=Stream[ChatCompletionChunk],
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "E:\zzs\github\AgentA3\ai-servers\.venv\Lib\site-packages\openai\_base_client.py", line 1259, in post
+    return cast(ResponseT, self.request(cast_to, opts, stream=stream, stream_cls=stream_cls))
+                           ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\zzs\github\AgentA3\ai-servers\.venv\Lib\site-packages\openai\_base_client.py", line 1014, in request
+    raise APIConnectionError(request=request) from err
+openai.APIConnectionError: Connection error.
+ERROR:    Exception in ASGI application
+Traceback (most recent call last):
+  File "E:\zzs\github\AgentA3\ai-servers\.venv\Lib\site-packages\httpx\_transports\default.py", line 101, in map_httpcore_exceptions
+    yield
+  File "E:\zzs\github\AgentA3\ai-servers\.venv\Lib\site-packages\httpx\_transports\default.py", line 250, in handle_request
+    resp = self._pool.handle_request(req)
+  File "E:\zzs\github\AgentA3\ai-servers\.venv\Lib\site-packages\httpcore\_sync\connection_pool.py", line 256, in handle_request
+    raise exc from None
+  File "E:\zzs\github\AgentA3\ai-servers\.venv\Lib\site-packages\httpcore\_sync\connection_pool.py", line 236, in handle_request
+    response = connection.handle_request(
+        pool_request.request
+    )
+  File "E:\zzs\github\AgentA3\ai-servers\.venv\Lib\site-packages\httpcore\_sync\connection.py", line 101, in handle_request
+    raise exc
+  File "E:\zzs\github\AgentA3\ai-servers\.venv\Lib\site-packages\httpcore\_sync\connection.py", line 78, in handle_request
+    stream = self._connect(request)
+  File "E:\zzs\github\AgentA3\ai-servers\.venv\Lib\site-packages\httpcore\_sync\connection.py", line 124, in _connect
+    stream = self._network_backend.connect_tcp(**kwargs)
+  File "E:\zzs\github\AgentA3\ai-servers\.venv\Lib\site-packages\httpcore\_backends\sync.py", line 207, in connect_tcp
+    with map_exceptions(exc_map):
+         ~~~~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\zzs\AppData\Roaming\uv\python\cpython-3.13-windows-x86_64-none\Lib\contextlib.py", line 162, in __exit__
+    self.gen.throw(value)
+    ~~~~~~~~~~~~~~^^^^^^^
+  File "E:\zzs\github\AgentA3\ai-servers\.venv\Lib\site-packages\httpcore\_exceptions.py", line 14, in map_exceptions
+    raise to_exc(exc) from exc
+httpcore.ConnectError: [WinError 10061] 由于目标计算机积极拒绝，无法连接。
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "E:\zzs\github\AgentA3\ai-servers\.venv\Lib\site-packages\openai\_base_client.py", line 982, in request
+    response = self._client.send(
+        request,
+        stream=stream or self._should_stream_response_body(request=request),
+        **kwargs,
+    )
+  File "E:\zzs\github\AgentA3\ai-servers\.venv\Lib\site-packages\httpx\_client.py", line 914, in send
+    response = self._send_handling_auth(
+        request,
+    ...<2 lines>...
+        history=[],
+    )
+  File "E:\zzs\github\AgentA3\ai-servers\.venv\Lib\site-packages\httpx\_client.py", line 942, in _send_handling_auth
+    response = self._send_handling_redirects(
+        request,
+        follow_redirects=follow_redirects,
+        history=history,
+    )
+  File "E:\zzs\github\AgentA3\ai-servers\.venv\Lib\site-packages\httpx\_client.py", line 979, in _send_handling_redirects
+    response = self._send_single_request(request)
+  File "E:\zzs\github\AgentA3\ai-servers\.venv\Lib\site-packages\httpx\_client.py", line 1014, in _send_single_request
+    response = transport.handle_request(request)
+  File "E:\zzs\github\AgentA3\ai-servers\.venv\Lib\site-packages\httpx\_transports\default.py", line 249, in handle_request
+    with map_httpcore_exceptions():
+         ~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\zzs\AppData\Roaming\uv\python\cpython-3.13-windows-x86_64-none\Lib\contextlib.py", line 162, in __exit__
+    self.gen.throw(value)
+    ~~~~~~~~~~~~~~^^^^^^^
+  File "E:\zzs\github\AgentA3\ai-servers\.venv\Lib\site-packages\httpx\_transports\default.py", line 118, in map_httpcore_exceptions
+    raise mapped_exc(message) from exc
+httpx.ConnectError: [WinError 10061] 由于目标计算机积极拒绝，无法连接。
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "E:\zzs\github\AgentA3\ai-servers\.venv\Lib\site-packages\uvicorn\protocols\http\h11_impl.py", line 406, in run_asgi
+    result = await app(  # type: ignore[func-returns-value]
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        self.scope, self.receive, self.send
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "E:\zzs\github\AgentA3\ai-servers\.venv\Lib\site-packages\uvicorn\middleware\proxy_headers.py", line 70, in __call__
+    return await self.app(scope, receive, send)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\zzs\github\AgentA3\ai-servers\.venv\Lib\site-packages\fastapi\applications.py", line 1054, in __call__
+    await super().__call__(scope, receive, send)
+  File "E:\zzs\github\AgentA3\ai-servers\.venv\Lib\site-packages\starlette\applications.py", line 112, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "E:\zzs\github\AgentA3\ai-servers\.venv\Lib\site-packages\starlette\middleware\errors.py", line 187, in __call__
+    raise exc
+  File "E:\zzs\github\AgentA3\ai-servers\.venv\Lib\site-packages\starlette\middleware\errors.py", line 165, in __call__
+    await self.app(scope, receive, _send)
+  File "E:\zzs\github\AgentA3\ai-servers\.venv\Lib\site-packages\starlette\middleware\base.py", line 176, in __call__
+    with recv_stream, send_stream, collapse_excgroups():
+                                   ~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\zzs\AppData\Roaming\uv\python\cpython-3.13-windows-x86_64-none\Lib\contextlib.py", line 162, in __exit__
+    self.gen.throw(value)
+    ~~~~~~~~~~~~~~^^^^^^^
+  File "E:\zzs\github\AgentA3\ai-servers\.venv\Lib\site-packages\starlette\_utils.py", line 82, in collapse_excgroups
+    raise exc
+  File "E:\zzs\github\AgentA3\ai-servers\.venv\Lib\site-packages\starlette\middleware\base.py", line 178, in __call__
+    response = await self.dispatch_func(request, call_next)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\zzs\github\AgentA3\ai-servers\app\main.py", line 63, in require_internal_service_token
+    return await call_next(request)
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\zzs\github\AgentA3\ai-servers\.venv\Lib\site-packages\starlette\middleware\base.py", line 156, in call_next
+    raise app_exc
+  File "E:\zzs\github\AgentA3\ai-servers\.venv\Lib\site-packages\starlette\middleware\base.py", line 141, in coro
+    await self.app(scope, receive_or_disconnect, send_no_error)
+  File "E:\zzs\github\AgentA3\ai-servers\.venv\Lib\site-packages\starlette\middleware\exceptions.py", line 62, in __call__
+    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+  File "E:\zzs\github\AgentA3\ai-servers\.venv\Lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "E:\zzs\github\AgentA3\ai-servers\.venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "E:\zzs\github\AgentA3\ai-servers\.venv\Lib\site-packages\starlette\routing.py", line 714, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "E:\zzs\github\AgentA3\ai-servers\.venv\Lib\site-packages\starlette\routing.py", line 734, in app
+    await route.handle(scope, receive, send)
+  File "E:\zzs\github\AgentA3\ai-servers\.venv\Lib\site-packages\starlette\routing.py", line 288, in handle
+    await self.app(scope, receive, send)
+  File "E:\zzs\github\AgentA3\ai-servers\.venv\Lib\site-packages\starlette\routing.py", line 76, in app
+    await wrap_app_handling_exceptions(app, request)(scope, receive, send)
+  File "E:\zzs\github\AgentA3\ai-servers\.venv\Lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "E:\zzs\github\AgentA3\ai-servers\.venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "E:\zzs\github\AgentA3\ai-servers\.venv\Lib\site-packages\starlette\routing.py", line 73, in app
+    response = await f(request)
+               ^^^^^^^^^^^^^^^^
+  File "E:\zzs\github\AgentA3\ai-servers\.venv\Lib\site-packages\fastapi\routing.py", line 301, in app
+    raw_response = await run_endpoint_function(
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<3 lines>...
+    )
+    ^
+  File "E:\zzs\github\AgentA3\ai-servers\.venv\Lib\site-packages\fastapi\routing.py", line 214, in run_endpoint_function
+    return await run_in_threadpool(dependant.call, **values)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\zzs\github\AgentA3\ai-servers\.venv\Lib\site-packages\starlette\concurrency.py", line 37, in run_in_threadpool
+    return await anyio.to_thread.run_sync(func)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\zzs\github\AgentA3\ai-servers\.venv\Lib\site-packages\anyio\to_thread.py", line 65, in run_sync
+    return await get_async_backend().run_sync_in_worker_thread(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        func, args, abandon_on_cancel=abandon_on_cancel, limiter=limiter
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "E:\zzs\github\AgentA3\ai-servers\.venv\Lib\site-packages\anyio\_backends\_asyncio.py", line 2641, in run_sync_in_worker_thread
+    return await future
+           ^^^^^^^^^^^^
+  File "E:\zzs\github\AgentA3\ai-servers\.venv\Lib\site-packages\anyio\_backends\_asyncio.py", line 1033, in run
+    result = context.run(func, *args)
+  File "E:\zzs\github\AgentA3\ai-servers\app\api\routes\chat.py", line 61, in internal_chat
+    return run_chat_core(request, authorization, user_id)
+  File "E:\zzs\github\AgentA3\ai-servers\app\services\chat_orchestrator.py", line 17, in run_chat_core
+    return run_conversation_graph(request=request, authorization=authorization, user_id=user_id)
+  File "E:\zzs\github\AgentA3\ai-servers\app\langgraph\graph\workflow.py", line 75, in run_conversation_graph
+    node(state)
+    ~~~~^^^^^^^
+  File "E:\zzs\github\AgentA3\ai-servers\app\langgraph\nodes\extract_keyword.py", line 9, in extract_keyword_node
+    plan = leader_agent.plan(
+        state.input_text,
+        state.rag_strategy if state.rag_strategy_explicit else "",
+        requested_agent=state.requested_agent or None,
+    )
+  File "E:\zzs\github\AgentA3\ai-servers\app\multi_agents\leader_agent\agent.py", line 438, in plan
+    return self._plan_with_llm(
+           ~~~~~~~~~~~~~~~~~~~^
+        input_text,
+        ^^^^^^^^^^^
+    ...<4 lines>...
+        conversation_context=conversation_context,
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "E:\zzs\github\AgentA3\ai-servers\app\multi_agents\leader_agent\agent.py", line 977, in _plan_with_llm
+    text = provider.complete(
+        system_prompt=load_agent_prompt(self.name),
+    ...<6 lines>...
+        ),
+    )
+  File "E:\zzs\github\AgentA3\ai-servers\app\model_providers\qwen\provider.py", line 246, in complete
+    response = self._invoke_with_fallback([
+        SystemMessage(content=system_prompt),
+        HumanMessage(content=build_multimodal_human_content(user_prompt)),
+    ], reasoning_effort)
+  File "E:\zzs\github\AgentA3\ai-servers\app\model_providers\qwen\provider.py", line 219, in _invoke_with_fallback
+    response = candidate_llm.invoke(
+        messages,
+    ...<3 lines>...
+        ),
+    )
+  File "E:\zzs\github\AgentA3\ai-servers\.venv\Lib\site-packages\langchain_core\language_models\chat_models.py", line 286, in invoke
+    self.generate_prompt(
+    ~~~~~~~~~~~~~~~~~~~~^
+        [self._convert_input(input)],
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<6 lines>...
+        **kwargs,
+        ^^^^^^^^^
+    ).generations[0][0],
+    ^
+  File "E:\zzs\github\AgentA3\ai-servers\.venv\Lib\site-packages\langchain_core\language_models\chat_models.py", line 786, in generate_prompt
+    return self.generate(prompt_messages, stop=stop, callbacks=callbacks, **kwargs)
+           ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\zzs\github\AgentA3\ai-servers\.venv\Lib\site-packages\langchain_core\language_models\chat_models.py", line 643, in generate
+    raise e
+  File "E:\zzs\github\AgentA3\ai-servers\.venv\Lib\site-packages\langchain_core\language_models\chat_models.py", line 633, in generate
+    self._generate_with_cache(
+    ~~~~~~~~~~~~~~~~~~~~~~~~~^
+        m,
+        ^^
+    ...<2 lines>...
+        **kwargs,
+        ^^^^^^^^^
+    )
+    ^
+  File "E:\zzs\github\AgentA3\ai-servers\.venv\Lib\site-packages\langchain_core\language_models\chat_models.py", line 851, in _generate_with_cache
+    result = self._generate(
+        messages, stop=stop, run_manager=run_manager, **kwargs
+    )
+  File "E:\zzs\github\AgentA3\ai-servers\.venv\Lib\site-packages\langchain_openai\chat_models\base.py", line 717, in _generate
+    response = self.client.create(**payload)
+  File "E:\zzs\github\AgentA3\ai-servers\.venv\Lib\site-packages\openai\_utils\_utils.py", line 286, in wrapper
+    return func(*args, **kwargs)
+  File "E:\zzs\github\AgentA3\ai-servers\.venv\Lib\site-packages\openai\resources\chat\completions\completions.py", line 1147, in create
+    return self._post(
+           ~~~~~~~~~~^
+        "/chat/completions",
+        ^^^^^^^^^^^^^^^^^^^^
+    ...<46 lines>...
+        stream_cls=Stream[ChatCompletionChunk],
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "E:\zzs\github\AgentA3\ai-servers\.venv\Lib\site-packages\openai\_base_client.py", line 1259, in post
+    return cast(ResponseT, self.request(cast_to, opts, stream=stream, stream_cls=stream_cls))
+                           ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\zzs\github\AgentA3\ai-servers\.venv\Lib\site-packages\openai\_base_client.py", line 1014, in request
+    raise APIConnectionError(request=request) from err
+openai.APIConnectionError: Connection error.

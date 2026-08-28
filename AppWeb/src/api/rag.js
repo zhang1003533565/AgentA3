@@ -22,6 +22,11 @@ export const runRagQuery = (data) => request.post(`${base}/query`, data, {
   timeout: 120000,
 })
 
+export const testFileContentTool = (toolName, data) => request.post(`${base}/tools/${toolName}/test-file`, data, {
+  headers: { 'Content-Type': 'multipart/form-data' },
+  timeout: 120000,
+})
+
 export const convertPdf = (data) => request.post(`${base}/pdf/convert`, data, {
   headers: { 'Content-Type': 'multipart/form-data' },
   timeout: 120000,
@@ -35,3 +40,9 @@ export const convertPpt = (data) => request.post(`${base}/ppt/convert`, data, {
 export const getTextToSqlSchema = () => request.get(`${base}/text-to-sql/schema`)
 
 export const executeTextToSql = (data) => request.post(`${base}/text-to-sql/execute`, data)
+
+const toolMonitorBase = '/api/ai/tool-monitor'
+
+export const getToolMonitorTools = () => request.get(`${toolMonitorBase}/tools`)
+
+export const getToolMonitorRecords = (params) => request.get(`${toolMonitorBase}/records`, { params })

@@ -28,6 +28,7 @@ from app.ppt_generation.service import (
     _rebalance_layout_choices,
     _visuals_enabled,
     _fill_layout_with_slide_text,
+    _run_export_quality_check,
     _set_text_node_content,
     _sanitize_content_payload,
 )
@@ -69,6 +70,32 @@ def test_presenton_renderer_normalizes_external_slide_indexes_without_mutating_i
 
     assert [slide["index"] for slide in normalized] == [1, 2, 3]
     assert [slide.get("index") for slide in slides] == [0, None, 18]
+
+
+def test_export_quality_findings_are_non_blocking(monkeypatch, tmp_path):
+    export_path = tmp_path / "finished.pptx"
+    export_path.write_bytes(b"pptx")
+    monkeypatch.setattr(
+        generated_exporter,
+        "_current_export_root",
+        lambda: tmp_path,
+    )
+    monkeypatch.setattr(
+        "app.ppt_generation.service.validate_exported_pptx",
+        lambda _path: {
+            "passed": False,
+            "slides": 2,
+            "errors": [{"slide": 1, "kind": "TEXT_OVERLAP"}],
+            "warnings": [],
+        },
+    )
+
+    report = _run_export_quality_check({"ext": "pptx", "storageKey": "finished.pptx"})
+
+    assert report["status"] == "warning"
+    assert report["passed"] is False
+    assert report["errors"]
+    assert report["messages"] == ["第1页检测到文本区域重叠"]
 
 
 def test_fallback_preserves_template_badges_and_fills_card_copy():

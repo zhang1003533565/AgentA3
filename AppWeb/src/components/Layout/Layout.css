@@ -74,11 +74,15 @@
 .layout.is-immersive .layout-body {
   height: 100vh;
   padding: 0;
-  overflow: auto;
+  overflow: hidden;
 }
 
 .layout.is-immersive .layout-content {
-  min-height: 100vh;
+  height: 100vh;
+  min-height: 0;
+  border-top: 0;
+  border-bottom: 0;
+  border-radius: 0;
 }
 
 .layout-mask {

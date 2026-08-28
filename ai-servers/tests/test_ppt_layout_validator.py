@@ -120,6 +120,53 @@ def test_dynamic_repeated_groups_may_be_pruned_without_geometry_error(catalog):
     assert not any(error_type == "GEOMETRY_CHANGED" for error_type, _ in errors)
 
 
+def test_dynamic_repeated_groups_may_be_expanded_without_cardinality_error(catalog):
+    """动态 flex/grid 组扩展子项后，不应被误判为模板几何变更。"""
+    layout = catalog.get_layout("momentum", "photo_collage_title_steps_1029")
+    model = parse_slide_layout(layout)
+    tree = {"components": copy.deepcopy(layout["components"])}
+
+    def expand_steps(node):
+        if isinstance(node, list):
+            for item in node:
+                expand_steps(item)
+        elif isinstance(node, dict):
+            if node.get("name") == "steps_flex_list":
+                children = list(node.get("children") or [])
+                node["children"] = children + [copy.deepcopy(children[0]), copy.deepcopy(children[0])]
+            for key in ("elements", "components", "children", "child"):
+                if key in node:
+                    expand_steps(node[key])
+
+    expand_steps(tree)
+    errors = _errors(validate_slide(tree, model).issues)
+    assert not any(error_type == "GEOMETRY_CHANGED" for error_type, _ in errors)
+
+
+def test_dynamic_grid_children_use_renderer_geometry(catalog):
+    """动态网格扩展后，列宽和子项坐标变化不应触发几何误报。"""
+    layout = catalog.get_layout("executive", "intro_pricing_cards_grid_5022")
+    model = parse_slide_layout(layout)
+    tree = {"components": copy.deepcopy(layout["components"])}
+
+    def expand_grid(node):
+        if isinstance(node, list):
+            for item in node:
+                expand_grid(item)
+        elif isinstance(node, dict):
+            if node.get("type") == "grid" and node.get("children"):
+                children = list(node["children"])
+                node["children"] = children + [copy.deepcopy(children[0])]
+                node["columns"] = 3
+            for key in ("elements", "components", "children", "child"):
+                if key in node:
+                    expand_grid(node[key])
+
+    expand_grid(tree)
+    errors = _errors(validate_slide(tree, model).issues)
+    assert not any(error_type == "GEOMETRY_CHANGED" for error_type, _ in errors)
+
+
 def test_text_overflow_detected(catalog):
     layout, model, tree = _tree(catalog, "title_intro")
     node = None

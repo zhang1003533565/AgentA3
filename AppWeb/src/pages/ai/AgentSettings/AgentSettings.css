@@ -262,6 +262,44 @@
   white-space: pre-wrap;
 }
 
+.agent-settings-tool-test-extracted-text {
+  max-height: 360px;
+  overflow: auto;
+  line-height: 1.7;
+  word-break: break-word;
+}
+
+.agent-settings-tool-test-image-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 10px;
+}
+
+.agent-settings-tool-test-image-grid figure {
+  margin: 0;
+  overflow: hidden;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.agent-settings-tool-test-image-grid img {
+  display: block;
+  width: 100%;
+  height: 130px;
+  object-fit: contain;
+  background: #f8fafc;
+}
+
+.agent-settings-tool-test-image-grid figcaption {
+  overflow: hidden;
+  padding: 7px 9px;
+  color: #64748b;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .agent-settings-tool-test-details {
   border: 1px solid #e5e7eb;
   border-radius: 8px;
@@ -342,4 +380,14 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.agent-settings-tool-test-download {
+  color: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.agent-settings-tool-test-download:hover {
+  color: #1677ff;
 }
