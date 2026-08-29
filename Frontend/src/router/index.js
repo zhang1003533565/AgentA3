@@ -25,7 +25,6 @@ import WatermarkAddView from '../views/WatermarkAddView.vue'
 import WatermarkBatchView from '../views/WatermarkBatchView.vue'
 import WatermarkHistoryView from '../views/WatermarkHistoryView.vue'
 import WatermarkHelpView from '../views/WatermarkHelpView.vue'
-import CampusServicesView from '../views/CampusServicesView.vue'
 import ActivityPublishView from '../views/ActivityPublishView.vue'
 import ActivitySignInView from '../views/ActivitySignInView.vue'
 import ActivityDetailView from '../views/ActivityDetailView.vue'
@@ -82,7 +81,6 @@ const routes = [
   { path: '/forum', name: 'forum', component: ForumView },
   { path: '/forum/posts/:postId', name: 'forum-post', component: ForumPostView },
   { path: '/forum/users/:userId', name: 'forum-profile', component: ForumProfileView },
-  { path: '/campus-services', name: 'campus-services', component: CampusServicesView },
   { path: '/discount', name: 'discount', component: CampusDiscountView },
   { path: '/activities/publish', name: 'activity-publish', component: ActivityPublishView },
   { path: '/activities/:activityId', name: 'activity-detail', component: ActivityDetailView },
