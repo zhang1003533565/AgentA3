@@ -11,7 +11,6 @@ import MeetingWorkspaceView from '../views/MeetingWorkspaceView.vue'
 import MessageCenterView from '../views/MessageCenterView.vue'
 import PythonLearningView from '../views/PythonLearningView.vue'
 import PythonQuestionBankView from '../views/pythonOnline/PythonQuestionBankView.vue'
-import PythonProblemDetailView from '../views/pythonOnline/PythonProblemDetailView.vue'
 import PythonPracticeView from '../views/pythonOnline/PythonPracticeView.vue'
 import KnowledgeGraphView from '../views/KnowledgeGraphView.vue'
 import LearningResourceView from '../views/LearningResourceView.vue'
@@ -74,7 +73,7 @@ const routes = [
   { path: '/profile-radar', name: 'profile-radar', component: ProfileRadarView },
   { path: '/learning', name: 'learning', component: PythonQuestionBankView },
   { path: '/learning/plan', name: 'learning-plan', component: PythonLearningView },
-  { path: '/learning/problems/:id', name: 'python-problem-detail', component: PythonProblemDetailView },
+  { path: '/learning/problems/:id', redirect: (to) => `/learning/practice/${to.params.id}` },
   { path: '/learning/practice/:id', name: 'python-practice', component: PythonPracticeView },
   { path: '/learning/knowledge-graph', name: 'knowledge-graph', component: KnowledgeGraphView },
   { path: '/learning/resources', name: 'learning-resources', component: LearningResourceView },

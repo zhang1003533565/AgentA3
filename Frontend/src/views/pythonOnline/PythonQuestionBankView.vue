@@ -1,725 +1,568 @@
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import AppTabBar from '../../components/AppTabBar.vue'
-import { getPythonProblemList } from '../../api/pythonProblem'
-import { DIFFICULTY_LABELS, PROGRESS_STORAGE_KEY } from '../../utils/pythonOnlineIde'
+import PythonLearningNav from '../../components/pythonOnline/PythonLearningNav.vue'
+import { usePythonProblemBank } from '../../composables/usePythonProblemBank'
 
 const router = useRouter()
 
-const questions = ref([])
-const searchKeyword = ref('')
-const activeDifficulty = ref('all')
-const activeStatus = ref('all')
-const activeTags = ref([])
-const searchFocused = ref(false)
-const loading = ref(false)
-const loadError = ref(false)
+const {
+  loading,
+  loadError,
+  searchKeyword,
+  activeDifficulty,
+  activeStatus,
+  activeTags,
+  allTags,
+  doneCount,
+  totalCount,
+  judgeableTotal,
+  unjudgeableTotal,
+  progressPercent,
+  difficultyOptions,
+  statusOptions,
+  filteredQuestions,
+  difficultyLabel,
+  toggleTag,
+  clearFilters,
+  loadProblems,
+} = usePythonProblemBank()
 
-const allTags = computed(() => {
-  const map = {}
-  questions.value.forEach((q) => {
-    q.tags.forEach((t) => {
-      map[t] = (map[t] || 0) + 1
-    })
-  })
-  return Object.keys(map)
-    .map((k) => ({ name: k, count: map[k] }))
-    .sort((a, b) => b.count - a.count)
-})
-
-const difficultyOptions = computed(() => [
-  { key: 'all', label: '全部', count: totalCount.value },
-  { key: 'easy', label: '简单', count: easyTotal.value },
-  { key: 'medium', label: '中等', count: mediumTotal.value },
-  { key: 'hard', label: '困难', count: hardTotal.value },
-])
-
-const statusOptions = computed(() => [
-  { key: 'all', label: '全部', count: totalCount.value },
-  { key: 'done', label: '已完成', count: doneCount.value },
-  { key: 'undone', label: '未完成', count: totalCount.value - doneCount.value },
-])
-
-const filteredQuestions = computed(() => {
-  let list = questions.value
-  if (activeDifficulty.value !== 'all') {
-    list = list.filter((q) => q.difficulty === activeDifficulty.value)
-  }
-  if (activeStatus.value === 'done') {
-    list = list.filter((q) => q.done)
-  } else if (activeStatus.value === 'undone') {
-    list = list.filter((q) => !q.done)
-  }
-  if (activeTags.value.length > 0) {
-    const tags = activeTags.value
-    list = list.filter((q) => tags.some((t) => q.tags.includes(t)))
-  }
-  if (searchKeyword.value.trim()) {
-    const kw = searchKeyword.value.trim().toLowerCase()
-    list = list.filter((q) =>
-      q.title.toLowerCase().includes(kw)
-      || q.tags.some((t) => t.toLowerCase().includes(kw))
-      || String(q.number).includes(kw),
-    )
-  }
-  return list
-})
-
-const doneCount = computed(() => questions.value.filter((q) => q.done).length)
-const totalCount = computed(() => questions.value.length)
-const judgeableTotal = computed(() => questions.value.filter((q) => q.judgeable).length)
-const unjudgeableTotal = computed(() => totalCount.value - judgeableTotal.value)
-const easyTotal = computed(() => questions.value.filter((q) => q.difficulty === 'easy').length)
-const mediumTotal = computed(() => questions.value.filter((q) => q.difficulty === 'medium').length)
-const hardTotal = computed(() => questions.value.filter((q) => q.difficulty === 'hard').length)
-const progressPercent = computed(() => {
-  if (judgeableTotal.value === 0) return 0
-  return Math.round(doneCount.value / judgeableTotal.value * 100)
-})
-
-function getSolvedIds() {
-  try {
-    return JSON.parse(localStorage.getItem(PROGRESS_STORAGE_KEY) || '[]')
-  } catch {
-    return []
-  }
-}
-
-async function loadProblems() {
-  loadError.value = false
-  if (questions.value.length === 0) {
-    loading.value = true
-  }
-  try {
-    const res = await getPythonProblemList()
-    const list = (res && res.data) || []
-    const solved = getSolvedIds()
-    const solvedSet = Object.fromEntries(solved.map((id) => [id, true]))
-    questions.value = list.map((p) => ({
-      ...p,
-      done: !!solvedSet[p.id],
-      judgeable: !!p.judgeable,
-    }))
-  } catch (e) {
-    console.error('加载题库失败:', e)
-    loadError.value = true
-  }
-  loading.value = false
-}
-
-function difficultyLabel(d) {
-  return DIFFICULTY_LABELS[d] || d
-}
-
-function focusSearch() {
-  searchFocused.value = true
-}
-
-function clearSearch() {
-  searchKeyword.value = ''
-}
-
-function selectDifficulty(key) {
-  activeDifficulty.value = key
-}
-
-function selectStatus(key) {
-  activeStatus.value = key
-}
-
-function toggleTag(name) {
-  const idx = activeTags.value.indexOf(name)
-  if (idx === -1) activeTags.value.push(name)
-  else activeTags.value.splice(idx, 1)
-}
-
-function goToDetail(id) {
-  router.push(`/learning/problems/${id}`)
+function goToPractice(id) {
+  router.push(`/learning/practice/${id}`)
 }
 
 onMounted(loadProblems)
 </script>
 
 <template>
-  <div class="feature-page">
+  <div class="feature-page py-bank-page">
     <AppTabBar />
-    <div class="question-bank-page">
-      <header class="page-header">
-        <h1 class="page-title">题库</h1>
-        <router-link class="plan-link" to="/learning/plan">学习规划</router-link>
+    <main class="py-bank-shell">
+      <header class="py-bank-header">
+        <div class="py-bank-header__intro">
+          <h1>Python 题库</h1>
+          <p>在线刷题与编程练习，支持运行、提交与 AI 辅助</p>
+        </div>
+        <PythonLearningNav />
       </header>
 
-      <div class="search-bar">
-        <div class="search-bar-placeholder" @click="focusSearch">
-          <img class="search-icon" src="/icons/search.svg" alt="" />
-          <input
-            v-model="searchKeyword"
-            class="search-input"
-            placeholder="搜索题目、标签或题号..."
-            type="search"
-            :autofocus="searchFocused"
-            @blur="searchFocused = false"
-          />
-          <div v-if="searchKeyword" class="search-clear" @click.stop="clearSearch">×</div>
-        </div>
+      <div v-if="loading && totalCount === 0" class="py-bank-state">正在加载题库…</div>
+      <div v-else-if="loadError && totalCount === 0" class="py-bank-state">
+        <p>题库加载失败，请检查网络后重试</p>
+        <button class="feature-button feature-button--primary" type="button" @click="loadProblems">重新加载</button>
       </div>
 
-      <div v-if="loading && questions.length === 0" class="state-block">
-        <span class="empty-state-text">加载中...</span>
-      </div>
-      <div v-else-if="loadError && questions.length === 0" class="state-block">
-        <span class="empty-state-text">题库加载失败</span>
-        <span class="empty-state-hint">请检查网络连接后重试</span>
-        <div class="retry-btn" @click="loadProblems">
-          <span class="retry-btn-text">重新加载</span>
-        </div>
-      </div>
-      <div v-else class="bank-content">
-        <div class="progress-card">
-          <div class="progress-header">
-            <span class="progress-label">当前进度</span>
-            <span class="progress-sub">{{ doneCount }}/{{ judgeableTotal }} 已解决</span>
-          </div>
-          <div class="progress-track">
-            <div class="progress-fill" :style="{ width: progressPercent + '%' }" />
-          </div>
-          <span class="progress-note">共 {{ totalCount }} 题，其中 {{ unjudgeableTotal }} 题暂不支持在线判题，不计入进度</span>
-          <div class="progress-stats">
-            <div class="stat-item" @click="selectDifficulty('easy')">
-              <div class="stat-dot stat-dot--easy" />
-              <span class="stat-text">简单</span>
-              <span class="stat-num">{{ easyTotal }}</span>
+      <div v-else class="py-bank-layout">
+        <aside class="py-bank-sidebar feature-card">
+          <section class="py-bank-progress">
+            <div class="py-bank-progress__head">
+              <strong>刷题进度</strong>
+              <span>{{ doneCount }}/{{ judgeableTotal }} 已解决</span>
             </div>
-            <div class="stat-item" @click="selectDifficulty('medium')">
-              <div class="stat-dot stat-dot--medium" />
-              <span class="stat-text">中等</span>
-              <span class="stat-num">{{ mediumTotal }}</span>
+            <div class="py-bank-progress__track">
+              <div class="py-bank-progress__fill" :style="{ width: progressPercent + '%' }" />
             </div>
-            <div class="stat-item" @click="selectDifficulty('hard')">
-              <div class="stat-dot stat-dot--hard" />
-              <span class="stat-text">困难</span>
-              <span class="stat-num">{{ hardTotal }}</span>
-            </div>
-          </div>
-        </div>
+            <p class="py-bank-progress__note">
+              共 {{ totalCount }} 题，{{ unjudgeableTotal }} 题暂不支持在线判题
+            </p>
+          </section>
 
-        <div class="filter-section">
-          <div class="filter-label">难度</div>
-          <div class="filter-scroll">
-            <div class="filter-row">
-              <div
+          <section class="py-bank-filter">
+            <h2>难度</h2>
+            <div class="py-bank-chips">
+              <button
                 v-for="d in difficultyOptions"
                 :key="d.key"
-                class="filter-chip"
-                :class="{ 'filter-chip--active': activeDifficulty === d.key }"
-                @click="selectDifficulty(d.key)"
+                type="button"
+                class="py-bank-chip"
+                :class="{ 'py-bank-chip--active': activeDifficulty === d.key }"
+                @click="activeDifficulty = d.key"
               >
-                <span>{{ d.label }}</span>
-                <span v-if="d.count !== null" class="filter-chip-count">{{ d.count }}</span>
-              </div>
+                {{ d.label }}
+                <span>{{ d.count }}</span>
+              </button>
             </div>
-          </div>
-        </div>
+          </section>
 
-        <div class="filter-section">
-          <div class="filter-label">状态</div>
-          <div class="filter-scroll">
-            <div class="filter-row">
-              <div
+          <section class="py-bank-filter">
+            <h2>状态</h2>
+            <div class="py-bank-chips">
+              <button
                 v-for="s in statusOptions"
                 :key="s.key"
-                class="filter-chip"
-                :class="{ 'filter-chip--active': activeStatus === s.key }"
-                @click="selectStatus(s.key)"
+                type="button"
+                class="py-bank-chip"
+                :class="{ 'py-bank-chip--active': activeStatus === s.key }"
+                @click="activeStatus = s.key"
               >
-                <span>{{ s.label }}</span>
-                <span v-if="s.count !== null" class="filter-chip-count">{{ s.count }}</span>
-              </div>
+                {{ s.label }}
+                <span>{{ s.count }}</span>
+              </button>
             </div>
-          </div>
-        </div>
+          </section>
 
-        <div class="filter-section">
-          <div class="filter-label">标签</div>
-          <div class="tag-grid">
-            <div
-              v-for="t in allTags"
-              :key="t.name"
-              class="tag-chip"
-              :class="{ 'tag-chip--active': activeTags.includes(t.name) }"
-              @click="toggleTag(t.name)"
-            >
-              <span>{{ t.name }}</span>
-              <span class="tag-chip-count">{{ t.count }}</span>
+          <section v-if="allTags.length" class="py-bank-filter">
+            <h2>标签</h2>
+            <div class="py-bank-tags">
+              <button
+                v-for="t in allTags"
+                :key="t.name"
+                type="button"
+                class="py-bank-tag"
+                :class="{ 'py-bank-tag--active': activeTags.includes(t.name) }"
+                @click="toggleTag(t.name)"
+              >
+                {{ t.name }}
+                <span>{{ t.count }}</span>
+              </button>
             </div>
-          </div>
-        </div>
+          </section>
 
-        <div class="result-header">
-          <span class="result-title">题目列表</span>
-          <span class="result-count">{{ filteredQuestions.length }} 道</span>
-        </div>
-
-        <div class="question-list">
-          <div
-            v-for="q in filteredQuestions"
-            :key="q.id"
-            class="question-item"
-            @click="goToDetail(q.id)"
+          <button
+            v-if="searchKeyword || activeDifficulty !== 'all' || activeStatus !== 'all' || activeTags.length"
+            class="py-bank-clear"
+            type="button"
+            @click="clearFilters"
           >
-            <div class="question-status" :class="{ 'question-status--done': q.done }">
-              <span v-if="q.done" class="status-check">✓</span>
-              <div v-else class="empty-circle" />
-            </div>
-            <div class="question-content">
-              <div class="question-title-row">
-                <span class="question-number">{{ q.number }}.</span>
-                <span class="question-title">{{ q.title }}</span>
-                <div class="difficulty-tag" :class="'difficulty-tag--' + q.difficulty">{{ difficultyLabel(q.difficulty) }}</div>
-              </div>
-              <div class="question-meta">
-                <span class="meta-item">通过率 {{ q.passRate }}%</span>
-                <div class="meta-tags-row">
-                  <span
-                    v-for="t in q.tags"
-                    :key="t"
-                    class="meta-tag"
-                    @click.stop="toggleTag(t)"
-                  >{{ t }}</span>
-                </div>
-              </div>
-              <div class="question-footer">
-                <img class="star-icon" src="/icons/star.svg" alt="" />
-              </div>
+            清除筛选
+          </button>
+        </aside>
+
+        <section class="py-bank-main feature-card">
+          <div class="py-bank-toolbar">
+            <label class="py-bank-search">
+              <img src="/icons/search.svg" alt="" />
+              <input
+                v-model="searchKeyword"
+                type="search"
+                placeholder="搜索题号、标题或标签…"
+              />
+              <button v-if="searchKeyword" type="button" aria-label="清除搜索" @click="searchKeyword = ''">×</button>
+            </label>
+            <span class="py-bank-count">共 {{ filteredQuestions.length }} 道</span>
+          </div>
+
+          <div class="py-bank-table-wrap">
+            <table class="py-bank-table">
+              <thead>
+                <tr>
+                  <th class="col-status" scope="col">状态</th>
+                  <th class="col-no" scope="col">题号</th>
+                  <th class="col-title" scope="col">题目</th>
+                  <th class="col-diff" scope="col">难度</th>
+                  <th class="col-rate" scope="col">通过率</th>
+                  <th class="col-tags" scope="col">标签</th>
+                  <th class="col-action" scope="col" />
+                </tr>
+              </thead>
+              <tbody>
+                <tr
+                  v-for="q in filteredQuestions"
+                  :key="q.id"
+                  class="py-bank-row"
+                  tabindex="0"
+                  @click="goToPractice(q.id)"
+                  @keydown.enter="goToPractice(q.id)"
+                >
+                  <td class="col-status">
+                    <span class="py-bank-status" :class="{ 'py-bank-status--done': q.done }">
+                      <svg v-if="q.done" viewBox="0 0 16 16" aria-hidden="true"><path d="M6.5 11.5L3 8l1-1 2.5 2.5L12 4l1 1z" fill="currentColor"/></svg>
+                    </span>
+                  </td>
+                  <td class="col-no">{{ q.number }}</td>
+                  <td class="col-title">
+                    <span class="py-bank-title">{{ q.title }}</span>
+                    <span v-if="!q.judgeable" class="py-bank-badge">仅练习</span>
+                  </td>
+                  <td class="col-diff">
+                    <span class="py-diff" :class="'py-diff--' + q.difficulty">{{ difficultyLabel(q.difficulty) }}</span>
+                  </td>
+                  <td class="col-rate">{{ q.passRate }}%</td>
+                  <td class="col-tags">
+                    <span v-for="t in q.tags.slice(0, 3)" :key="t" class="py-bank-tag-inline">{{ t }}</span>
+                  </td>
+                  <td class="col-action">
+                    <button type="button" class="py-bank-go" @click.stop="goToPractice(q.id)">开始答题</button>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+
+            <div v-if="!filteredQuestions.length" class="py-bank-empty">
+              <p>未找到匹配的题目</p>
+              <button type="button" class="feature-button" @click="clearFilters">重置筛选</button>
             </div>
           </div>
-          <div v-if="filteredQuestions.length === 0" class="empty-state">
-            <span class="empty-state-text">未找到匹配的题目</span>
-            <span class="empty-state-hint">试试调整筛选条件</span>
-          </div>
-        </div>
+        </section>
       </div>
-    </div>
+    </main>
   </div>
 </template>
 
 <style scoped>
-.question-bank-page {
-  min-height: calc(100vh - 64px);
-  background: #f5f6f8;
-  padding-bottom: 30px;
+.py-bank-shell {
+  width: min(100%, 1280px);
+  margin: 0 auto;
+  padding: 24px 20px 48px;
 }
 
-.page-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 16px 14px 0;
-  background: #f5f6f8;
-}
-
-.page-title {
-  margin: 0;
-  font-size: 18px;
-  font-weight: 700;
-  color: #111827;
-}
-
-.plan-link {
-  font-size: 13px;
-  color: #4f46e5;
-  text-decoration: none;
-}
-
-.search-bar {
-  display: flex;
-  align-items: center;
-  padding: 10px 14px;
-  background: #f5f6f8;
-}
-
-.search-bar-placeholder {
-  display: flex;
-  align-items: center;
-  flex: 1;
-  padding: 9px 12px;
-  background: #ffffff;
-  border-radius: 8px;
-  border: 1px solid #eef1f4;
-}
-
-.search-icon {
-  width: 16px;
-  height: 16px;
-  margin-right: 7px;
-  opacity: 0.4;
-  flex-shrink: 0;
-}
-
-.search-input {
-  flex: 1;
-  min-width: 0;
-  font-size: 14px;
-  color: #111827;
-  height: 20px;
-  line-height: 20px;
-  border: none;
-  outline: none;
-  background: transparent;
-}
-
-.search-input::placeholder {
-  color: #9ca3af;
-}
-
-.search-clear {
-  width: 20px;
-  height: 20px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 16px;
-  color: #9ca3af;
-  flex-shrink: 0;
-  cursor: pointer;
-}
-
-.progress-card {
-  margin: 6px 14px 4px;
-  padding: 12px 14px;
-  background: #ffffff;
-  border-radius: 10px;
-  border: 1px solid #eef1f4;
-}
-
-.progress-header {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  margin-bottom: 8px;
-}
-
-.progress-label {
-  font-size: 13px;
-  font-weight: 700;
-  color: #111827;
-}
-
-.progress-sub {
-  font-size: 11.5px;
-  color: #6b7280;
-}
-
-.progress-track {
-  height: 4px;
-  background: #e5e7eb;
-  border-radius: 999px;
-  overflow: hidden;
-  margin-bottom: 9px;
-}
-
-.progress-fill {
-  height: 100%;
-  background: linear-gradient(90deg, #4f46e5, #7c3aed);
-  border-radius: 999px;
-}
-
-.progress-note {
-  display: block;
-  font-size: 10.5px;
-  color: #9ca3af;
-  margin-top: 6px;
-  margin-bottom: 3px;
-}
-
-.progress-stats {
-  display: flex;
-  gap: 14px;
-}
-
-.stat-item {
-  display: flex;
-  align-items: center;
-  gap: 3px;
-  cursor: pointer;
-}
-
-.stat-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-}
-
-.stat-dot--easy { background: #10b981; }
-.stat-dot--medium { background: #8b5cf6; }
-.stat-dot--hard { background: #ef4444; }
-
-.stat-text {
-  font-size: 12px;
-  color: #6b7280;
-}
-
-.stat-num {
-  font-size: 11px;
-  color: #9ca3af;
-  font-weight: 500;
-}
-
-.filter-section {
-  padding: 4px 14px 2px;
-}
-
-.filter-label {
-  font-size: 12px;
-  color: #9ca3af;
-  margin-bottom: 6px;
-  font-weight: 500;
-}
-
-.filter-scroll {
-  overflow-x: auto;
-  white-space: nowrap;
-}
-
-.filter-row {
-  display: inline-flex;
-  gap: 6px;
-  padding-bottom: 4px;
-}
-
-.filter-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  padding: 6px 11px;
-  border-radius: 999px;
-  font-size: 13px;
-  color: #4b5563;
-  background: #f3f4f6;
-  flex-shrink: 0;
-  cursor: pointer;
-}
-
-.filter-chip--active {
-  background: #4f46e5;
-  color: #ffffff;
-}
-
-.filter-chip-count {
-  font-size: 10px;
-  opacity: 0.7;
-}
-
-.tag-grid {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  padding-bottom: 4px;
-}
-
-.tag-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  padding: 5px 10px;
-  border-radius: 999px;
-  font-size: 12px;
-  color: #4b5563;
-  background: #f3f4f6;
-  cursor: pointer;
-}
-
-.tag-chip--active {
-  background: rgba(79, 70, 229, 0.1);
-  color: #4f46e5;
-  font-weight: 600;
-}
-
-.tag-chip-count {
-  font-size: 10px;
-  opacity: 0.55;
-}
-
-.result-header {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  padding: 9px 14px 6px;
-}
-
-.result-title {
-  font-size: 14px;
-  font-weight: 700;
-  color: #111827;
-}
-
-.result-count {
-  font-size: 11.5px;
-  color: #9ca3af;
-}
-
-.question-list {
-  padding: 0 14px;
-}
-
-.question-item {
+.py-bank-header {
   display: flex;
   align-items: flex-start;
-  padding: 14px;
-  margin-bottom: 7px;
-  background: #ffffff;
-  border-radius: 10px;
-  border: 1px solid #eef1f4;
-  cursor: pointer;
+  justify-content: space-between;
+  gap: 20px;
+  margin-bottom: 22px;
 }
 
-.question-status {
-  width: 22px;
-  height: 22px;
-  border-radius: 50%;
-  border: 1.5px solid #d1d5db;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  margin-right: 10px;
-  flex-shrink: 0;
+.py-bank-header__intro h1 {
+  margin: 0;
+  color: #17233a;
+  font-size: 28px;
 }
 
-.question-status--done {
-  border-color: #10b981;
-  background: #10b981;
-}
-
-.status-check {
-  font-size: 12px;
-  color: #fff;
-  font-weight: 700;
-  line-height: 1;
-}
-
-.empty-circle {
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  border: 1.5px solid #d1d5db;
-}
-
-.question-content {
-  flex: 1;
-  min-width: 0;
-}
-
-.question-title-row {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  margin-bottom: 6px;
-}
-
-.question-number {
+.py-bank-header__intro p {
+  margin: 7px 0 0;
+  color: #718096;
   font-size: 14px;
-  font-weight: 600;
-  color: #111827;
-  flex-shrink: 0;
 }
 
-.question-title {
-  font-size: 15px;
-  font-weight: 600;
-  color: #111827;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.py-bank-layout {
+  display: grid;
+  grid-template-columns: 280px minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
 }
 
-.difficulty-tag {
-  padding: 1.5px 7px;
-  border-radius: 3px;
-  font-size: 10.5px;
-  font-weight: 600;
-  margin-left: auto;
-  flex-shrink: 0;
+.py-bank-sidebar {
+  padding: 18px;
+  position: sticky;
+  top: 76px;
 }
 
-.difficulty-tag--easy { background: #d1fae5; color: #065f46; }
-.difficulty-tag--medium { background: #ede9fe; color: #5b21b6; }
-.difficulty-tag--hard { background: #fecaca; color: #991b1b; }
-
-.question-meta {
+.py-bank-progress__head {
   display: flex;
-  flex-direction: column;
-  gap: 5px;
-  margin-bottom: 6px;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 10px;
 }
 
-.meta-item {
+.py-bank-progress__head strong {
+  color: #17233a;
+  font-size: 14px;
+}
+
+.py-bank-progress__head span {
+  color: #718096;
   font-size: 12px;
-  color: #6b7280;
 }
 
-.meta-tags-row {
+.py-bank-progress__track {
+  height: 6px;
+  border-radius: 999px;
+  background: #eef2f6;
+  overflow: hidden;
+}
+
+.py-bank-progress__fill {
+  height: 100%;
+  border-radius: 999px;
+  background: #2f76bd;
+}
+
+.py-bank-progress__note {
+  margin: 10px 0 18px;
+  color: #98a2b3;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.py-bank-filter + .py-bank-filter {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid #eef2f6;
+}
+
+.py-bank-filter h2 {
+  margin: 0 0 10px;
+  color: #667085;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.py-bank-chips {
   display: flex;
   flex-wrap: wrap;
-  gap: 5px;
+  gap: 6px;
 }
 
-.meta-tag {
-  padding: 2px 7px;
-  border-radius: 3px;
-  font-size: 10.5px;
-  color: #6b7280;
-  background: #f3f4f6;
-  cursor: pointer;
+.py-bank-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 10px;
+  border: 1px solid #e1e7ed;
+  border-radius: 6px;
+  color: #344054;
+  background: #fff;
+  font-size: 13px;
 }
 
-.question-footer {
+.py-bank-chip span {
+  color: #98a2b3;
+  font-size: 11px;
+}
+
+.py-bank-chip--active {
+  border-color: #b8d4ef;
+  color: #2f76bd;
+  background: #eaf4fd;
+}
+
+.py-bank-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.py-bank-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 9px;
+  border: 1px solid #e1e7ed;
+  border-radius: 999px;
+  color: #667085;
+  background: #f8fafc;
+  font-size: 12px;
+}
+
+.py-bank-tag--active {
+  border-color: #b8d4ef;
+  color: #2f76bd;
+  background: #eaf4fd;
+}
+
+.py-bank-clear {
+  width: 100%;
+  margin-top: 16px;
+  padding: 8px;
+  border: 1px dashed #d0d5dd;
+  border-radius: 6px;
+  color: #667085;
+  background: transparent;
+  font-size: 13px;
+}
+
+.py-bank-main {
+  overflow: hidden;
+}
+
+.py-bank-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 18px;
+  border-bottom: 1px solid #eef2f6;
+}
+
+.py-bank-search {
   display: flex;
   align-items: center;
   gap: 8px;
+  flex: 1;
+  max-width: 420px;
+  padding: 0 12px;
+  border: 1px solid #e1e7ed;
+  border-radius: 8px;
+  background: #f8fafc;
 }
 
-.star-icon {
+.py-bank-search img {
+  width: 16px;
+  height: 16px;
+  opacity: 0.45;
+}
+
+.py-bank-search input {
+  flex: 1;
+  min-width: 0;
+  height: 38px;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: #17233a;
+  font-size: 14px;
+}
+
+.py-bank-search button {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  color: #98a2b3;
+  background: #eef2f6;
+  font-size: 16px;
+  line-height: 1;
+}
+
+.py-bank-count {
+  color: #98a2b3;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.py-bank-table-wrap {
+  overflow-x: auto;
+}
+
+.py-bank-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.py-bank-table th {
+  padding: 12px 14px;
+  border-bottom: 1px solid #eef2f6;
+  color: #667085;
+  background: #fafbfc;
+  font-size: 12px;
+  font-weight: 700;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.py-bank-table td {
+  padding: 14px;
+  border-bottom: 1px solid #f1f3f6;
+  vertical-align: middle;
+}
+
+.py-bank-row {
+  cursor: pointer;
+  transition: background 0.12s;
+}
+
+.py-bank-row:hover,
+.py-bank-row:focus-visible {
+  background: #f8fbff;
+  outline: none;
+}
+
+.col-status { width: 52px; }
+.col-no { width: 56px; color: #667085; font-size: 13px; }
+.col-diff { width: 72px; }
+.col-rate { width: 80px; color: #667085; font-size: 13px; }
+.col-action { width: 100px; text-align: right; }
+
+.py-bank-status {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border: 1.5px solid #d0d5dd;
+  border-radius: 50%;
+  color: transparent;
+}
+
+.py-bank-status--done {
+  border-color: #12b76a;
+  background: #12b76a;
+  color: #fff;
+}
+
+.py-bank-status svg {
   width: 14px;
   height: 14px;
-  opacity: 0.4;
 }
 
-.empty-state,
-.state-block {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  padding: 40px 14px;
-}
-
-.state-block {
-  padding: 60px 14px;
-}
-
-.retry-btn {
-  margin-top: 14px;
-  padding: 8px 22px;
-  border-radius: 999px;
-  background: #ffffff;
-  border: 1px solid #dfe3ea;
-  cursor: pointer;
-}
-
-.retry-btn-text {
-  font-size: 13px;
-  color: #4b5563;
-}
-
-.empty-state-text {
+.py-bank-title {
+  color: #17233a;
   font-size: 14px;
-  color: #9ca3af;
-  margin-bottom: 4px;
+  font-weight: 600;
 }
 
-.empty-state-hint {
+.py-bank-badge {
+  margin-left: 8px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  color: #667085;
+  background: #f2f4f7;
+  font-size: 11px;
+}
+
+.py-diff {
+  display: inline-block;
+  padding: 3px 8px;
+  border-radius: 4px;
   font-size: 12px;
-  color: #d1d5db;
+  font-weight: 600;
+}
+
+.py-diff--easy { color: #027a48; background: #ecfdf3; }
+.py-diff--medium { color: #6941c6; background: #f4f3ff; }
+.py-diff--hard { color: #b42318; background: #fef3f2; }
+
+.py-bank-tag-inline {
+  display: inline-block;
+  margin-right: 4px;
+  padding: 2px 7px;
+  border-radius: 4px;
+  color: #667085;
+  background: #f2f4f7;
+  font-size: 11px;
+}
+
+.py-bank-go {
+  padding: 6px 12px;
+  border-radius: 6px;
+  color: #2f76bd;
+  background: #eaf4fd;
+  font-size: 13px;
+  font-weight: 600;
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+
+.py-bank-row:hover .py-bank-go,
+.py-bank-row:focus-visible .py-bank-go {
+  opacity: 1;
+}
+
+.py-bank-empty,
+.py-bank-state {
+  padding: 48px 24px;
+  text-align: center;
+  color: #667085;
+}
+
+.py-bank-empty p,
+.py-bank-state p {
+  margin: 0 0 14px;
+}
+
+@media (max-width: 960px) {
+  .py-bank-header {
+    flex-direction: column;
+  }
+
+  .py-bank-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .py-bank-sidebar {
+    position: static;
+  }
+
+  .py-bank-go {
+    opacity: 1;
+  }
+
+  .col-tags {
+    display: none;
+  }
 }
 </style>
