@@ -3,7 +3,9 @@ import { Alert, Button, Card, Drawer, Empty, Input, Modal, Segmented, Select, Sp
 import { ApiOutlined, CheckCircleOutlined, DownloadOutlined, ExclamationCircleOutlined, PlusOutlined, ReloadOutlined, RobotOutlined, SaveOutlined, SettingOutlined } from '@ant-design/icons'
 import { getRagAgents, runRagQuery, testFileContentTool } from '../../../api/rag'
 import DiagramWorkspace from '../../../components/DiagramWorkspace/DiagramWorkspace'
+import PptTaskWorkspace from '../../../components/PptTaskWorkspace/PptTaskWorkspace'
 import { extractDiagramFromResponse } from '../../../utils/diagramUtils'
+import { extractPptTaskFromResponse } from '../../../utils/pptUtils'
 import { getSystemConfigList, upsertSystemConfig } from '../../../api/systemConfig'
 import axios from 'axios'
 import { API_BASE_URL } from '../../../config/apiBase'
@@ -118,6 +120,7 @@ const TOOL_TEST_PROMPTS = {
   pptx_export_tool: '请把以下内容生成并导出为 PPTX：校园二手交易平台介绍，包括发布、沟通、线下交易。',
   content_archive_tool: '请把以下内容分别导出为 Markdown 和 Word，并将所有附件打包成 ZIP：校园二手交易测试内容。',
   diagram_source_export_tool: '请生成校园二手交易流程的 Mermaid 流程图，并导出图表源码文件。',
+  ai_ppt_generation_tool: '请生成一份 8 页 PPT，主题是校园二手交易平台介绍，包含发布商品、沟通议价、线下交易三个部分。',
 }
 
 const getToolTestPrompt = (tool) => TOOL_TEST_PROMPTS[tool?.name]
@@ -786,6 +789,11 @@ function AgentSettings() {
     [toolTestResult?.response]
   )
 
+  const toolTestPptTask = useMemo(
+    () => extractPptTaskFromResponse(toolTestResult?.response),
+    [toolTestResult?.response]
+  )
+
   const selectToolForTest = useCallback((name) => {
     const tool = allConfiguredTools.find((item) => item.name === name)
     setToolTestName(name)
@@ -949,7 +957,9 @@ function AgentSettings() {
       if (toolTestImages.length) payload.imageDataUrls = toolTestImages.map((item) => item.url)
       const res = await runRagQuery(payload)
       const durationMs = Math.round(performance.now() - startedAt)
+      const pptTask = extractPptTaskFromResponse(res.data)
       const matched = responseContainsTool(res.data, selectedToolTest.name)
+        || (selectedToolTest.name === 'ai_ppt_generation_tool' && Boolean(pptTask?.taskId))
       setToolTestResult({
         status: matched ? 'success' : 'mismatch',
         matched,
@@ -957,8 +967,15 @@ function AgentSettings() {
         request: payload,
         response: res.data,
       })
-      if (matched) message.success(`${selectedToolTest.zhName || selectedToolTest.name}测试通过`)
-      else message.warning('请求执行成功，但 trace 中未确认目标工具被调用')
+      if (matched) {
+        if (pptTask?.taskId) {
+          message.success('PPT 生成任务已创建，可在下方查看进度')
+        } else {
+          message.success(`${selectedToolTest.zhName || selectedToolTest.name}测试通过`)
+        }
+      } else {
+        message.warning('请求执行成功，但 trace 中未确认目标工具被调用')
+      }
     } catch (error) {
       setToolTestResult({
         status: 'error',
@@ -1908,6 +1925,12 @@ function AgentSettings() {
                               type={toolTestDiagramPreview.type}
                               result={toolTestDiagramPreview.result}
                             />
+                          </div>
+                        ) : null}
+                        {toolTestPptTask ? (
+                          <div className="agent-settings-tool-test-output agent-settings-tool-test-ppt">
+                            <Text strong>PPT 生成任务</Text>
+                            <PptTaskWorkspace seedTask={toolTestPptTask} />
                           </div>
                         ) : null}
                         {toolTestResult.mode === 'manual' && toolTestResult.response ? (

@@ -25,6 +25,7 @@ from app.model_providers.multimodal import (
     extract_image_references,
 )
 from app.model_providers.runtime_config import build_llm_runtime_config, reset_active_llm_config, set_active_llm_config
+from app.request_context import reset_request_user_id, set_request_user_id
 from app.observability.langfuse import observe_request, settings_from_headers, use_settings
 from app.multi_agents.catalog import (
     INTERNAL_ONLY_AGENT_NAMES,
@@ -57,6 +58,10 @@ from app.services.assistant_resource_builder import (
     finalize_assistant_response,
 )
 from app.services.data_store import data_store
+from app.services.ai_ppt_generation_tool_service import (
+    PPT_OUTLINE_AGENT_NAME,
+    start_leader_ppt_generation,
+)
 from app.services.structured_diagram_service import (
     generate_architecture as generate_structured_architecture,
     generate_flowchart as generate_structured_flowchart,
@@ -164,6 +169,32 @@ STRUCTURED_DIAGRAM_TOOLS = [
     for tool_name, config in STRUCTURED_DIAGRAM_TOOL_CONFIG.items()
 ]
 STRUCTURED_DIAGRAM_TOOL_NAMES = frozenset(STRUCTURED_DIAGRAM_TOOL_CONFIG)
+AI_PPT_GENERATION_TOOL_CONFIG = {
+    "ai_ppt_generation_tool": {
+        "zhName": "AI PPT 生成工具",
+        "purpose": "根据用户输入触发与 App 相同的 PPT 编排链路：大纲、结构、逐页内容与 PPTX 导出。",
+        "trigger": "用户要求生成 PPT、课件、演示文稿或可下载的幻灯片。",
+        "answerType": "ppt_generation_task",
+        "output": "ppt_generation_task",
+        "boundAgent": PPT_OUTLINE_AGENT_NAME,
+    },
+}
+PPT_GENERATION_TOOLS = [
+    {
+        "name": tool_name,
+        "zhName": config["zhName"],
+        "displayName": f"{config['zhName']}（{tool_name}）",
+        "category": "presentation_generation",
+        "purpose": config["purpose"],
+        "trigger": config["trigger"],
+        "outputs": [config["output"], "pptx", "preview"],
+        "status": "implemented",
+        "configurable": True,
+        "boundAgent": config.get("boundAgent", ""),
+    }
+    for tool_name, config in AI_PPT_GENERATION_TOOL_CONFIG.items()
+]
+AI_PPT_GENERATION_TOOL_NAMES = frozenset(AI_PPT_GENERATION_TOOL_CONFIG)
 REMOVED_TOOL_NAMES = frozenset({
     "generate_ppt_image_tool",
     "generate_activity_image_tool",
@@ -351,12 +382,12 @@ GENERATED_CONTENT_TOOLS = [
         "zhName": "AI PPT 生成工具",
         "displayName": "AI PPT 生成工具（ai_ppt_generation_tool）",
         "category": "presentation_generation",
-        "purpose": "接收已确认的大纲、逐页内容、公共提示词和单页私有提示词，生成可预览、可编辑、可导出的 PPTX 任务结果。",
-        "trigger": "仅供统一 AIPPT 专用流程显式调用；当前只注册工具与开关，暂未接入 Leader 或工作流调用。",
-        "outputs": ["outline_json", "slide_json", "preview", "pptx"],
-        "status": "registered",
+        "purpose": AI_PPT_GENERATION_TOOL_CONFIG["ai_ppt_generation_tool"]["purpose"],
+        "trigger": AI_PPT_GENERATION_TOOL_CONFIG["ai_ppt_generation_tool"]["trigger"],
+        "outputs": ["outline_json", "slide_json", "preview", "pptx", "ppt_generation_task"],
+        "status": "implemented",
         "configurable": True,
-        "invocation": "unwired",
+        "boundAgent": PPT_OUTLINE_AGENT_NAME,
     },
     {
         "name": "content_archive_tool",
@@ -579,6 +610,7 @@ LEADER_CALLABLE_TOOLS = [
     IMAGE_RECOGNITION_TOOL,
     *VISUAL_GENERATION_TOOLS,
     *STRUCTURED_DIAGRAM_TOOLS,
+    *PPT_GENERATION_TOOLS,
     *CAMPUS_SERVICE_TOOLS,
     TOOL_CAPABILITY_QUERY,
     {
@@ -1016,6 +1048,7 @@ def run_rag_query(
     x_ai_base_url: Optional[str] = Header(default=None, alias="X-AI-Base-Url"),
     x_ai_api_key: Optional[str] = Header(default=None, alias="X-AI-Api-Key"),
     x_ai_model: Optional[str] = Header(default=None, alias="X-AI-Model"),
+    x_user_id: Optional[str] = Header(default=None, alias="X-User-Id"),
     x_langfuse_enabled: Optional[str] = Header(default=None, alias="X-Langfuse-Enabled"),
     x_langfuse_base_url: Optional[str] = Header(default=None, alias="X-Langfuse-Base-Url"),
     x_langfuse_public_key: Optional[str] = Header(default=None, alias="X-Langfuse-Public-Key"),
@@ -1047,6 +1080,7 @@ def run_rag_query(
         api_key=x_ai_api_key,
         model=x_ai_model,
     ))
+    user_token = set_request_user_id(x_user_id)
     try:
         with use_settings(settings_from_headers(x_langfuse_enabled, x_langfuse_base_url, x_langfuse_public_key, x_langfuse_secret_key)):
             with observe_request(
@@ -1083,6 +1117,7 @@ def run_rag_query(
         )
         return response
     finally:
+        reset_request_user_id(user_token)
         reset_active_llm_config(token)
 
 
@@ -1110,6 +1145,7 @@ async def run_rag_query_stream(
         model=x_ai_model,
     )
     learning_workflow = _is_learning_workflow_request(request)
+    user_token = set_request_user_id(x_user_id)
 
     async def event_stream():
         stream_started_at = request_started_at
@@ -1377,6 +1413,7 @@ async def run_rag_query_stream(
             else:
                 yield build_sse("error", _build_stream_error_payload(request, exc, llm_config))
         finally:
+            reset_request_user_id(user_token)
             reset_active_llm_config(token)
             observation_scope.__exit__(None, None, None)
             settings_scope.__exit__(None, None, None)
@@ -1751,6 +1788,8 @@ def _build_direct_tool_test_plan(tool_name: str) -> LeaderPlan:
         intent = "campus_service"
     elif tool_name == TOOL_CAPABILITY_QUERY_NAME:
         intent = "capability_inquiry"
+    elif tool_name in AI_PPT_GENERATION_TOOL_NAMES:
+        intent = "ppt_generation"
     return LeaderPlan(
         intent=intent,
         target_agent=tool_name,
@@ -2886,6 +2925,8 @@ def _execute_leader_plan(
             response = _run_visual_generation_tool(request, plan)
         elif plan.tool_name in STRUCTURED_DIAGRAM_TOOL_NAMES:
             response = _run_structured_diagram_tool(request, authorization, plan)
+        elif plan.tool_name in AI_PPT_GENERATION_TOOL_NAMES:
+            response = _run_ai_ppt_generation_tool(request, plan)
         else:
             raise HTTPException(status_code=502, detail=f"Leader 选择了未注册工具：{plan.tool_name or '空'}，已停止执行。")
         _inject_tool_selection_into_response(response, callable_catalog)
@@ -3836,6 +3877,74 @@ def _run_structured_diagram_tool(
             "nodeCount": len(diagram.get("nodes") or []),
             "layerCount": len(diagram.get("layers") or []),
             "message": "已生成结构化图表 JSON",
+        }),
+    ]
+    return _decorate_output_response(RagQueryResponse(
+        strategy=tool_name,
+        answer=answer,
+        answerType=answer_type,
+        documents=[],
+        trace=trace,
+        metadata=metadata,
+    ))
+
+
+def _run_ai_ppt_generation_tool(
+    request: RagQueryRequest,
+    leader_plan,
+) -> RagQueryResponse:
+    tool_name = str(getattr(leader_plan, "tool_name", "") or "").strip()
+    config = AI_PPT_GENERATION_TOOL_CONFIG.get(tool_name)
+    if not config:
+        raise HTTPException(status_code=502, detail=f"未注册的 PPT 生成工具：{tool_name or '空'}")
+    bound_agent = str(config.get("boundAgent") or PPT_OUTLINE_AGENT_NAME)
+    runtime_config = _require_agent_runtime_config(request, bound_agent, leader_plan)
+    token = set_active_llm_config(runtime_config)
+    try:
+        metadata = request.metadata if isinstance(request.metadata, dict) else {}
+        task_payload = start_leader_ppt_generation(
+            str(request.input or ""),
+            runtime_config,
+            metadata,
+        )
+    finally:
+        reset_active_llm_config(token)
+    title = str(task_payload.get("title") or "演示文稿").strip()
+    answer_type = str(config.get("answerType") or "ppt_generation_task")
+    answer = (
+        f"已为你启动「{title}」的 PPT 生成任务，系统正在按 App 同款流程生成大纲、逐页内容与 PPTX。"
+        f"任务编号：{task_payload.get('taskId') or ''}"
+    )
+    metadata = {
+        "agentName": "leader_agent",
+        "targetAgent": tool_name,
+        "executedAgent": tool_name,
+        "toolName": tool_name,
+        "boundAgent": bound_agent,
+        "boundAgentLabel": _tool_display_name(bound_agent),
+        "pptTask": task_payload,
+        "intent": getattr(leader_plan, "intent", "") or "ppt_generation",
+        "needRetrieval": False,
+        "retrievalSkipped": True,
+        "strategyLabel": config.get("purpose") or _tool_display_name(tool_name),
+        "executionMode": "leader_call_tool",
+        "executionModeLabel": "Leader 调用 AI PPT 生成工具",
+        "answerType": answer_type,
+        "outputType": answer_type,
+        "leaderAction": leader_plan.action,
+        "leaderActionLabel": _leader_action_label(leader_plan.action),
+        "routeReason": leader_plan.route_reason,
+    }
+    metadata.update(_context_metadata_from_request(request))
+    trace = [
+        RagTraceResponse(stage="leader_route", detail=_leader_plan_detail(leader_plan)),
+        RagTraceResponse(stage="ai_ppt_generation_tool", detail={
+            "toolName": tool_name,
+            "toolDisplayName": _tool_display_name(tool_name),
+            "taskId": task_payload.get("taskId"),
+            "status": task_payload.get("status"),
+            "title": title,
+            "message": task_payload.get("message"),
         }),
     ]
     return _decorate_output_response(RagQueryResponse(

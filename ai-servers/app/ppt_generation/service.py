@@ -2709,6 +2709,193 @@ class PptGenerationService:
                 future.result()
         return result
 
+    def create_leader_pipeline_task(
+        self,
+        user_id: str,
+        request: Mapping[str, Any],
+        llm_config: Any,
+    ) -> Dict[str, Any]:
+        source_content = str(request.get("sourceContent") or "").strip()
+        if not source_content:
+            raise HTTPException(status_code=422, detail="sourceContent 不能为空")
+        task_id = f"ppt_task_{uuid.uuid4().hex}"
+        now = int(time.time() * 1000)
+        topic = str(request.get("topic") or request.get("sourceName") or "演示文稿").strip()
+        task = {
+            "taskId": task_id,
+            "kind": "leader_ppt_pipeline",
+            "userId": user_id,
+            "status": "queued",
+            "progress": 0,
+            "stage": "queued",
+            "message": "PPT 生成任务已进入队列",
+            "currentSlide": 0,
+            "totalSlides": 0,
+            "completedSlides": 0,
+            "remainingSlides": 0,
+            "processingSlides": [],
+            "createdAt": now,
+            "updatedAt": now,
+            "deadlineAt": self._deadline_ms(PPT_TASK_TIMEOUT_SECONDS),
+            "sourceName": topic,
+            "outline": {},
+            "slides": [],
+            "sharedPrompt": str(request.get("sharedPrompt") or ""),
+            "settings": copy.deepcopy(request.get("settings") or {}),
+            "error": None,
+        }
+        self._register_task(task)
+        self._executor.submit(
+            self._execute_leader_pipeline_task,
+            task_id,
+            copy.deepcopy(dict(request)),
+            llm_config,
+            user_id,
+        )
+        return {
+            "taskId": task_id,
+            "status": "queued",
+            "kind": "leader_ppt_pipeline",
+            "message": "已启动 PPT 编排任务，将依次生成大纲、逐页内容与 PPTX。",
+            "pollPath": f"/api/app/ai/ppt/tasks/{task_id}",
+            "streamPath": f"/api/app/ai/ppt/tasks/{task_id}/stream",
+        }
+
+    def _execute_leader_pipeline_task(
+        self,
+        task_id: str,
+        request: Dict[str, Any],
+        llm_config: Any,
+        user_id: str,
+    ) -> None:
+        outline_progress_floor = 5
+
+        def report_outline(event: Mapping[str, Any]) -> None:
+            if self._task_is_stopped(task_id):
+                return
+            try:
+                progress = int(event.get("progress") or outline_progress_floor)
+            except (TypeError, ValueError):
+                progress = outline_progress_floor
+            scaled = 5 + int(max(0, min(99, progress)) * 0.30)
+            self._update(
+                task_id,
+                status="running",
+                stage=str(event.get("stage") or "outline"),
+                progress=scaled,
+                message=str(event.get("message") or "正在生成 PPT 大纲"),
+            )
+
+        def report_slides(event: Mapping[str, Any]) -> None:
+            if self._task_is_stopped(task_id):
+                return
+            try:
+                progress = int(event.get("progress") or 0)
+            except (TypeError, ValueError):
+                progress = 0
+            scaled = 38 + int(max(0, min(99, progress)) * 0.42)
+            payload = {
+                "status": "running",
+                "stage": str(event.get("stage") or "writing"),
+                "progress": scaled,
+                "message": str(event.get("message") or "正在生成逐页内容"),
+            }
+            for key in ("currentSlide", "totalSlides", "completedSlides", "remainingSlides", "processingSlides"):
+                if key in event:
+                    payload[key] = event.get(key)
+            self._update(task_id, **payload)
+
+        try:
+            if self._task_is_stopped(task_id):
+                return
+            self._update(
+                task_id,
+                status="running",
+                stage="outline",
+                progress=5,
+                message="正在分析资料并生成 PPT 大纲",
+            )
+            outline = self.generate_outline(
+                request,
+                llm_config,
+                user_id,
+                progress_callback=report_outline,
+            )
+            items = outline.get("items") if isinstance(outline.get("items"), list) else []
+            self._update(
+                task_id,
+                stage="slides",
+                progress=38,
+                message="大纲已完成，正在生成逐页内容",
+                outline=outline,
+                totalSlides=len(items),
+                remainingSlides=len(items),
+            )
+            slides_request = {
+                "outline": outline,
+                "sourceContent": request.get("sourceContent") or "",
+                "sourceSupplement": request.get("sourceSupplement") or "",
+                "settings": request.get("settings") or {},
+                "sharedPrompt": request.get("sharedPrompt") or "",
+                "audience": request.get("audience") or "",
+                "tone": request.get("tone") or "",
+            }
+            slides_result = self.generate_slides(
+                slides_request,
+                llm_config,
+                user_id,
+                progress_callback=report_slides,
+                task_id=task_id,
+            )
+            slides = slides_result.get("slides") if isinstance(slides_result.get("slides"), list) else []
+            if len(slides) < 2:
+                raise HTTPException(status_code=502, detail="PPT 逐页内容生成失败，页面数量不足")
+            render_request = {
+                "sourceName": str(outline.get("title") or request.get("sourceName") or "演示文稿"),
+                "outline": outline,
+                "slides": slides,
+                "sharedPrompt": str(request.get("sharedPrompt") or ""),
+                "settings": slides_request.get("settings") or {},
+                "contentQuality": slides_result.get("contentQuality") or {},
+                "generationWarnings": list(slides_result.get("warnings") or []),
+                "exportFormats": ["pptx"],
+            }
+            with self._lock:
+                task = self._task_store.get(task_id) or self._tasks.get(task_id)
+                if task is None:
+                    raise KeyError(task_id)
+                task.update({
+                    "outline": copy.deepcopy(outline),
+                    "slides": copy.deepcopy(slides),
+                    "sharedPrompt": render_request["sharedPrompt"],
+                    "settings": copy.deepcopy(render_request["settings"]),
+                    "generationWarnings": render_request["generationWarnings"],
+                    "contentQuality": copy.deepcopy(render_request["contentQuality"]),
+                    "exportFormats": ["pptx"],
+                    "status": "queued",
+                    "stage": "queued",
+                    "progress": 82,
+                    "message": "逐页内容已完成，正在渲染并导出 PPTX",
+                    "deadlineAt": self._deadline_ms(PPT_TASK_TIMEOUT_SECONDS),
+                    "error": None,
+                })
+                self._tasks[task_id] = task
+                self._task_store.put(task)
+            self._execute_task(task_id, render_request, llm_config)
+        except PptTaskStopped:
+            return
+        except Exception as exc:
+            if self._task_is_stopped(task_id):
+                return
+            logger.exception("leader PPT pipeline failed")
+            self._update(
+                task_id,
+                status="failed",
+                stage="failed",
+                message="PPT 生成失败",
+                error={"type": exc.__class__.__name__, "message": _safe_error_message(exc)},
+            )
+
     def _is_cancelled(self, task_id: str) -> bool:
         return self._task_is_stopped(task_id)
 

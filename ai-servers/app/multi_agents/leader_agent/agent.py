@@ -688,7 +688,15 @@ class LeaderAgent:
         ):
             return LeaderPlan("ppt_image", "leader_agent", False, "", action="call_tool", tool_name="generate_image_tool", route_reason="命中 PPT 图片/配图意图，调用通用图片生成工具。")
         if any(token in normalized for token in ("ppt", "幻灯片", "课件", "演示文稿")):
-            return LeaderPlan("ppt_outline", "ppt_outline_agent", False, "", route_reason="命中 PPT/课件生成意图，默认分发给 PPT 大纲智能体。")
+            return LeaderPlan(
+                "ppt_generation",
+                "leader_agent",
+                False,
+                "",
+                action="call_tool",
+                tool_name="ai_ppt_generation_tool",
+                route_reason="命中 PPT/课件生成意图，调用 AI PPT 生成工具。",
+            )
         if any(token in normalized for token in ("md", "markdown", "知识点提取", "提取知识点", "知识点整理")):
             return LeaderPlan("textbook_knowledge", "textbook_knowledge_agent", False, "", route_reason="命中 Markdown/文本教材知识点整理意图，统一交给教材知识点智能体。")
         if any(token in normalized for token in ("教材", "课本", "章节", "考点", "知识点", "课程内容")):

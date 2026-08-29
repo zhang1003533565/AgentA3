@@ -312,7 +312,9 @@ public class PythonAiProxyService {
         if (!modelOptional && !StringUtils.hasText(requestedModel)) {
             throw new BusinessException(Result.ERROR_CODE, "请选择已测试成功的模型后再执行智能体");
         }
-        Map<String, Object> sanitized = sanitizeRagRequest(withAgentToggles(request));
+        String token = normalizeBearerToken(authorization);
+        Long userId = extractUserId(token);
+        Map<String, Object> sanitized = sanitizeRagRequest(withAgentToggles(request, userId));
         return postRagObject("/internal/rag/query", sanitized, authorization, requestedModel);
     }
 
@@ -587,7 +589,9 @@ public class PythonAiProxyService {
                     "Leader 未配置可用文本模型，请在后台为 leader_agent 绑定已测试模型，或配置默认文本模型。"
             );
         }
-        Map<String, Object> sanitized = sanitizeRagRequest(withAgentToggles(request));
+        String token = normalizeBearerToken(authorization);
+        Long userId = extractUserId(token);
+        Map<String, Object> sanitized = sanitizeRagRequest(withAgentToggles(request, userId));
         return streamPythonObject(
                 "/internal/rag/query/stream",
                 sanitized,
@@ -1713,11 +1717,18 @@ public class PythonAiProxyService {
     }
 
     private Map<String, Object> withAgentToggles(Map<String, Object> request) {
+        return withAgentToggles(request, null);
+    }
+
+    private Map<String, Object> withAgentToggles(Map<String, Object> request, Long userId) {
         Map<String, Object> copy = request == null ? new HashMap<>() : new HashMap<>(request);
         Map<String, Object> metadata = new HashMap<>();
         Object rawMetadata = copy.get("metadata");
         if (rawMetadata instanceof Map<?, ?> sourceMetadata) {
             sourceMetadata.forEach((key, value) -> metadata.put(String.valueOf(key), value));
+        }
+        if (userId != null && userId > 0L) {
+            metadata.put("userId", userId);
         }
         metadata.put("agentToggles", loadAgentToggles());
         metadata.put("agentModelConfigs", loadAgentModelConfigs());

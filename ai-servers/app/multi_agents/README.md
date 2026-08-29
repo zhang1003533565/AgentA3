@@ -33,6 +33,7 @@
 | 思维导图 | `generate_mind_map_tool` | 工具编排 | 调用 App 结构化 JSON 生成；模型绑定 `diagram_mind_map_agent` |
 | 流程图 | `generate_flowchart_tool` | 工具编排 | 调用 App 结构化 JSON 生成；模型绑定 `diagram_flowchart_agent` |
 | 架构图 | `generate_architecture_tool` | 工具编排 | 调用 App 结构化 JSON 生成；模型绑定 `diagram_architecture_agent` |
+| PPT 课件 | `ai_ppt_generation_tool` | 工具编排 | 触发与 App 相同的 Presenton 编排任务；模型绑定 `ppt_outline_agent` |
 | 教材知识点 | `textbook_knowledge_agent` | Java 后端负责第三方知识库接入 | `input` 为章节、知识点问题或 Markdown 教材文本 |
 | 选择题 | `textbook_question_single_choice_agent` | 直接处理输入上下文 | `input` 为出题范围 |
 | 填空题 | `textbook_question_fill_blank_agent` | 直接处理输入上下文 | `input` 为出题范围 |

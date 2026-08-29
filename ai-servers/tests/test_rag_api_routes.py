@@ -183,22 +183,14 @@ class RagApiRoutesTest(unittest.TestCase):
 
         self.assertTrue(export_tool["enabled"])
 
-    def test_ai_ppt_tool_is_configurable_but_not_leader_callable_before_wiring(self):
-        request = SimpleNamespace(metadata={
-            "toolToggles": {"ai_ppt_generation_tool": False},
-        })
-
-        catalog = self._rag_routes._build_leader_callable_catalog(request)
-        content_tool = next(
-            item
-            for item in catalog["tools"]
-            if item["name"] == "ai_ppt_generation_tool"
-        )
-
-        self.assertFalse(content_tool["enabled"])
-        self.assertEqual("unwired", content_tool["invocation"])
-        self.assertEqual("registered", content_tool["status"])
-        self.assertIn("ai_ppt_generation_tool", {item["name"] for item in catalog["tools"]})
+    def test_ai_ppt_tool_is_leader_callable(self):
+        response = self.client.get("/internal/rag/agents", headers=self.headers)
+        self.assertEqual(200, response.status_code)
+        leader_tool_names = {item["name"] for item in response.json()["leaderTools"]}
+        self.assertIn("ai_ppt_generation_tool", leader_tool_names)
+        ppt_tool = next(item for item in response.json()["generatedTools"] if item["name"] == "ai_ppt_generation_tool")
+        self.assertEqual("implemented", ppt_tool["status"])
+        self.assertEqual("ppt_outline_agent", ppt_tool.get("boundAgent"))
 
     def test_file_content_extraction_tools_are_exposed_for_admin_toggles(self):
         response = self.client.get("/internal/rag/agents", headers=self.headers)

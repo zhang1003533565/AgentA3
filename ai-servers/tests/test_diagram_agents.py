@@ -55,6 +55,12 @@ class DiagramAgentsTest(unittest.TestCase):
             self.assertEqual("leader_agent", plan.target_agent)
             self.assertEqual(tool_name, plan.tool_name)
 
+    def test_rule_router_uses_ai_ppt_generation_tool(self):
+        plan = leader_agent._plan_with_rules("帮我生成操作系统进程调度课件")
+        self.assertEqual("call_tool", plan.action)
+        self.assertEqual("ai_ppt_generation_tool", plan.tool_name)
+        self.assertEqual("leader_agent", plan.target_agent)
+
     def test_only_image_agent_imports_the_image_provider(self):
         image_module = importlib.import_module("app.multi_agents.image_agent.agent")
         self.assertTrue(hasattr(image_module, "get_qwen_image_provider"))
