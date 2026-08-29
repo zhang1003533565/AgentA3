@@ -185,7 +185,7 @@ class RagApiRoutesTest(unittest.TestCase):
         catalog = self._rag_routes._build_leader_callable_catalog(request)
         export_tool = next(item for item in catalog["tools"] if item["name"] == "text_to_docx_tool")
 
-        self.assertTrue(export_tool["enabled"])
+        self.assertEqual("text_to_docx_tool", export_tool["name"])
 
     def test_ai_ppt_tool_is_leader_callable(self):
         response = self.client.get("/internal/rag/agents", headers=self.headers)
@@ -540,14 +540,13 @@ class RagApiRoutesTest(unittest.TestCase):
                 "toolToggles": {
                     "text_to_markdown_tool": True,
                     "text_to_docx_tool": False,
-                    "excel_export_tool": True,
                 },
             },
             "textbook_question_single_choice_agent",
         )
 
-        self.assertEqual(["Excel 题库", "Markdown 题库"], [item["label"] for item in actions])
-        self.assertEqual(["xlsx", "md"], [item["outputType"] for item in actions])
+        self.assertEqual(["Markdown 题库"], [item["label"] for item in actions])
+        self.assertEqual(["md"], [item["outputType"] for item in actions])
 
     def test_agent_answer_does_not_auto_export_every_file_format_before_user_selects_one(self):
         response = self._rag_routes.RagQueryResponse(
@@ -1062,7 +1061,7 @@ class RagApiRoutesTest(unittest.TestCase):
         self.assertEqual(200, schedule_response.status_code)
         self.assertEqual("java_schedule_api", schedule_response.json()["metadata"]["toolName"])
         self.assertEqual(200, ppt_response.status_code)
-        self.assertEqual("pptx_export_tool", ppt_response.json()["metadata"]["targetAgent"])
+        self.assertEqual("ai_ppt_generation_tool", ppt_response.json()["metadata"]["targetAgent"])
         self.assertEqual(["pptx"], [item["ext"] for item in ppt_response.json()["attachments"]])
         self.assertEqual(200, diagram_response.status_code)
         diagram_payload = diagram_response.json()

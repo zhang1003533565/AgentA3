@@ -124,9 +124,8 @@ class LeaderFastRouteTest(unittest.TestCase):
     def test_explicit_file_export_requests_use_content_export_tool_without_calling_router_model(self):
         requests = {
             "给我导出word": ("document_export", "text_to_docx_tool"),
-            "把这些内容转成 Excel": ("document_export", "excel_export_tool"),
             "整理成 Markdown 文件": ("document_export", "text_to_markdown_tool"),
-            "给我制作成 PPT": ("document_export", "pptx_export_tool"),
+            "给我制作成 PPT": ("document_export", "ai_ppt_generation_tool"),
         }
 
         for query, (expected_intent, expected_tool) in requests.items():

@@ -137,9 +137,9 @@ TEXT_TO_FILE_TOOL_BY_FORMAT = {
 TEXT_TO_FILE_TOOL_NAMES = frozenset(TEXT_TO_FILE_TOOL_BY_FORMAT.values())
 CONTENT_EXPORT_FORMAT_TOOL_BY_FORMAT = dict(TEXT_TO_FILE_TOOL_BY_FORMAT)
 CONTENT_EXPORT_LEGACY_TOOL_ALIASES = {
-    TEXT_TO_MARKDOWN_TOOL_NAME: (MARKDOWN_EXPORT_TOOL_NAME, GENERATED_EXPORT_TOOL_NAME),
-    TEXT_TO_DOCX_TOOL_NAME: (DOCX_EXPORT_TOOL_NAME, GENERATED_EXPORT_TOOL_NAME),
-    TEXT_TO_TXT_TOOL_NAME: (GENERATED_EXPORT_TOOL_NAME,),
+    TEXT_TO_MARKDOWN_TOOL_NAME: (MARKDOWN_EXPORT_TOOL_NAME,),
+    TEXT_TO_DOCX_TOOL_NAME: (DOCX_EXPORT_TOOL_NAME,),
+    TEXT_TO_TXT_TOOL_NAME: (),
 }
 FORMAT_EXPORT_TOOL_BY_FORMAT = {
     **CONTENT_EXPORT_FORMAT_TOOL_BY_FORMAT,
@@ -148,6 +148,11 @@ FORMAT_EXPORT_TOOL_BY_FORMAT = {
     "zip": ARCHIVE_EXPORT_TOOL_NAME,
     "mmd": DIAGRAM_SOURCE_EXPORT_TOOL_NAME,
 }
+RETIRED_EXPORT_TOOL_NAMES = frozenset({
+    EXCEL_EXPORT_TOOL_NAME,
+    PPTX_EXPORT_TOOL_NAME,
+    ARCHIVE_EXPORT_TOOL_NAME,
+})
 KNOWN_EXPORT_TOOL_NAMES = {
     GENERATED_EXPORT_TOOL_NAME,
     MARKDOWN_EXPORT_TOOL_NAME,
@@ -967,18 +972,24 @@ def _export_tool_for_format(file_format: str) -> str:
     return str(FORMAT_EXPORT_TOOL_BY_FORMAT.get(str(file_format or "").strip().lower()) or "").strip()
 
 
+def resolve_content_export_tool_enabled(toggles: Any, tool_name: str) -> bool:
+    normalized = str(tool_name or "").strip()
+    if normalized in RETIRED_EXPORT_TOOL_NAMES:
+        if not isinstance(toggles, dict) or normalized not in toggles:
+            return False
+        return _parse_enabled_value(toggles.get(normalized))
+    if isinstance(toggles, dict) and normalized in toggles:
+        return _parse_enabled_value(toggles.get(normalized))
+    if isinstance(toggles, dict):
+        for legacy_name in CONTENT_EXPORT_LEGACY_TOOL_ALIASES.get(normalized, ()):
+            if legacy_name in toggles and _parse_enabled_value(toggles.get(legacy_name)):
+                return True
+    return True
+
+
 def _is_export_tool_enabled(metadata: Dict[str, Any], tool_name: str) -> bool:
     toggles = metadata.get("toolToggles")
-    if not isinstance(toggles, dict):
-        return True
-    if tool_name in toggles and _parse_enabled_value(toggles.get(tool_name)):
-        return True
-    if tool_name in toggles:
-        return False
-    for legacy_name in CONTENT_EXPORT_LEGACY_TOOL_ALIASES.get(tool_name, ()):
-        if legacy_name in toggles:
-            return _parse_enabled_value(toggles.get(legacy_name))
-    return True
+    return resolve_content_export_tool_enabled(toggles, tool_name)
 
 
 def _parse_enabled_value(value: Any) -> bool:

@@ -403,9 +403,9 @@ class LeaderAgent:
         if any(token in normalized for token in ("word", "docx")):
             return "text_to_docx_tool"
         if any(token in normalized for token in ("excel", "xlsx", "表格版")):
-            return "excel_export_tool"
+            return None
         if any(token in normalized for token in ("ppt", "pptx", "幻灯片")):
-            return "pptx_export_tool"
+            return "ai_ppt_generation_tool"
         if any(token in normalized for token in ("文档版", "文件版")):
             for tool_name in ("text_to_docx_tool", "text_to_markdown_tool", "text_to_txt_tool"):
                 if self._catalog_tool_enabled(callable_catalog, tool_name):
@@ -1507,13 +1507,13 @@ def _leader_profile_usage_policy(callable_catalog: Optional[Dict[str, Any]]) -> 
         "text_to_markdown_tool",
         "text_to_docx_tool",
         "text_to_txt_tool",
-        "excel_export_tool",
-        "pptx_export_tool",
+        "ai_ppt_generation_tool",
     )
     if any(_catalog_has_tool(callable_catalog, tool_name) for tool_name in content_export_tools):
         policies.extend([
-            "用户要求文件版/文档版/Excel/Word/Markdown/PPT 文件时，按目标格式选择 text_to_markdown_tool、text_to_docx_tool、text_to_txt_tool、excel_export_tool 或 pptx_export_tool；工具内部负责组织内容并生成附件，不要把长内容只当纯文字回复。",
-            "用户要求题库表格或题库 Excel 时，仍先选择对应题型智能体生成严格题库 JSON，再由对应格式工具转换为 md/docx/xlsx。",
+            "用户要求文件版/文档版/Word/Markdown 文件时，按目标格式选择 text_to_markdown_tool、text_to_docx_tool 或 text_to_txt_tool；工具内部负责组织内容并生成附件，不要把长内容只当纯文字回复。",
+            "用户要求 PPT/PPTX/幻灯片文件时，选择 ai_ppt_generation_tool 生成完整演示文稿。",
+            "用户要求题库表格或题库 Excel 时，仍先选择对应题型智能体生成严格题库 JSON，再由 md/docx 内容整理工具导出。",
             "用户已经提供了要导出的 Markdown、普通文本或标准题库 JSON，且要求整理成文件时，调用对应格式的内容整理工具。",
         ])
     if any(

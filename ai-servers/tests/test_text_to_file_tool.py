@@ -157,12 +157,14 @@ class TextToFileRagRouteTest(unittest.TestCase):
         self.assertTrue(self._rag_routes._is_tool_enabled(SimpleNamespace(metadata={}), "text_to_markdown_tool"))
         disabled_request = SimpleNamespace(metadata={"toolToggles": {"text_to_markdown_tool": False}})
         self.assertFalse(self._rag_routes._is_tool_enabled(disabled_request, "text_to_markdown_tool"))
+        legacy_master_off = SimpleNamespace(metadata={"toolToggles": {"generated_export_tools": False}})
+        self.assertTrue(self._rag_routes._is_tool_enabled(legacy_master_off, "text_to_markdown_tool"))
 
-    def test_transform_plan_keeps_format_tools_for_pptx_and_xlsx(self):
-        for output_type, expected in (("pptx", "pptx_export_tool"), ("xlsx", "excel_export_tool")):
+    def test_transform_plan_no_longer_routes_xlsx_or_pptx(self):
+        for output_type in ("pptx", "xlsx"):
             with self.subTest(output_type=output_type):
                 plan = self._rag_routes._requested_file_transform_plan(self._transform_request(output_type))
-                self.assertEqual(expected, plan.tool_name)
+                self.assertIsNone(plan)
 
     def test_transform_plan_does_not_route_pdf_to_text_to_file_tool(self):
         plan = self._rag_routes._requested_file_transform_plan(self._transform_request("pdf"))
@@ -265,11 +267,11 @@ class TextToFileLeaderRouteTest(unittest.TestCase):
         self.assertEqual("text_to_docx_tool", plan.tool_name)
         plan = self._plan_for("请把这段内容整理成 PPT：校园二手交易流程介绍")
         self.assertIsNotNone(plan)
-        self.assertEqual("pptx_export_tool", plan.tool_name)
+        self.assertEqual("ai_ppt_generation_tool", plan.tool_name)
 
     def test_ppt_and_pdf_requests_do_not_route_to_text_to_file_tool(self):
         plan = self._plan_for("请把这段文字转成PPT文件：校园二手交易应当当面验货")
-        self.assertEqual("pptx_export_tool", plan.tool_name)
+        self.assertEqual("ai_ppt_generation_tool", plan.tool_name)
         plan = self._plan_for("请把这份 pdf 转成 word 文档")
         self.assertIsNotNone(plan)
         self.assertEqual("text_to_docx_tool", plan.tool_name)

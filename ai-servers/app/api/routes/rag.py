@@ -55,6 +55,7 @@ from app.rag.document_conversion.generated_exporter import (
     CONTENT_EXPORT_LEGACY_TOOL_ALIASES,
     GeneratedExportAccessError,
     open_generated_export,
+    resolve_content_export_tool_enabled,
 )
 from app.rag.structured.text_to_sql import TextToSqlService
 from app.services.assistant_resource_builder import (
@@ -218,6 +219,9 @@ REMOVED_TOOL_NAMES = frozenset({
     "generated_export_tools",
     "markdown_export_tool",
     "docx_export_tool",
+    "excel_export_tool",
+    "pptx_export_tool",
+    "content_archive_tool",
 })
 IMAGE_RECOGNITION_TOOL_NAME = "recognize_image_tool"
 IMAGE_RECOGNITION_AGENT_NAME = "vision_agent"
@@ -389,27 +393,6 @@ GENERATED_CONTENT_TOOLS = [
         "status": "implemented",
     },
     {
-        "name": "excel_export_tool",
-        "zhName": "Excel 导出工具",
-        "displayName": "Excel 导出工具（excel_export_tool）",
-        "category": "content_export",
-        "purpose": "把题库 JSON 或知识点清单整理成 Excel 表格，方便导入、筛选和二次加工。",
-        "trigger": "题库 JSON、知识清单、用户要求 Excel/表格。",
-        "outputs": ["xlsx"],
-        "status": "implemented",
-        "boundAgent": FILE_CONTENT_PLANNER_AGENT_NAME,
-    },
-    {
-        "name": "pptx_export_tool",
-        "zhName": "PPT 导出工具",
-        "displayName": "PPT 导出工具（pptx_export_tool）",
-        "category": "content_export",
-        "purpose": "把文件内容编排智能体生成的逐页大纲转换为真实 PPTX 文件。",
-        "trigger": "用户明确要求 PPT/PPTX/幻灯片文件。",
-        "outputs": ["pptx"],
-        "status": "implemented",
-    },
-    {
         "name": "ai_ppt_generation_tool",
         "zhName": "AI PPT 生成工具",
         "displayName": "AI PPT 生成工具（ai_ppt_generation_tool）",
@@ -420,16 +403,6 @@ GENERATED_CONTENT_TOOLS = [
         "status": "implemented",
         "configurable": True,
         "boundAgent": PPT_OUTLINE_AGENT_NAME,
-    },
-    {
-        "name": "content_archive_tool",
-        "zhName": "附件打包工具",
-        "displayName": "附件打包工具（content_archive_tool）",
-        "category": "content_export",
-        "purpose": "把同一轮生成的 md/docx/xlsx/mmd 附件打包成一个 zip，方便一次下载。",
-        "trigger": "任意内容导出工具生成两个及以上附件后自动触发。",
-        "outputs": ["zip"],
-        "status": "implemented",
     },
     {
         "name": "diagram_source_export_tool",
@@ -597,10 +570,6 @@ TEXT_TO_FILE_TOOL_LABELS = {
     TEXT_TO_DOCX_TOOL_NAME: "Word 内容整理",
 }
 CONTENT_EXPORT_TOOL_NAMES = frozenset(TEXT_TO_FILE_TOOL_NAMES)
-FORMAT_EXPORT_TOOL_NAMES = CONTENT_EXPORT_TOOL_NAMES | frozenset({
-    "excel_export_tool",
-    "pptx_export_tool",
-})
 TOOL_CAPABILITY_QUERY_NAME = "tool_capability_query"
 TOOL_CAPABILITY_QUERY = {
     "name": TOOL_CAPABILITY_QUERY_NAME,
@@ -669,29 +638,6 @@ LEADER_CALLABLE_TOOLS = [
         "status": "implemented",
         "configurable": True,
         "boundAgent": FILE_CONTENT_PLANNER_AGENT_NAME,
-    },
-    {
-        "name": "excel_export_tool",
-        "zhName": "Excel 导出工具",
-        "displayName": "Excel 导出工具（excel_export_tool）",
-        "category": "content_export",
-        "purpose": "把题库 JSON 或知识点清单整理成 Excel 表格，方便导入、筛选和二次加工。",
-        "trigger": "题库 JSON、知识清单、用户要求 Excel/表格。",
-        "outputs": ["xlsx"],
-        "status": "implemented",
-        "configurable": True,
-        "boundAgent": FILE_CONTENT_PLANNER_AGENT_NAME,
-    },
-    {
-        "name": "pptx_export_tool",
-        "zhName": "PPT 导出工具",
-        "displayName": "PPT 导出工具（pptx_export_tool）",
-        "category": "content_export",
-        "purpose": "把文件内容编排智能体生成的逐页大纲转换为真实 PPTX 文件。",
-        "trigger": "用户明确要求 PPT/PPTX/幻灯片文件。",
-        "outputs": ["pptx"],
-        "status": "implemented",
-        "configurable": True,
     },
 ]
 
@@ -994,8 +940,7 @@ _SYSTEM_TRIGGER_TOOLS = frozenset({
 })
 _RULE_DIRECT_TRIGGER_TOOLS = frozenset(TEXT_TO_FILE_TOOL_NAMES)
 _WORKFLOW_DEPENDENCY_TOOLS = frozenset({
-    "excel_export_tool", "pptx_export_tool",
-    "content_archive_tool", "diagram_source_export_tool",
+    "diagram_source_export_tool",
 })
 
 
@@ -1787,9 +1732,9 @@ def _run_rag_query_core(request: RagQueryRequest, authorization: str) -> RagQuer
 ADMIN_SUB_EXPORT_TOOL_TARGETS = {
     "markdown_export_tool": ("text_to_markdown_tool", "md"),
     "docx_export_tool": ("text_to_docx_tool", "docx"),
-    "excel_export_tool": ("excel_export_tool", "xlsx"),
-    "pptx_export_tool": ("pptx_export_tool", "pptx"),
-    "content_archive_tool": ("excel_export_tool", "zip"),
+    "excel_export_tool": ("text_to_docx_tool", "xlsx"),
+    "pptx_export_tool": ("ai_ppt_generation_tool", "pptx"),
+    "content_archive_tool": ("text_to_markdown_tool", "zip"),
     "diagram_source_export_tool": ("text_to_markdown_tool", "mmd"),
 }
 
@@ -1814,7 +1759,7 @@ def _build_direct_tool_test_plan(tool_name: str) -> LeaderPlan:
     intent = "tool_test"
     if tool_name == IMAGE_STITCHING_TOOL["name"]:
         intent = "image_stitching"
-    elif tool_name in TEXT_TO_FILE_TOOL_NAMES or tool_name in FORMAT_EXPORT_TOOL_NAMES:
+    elif tool_name in CONTENT_EXPORT_TOOL_NAMES:
         intent = "document_export"
     elif tool_name == IMAGE_RECOGNITION_TOOL_NAME:
         intent = "image_understanding"
@@ -2197,11 +2142,7 @@ def _text_without_image_references(text: str) -> str:
     return cleaned.strip()
 
 
-_TRANSFORM_FORMAT_TOOL_BY_TYPE = {
-    **TEXT_TO_FILE_TOOL_BY_FORMAT,
-    "xlsx": "excel_export_tool",
-    "pptx": "pptx_export_tool",
-}
+_TRANSFORM_FORMAT_TOOL_BY_TYPE = dict(TEXT_TO_FILE_TOOL_BY_FORMAT)
 
 
 def _requested_file_transform_plan(request: RagQueryRequest) -> Optional[LeaderPlan]:
@@ -2941,8 +2882,6 @@ def _execute_leader_plan(
             response = _run_service_tool(request, authorization, plan)
         elif plan.tool_name in CONTENT_EXPORT_TOOL_NAMES:
             response = _run_content_export_tool(request, plan)
-        elif plan.tool_name in ("excel_export_tool", "pptx_export_tool"):
-            response = _run_generated_export_tool(request, plan)
         elif plan.tool_name == IMAGE_STITCHING_TOOL["name"]:
             response = _run_image_stitching_tool(request, plan)
         elif plan.tool_name == IMAGE_RECOGNITION_TOOL_NAME:
@@ -3176,20 +3115,14 @@ def _is_tool_enabled(request: RagQueryRequest, tool_name: str) -> bool:
     if normalized == TOOL_CAPABILITY_QUERY_NAME:
         return True
     toggles = _tool_toggles_from_request(request)
+    if normalized in CONTENT_EXPORT_TOOL_NAMES or normalized in CONTENT_EXPORT_LEGACY_TOOL_ALIASES:
+        return resolve_content_export_tool_enabled(toggles, normalized)
     if normalized in toggles:
         enabled = _parse_agent_enabled_value(toggles.get(normalized))
     else:
-        enabled = None
-        for legacy_name in CONTENT_EXPORT_LEGACY_TOOL_ALIASES.get(normalized, ()):
-            if legacy_name in toggles:
-                enabled = _parse_agent_enabled_value(toggles.get(legacy_name))
-                break
-        if enabled is None:
-            enabled = True
+        enabled = True
     if not enabled:
         return False
-    # 绑定智能体属于工具内部实现细节，不再作为 Leader 工具目录的二次开关。
-    # Leader 是否可以调用，只由后台的工具开关决定。
     return True
 
 
@@ -4617,8 +4550,6 @@ _EXPORT_TOOL_DEFAULT_FORMAT = {
     TEXT_TO_MARKDOWN_TOOL_NAME: "md",
     TEXT_TO_TXT_TOOL_NAME: "txt",
     TEXT_TO_DOCX_TOOL_NAME: "docx",
-    "excel_export_tool": "xlsx",
-    "pptx_export_tool": "pptx",
 }
 
 
@@ -5266,7 +5197,6 @@ def _file_format_follow_up_actions(answer_type: str, metadata: Dict[str, Any], a
         )
     elif is_question_bank:
         candidates = (
-            ("Excel 题库", "请把当前消息原内容生成 Excel 题库文件。", "xlsx", "excel_export_tool"),
             ("Word 题库", "请把当前消息原内容生成 Word 题库文件。", "docx", TEXT_TO_DOCX_TOOL_NAME),
             ("Markdown 题库", "请把当前消息原内容生成 Markdown 题库文件。", "md", TEXT_TO_MARKDOWN_TOOL_NAME),
         )
@@ -5286,19 +5216,7 @@ def _file_format_follow_up_actions(answer_type: str, metadata: Dict[str, Any], a
 
 def _metadata_tool_enabled(metadata: Dict[str, Any], tool_name: str) -> bool:
     toggles = metadata.get("toolToggles") if isinstance(metadata, dict) else None
-    if isinstance(toggles, dict) and tool_name in toggles:
-        enabled = _parse_agent_enabled_value(toggles.get(tool_name))
-    else:
-        enabled = None
-        for legacy_name in CONTENT_EXPORT_LEGACY_TOOL_ALIASES.get(tool_name, ()):
-            if isinstance(toggles, dict) and legacy_name in toggles:
-                enabled = _parse_agent_enabled_value(toggles.get(legacy_name))
-                break
-        if enabled is None:
-            enabled = True
-    if not enabled:
-        return False
-    return True
+    return resolve_content_export_tool_enabled(toggles, str(tool_name or "").strip())
 
 
 def _follow_up_action(label: str, prompt: str, output_type: str, style: str) -> Dict[str, Any]:
@@ -5541,8 +5459,6 @@ def _tool_zh_name(tool_name: str) -> str:
         "java_facility_api": "设施位置查询工具",
         "java_secondhand_api": "旧物查询工具",
         **TEXT_TO_FILE_TOOL_LABELS,
-        "excel_export_tool": "Excel 导出工具",
-        "pptx_export_tool": "PPT 导出工具",
         "content_archive_tool": "附件打包工具",
         "diagram_source_export_tool": "图表源码导出工具",
         **{

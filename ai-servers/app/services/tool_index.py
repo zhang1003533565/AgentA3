@@ -22,12 +22,8 @@ TOOL_KEYWORDS: Dict[str, Sequence[str]] = {
     "text_to_markdown_tool": ("文本转markdown", "转成md", "导出为md", "md文件", "markdown文件", "按原文导出markdown"),
     "text_to_txt_tool": ("文本转txt", "转成txt", "导出为txt", "txt文件", "纯文本", "纯文本文件", "保存为纯文本", "按原文导出", "文本导出"),
     "text_to_docx_tool": ("文本转word", "转成word", "导出为word", "word文件", "docx文件", "按原文导出word"),
-    "markdown_export_tool": ("markdown", "md文件", "markdown文件"),
-    "docx_export_tool": ("word", "docx", "word文件"),
-    "excel_export_tool": ("excel", "xlsx", "表格文件", "题库表格"),
-    "pptx_export_tool": ("pptx", "ppt文件", "幻灯片文件"),
-    "content_archive_tool": ("压缩包", "zip", "附件打包"),
     "diagram_source_export_tool": ("mermaid", "图表源码", "图表源文件", "mmd"),
+    "ai_ppt_generation_tool": ("pptx", "ppt文件", "幻灯片文件", "生成ppt", "ai ppt"),
 }
 
 _WORD_RE = re.compile(r"[a-z0-9_+#.-]+", re.IGNORECASE)
