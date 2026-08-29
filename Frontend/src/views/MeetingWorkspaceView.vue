@@ -8,6 +8,7 @@ import {
   endMeeting,
   getMeetingDetail,
   getMeetings,
+  getMyMeetingTasks,
   joinMeeting,
   organizeMeeting,
   reserveMeeting,
@@ -15,6 +16,7 @@ import {
 } from '../api/meetings'
 import AppTabBar from '../components/AppTabBar.vue'
 import { getUserInfo } from '../utils/auth'
+import { buildMeetingParticipants } from '../utils/meetingUser'
 
 const router = useRouter()
 
@@ -25,16 +27,15 @@ const groupSelection = ref([])
 const newGroupName = ref('')
 
 const mode = ref('quick')
-const reserveTab = ref('reserve')
+const listTab = ref('all')
 
-const subMode = computed(() => (mode.value === 'reserve' ? reserveTab.value : mode.value))
 const meetings = ref([])
 const loading = ref(false)
 const submitting = ref(false)
 const busyId = ref('')
 const error = ref('')
 const notice = ref('')
-const form = ref({ title: '', roomCode: '', displayName: '', scheduledStartTime: '' })
+const form = ref({ title: '项目进度同步会', roomCode: '', displayName: '', scheduledStartTime: '' })
 const duration = ref(60)
 const micOn = ref(true)
 const participants = ref([])
@@ -53,16 +54,22 @@ const menuItems = [
 ]
 
 const createHeading = computed(
-  () => ({ quick: '发起会议', reserve: '预约会议', join: '加入会议' })[subMode.value],
+  () => ({ quick: '发起会议', reserve: '预约会议', join: '加入会议' })[mode.value],
 )
-const createDesc = computed(
-  () =>
-    ({
-      quick: '',
-      reserve: '',
-      join: '',
-    })[subMode.value],
-)
+
+const upcomingMeetings = computed(() => meetings.value.filter((item) => item.status !== 'ended'))
+const historyMeetings = computed(() => meetings.value.filter((item) => item.status === 'ended'))
+const filteredMeetings = computed(() => {
+  if (listTab.value === 'upcoming') return upcomingMeetings.value
+  if (listTab.value === 'history') return historyMeetings.value
+  return meetings.value
+})
+
+const listTabs = computed(() => [
+  { key: 'all', label: '全部', count: meetings.value.length },
+  { key: 'upcoming', label: '即将开始', count: upcomingMeetings.value.length },
+  { key: 'history', label: '历史记录', count: historyMeetings.value.length },
+])
 
 const statusMeta = {
   active: { label: '进行中', tone: 'live' },
@@ -111,7 +118,24 @@ function actionsFor(meeting) {
   if (meeting.status === 'ended') {
     return [{ key: 'records', label: '查看记录' }]
   }
-  return [{ key: 'start', label: '开始', cls: 'meet-btn--primary' }]
+  if (isCreator(meeting)) {
+    return [{ key: 'enter', label: '开始', cls: 'meet-btn--primary' }]
+  }
+  return []
+}
+
+async function checkMediaPermission() {
+  if (!micOn.value) return true
+  if (typeof navigator !== 'undefined' && navigator.mediaDevices?.getUserMedia) {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      stream.getTracks().forEach((track) => track.stop())
+      return true
+    } catch {
+      throw new Error('未授予麦克风权限，无法开启音频')
+    }
+  }
+  return true
 }
 
 function rowsOf(response) {
@@ -138,7 +162,12 @@ function currentDisplayName() {
 }
 
 function resetForm() {
-  form.value = { title: '', roomCode: '', displayName: '', scheduledStartTime: '' }
+  form.value = {
+    title: mode.value === 'quick' ? '项目进度同步会' : '',
+    roomCode: '',
+    displayName: '',
+    scheduledStartTime: '',
+  }
   duration.value = 60
   micOn.value = true
   participants.value = []
@@ -146,15 +175,15 @@ function resetForm() {
 
 function selectMode(key) {
   mode.value = key
-  if (key === 'reserve') reserveTab.value = 'reserve'
+  if (key === 'quick' && !form.value.title.trim()) {
+    form.value.title = '项目进度同步会'
+  }
   error.value = ''
   notice.value = ''
 }
 
-function selectReserveTab(tab) {
-  reserveTab.value = tab
-  error.value = ''
-  notice.value = ''
+function selectListTab(key) {
+  listTab.value = key
 }
 
 function loadGroupLibrary() {
@@ -224,8 +253,9 @@ async function submit() {
   error.value = ''
   notice.value = ''
   try {
-    if (subMode.value === 'join') {
+    if (mode.value === 'join') {
       if (!form.value.roomCode.trim()) throw new Error('请输入会议号')
+      await checkMediaPermission()
       const result = await joinMeeting({
         roomCode: form.value.roomCode.trim(),
         displayName: form.value.displayName.trim() || currentDisplayName(),
@@ -235,20 +265,29 @@ async function submit() {
       notice.value = '已加入会议'
       await loadMeetings()
       return
-    } else if (subMode.value === 'reserve') {
+    }
+
+    if (mode.value === 'reserve') {
       if (!form.value.title.trim()) throw new Error('请输入会议主题')
       if (!form.value.scheduledStartTime) throw new Error('请选择开始时间')
       await reserveMeeting({
         title: form.value.title.trim(),
         scheduledStartTime: form.value.scheduledStartTime,
-        participants: participants.value,
+        expectedDurationMinutes: duration.value,
+        participants: buildMeetingParticipants(participants.value),
       })
       notice.value = '会议预约成功'
+      listTab.value = 'upcoming'
     } else {
-      await createQuickMeeting({
-        title: form.value.title.trim() || '快速会议',
-        participants: [currentDisplayName()],
+      const title = form.value.title.trim()
+      if (!title) throw new Error('请输入会议主题')
+      await checkMediaPermission()
+      const result = await createQuickMeeting({
+        title,
+        participants: buildMeetingParticipants(),
       })
+      resetForm()
+      if (enterRoom(result, true)) return
       notice.value = '会议已发起'
     }
     resetForm()
@@ -264,10 +303,31 @@ function enterRoom(result, useMicPreference) {
   const session = result?.data?.session
   if (session?.sessionId) {
     const mic = useMicPreference && !micOn.value ? 0 : 1
-    router.push(`/meetings/room/${session.sessionId}?mic=${mic}`)
+    const name = encodeURIComponent(currentDisplayName())
+    router.push(`/meetings/room/${session.sessionId}?mic=${mic}&name=${name}`)
     return true
   }
   return false
+}
+
+async function enterMeeting(meeting) {
+  const id = meetingId(meeting)
+  if (!id) return
+  busyId.value = id
+  error.value = ''
+  try {
+    if (meeting.status === 'active') {
+      router.push(`/meetings/room/${id}?mic=${micOn.value ? 1 : 0}&name=${encodeURIComponent(currentDisplayName())}`)
+      return
+    }
+    if (!isCreator(meeting)) throw new Error('仅主持人可以开始会议')
+    await startMeeting(id)
+    router.push(`/meetings/room/${id}?mic=${micOn.value ? 1 : 0}&name=${encodeURIComponent(currentDisplayName())}`)
+  } catch (cause) {
+    error.value = cause.message || '进入会议失败'
+  } finally {
+    busyId.value = ''
+  }
 }
 
 async function handleAction(meeting, key) {
@@ -276,17 +336,8 @@ async function handleAction(meeting, key) {
     showRecords.value = true
     return
   }
-  if (key === 'enter') {
-    busyId.value = meetingId(meeting)
-    error.value = ''
-    try {
-      const result = await joinMeeting({ roomCode: meeting.roomCode, displayName: currentDisplayName() })
-      enterRoom(result, true)
-    } catch (cause) {
-      error.value = cause.message || '加入会议失败'
-    } finally {
-      busyId.value = ''
-    }
+  if (key === 'enter' || key === 'start') {
+    await enterMeeting(meeting)
     return
   }
   const id = meetingId(meeting)
@@ -295,8 +346,7 @@ async function handleAction(meeting, key) {
   error.value = ''
   notice.value = ''
   try {
-    if (key === 'start') await startMeeting(id)
-    else if (key === 'end') await endMeeting(id)
+    if (key === 'end') await endMeeting(id)
     else if (key === 'organize') await organizeMeeting(id)
     else if (key === 'delete') await deleteMeeting(id)
     await loadMeetings()
@@ -314,6 +364,12 @@ const detail = ref(null)
 const detailBusy = ref('')
 const showRecords = ref(false)
 const showMinutes = ref(false)
+const showTasks = ref(false)
+const showParticipants = ref(false)
+const myTasks = ref([])
+const tasksLoading = ref(false)
+const tasksLoaded = ref(false)
+const taskError = ref('')
 const copyTip = ref('')
 
 const agentLabels = {
@@ -328,11 +384,17 @@ const currentSession = computed(() => detail.value?.session || null)
 const hostName = computed(() => currentDisplayName())
 
 const participantList = computed(() => {
+  const records = detail.value?.participantRecords || []
+  if (records.length) {
+    return records.map((item) => item.name || item.displayName || item.username || '参会成员')
+  }
   const list = [...(detail.value?.participants || [])]
   const host = hostName.value
   if (host && !list.includes(host)) list.unshift(host)
   return list
 })
+
+const participantRecords = computed(() => detail.value?.participantRecords || [])
 
 const meetingLink = computed(() => {
   const code = currentSession.value?.roomCode
@@ -352,7 +414,11 @@ async function openDetail(meeting) {
   detailLoading.value = true
   showRecords.value = false
   showMinutes.value = false
-  detail.value = { session: meeting, participants: [], records: [], results: [] }
+  showTasks.value = false
+  showParticipants.value = false
+  tasksLoaded.value = false
+  myTasks.value = []
+  detail.value = { session: meeting, participants: [], records: [], results: [], participantRecords: [] }
   try {
     const result = await getMeetingDetail(meetingId(meeting))
     if (result?.data) {
@@ -364,6 +430,39 @@ async function openDetail(meeting) {
   } finally {
     detailLoading.value = false
   }
+}
+
+async function loadMyTasks(force = false) {
+  if (tasksLoading.value || (tasksLoaded.value && !force)) return
+  tasksLoading.value = true
+  taskError.value = ''
+  try {
+    const user = getUserInfo() || {}
+    const userId = String(user.userId ?? user.id ?? '')
+    const result = await getMyMeetingTasks()
+    const list = Array.isArray(result?.data) ? result.data : []
+    myTasks.value = (userId
+      ? list.filter((task) => String(task?.assigneeId ?? '') === userId)
+      : list
+    ).map((task) => ({
+      id: task.id,
+      title: task.title || '未命名任务',
+      description: task.description || '',
+      status: task.status || 'PENDING',
+      evidence: task.evidence || '',
+      deadlineText: task.deadline ? `截止 ${String(task.deadline).split('T')[0]}` : '未设截止时间',
+    }))
+    tasksLoaded.value = true
+  } catch {
+    taskError.value = '我的任务加载失败，请稍后重试'
+  } finally {
+    tasksLoading.value = false
+  }
+}
+
+async function toggleTasksPanel() {
+  showTasks.value = !showTasks.value
+  if (showTasks.value) await loadMyTasks()
 }
 
 function closeDetail() {
@@ -423,10 +522,14 @@ async function copyText(text, label) {
 
 onMounted(() => {
   loadMeetings()
-  const roomCode = new URLSearchParams(window.location.search).get('roomCode')
+  const params = new URLSearchParams(window.location.search)
+  const roomCode = params.get('roomCode')
+  const initialMode = params.get('mode')
   if (roomCode) {
     mode.value = 'join'
     form.value.roomCode = roomCode
+  } else if (initialMode === 'reserve' || initialMode === 'join' || initialMode === 'quick') {
+    mode.value = initialMode
   }
 })
 </script>
@@ -447,7 +550,10 @@ onMounted(() => {
             :key="item.key"
             type="button"
             class="meeting-menu-item"
-            :class="{ 'meeting-menu-item--active': mode === item.key }"
+            :class="{
+              'meeting-menu-item--active': mode === item.key,
+              'meeting-menu-item--primary': mode === item.key && item.key === 'quick',
+            }"
             @click="selectMode(item.key)"
           >
             <span class="meeting-menu-item__icon" aria-hidden="true">
@@ -469,40 +575,22 @@ onMounted(() => {
             </span>
           </button>
         </nav>
+
+        <RouterLink class="meeting-sidebar__schedule" to="/mine/meeting-schedule">查看会议日程</RouterLink>
       </aside>
 
       <div class="meeting-content">
         <p v-if="error" class="meeting-alert meeting-alert--error">{{ error }}</p>
         <p v-else-if="notice" class="meeting-alert meeting-alert--success">{{ notice }}</p>
 
-        <section class="feature-card meeting-create" :class="{ 'meeting-create--join': subMode === 'join', 'meeting-create--fill': mode !== 'quick' }">
+        <section class="feature-card meeting-create" :class="{ 'meeting-create--join': mode === 'join', 'meeting-create--fill': mode === 'reserve' }">
           <div class="meeting-create__head">
             <h2>{{ createHeading }}</h2>
-            <p v-if="createDesc">{{ createDesc }}</p>
-          </div>
-
-          <div v-if="mode === 'reserve'" class="meeting-tabs">
-            <button
-              type="button"
-              class="meeting-tab"
-              :class="{ 'meeting-tab--active': reserveTab === 'reserve' }"
-              @click="selectReserveTab('reserve')"
-            >
-              预约会议
-            </button>
-            <button
-              type="button"
-              class="meeting-tab"
-              :class="{ 'meeting-tab--active': reserveTab === 'quick' }"
-              @click="selectReserveTab('quick')"
-            >
-              快速会议
-            </button>
           </div>
 
           <form class="meeting-create__form" @submit.prevent="submit">
             <!-- 加入会议 -->
-            <template v-if="subMode === 'join'">
+            <template v-if="mode === 'join'">
               <label>
                 <span>会议号</span>
                 <input v-model="form.roomCode" class="feature-input" placeholder="请输入 6 位会议号" />
@@ -532,7 +620,7 @@ onMounted(() => {
             </template>
 
             <!-- 快速会议 -->
-            <template v-else-if="subMode === 'quick'">
+            <template v-else-if="mode === 'quick'">
               <div class="meeting-quick-row">
                 <input v-model="form.title" class="feature-input" placeholder="请输入会议主题" />
                 <button class="meet-btn meet-btn--primary" type="submit" :disabled="submitting">
@@ -617,15 +705,30 @@ onMounted(() => {
           </form>
         </section>
 
-        <section v-if="mode === 'quick'" class="feature-card meeting-panel">
-          <div class="feature-section__head">
-            <h2>我的会议</h2>
-            <span>共 {{ meetings.length }} 场</span>
+        <section class="feature-card meeting-panel">
+          <div class="feature-section__head meeting-panel__head">
+            <div>
+              <h2>我的会议</h2>
+              <span>共 {{ meetings.length }} 场</span>
+            </div>
+            <div class="meeting-list-tabs">
+              <button
+                v-for="tab in listTabs"
+                :key="tab.key"
+                type="button"
+                class="meeting-list-tab"
+                :class="{ 'meeting-list-tab--active': listTab === tab.key }"
+                @click="selectListTab(tab.key)"
+              >
+                {{ tab.label }}
+                <em>{{ tab.count }}</em>
+              </button>
+            </div>
           </div>
 
           <p v-if="loading" class="feature-empty meeting-empty">正在加载会议…</p>
-          <p v-else-if="meetings.length === 0" class="feature-empty meeting-empty">
-            暂无会议，先从左侧发起一场会议吧。
+          <p v-else-if="filteredMeetings.length === 0" class="feature-empty meeting-empty">
+            {{ listTab === 'history' ? '暂无历史会议记录' : '暂无会议，请从左侧发起或预约一场会议' }}
           </p>
 
           <div v-else class="meeting-table-wrap">
@@ -641,7 +744,7 @@ onMounted(() => {
               </thead>
               <tbody>
                 <tr
-                  v-for="meeting in meetings"
+                  v-for="meeting in filteredMeetings"
                   :key="meetingId(meeting)"
                   @click="openDetail(meeting)"
                 >
@@ -666,6 +769,7 @@ onMounted(() => {
                     >
                       {{ action.label }}
                     </button>
+                    <span v-if="!actionsFor(meeting).length" class="meeting-table__placeholder">—</span>
                   </td>
                 </tr>
               </tbody>
@@ -729,6 +833,39 @@ onMounted(() => {
               </span>
             </div>
             <p v-else class="detail-empty">暂无参会人</p>
+            <button class="meet-btn" type="button" @click="showParticipants = !showParticipants">
+              {{ showParticipants ? '收起参会记录' : '查看参会记录' }}
+            </button>
+            <div v-if="showParticipants" class="detail-records">
+              <div v-if="participantRecords.length">
+                <div v-for="(item, index) in participantRecords" :key="`${item.name}-${index}`" class="detail-record">
+                  <p>{{ item.name || '参会成员' }}</p>
+                  <span>
+                    {{ item.joinTime || item.enterTime || '—' }}
+                    · {{ item.leaveTime ? `离开 ${item.leaveTime}` : '仍在会议中或暂无离开时间' }}
+                  </span>
+                </div>
+              </div>
+              <p v-else class="detail-empty">暂无参会记录</p>
+            </div>
+          </section>
+
+          <section class="detail-section">
+            <button class="meet-btn" type="button" @click="toggleTasksPanel">
+              {{ showTasks ? '收起我的任务' : '我的会议任务' }}
+            </button>
+            <div v-if="showTasks" class="detail-records">
+              <p v-if="tasksLoading" class="detail-empty">正在加载任务…</p>
+              <p v-else-if="taskError" class="detail-empty">{{ taskError }}</p>
+              <template v-else-if="myTasks.length">
+                <div v-for="task in myTasks" :key="task.id" class="detail-record">
+                  <p>{{ task.title }}</p>
+                  <span>{{ task.status }} · {{ task.deadlineText }}</span>
+                  <p v-if="task.description">{{ task.description }}</p>
+                </div>
+              </template>
+              <p v-else class="detail-empty">暂无分配给你的会议任务</p>
+            </div>
           </section>
 
           <section v-if="showMinutes" class="detail-section">
@@ -823,15 +960,17 @@ onMounted(() => {
 <style scoped>
 .meeting-layout {
   display: grid;
-  grid-template-columns: 250px minmax(0, 1fr);
+  grid-template-columns: 220px minmax(0, 1fr);
   gap: 20px;
   align-items: start;
+  min-height: calc(100vh - 112px);
 }
 
 .meeting-content {
   display: flex;
   flex-direction: column;
-  height: calc(100vh - 112px);
+  gap: 16px;
+  min-height: calc(100vh - 112px);
 }
 
 /* ---------- Sidebar ---------- */
@@ -840,11 +979,11 @@ onMounted(() => {
   top: 84px;
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: 14px;
   box-sizing: border-box;
   width: 100%;
-  height: calc(100vh - 112px);
-  padding: 20px 16px;
+  padding: 18px 14px;
+  align-self: start;
 }
 
 .meeting-sidebar__brand {
@@ -860,26 +999,20 @@ onMounted(() => {
 .meeting-sidebar__menu {
   display: flex;
   flex-direction: column;
-  flex: 1;
   gap: 10px;
-  min-height: 0;
 }
 
 .meeting-menu-item {
   display: flex;
-  flex-direction: column;
-  justify-content: center;
-  align-items: flex-start;
-  flex: 1;
+  align-items: center;
   gap: 12px;
   width: 100%;
-  min-height: 0;
-  padding: 16px;
+  padding: 14px 16px;
   border: 1px solid transparent;
-  border-radius: 10px;
+  border-radius: 12px;
   background: transparent;
   text-align: left;
-  transition: background 0.15s ease, border-color 0.15s ease;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
 }
 
 .meeting-menu-item:hover {
@@ -891,13 +1024,33 @@ onMounted(() => {
   background: #eff6ff;
 }
 
+.meeting-menu-item--primary {
+  border-color: transparent;
+  background: linear-gradient(135deg, #3b82f6, #2563eb);
+  box-shadow: 0 10px 24px rgba(37, 99, 235, 0.22);
+}
+
+.meeting-menu-item--primary .meeting-menu-item__icon {
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.18);
+}
+
+.meeting-menu-item--primary .meeting-menu-item__copy strong,
+.meeting-menu-item--primary .meeting-menu-item__copy small {
+  color: #ffffff;
+}
+
+.meeting-menu-item--primary .meeting-menu-item__copy small {
+  opacity: 0.86;
+}
+
 .meeting-menu-item__icon {
   display: grid;
   place-items: center;
   flex: 0 0 auto;
-  width: 44px;
-  height: 44px;
-  border-radius: 11px;
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
   color: #52627a;
   background: #f1f4f8;
 }
@@ -933,6 +1086,22 @@ onMounted(() => {
   margin-top: 4px;
   color: #8494a7;
   font-size: 13px;
+}
+
+.meeting-sidebar__schedule {
+  display: block;
+  margin-top: 4px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  color: #2563eb;
+  background: #f8fafc;
+  font-size: 13px;
+  font-weight: 600;
+  text-align: center;
+}
+
+.meeting-sidebar__schedule:hover {
+  background: #eff6ff;
 }
 
 /* ---------- Content ---------- */
@@ -1309,6 +1478,69 @@ onMounted(() => {
   margin-top: 18px;
   padding: 22px;
   overflow: hidden;
+}
+
+.meeting-panel__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.meeting-panel__head > div:first-child {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.meeting-list-tabs {
+  display: inline-flex;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid #e0e6ec;
+  border-radius: 9px;
+  background: #f4f7fa;
+}
+
+.meeting-list-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 0 12px;
+  border-radius: 7px;
+  color: #65758a;
+  background: transparent;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.meeting-list-tab em {
+  min-width: 18px;
+  padding: 0 6px;
+  border-radius: 999px;
+  color: #64748b;
+  background: rgba(148, 163, 184, 0.16);
+  font-style: normal;
+  font-size: 11px;
+  line-height: 18px;
+  text-align: center;
+}
+
+.meeting-list-tab--active {
+  color: #2563eb;
+  background: #ffffff;
+  box-shadow: 0 2px 8px rgba(30, 43, 76, 0.08);
+}
+
+.meeting-list-tab--active em {
+  color: #2563eb;
+  background: rgba(37, 99, 235, 0.12);
+}
+
+.meeting-table__placeholder {
+  color: #94a3b8;
+  font-size: 13px;
 }
 
 .meeting-empty {
