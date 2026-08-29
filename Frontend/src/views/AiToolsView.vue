@@ -30,7 +30,7 @@ const heroSlides = [
     features: ['多学科支持', '题型智能匹配', '一键导出打印'],
     color: '#ff3943',
     image: examHero,
-    route: 'exam',
+    route: '/paper',
   },
   {
     key: 'mind',
@@ -108,7 +108,7 @@ const baseTools = [
   { name: '智能写作', desc: '生成校园常用文稿并支持润色', category: ['hot', 'creation'], artSet: 'core', art: 0, route: '/ai-studio/writing', accent: '#4077de' },
   { name: 'AI 文生图', desc: '根据文字描述生成图片', category: ['hot', 'creation'], artSet: 'core', art: 1, route: '/ai-studio/image', accent: '#7546d9' },
   { name: 'AI伪原创', desc: '图片内容创作与水印处理', category: ['hot', 'creation'], artSet: 'core', art: 5, route: '/ai-original', accent: '#8b63e8' },
-  { name: '试卷生成', desc: '生成结构化练习与标准试卷', category: ['hot', 'learning'], artSet: 'core', art: 2, route: '/ai-studio/exam', accent: '#ff3943' },
+  { name: '试卷生成', desc: '生成结构化练习与标准试卷', category: ['hot', 'learning'], artSet: 'core', art: 2, route: '/paper', accent: '#ff3943' },
   { name: 'PPT 生成', desc: '生成演示大纲与文稿资源', category: ['hot', 'creation', 'learning'], artSet: 'core', art: 3, route: '/ai-studio/presentation', accent: '#ff9900' },
   { name: '思维导图', desc: '梳理主题与课程知识结构', category: ['hot', 'diagram', 'learning'], artSet: 'core', art: 4, route: '/ai-studio/mind_map', accent: '#7546d9' },
   { name: '架构图', desc: '生成系统架构可视化资源', category: ['diagram'], artSet: 'core', art: 5, route: '/ai-studio/architecture', accent: '#3b82f6' },
@@ -232,6 +232,10 @@ function openTool(tool) {
 }
 
 function openHero(slide) {
+  if (slide.route?.startsWith('/')) {
+    router.push(slide.route)
+    return
+  }
   router.push(`/ai-studio/${slide.route}`)
 }
 

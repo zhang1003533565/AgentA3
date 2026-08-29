@@ -1,13 +1,23 @@
 <script setup>
-import AiStudioPageShell from '../../components/aiStudio/AiStudioPageShell.vue'
-import AiStudioSimpleTool from '../../components/aiStudio/AiStudioSimpleTool.vue'
-import { AI_STUDIO_TOOLS } from '../../config/aiStudioTools'
+import { onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 
-const meta = AI_STUDIO_TOOLS.exam
+const router = useRouter()
+
+onMounted(() => {
+  router.replace('/paper')
+})
 </script>
 
 <template>
-  <AiStudioPageShell :title="meta.title" :subtitle="meta.subtitle" :back-to="meta.backTo">
-    <AiStudioSimpleTool tool="exam" />
-  </AiStudioPageShell>
+  <div class="paper-state">正在进入试卷生成…</div>
 </template>
+
+<style scoped>
+.paper-state {
+  display: grid;
+  place-items: center;
+  min-height: 100vh;
+  color: #667085;
+}
+</style>
