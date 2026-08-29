@@ -6,7 +6,7 @@ import os
 import re
 import threading
 import time
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Mapping, Optional, Tuple
 
 from fastapi import APIRouter, Depends, Header, HTTPException
 from fastapi.responses import StreamingResponse
@@ -61,6 +61,15 @@ from app.services.data_store import data_store
 from app.services.ai_ppt_generation_tool_service import (
     PPT_OUTLINE_AGENT_NAME,
     start_leader_ppt_generation,
+)
+from app.services.ppt_template_selection import (
+    PPT_TEMPLATE_SELECTION_ANSWER_TYPE,
+    build_ppt_generation_draft,
+    build_ppt_template_catalog,
+    parse_ppt_page_count,
+    parse_ppt_topic,
+    resolve_ppt_generation_source_content,
+    resolve_ppt_template_id,
 )
 from app.services.structured_diagram_service import (
     generate_architecture as generate_structured_architecture,
@@ -3930,15 +3939,37 @@ def _run_ai_ppt_generation_tool(
     config = AI_PPT_GENERATION_TOOL_CONFIG.get(tool_name)
     if not config:
         raise HTTPException(status_code=502, detail=f"未注册的 PPT 生成工具：{tool_name or '空'}")
+    metadata = request.metadata if isinstance(request.metadata, dict) else {}
+    conversation_context = metadata.get("conversationContext") if isinstance(metadata.get("conversationContext"), dict) else {}
+    source_content = resolve_ppt_generation_source_content(
+        str(request.input or ""),
+        metadata,
+        conversation_context,
+    )
+    template_id = resolve_ppt_template_id(metadata, str(request.input or ""))
+    if not template_id:
+        return _build_ppt_template_selection_response(
+            request,
+            leader_plan,
+            tool_name,
+            source_content,
+        )
+
     bound_agent = str(config.get("boundAgent") or PPT_OUTLINE_AGENT_NAME)
     runtime_config, _config_prefix = _require_agent_runtime_config(request, bound_agent, leader_plan)
+    enriched_metadata = dict(metadata)
+    ppt_settings = dict(enriched_metadata.get("pptSettings") or {}) if isinstance(enriched_metadata.get("pptSettings"), Mapping) else {}
+    ppt_settings["templateId"] = template_id
+    enriched_metadata["pptSettings"] = ppt_settings
+    enriched_metadata["pptTemplateConfirmed"] = True
     token = set_active_llm_config(runtime_config)
     try:
-        metadata = request.metadata if isinstance(request.metadata, dict) else {}
         task_payload = start_leader_ppt_generation(
-            str(request.input or ""),
+            source_content,
             runtime_config,
-            metadata,
+            enriched_metadata,
+            template_id=template_id,
+            page_count=parse_ppt_page_count(source_content),
         )
     finally:
         reset_active_llm_config(token)
@@ -3984,6 +4015,60 @@ def _run_ai_ppt_generation_tool(
         strategy=tool_name,
         answer=answer,
         answerType=answer_type,
+        documents=[],
+        trace=trace,
+        metadata=metadata,
+    ))
+
+
+def _build_ppt_template_selection_response(
+    request: RagQueryRequest,
+    leader_plan,
+    tool_name: str,
+    source_content: str,
+) -> RagQueryResponse:
+    draft = build_ppt_generation_draft(source_content, parse_ppt_topic(source_content))
+    templates = build_ppt_template_catalog()
+    topic = str(draft.get("topic") or "演示文稿")
+    answer = (
+        f"准备为你生成「{topic}」的 PPT。请先选择一套模板，系统会按 App 同款流程生成大纲、逐页内容与 PPTX。"
+        "你也可以直接回复「默认模板」或指定模板名称（如「活力校园」）。"
+    )
+    metadata = {
+        "agentName": "leader_agent",
+        "targetAgent": tool_name,
+        "executedAgent": tool_name,
+        "toolName": tool_name,
+        "toolDisplayName": _tool_display_name(tool_name),
+        "intent": "ppt_template_selection",
+        "needRetrieval": False,
+        "retrievalSkipped": True,
+        "strategyLabel": "PPT 模板选择",
+        "executionMode": "leader_call_tool",
+        "executionModeLabel": "Leader 等待 PPT 模板确认",
+        "answerType": PPT_TEMPLATE_SELECTION_ANSWER_TYPE,
+        "outputType": PPT_TEMPLATE_SELECTION_ANSWER_TYPE,
+        "pptTemplateCatalog": templates,
+        "pptGenerationDraft": draft,
+        "leaderAction": leader_plan.action,
+        "leaderActionLabel": _leader_action_label(leader_plan.action),
+        "routeReason": leader_plan.route_reason,
+    }
+    metadata.update(_context_metadata_from_request(request))
+    trace = [
+        RagTraceResponse(stage="leader_route", detail=_leader_plan_detail(leader_plan)),
+        RagTraceResponse(stage="ai_ppt_generation_tool", detail={
+            "toolName": tool_name,
+            "toolDisplayName": _tool_display_name(tool_name),
+            "phase": "template_selection",
+            "templateCount": len(templates),
+            "topic": topic,
+        }),
+    ]
+    return _decorate_output_response(RagQueryResponse(
+        strategy=tool_name,
+        answer=answer,
+        answerType=PPT_TEMPLATE_SELECTION_ANSWER_TYPE,
         documents=[],
         trace=trace,
         metadata=metadata,
@@ -5100,7 +5185,7 @@ def _follow_up_actions_for_output(answer_type: str, metadata: Dict[str, Any], ou
     intent = str(metadata.get("intent") or "").strip().lower()
     if intent in {
         "smalltalk", "greeting", "leader_callable_catalog", "capability_inquiry",
-        "file_source_clarification", "knowledge_source_clarification",
+        "file_source_clarification", "knowledge_source_clarification", "ppt_template_selection",
     }:
         return []
     hints = metadata.get("outputPreferenceHints") if isinstance(metadata.get("outputPreferenceHints"), dict) else {}

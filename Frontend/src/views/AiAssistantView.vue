@@ -7,6 +7,7 @@ import ChatImageAttachment from '../components/ChatImageAttachment.vue'
 import ChatMarkdown from '../components/ChatMarkdown.vue'
 import ImageGenerationCanvas from '../components/ImageGenerationCanvas.vue'
 import DiagramWorkspace from '../components/DiagramWorkspace.vue'
+import PptTemplatePicker from '../components/PptTemplatePicker.vue'
 import { deleteLeaderSession, getLeaderSessionDetail, getLeaderSessions, queryLeaderAgent, streamLeaderAgent } from '../api/aiGeneration'
 import { API_BASE_URL } from '../api/request'
 import { AI_RESOURCE_ACCEPT, uploadAiResource } from '../api/upload'
@@ -601,6 +602,16 @@ function isDiagramMessage(message) {
   return Boolean(diagramTypeFromMessage(message) && diagramResultFromMessage(message))
 }
 
+function pptTemplateSelectionFromMessage(message) {
+  const answerType = String(message?.answerType || message?.retrievalMeta?.answerType || '')
+  if (answerType !== 'ppt_template_selection') return null
+  const meta = message?.retrievalMeta || {}
+  const templates = Array.isArray(meta.pptTemplateCatalog) ? meta.pptTemplateCatalog : []
+  const draft = meta.pptGenerationDraft && typeof meta.pptGenerationDraft === 'object' ? meta.pptGenerationDraft : null
+  if (!templates.length) return null
+  return { templates, draft }
+}
+
 function looksLikeImageResultJson(content) {
   const text = String(content || '').trim()
   if (!text.startsWith('{')) return false
@@ -768,7 +779,8 @@ function updateChatMessage(id, patch) {
   return target
 }
 
-async function sendMessage(text) {
+async function sendMessage(text, options = {}) {
+  const metadataExtra = options.metadata && typeof options.metadata === 'object' ? options.metadata : {}
   const hasExplicitText = typeof text === 'string'
   const value = String(hasExplicitText ? text : chatDraft.value).trim()
   const uploading = pendingResources.value.some((item) => item.status === 'uploading')
@@ -813,6 +825,7 @@ async function sendMessage(text) {
       onlineSearch: onlineSearch.value,
       deepThinking: deepThinking.value,
       source: 'web_ai_assistant',
+      ...metadataExtra,
     },
   }
   let streamTouched = false
@@ -1039,6 +1052,17 @@ async function sendMessage(text) {
     chatBusy.value = false
     void scrollMessages()
   }
+}
+
+async function confirmPptTemplate(templateId, message) {
+  const draft = message?.retrievalMeta?.pptGenerationDraft
+  await sendMessage(`使用 ${templateId} 模板继续生成 PPT`, {
+    metadata: {
+      pptTemplateConfirmed: true,
+      pptSettings: { templateId },
+      ...(draft ? { pptGenerationDraft: draft } : {}),
+    },
+  })
 }
 
 function stopGeneration() {
@@ -1665,6 +1689,12 @@ function handleUpload(event) {
                       <DiagramWorkspace
                         :type="diagramTypeFromMessage(message)"
                         :result="diagramResultFromMessage(message)"
+                      />
+                    </div>
+                    <div v-else-if="message.role === 'assistant' && pptTemplateSelectionFromMessage(message)" class="assistant-ppt-template">
+                      <PptTemplatePicker
+                        :templates="pptTemplateSelectionFromMessage(message).templates"
+                        @select="(templateId) => confirmPptTemplate(templateId, message)"
                       />
                     </div>
                     <p v-else-if="message.content && !displayAssistantContent(message)">{{ message.content }}</p>

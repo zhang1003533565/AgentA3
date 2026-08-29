@@ -1,0 +1,50 @@
+.ppt-template-picker {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 12px;
+}
+
+.ppt-template-picker__card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid #e3e8ee;
+  border-radius: 12px;
+  background: #fff;
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.ppt-template-picker__card:hover,
+.ppt-template-picker__card.is-selected {
+  border-color: #7a96ad;
+  box-shadow: 0 8px 20px rgba(44, 62, 80, 0.08);
+}
+
+.ppt-template-picker__thumb {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+  border-radius: 8px;
+  background: #f2f4f7;
+}
+
+.ppt-template-picker__name {
+  font-size: 13px;
+  font-weight: 600;
+  color: #1f2a37;
+}
+
+.ppt-template-picker__desc {
+  font-size: 12px;
+  line-height: 1.5;
+  color: #667788;
+}
+
+.ppt-template-picker__meta {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}

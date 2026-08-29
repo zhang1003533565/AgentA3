@@ -4,8 +4,10 @@ import { ApiOutlined, CheckCircleOutlined, DownloadOutlined, ExclamationCircleOu
 import { getRagAgents, runRagQuery, testFileContentTool } from '../../../api/rag'
 import DiagramWorkspace from '../../../components/DiagramWorkspace/DiagramWorkspace'
 import PptTaskWorkspace from '../../../components/PptTaskWorkspace/PptTaskWorkspace'
+import PptTemplatePicker from '../../../components/PptTemplatePicker/PptTemplatePicker'
+import { getPptOptions } from '../../../api/ppt'
 import { extractDiagramFromResponse } from '../../../utils/diagramUtils'
-import { extractPptTaskFromResponse } from '../../../utils/pptUtils'
+import { extractPptTaskFromResponse, extractPptTemplateSelectionFromResponse } from '../../../utils/pptUtils'
 import { getSystemConfigList, upsertSystemConfig, deleteSystemConfig } from '../../../api/systemConfig'
 import axios from 'axios'
 import { API_BASE_URL } from '../../../config/apiBase'
@@ -382,6 +384,9 @@ function AgentSettings() {
   const [toolTestLoading, setToolTestLoading] = useState(false)
   const [toolTestResult, setToolTestResult] = useState(null)
   const [toolTestPreview, setToolTestPreview] = useState('')
+  const [toolTestPptTemplates, setToolTestPptTemplates] = useState([])
+  const [toolTestPptTemplateId, setToolTestPptTemplateId] = useState('')
+  const [toolTestPptDraft, setToolTestPptDraft] = useState(null)
 
   const fetchData = useCallback(async () => {
     setLoading(true)
@@ -903,6 +908,28 @@ function AgentSettings() {
     [toolTestResult?.response]
   )
 
+  const toolTestPptTemplateSelection = useMemo(
+    () => extractPptTemplateSelectionFromResponse(toolTestResult?.response),
+    [toolTestResult?.response]
+  )
+
+  useEffect(() => {
+    if (selectedToolTest?.name !== 'ai_ppt_generation_tool') return undefined
+    let cancelled = false
+    getPptOptions()
+      .then((res) => {
+        if (cancelled) return
+        const templates = res?.data?.templates || res?.templates || []
+        setToolTestPptTemplates(Array.isArray(templates) ? templates : [])
+      })
+      .catch(() => {
+        if (!cancelled) setToolTestPptTemplates([])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [selectedToolTest?.name])
+
   const selectToolForTest = useCallback((name) => {
     const tool = allConfiguredTools.find((item) => item.name === name)
     setToolTestName(name)
@@ -911,6 +938,8 @@ function AgentSettings() {
     setToolTestFileList([])
     setToolTestResult(null)
     setToolTestPreview('')
+    setToolTestPptDraft(null)
+    setToolTestPptTemplateId('')
   }, [allConfiguredTools])
 
   const changeToolTestMode = useCallback((mode) => {
@@ -1026,13 +1055,14 @@ function AgentSettings() {
     }
   }, [selectedToolTest, toolTestFileList])
 
-  const runToolTest = useCallback(async () => {
+  const runToolTest = useCallback(async (pptOverrides = {}) => {
     if (!selectedToolTest) {
       message.warning('请先选择工具')
       return
     }
     const isImageStitchingTest = selectedToolTest.name === 'image_stitching_tool'
-    if (!isImageStitchingTest && !toolTestInput.trim()) {
+    const isPptTool = selectedToolTest.name === 'ai_ppt_generation_tool'
+    if (!isImageStitchingTest && !toolTestInput.trim() && !pptOverrides.templateId) {
       message.warning('请输入测试内容')
       return
     }
@@ -1060,6 +1090,15 @@ function AgentSettings() {
           directToolTest: true,
         },
       }
+      const selectedTemplateId = pptOverrides.templateId || toolTestPptTemplateId
+      const pptDraft = pptOverrides.draft || toolTestPptDraft || toolTestPptTemplateSelection?.draft
+      if (isPptTool) {
+        if (pptDraft) payload.metadata.pptGenerationDraft = pptDraft
+        if (selectedTemplateId) {
+          payload.metadata.pptTemplateConfirmed = true
+          payload.metadata.pptSettings = { templateId: selectedTemplateId }
+        }
+      }
       const testedTextModel = llmModelOptions.find((option) => option.modality === 'text' && option.isDefault)
         || llmModelOptions.find((option) => option.modality === 'text')
       if (testedTextModel) payload.llmModel = testedTextModel.value
@@ -1067,8 +1106,10 @@ function AgentSettings() {
       const res = await runRagQuery(payload)
       const durationMs = Math.round(performance.now() - startedAt)
       const pptTask = extractPptTaskFromResponse(res.data)
+      const pptTemplateSelection = extractPptTemplateSelectionFromResponse(res.data)
+      if (pptTemplateSelection?.draft) setToolTestPptDraft(pptTemplateSelection.draft)
       const matched = responseContainsTool(res.data, selectedToolTest.name)
-        || (selectedToolTest.name === 'ai_ppt_generation_tool' && Boolean(pptTask?.taskId))
+        || (isPptTool && (Boolean(pptTask?.taskId) || Boolean(pptTemplateSelection)))
       setToolTestResult({
         status: matched ? 'success' : 'mismatch',
         matched,
@@ -1079,6 +1120,8 @@ function AgentSettings() {
       if (matched) {
         if (pptTask?.taskId) {
           message.success('PPT 生成任务已创建，可在下方查看进度')
+        } else if (pptTemplateSelection) {
+          message.success('请先选择 PPT 模板，然后确认生成')
         } else {
           message.success(`${selectedToolTest.zhName || selectedToolTest.name}测试通过`)
         }
@@ -1095,7 +1138,7 @@ function AgentSettings() {
     } finally {
       setToolTestLoading(false)
     }
-  }, [selectedToolTest, toolTestImages, toolTestInput, llmModelOptions])
+  }, [selectedToolTest, toolTestImages, toolTestInput, llmModelOptions, toolTestPptTemplateId, toolTestPptDraft, toolTestPptTemplateSelection])
 
   const fetchToolTestAttachmentBlob = useCallback(async (item) => {
     if (!item?.storageKey || !item?.internalCapability) {
@@ -2021,6 +2064,20 @@ function AgentSettings() {
                             />
                           </>
                         ) : null}
+                        {selectedToolTest?.name === 'ai_ppt_generation_tool' ? (
+                          <>
+                            <label className="agent-settings-field-label">PPT 模板（可选，未选则先返回模板卡片）</label>
+                            <PptTemplatePicker
+                              templates={toolTestPptTemplates}
+                              value={toolTestPptTemplateId}
+                              onChange={setToolTestPptTemplateId}
+                              disabled={toolTestLoading}
+                            />
+                            <Text type="secondary">
+                              可先直接运行测试体验两阶段流程；也可以在运行前预选模板，跳过模板选择步骤。
+                            </Text>
+                          </>
+                        ) : null}
                         <Space.Compact block>
                           {selectedToolTest?.name !== 'image_stitching_tool' ? (
                             <Button
@@ -2119,6 +2176,27 @@ function AgentSettings() {
                               type={toolTestDiagramPreview.type}
                               result={toolTestDiagramPreview.result}
                             />
+                          </div>
+                        ) : null}
+                        {toolTestPptTemplateSelection ? (
+                          <div className="agent-settings-tool-test-output agent-settings-tool-test-ppt">
+                            <Text strong>PPT 模板选择</Text>
+                            <PptTemplatePicker
+                              templates={toolTestPptTemplateSelection.templates}
+                              value={toolTestPptTemplateId}
+                              onChange={setToolTestPptTemplateId}
+                              disabled={toolTestLoading}
+                            />
+                            <Button
+                              type="primary"
+                              disabled={!toolTestPptTemplateId || toolTestLoading}
+                              onClick={() => runToolTest({
+                                templateId: toolTestPptTemplateId,
+                                draft: toolTestPptTemplateSelection.draft,
+                              })}
+                            >
+                              确认模板并启动生成
+                            </Button>
                           </div>
                         ) : null}
                         {toolTestPptTask ? (

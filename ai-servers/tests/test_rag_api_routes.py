@@ -3,6 +3,7 @@ import importlib
 import json
 import os
 import unittest
+from unittest import mock
 from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
@@ -191,6 +192,73 @@ class RagApiRoutesTest(unittest.TestCase):
         ppt_tool = next(item for item in response.json()["generatedTools"] if item["name"] == "ai_ppt_generation_tool")
         self.assertEqual("implemented", ppt_tool["status"])
         self.assertEqual("ppt_outline_agent", ppt_tool.get("boundAgent"))
+
+    def test_admin_ai_ppt_generation_tool_passes_runtime_config_not_tuple(self):
+        captured = {}
+
+        def _create_leader_pipeline_task(user_id, request, llm_config):
+            captured["llm_config"] = llm_config
+            captured["request"] = request
+            return {
+                "taskId": "ppt_task_test1234567890abcdef1234567890ab",
+                "status": "queued",
+                "kind": "leader_ppt_pipeline",
+                "message": "queued",
+                "pollPath": "/api/app/ai/ppt/tasks/ppt_task_test1234567890abcdef1234567890ab",
+                "streamPath": "/api/app/ai/ppt/tasks/ppt_task_test1234567890abcdef1234567890ab/stream",
+            }
+
+        with mock.patch(
+            "app.services.ai_ppt_generation_tool_service.ppt_generation_service.create_leader_pipeline_task",
+            side_effect=_create_leader_pipeline_task,
+        ):
+            response = self.client.post(
+                "/internal/rag/query",
+                headers=self.headers,
+                json={
+                    "input": "请生成一份 8 页 PPT，主题是校园二手交易平台介绍。",
+                    "agentName": "leader_agent",
+                    "metadata": {
+                        "testFrom": "admin_tool_console",
+                        "directToolTest": True,
+                        "expectedToolName": "ai_ppt_generation_tool",
+                        "userId": "1001",
+                        "toolToggles": {"ai_ppt_generation_tool": True},
+                        "pptTemplateConfirmed": True,
+                        "pptSettings": {"templateId": "general"},
+                    },
+                },
+            )
+
+        self.assertEqual(200, response.status_code)
+        payload = response.json()
+        self.assertEqual("ppt_generation_task", payload["answerType"])
+        self.assertIn("pptTask", payload["metadata"])
+        self.assertTrue(hasattr(captured.get("llm_config"), "normalized_provider"))
+        self.assertNotIsInstance(captured.get("llm_config"), tuple)
+        self.assertEqual("general", captured["request"]["settings"]["templateId"])
+
+    def test_admin_ai_ppt_generation_tool_returns_template_selection_without_template(self):
+        response = self.client.post(
+            "/internal/rag/query",
+            headers=self.headers,
+            json={
+                "input": "请生成一份 8 页 PPT，主题是校园二手交易平台介绍。",
+                "agentName": "leader_agent",
+                "metadata": {
+                    "testFrom": "admin_tool_console",
+                    "directToolTest": True,
+                    "expectedToolName": "ai_ppt_generation_tool",
+                    "userId": "1001",
+                    "toolToggles": {"ai_ppt_generation_tool": True},
+                },
+            },
+        )
+        self.assertEqual(200, response.status_code)
+        payload = response.json()
+        self.assertEqual("ppt_template_selection", payload["answerType"])
+        self.assertGreaterEqual(len(payload["metadata"].get("pptTemplateCatalog") or []), 1)
+        self.assertIn("校园二手交易平台介绍", payload["metadata"]["pptGenerationDraft"]["topic"])
 
     def test_file_content_extraction_tools_are_exposed_for_admin_toggles(self):
         response = self.client.get("/internal/rag/agents", headers=self.headers)

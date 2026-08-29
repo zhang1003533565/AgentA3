@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Alert, Button, Empty, Input, List, Spin, Tag, Typography, message } from 'antd'
 import { DownloadOutlined, EyeOutlined, FileOutlined, HistoryOutlined, PlusOutlined, ReloadOutlined, RobotOutlined, SendOutlined, UploadOutlined } from '@ant-design/icons'
 import { getLeaderSessionDetail, getLeaderSessions, streamLeaderAgent } from '../../../api/aiLeader'
+import PptTemplatePicker from '../../../components/PptTemplatePicker/PptTemplatePicker'
+import { extractPptTemplateSelectionFromResponse } from '../../../utils/pptUtils'
 import { getRagAgents } from '../../../api/rag'
 import { API_BASE_URL } from '../../../config/apiBase'
 import './AiConversation.css'
@@ -20,10 +22,10 @@ const normalizeMessage = (item, index) => ({
   id: item.id || `${item.role}-${index}`,
   role: item.role === 'user' ? 'user' : 'assistant',
   content: item.content || item.answer || '',
-  answerType: item.answerType || 'text',
+  answerType: item.answerType || item.metadata?.answerType || 'text',
   agentName: item.agentName || 'leader_agent',
   model: item.model || '',
-  retrievalMeta: item.retrievalMeta || {},
+  retrievalMeta: item.retrievalMeta || item.metadata || {},
   resources: Array.isArray(item.resources) ? item.resources : [],
   attachments: Array.isArray(item.attachments) ? item.attachments : [],
   status: item.status || 'completed',
@@ -171,10 +173,10 @@ function AiConversation() {
     }
   }, [loadAttachmentBlob])
 
-  const sendMessage = async () => {
-    const content = input.trim()
+  const sendMessage = async (text, metadataExtra = {}) => {
+    const content = (typeof text === 'string' ? text : input).trim()
     if ((!content && !selectedFiles.length) || loading) return
-    setInput('')
+    if (typeof text !== 'string') setInput('')
     setError('')
     const thinkingId = `assistant-${Date.now()}`
     const pendingFiles = [...selectedFiles]
@@ -197,7 +199,7 @@ function AiConversation() {
         sessionId: sessionId || undefined,
         input: content || '请查看我上传的文件。',
         attachments: uploadedAttachments,
-        metadata: { uploadOnly: pendingFiles.length > 0 },
+        metadata: { uploadOnly: pendingFiles.length > 0, ...metadataExtra },
       }, {
         onSession: (payload) => {
           setSessionId(payload?.sessionId || sessionId)
@@ -250,6 +252,15 @@ function AiConversation() {
     }
   }
 
+  const confirmPptTemplate = async (templateId, message) => {
+    const draft = message?.retrievalMeta?.pptGenerationDraft
+    await sendMessage(`使用 ${templateId} 模板继续生成 PPT`, {
+      pptTemplateConfirmed: true,
+      pptSettings: { templateId },
+      ...(draft ? { pptGenerationDraft: draft } : {}),
+    })
+  }
+
   return (
     <div className="ai-conversation-page">
       <aside className="ai-conversation-history">
@@ -293,6 +304,14 @@ function AiConversation() {
               <div className="ai-conversation-bubble">
                 {item.role === 'assistant' && item.steps?.length ? <div className="ai-conversation-steps">{item.steps.map((step, stepIndex) => <div key={`${item.id}-step-${stepIndex}`} className="ai-conversation-step"><span className="ai-conversation-step-dot" />{step}</div>)}</div> : null}
                 {item.content || (item.status === 'running' ? '正在处理…' : '智能助手没有返回可用内容。')}
+                {item.role === 'assistant' && extractPptTemplateSelectionFromResponse(item) ? (
+                  <div className="ai-conversation-ppt-template">
+                    <PptTemplatePicker
+                      templates={extractPptTemplateSelectionFromResponse(item).templates}
+                      onChange={(templateId) => confirmPptTemplate(templateId, item)}
+                    />
+                  </div>
+                ) : null}
                 {item.attachments?.length ? <div className="ai-conversation-attachments">{item.attachments.map((attachment, attachmentIndex) => {
                   const imageType = String(attachment.type || attachment.mimeType || '').toLowerCase()
                   const imageUrl = (imageType === 'image' || imageType.startsWith('image/'))
