@@ -47,10 +47,10 @@ const TOOL_TAB_GROUPS = [
   { key: 'campus', label: '校园服务', categories: ['campus_service'] },
   { key: 'vision', label: '图片理解', categories: ['vision_understanding'] },
   { key: 'visual', label: '视觉生成', categories: ['visual_generation'] },
-  { key: 'diagram', label: '结构化图表', categories: ['structured_diagram'] },
+  { key: 'structured_diagram', label: '结构化图表', categories: ['structured_diagram'] },
   { key: 'content', label: '内容导出', categories: ['content_export'] },
   { key: 'presentation', label: 'PPT 生成', categories: ['presentation_generation'] },
-  { key: 'diagram', label: '图表导出', categories: ['diagram_export'] },
+  { key: 'diagram_export', label: '图表导出', categories: ['diagram_export'] },
   { key: 'file_content', label: '文件识别', categories: ['file_content_extraction'] },
   { key: 'capability', label: '能力查询', categories: ['capability_query'] },
 ]

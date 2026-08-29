@@ -411,8 +411,9 @@ GENERATED_CONTENT_TOOLS = [
         "category": "diagram_export",
         "purpose": "保存 Mermaid/图表源码，方便后续继续编辑、复用或交给图片工具生成图解版。",
         "trigger": "answerType 为 mermaid_* 或回答中包含 Mermaid 代码块。",
-        "outputs": ["mmd", "md", "zip"],
+        "outputs": ["mmd", "md"],
         "status": "implemented",
+        "configurable": True,
     },
     *FILE_CONTENT_EXTRACTION_TOOLS,
 ]
