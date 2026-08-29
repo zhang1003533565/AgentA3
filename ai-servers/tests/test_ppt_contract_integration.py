@@ -17,6 +17,7 @@ from app.ppt_generation.service import (
     _fill_layout_with_slide_text,
     _sanitize_content_payload,
     _node_display_text,
+    _structured_cell_text,
 )
 from app.ppt_generation.template_catalog import EmbeddedTemplateCatalog
 from app.ppt_generation.template_model import parse_slide_layout, semantic_content_contract
@@ -433,6 +434,48 @@ def test_outline_fallback_replaces_footer_profile_sample_copy(catalog):
     )
     texts = [_node_display_text(node) for node in _collect_text_nodes(filled)]
     assert "John Doe" not in texts
+
+
+def test_merge_clears_table_chart_template_markers(catalog):
+    """Table/chart demo labels like Revenue/Growth must not survive partial fills."""
+    layout = catalog.get_layout("general", "title_table_description")
+    merged = _merge_content_into_layout(layout, {
+        "main_title": "校园二手交易核心流程",
+        "supporting_note": "平台通过实名认证、商品发布、在线沟通和线下交易完成闭环。",
+    })
+
+    texts = [_node_display_text(node) for node in _collect_text_nodes(merged)]
+    structured: list[str] = []
+
+    def collect_structured(node):
+        if isinstance(node, list):
+            for item in node:
+                collect_structured(item)
+            return
+        if not isinstance(node, dict):
+            return
+        if node.get("type") == "table":
+            for column in node.get("columns") or []:
+                structured.append(_structured_cell_text(column))
+            for row in node.get("rows") or []:
+                if isinstance(row, list):
+                    structured.extend(_structured_cell_text(cell) for cell in row)
+        elif node.get("type") == "chart":
+            structured.extend(str(item or "") for item in (node.get("categories") or []))
+            for item in node.get("series") or []:
+                if isinstance(item, dict):
+                    structured.append(str(item.get("name") or ""))
+        for key in ("components", "elements", "children"):
+            if key in node:
+                collect_structured(node[key])
+        if "child" in node:
+            collect_structured(node["child"])
+
+    collect_structured(merged)
+    leaked = {*texts, *structured}
+    assert "Revenue" not in leaked
+    assert "Growth" not in leaked
+    assert any("校园二手交易核心流程" in text for text in texts)
 
 
 def test_sanitize_reports_unknown_ids(catalog):

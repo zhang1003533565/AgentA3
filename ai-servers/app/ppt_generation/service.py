@@ -49,6 +49,7 @@ from app.ppt_generation.presenton_generation_prompts import (
     PRESENTON_STRUCTURE_RULES,
 )
 from app.ppt_generation.pptx_export_qa import validate_exported_pptx
+from app.ppt_generation.template_placeholder_lexicon import contains_template_marker
 from app.ppt_generation.ppt_mapper import (
     template_for_settings,
 )
@@ -5166,6 +5167,7 @@ def _merge_content_into_layout(layout: Mapping[str, Any], component_content: Map
         )
     _clear_unmatched_content_text(result)
     _clear_template_placeholder_text(result, matched_names)
+    _clear_structured_template_placeholders(result)
     # 匹配计数/名称标记：调用方据此判断键名是否全部未命中（需回退大纲填充），
     # 以及哪些键对应不存在的组件（结构化输出校验：不创建新元素，仅报告）
     result["_matchedComponents"] = len(matched_names)
@@ -5229,6 +5231,74 @@ _TEMPLATE_SAMPLE_TEXTS = frozenset({
 })
 
 
+def _structured_cell_text(value: Any) -> str:
+    if isinstance(value, Mapping):
+        text = value.get("text")
+        if isinstance(text, str) and text.strip():
+            return text.strip()
+        runs = value.get("runs")
+        if isinstance(runs, list):
+            parts = [
+                str(run.get("text") or "").strip()
+                for run in runs
+                if isinstance(run, Mapping) and str(run.get("text") or "").strip()
+            ]
+            if parts:
+                return " ".join(parts)
+    return str(value or "").strip()
+
+
+def _set_structured_cell_text(value: Dict[str, Any], text: str) -> None:
+    value["text"] = text
+    runs = value.get("runs")
+    if isinstance(runs, list) and runs and isinstance(runs[0], Mapping):
+        runs[0]["text"] = text
+
+
+def _clear_structured_template_placeholders(root: Dict[str, Any]) -> None:
+    """Remove known demo copy from table/chart nodes that text cleanup misses."""
+
+    def _walk(node: Any) -> None:
+        if isinstance(node, list):
+            for item in node:
+                _walk(item)
+            return
+        if not isinstance(node, Mapping):
+            return
+        node_type = str(node.get("type") or "")
+        if node_type == "table":
+            for column in node.get("columns") or []:
+                if isinstance(column, Mapping) and contains_template_marker(_structured_cell_text(column)):
+                    _set_structured_cell_text(column, "")
+            for row in node.get("rows") or []:
+                if not isinstance(row, list):
+                    continue
+                for cell in row:
+                    if isinstance(cell, Mapping) and contains_template_marker(_structured_cell_text(cell)):
+                        _set_structured_cell_text(cell, "")
+        elif node_type == "chart":
+            categories = node.get("categories")
+            if isinstance(categories, list):
+                node["categories"] = [
+                    "" if contains_template_marker(str(item or "")) else item
+                    for item in categories
+                ]
+            series = node.get("series")
+            if isinstance(series, list):
+                for item in series:
+                    if isinstance(item, Mapping) and contains_template_marker(str(item.get("name") or "")):
+                        item["name"] = ""
+        for key in ("components", "elements", "children"):
+            if key in node:
+                _walk(node[key])
+        if "child" in node:
+            _walk(node["child"])
+
+    for key in ("components", "elements"):
+        if key in root:
+            _walk(root[key])
+
+
 def _is_template_placeholder_text(node: Mapping[str, Any]) -> bool:
     """识别模板占位文本。
 
@@ -5239,6 +5309,8 @@ def _is_template_placeholder_text(node: Mapping[str, Any]) -> bool:
     text = _node_display_text(node).strip()
     if not text or re.search(r"[\u4e00-\u9fff]", text):
         return False
+    if contains_template_marker(text):
+        return True
     if text.casefold() in _TEMPLATE_SAMPLE_TEXTS:
         return True
     # 短装饰文字（数字角标、全大写设计词、单词标签）保留
@@ -5833,6 +5905,7 @@ def _fill_layout_with_slide_text(
     for node in fillable:
         if id(node) not in filled_nodes:
             _write_content(node, "")
+    _clear_structured_template_placeholders(result)
     return result
 
 

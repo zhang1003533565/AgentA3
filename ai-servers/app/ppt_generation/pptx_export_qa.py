@@ -6,32 +6,13 @@ from pathlib import Path
 from typing import Any, Dict, List, Tuple
 from xml.etree import ElementTree
 
+from app.ppt_generation.template_placeholder_lexicon import find_template_marker
+
 
 _NS = {
     "p": "http://schemas.openxmlformats.org/presentationml/2006/main",
     "a": "http://schemas.openxmlformats.org/drawingml/2006/main",
 }
-_PLACEHOLDER_MARKERS = (
-    "metric",
-    "last year",
-    "this year",
-    "growth",
-    "revenue",
-    "customers",
-    "conversion rate",
-    "retention",
-    "ceo",
-    "cto",
-    "coo",
-    "cmo",
-    "www.yourwebsite.com",
-    "our team",
-    "timeline",
-    "recommendations",
-    "business model",
-    "concise supporting text under the",
-    "high-level execution plan and milestones",
-)
 _ELLIPSIS = re.compile(r"(?:…|\.\.\.)")
 _INCOMPLETE_EXPRESSION = re.compile(r"(?:[\^=+\-/*(（\[【]|\b(?:O|o)\([^)]*)$")
 _CJK = re.compile(r"[\u2e80-\u9fff\uf900-\ufaff]")
@@ -71,15 +52,7 @@ def validate_exported_pptx(path: Path) -> Dict[str, Any]:
                 text = "".join(texts).strip()
                 if not text:
                     continue
-                lowered = text.casefold()
-                marker = next(
-                    (
-                        value
-                        for value in _PLACEHOLDER_MARKERS
-                        if re.search(rf"(?<![a-z]){re.escape(value)}(?![a-z])", lowered)
-                    ),
-                    None,
-                )
+                marker = find_template_marker(text)
                 if marker:
                     errors.append({
                         "slide": slide_number,

@@ -14,6 +14,8 @@ import re
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Mapping, Sequence
 
+from app.ppt_generation.template_placeholder_lexicon import find_template_marker
+
 
 _HEADING_RE = re.compile(
     r"^\s*(?:#{1,6}\s*|第\s*\d+\s*[章节篇]\s*[：:]?\s*)([^#\r\n]+?)\s*$",
@@ -24,12 +26,6 @@ _PUNCT_RE = re.compile(r"[\s\u3000，。、“”‘’：:；;,.!?！？（）(
 _META_RE = re.compile(
     r"本页(?:介绍|将|主要|重点|围绕|聚焦)|"
     r"(?:梳理|概述|说明|了解|掌握).{0,18}(?:范围|目标|要点|内容|概念)"
-)
-_PLACEHOLDERS = (
-    "Metric", "Last Year", "This Year", "Growth", "Revenue", "Customers",
-    "Conversion Rate", "Retention", "CEO", "CTO", "COO", "CMO", "John Doe",
-    "Juliana Silva", "Daniel Gallego", "Ketut Susilo", "Anna Robertson",
-    "www.yourwebsite.com", "December 2025", "Jan 1, 2025",
 )
 
 
@@ -282,7 +278,12 @@ def assess_content_quality(
             page_issues.append(_issue("META_LANGUAGE", "warning", "页面出现本页目标/内容梳理式元话语", index))
         if "..." in body_text or "…" in body_text:
             page_issues.append(_issue("CONTENT_TRUNCATED", "warning", "页面正文含省略号，疑似被截断", index))
-        leaked = [placeholder for placeholder in _PLACEHOLDERS if placeholder.lower() in " ".join(visible_texts(slide)).lower() and placeholder.lower() not in source.lower()]
+        source_text = str(source or "").casefold()
+        leaked = sorted({
+            marker
+            for text in visible_texts(slide)
+            if (marker := find_template_marker(text)) and marker not in source_text
+        })
         if leaked:
             page_issues.append(_issue(
                 "TEMPLATE_PLACEHOLDER_LEAK", "error", "页面混入模板示例占位内容：" + "、".join(leaked), index,
