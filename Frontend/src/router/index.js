@@ -10,6 +10,9 @@ import MeetingRoomView from '../views/MeetingRoomView.vue'
 import MeetingWorkspaceView from '../views/MeetingWorkspaceView.vue'
 import MessageCenterView from '../views/MessageCenterView.vue'
 import PythonLearningView from '../views/PythonLearningView.vue'
+import PythonQuestionBankView from '../views/pythonOnline/PythonQuestionBankView.vue'
+import PythonProblemDetailView from '../views/pythonOnline/PythonProblemDetailView.vue'
+import PythonPracticeView from '../views/pythonOnline/PythonPracticeView.vue'
 import KnowledgeGraphView from '../views/KnowledgeGraphView.vue'
 import LearningResourceView from '../views/LearningResourceView.vue'
 import MarketplaceView from '../views/MarketplaceView.vue'
@@ -69,7 +72,10 @@ const routes = [
   { path: '/ai-original/help', name: 'ai-original-help', component: WatermarkHelpView },
   { path: '/ai-studio/:tool?', name: 'ai-studio', component: AiStudioView },
   { path: '/profile-radar', name: 'profile-radar', component: ProfileRadarView },
-  { path: '/learning', name: 'learning', component: PythonLearningView },
+  { path: '/learning', name: 'learning', component: PythonQuestionBankView },
+  { path: '/learning/plan', name: 'learning-plan', component: PythonLearningView },
+  { path: '/learning/problems/:id', name: 'python-problem-detail', component: PythonProblemDetailView },
+  { path: '/learning/practice/:id', name: 'python-practice', component: PythonPracticeView },
   { path: '/learning/knowledge-graph', name: 'knowledge-graph', component: KnowledgeGraphView },
   { path: '/learning/resources', name: 'learning-resources', component: LearningResourceView },
   { path: '/marketplace', name: 'marketplace', component: MarketplaceView },
