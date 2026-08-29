@@ -374,7 +374,7 @@ onBeforeUnmount(() => {
             <p>{{ categories.find((item) => item.key === activeCategory)?.label }}</p>
             <h2>找到适合你的智能工具</h2>
           </div>
-          <button type="button" @click="router.push('/ai-studio')">
+          <button type="button" @click="router.push('/ai-tools')">
             查看全部
             <svg viewBox="0 0 24 24"><path d="m9 5 7 7-7 7" /></svg>
           </button>

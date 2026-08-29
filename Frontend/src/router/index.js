@@ -19,7 +19,14 @@ import MarketplaceChatView from '../views/MarketplaceChatView.vue'
 import ForumView from '../views/ForumView.vue'
 import ForumPostView from '../views/ForumPostView.vue'
 import ForumProfileView from '../views/ForumProfileView.vue'
-import AiStudioView from '../views/AiStudioView.vue'
+import AiWritingView from '../views/aiStudio/AiWritingView.vue'
+import AiImageView from '../views/aiStudio/AiImageView.vue'
+import AiExamView from '../views/aiStudio/AiExamView.vue'
+import AiPresentationView from '../views/aiStudio/AiPresentationView.vue'
+import AiMindMapView from '../views/aiStudio/AiMindMapView.vue'
+import AiArchitectureView from '../views/aiStudio/AiArchitectureView.vue'
+import AiFlowchartView from '../views/aiStudio/AiFlowchartView.vue'
+import { AI_STUDIO_TOOL_IDS } from '../config/aiStudioTools'
 import AiOriginalView from '../views/AiOriginalView.vue'
 import WatermarkAddView from '../views/WatermarkAddView.vue'
 import WatermarkBatchView from '../views/WatermarkBatchView.vue'
@@ -68,7 +75,18 @@ const routes = [
   { path: '/ai-original/batch', name: 'ai-original-batch', component: WatermarkBatchView },
   { path: '/ai-original/history', name: 'ai-original-history', component: WatermarkHistoryView },
   { path: '/ai-original/help', name: 'ai-original-help', component: WatermarkHelpView },
-  { path: '/ai-studio/:tool?', name: 'ai-studio', component: AiStudioView },
+  { path: '/ai-studio', redirect: '/ai-tools' },
+  { path: '/ai-studio/writing', name: 'ai-studio-writing', component: AiWritingView },
+  { path: '/ai-studio/image', name: 'ai-studio-image', component: AiImageView },
+  { path: '/ai-studio/exam', name: 'ai-studio-exam', component: AiExamView },
+  { path: '/ai-studio/presentation', name: 'ai-studio-presentation', component: AiPresentationView },
+  { path: '/ai-studio/mind_map', name: 'ai-studio-mind-map', component: AiMindMapView },
+  { path: '/ai-studio/architecture', name: 'ai-studio-architecture', component: AiArchitectureView },
+  { path: '/ai-studio/flowchart', name: 'ai-studio-flowchart', component: AiFlowchartView },
+  {
+    path: '/ai-studio/:tool',
+    redirect: (to) => (AI_STUDIO_TOOL_IDS.includes(String(to.params.tool || '')) ? `/ai-studio/${to.params.tool}` : '/ai-tools'),
+  },
   { path: '/profile-radar', name: 'profile-radar', component: ProfileRadarView },
   { path: '/learning', name: 'learning', component: PythonQuestionBankView },
   { path: '/learning/plan', name: 'learning-plan', component: PythonLearningView },
