@@ -217,7 +217,23 @@ IMAGE_RECOGNITION_TOOL = {
     "outputs": ["image_analysis_text"],
     "status": "implemented",
     "configurable": True,
-    "boundAgent": IMAGE_RECOGNITION_AGENT_NAME,
+}
+
+# =========================
+# Meeting Task Management Tool
+# =========================
+MEETING_TASK_TOOL_NAME = "meeting_task_tool"
+MEETING_TASK_TOOL = {
+    "name": MEETING_TASK_TOOL_NAME,
+    "zhName": "个人任务管理工具",
+    "displayName": "个人任务管理工具（meeting_task_tool）",
+    "category": "meeting_service",
+    "purpose": "用于创建、查询、更新会议中的个人任务，并为后续会议汇报提供任务状态查询和更新能力。",
+    "trigger": "会后总结需要识别和记录个人任务时调用；任务负责人确认完成时需要更新状态时调用。",
+    "outputs": ["task", "task_list", "TASK"],
+    "status": "registered",
+    "configurable": True,
+    "invocation": "unwired",
 }
 
 FILE_CONTENT_EXTRACTION_TOOLS = [
@@ -574,6 +590,7 @@ CAMPUS_SERVICE_TOOLS = [
         "status": "implemented",
         "configurable": True,
     },
+    MEETING_TASK_TOOL,
 ]
 
 SERVICE_TOOL_NAMES = {tool["name"] for tool in CAMPUS_SERVICE_TOOLS}
@@ -611,6 +628,20 @@ LEADER_CALLABLE_TOOLS = [
     *VISUAL_GENERATION_TOOLS,
     *STRUCTURED_DIAGRAM_TOOLS,
     *PPT_GENERATION_TOOLS,
+    # 个人任务管理工具（MEETING_TASK_TOOL）已登记在 CAMPUS_SERVICE_TOOLS 中，
+    # 由下方 *CAMPUS_SERVICE_TOOLS 展开进入本列表；此处不再显式添加，
+    # 否则后台工具列表会出现两条"个人任务管理工具"。Leader 仍可发现并调用它。
+    {
+        "name": "text_to_sql",
+        "zhName": "结构化查询工具",
+        "displayName": "结构化查询工具（text_to_sql）",
+        "category": "structured_query",
+        "purpose": "把统计、列表、数量类问题转换为只读 SQL，并返回可展示查询结果。",
+        "trigger": "用户询问优惠券、食堂、菜品、课程、课表等结构化数据的统计、数量、列表或排名。",
+        "outputs": ["sql", "text"],
+        "status": "implemented",
+        "configurable": True,
+    },
     *CAMPUS_SERVICE_TOOLS,
     TOOL_CAPABILITY_QUERY,
     {
@@ -2927,6 +2958,8 @@ def _execute_leader_plan(
             response = _run_structured_diagram_tool(request, authorization, plan)
         elif plan.tool_name in AI_PPT_GENERATION_TOOL_NAMES:
             response = _run_ai_ppt_generation_tool(request, plan)
+        elif plan.tool_name == MEETING_TASK_TOOL_NAME:
+            response = _run_meeting_task_tool(request, authorization, plan)
         else:
             raise HTTPException(status_code=502, detail=f"Leader 选择了未注册工具：{plan.tool_name or '空'}，已停止执行。")
         _inject_tool_selection_into_response(response, callable_catalog)
@@ -3898,7 +3931,7 @@ def _run_ai_ppt_generation_tool(
     if not config:
         raise HTTPException(status_code=502, detail=f"未注册的 PPT 生成工具：{tool_name or '空'}")
     bound_agent = str(config.get("boundAgent") or PPT_OUTLINE_AGENT_NAME)
-    runtime_config = _require_agent_runtime_config(request, bound_agent, leader_plan)
+    runtime_config, _config_prefix = _require_agent_runtime_config(request, bound_agent, leader_plan)
     token = set_active_llm_config(runtime_config)
     try:
         metadata = request.metadata if isinstance(request.metadata, dict) else {}
@@ -4100,6 +4133,190 @@ def _run_image_recognition_tool(
         strategy=IMAGE_RECOGNITION_TOOL_NAME,
         answer=answer,
         answerType="image_analysis",
+        documents=[],
+        trace=trace,
+        metadata=metadata,
+    ))
+
+
+def _run_meeting_task_tool(
+    request: RagQueryRequest,
+    authorization: str,
+    leader_plan,
+) -> RagQueryResponse:
+    """
+    执行会议任务管理工具
+    
+    支持的操作：
+    - create_task: 创建任务
+    - list_my_tasks: 查询我的任务
+    - get_task: 查询任务详情
+    - update_task_status: 更新任务状态
+    """
+    import asyncio
+    # handle_meeting_task_tool 定义在 rag_integration（对 meeting_task_tool_handler 的薄封装），
+    # 此前误从 meeting_task_tool 导入会抛 ImportError，导致 Leader 路由到该工具时失败。
+    from app.task_tools.rag_integration import handle_meeting_task_tool
+    
+    tool_name = leader_plan.tool_name
+    tool_display_name = _tool_display_name(tool_name)
+    planning_answer = str(getattr(leader_plan, "answer", "") or "").strip()
+    action = getattr(leader_plan, "action_detail", "") or ""
+    
+    # 解析参数
+    try:
+        import json
+        params = {}
+        if planning_answer:
+            try:
+                params = json.loads(planning_answer)
+            except json.JSONDecodeError:
+                return RagQueryResponse(
+                    strategy=tool_name,
+                    answer=f"无法解析任务操作参数：{planning_answer}",
+                    answerType="error",
+                    documents=[],
+                    trace=[{
+                        "stage": "tool_call",
+                        "detail": {
+                            "toolName": tool_name,
+                            "toolDisplayName": tool_display_name,
+                            "reason": "invalid_json_params"
+                        }
+                    }],
+                    metadata={
+                        "agentName": "leader_agent",
+                        "targetAgent": tool_name,
+                        "executedAgent": tool_name,
+                        "routeReason": "未提供有效的任务操作参数",
+                        "executionMode": "tool_call",
+                        "status_code": 400,
+                    }
+                )
+    except Exception as exc:
+        logger.warning(f"Meeting task tool parameter parsing failed: {exc}")
+        params = {}
+    
+    # 异步执行工具调用
+    try:
+        result = asyncio.run(handle_meeting_task_tool(
+            action=action,
+            authorization=authorization,
+            **params
+        ))
+    except Exception as exc:
+        logger.error(f"Meeting task tool execution failed: {exc}", exc_info=True)
+        return RagQueryResponse(
+            strategy=tool_name,
+            answer=f"工具执行异常：{str(exc)}",
+            answerType="error",
+            documents=[],
+            trace=[{
+                "stage": "tool_call",
+                "detail": {
+                    "toolName": tool_name,
+                    "toolDisplayName": tool_display_name,
+                    "reason": "execution_error"
+                }
+            }],
+            metadata={
+                "agentName": "leader_agent",
+                "targetAgent": tool_name,
+                "executedAgent": tool_name,
+                "routeReason": "工具执行失败",
+                "executionMode": "tool_call",
+                "status_code": 500,
+            }
+        )
+    
+    # 构建工具结果
+    is_success = result.get("success", False)
+    tool_result_data = result.get("data")
+    error_msg = result.get("error", "未知错误")
+    status_code = result.get("statusCode", 200)
+    
+    # 根据结果类型生成回答
+    if not is_success:
+        answer = f"任务操作失败：{error_msg}"
+        answer_type = "task_error"
+    elif action == "create_task":
+        if isinstance(tool_result_data, dict):
+            task_id = tool_result_data.get("id", "?")
+            task_title = tool_result_data.get("title", "")
+            answer = f"成功创建任务：{task_title}(ID={task_id})"
+        else:
+            answer = "成功创建任务"
+        answer_type = "task_created"
+    elif action == "list_my_tasks":
+        task_list = tool_result_data if isinstance(tool_result_data, list) else []
+        if task_list:
+            count = len(task_list)
+            titles = [t.get("title", "unknown") for t in task_list[:5]]
+            answer = f"找到 {count} 个任务。示例：{', '.join(titles)}"
+        else:
+            answer = "没有找到您的历史任务。"
+        answer_type = "task_list"
+    elif action == "get_task":
+        if isinstance(tool_result_data, dict):
+            task_title = tool_result_data.get("title", "")
+            task_status = tool_result_data.get("status", "unknown")
+            answer = f"任务详情：{task_title}(状态：{task_status})"
+        else:
+            answer = "获取任务详情失败"
+        answer_type = "task_detail"
+    elif action == "update_task_status":
+        if isinstance(tool_result_data, dict):
+            task_title = tool_result_data.get("title", "")
+            new_status = tool_result_data.get("status", "unknown")
+            answer = f"成功更新任务状态：{task_title} -> {new_status}"
+        else:
+            answer = "成功更新任务状态"
+        answer_type = "task_updated"
+    else:
+        answer = str(tool_result_data) if tool_result_data else "任务操作完成"
+        answer_type = "task_result"
+    
+    # 构建元数据和追踪信息
+    metadata = {
+        "agentName": "leader_agent",
+        "targetAgent": tool_name,
+        "executedAgent": tool_name,
+        "toolName": tool_name,
+        "toolDisplayName": tool_display_name,
+        "intent": getattr(leader_plan, "intent", ""),
+        "needRetrieval": False,
+        "retrievalSkipped": True,
+        "strategyLabel": "会议任务管理",
+        "executionMode": "leader_call_meeting_task",
+        "executionModeLabel": "Leader 调用会议任务工具",
+        "action": action,
+        "actionLabel": {
+            "create_task": "创建任务",
+            "list_my_tasks": "查询任务列表",
+            "get_task": "查询任务详情",
+            "update_task_status": "更新任务状态"
+        }.get(action, action),
+        "status_code": status_code,
+        "success": is_success,
+        "answerType": answer_type,
+        "routeReason": getattr(leader_plan, "route_reason", ""),
+    }
+    
+    trace = [
+        RagTraceResponse(stage="leader_route", detail=_leader_plan_detail(leader_plan)),
+        RagTraceResponse(stage="tool_call", detail={
+            "toolName": tool_name,
+            "toolDisplayName": tool_display_name,
+            "action": action,
+            "paramsCount": len(params),
+            "paramsPreview": str(params)[:100] if params else "",
+        }),
+    ]
+    
+    return _decorate_output_response(RagQueryResponse(
+        strategy=tool_name,
+        answer=answer,
+        answerType=answer_type,
         documents=[],
         trace=trace,
         metadata=metadata,

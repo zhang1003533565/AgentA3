@@ -6,11 +6,15 @@ import DiagramWorkspace from '../../../components/DiagramWorkspace/DiagramWorksp
 import PptTaskWorkspace from '../../../components/PptTaskWorkspace/PptTaskWorkspace'
 import { extractDiagramFromResponse } from '../../../utils/diagramUtils'
 import { extractPptTaskFromResponse } from '../../../utils/pptUtils'
-import { getSystemConfigList, upsertSystemConfig } from '../../../api/systemConfig'
+import { getSystemConfigList, upsertSystemConfig, deleteSystemConfig } from '../../../api/systemConfig'
 import axios from 'axios'
 import { API_BASE_URL } from '../../../config/apiBase'
 import {
   AGENT_ENABLED_CONFIG_PREFIX,
+  AGENT_SUB_MODEL_BINDING_HINTS,
+  AGENT_SUB_MODEL_BINDING_LABELS,
+  AGENT_SUB_MODEL_BINDINGS,
+  AGENT_SUB_MODEL_UNBOUND_TEXT,
   QUESTION_GENERATION_AGENT_PREFIX,
   QUESTION_TYPE_OPTIONS,
   TOOL_BOUND_CONFIG_PREFIX,
@@ -18,6 +22,9 @@ import {
   TOOL_ENABLED_CONFIG_PREFIX,
   TOOL_RETRIEVAL_CONFIG_PREFIX,
   buildAgentModelBindings,
+  buildAgentSubModelBindingIds,
+  buildAgentSubModelBindings,
+  buildAiModelLabelByPrefix,
   buildQuestionGenerationAgentMappings,
   buildToolBindings,
   buildToolToggles,
@@ -116,11 +123,12 @@ const TOOL_TEST_PROMPTS = {
   text_to_docx_tool: '请把以下内容按原文转成Word文件：校园二手交易应当当面验货、确认商品状态后再完成交易。',
   markdown_export_tool: '请把以下内容导出为 Markdown 文件：校园二手交易测试内容。',
   docx_export_tool: '请把以下内容导出为 Word 文档：校园二手交易测试内容。',
-  excel_export_tool: '请把以下清单导出为 Excel：商品A，分类教材；商品B，分类数码。',
+  excel_export_tool: '请把以下清单导出为 Excel：商品 A，分类教材；商品 B，分类数码。',
   pptx_export_tool: '请把以下内容生成并导出为 PPTX：校园二手交易平台介绍，包括发布、沟通、线下交易。',
   content_archive_tool: '请把以下内容分别导出为 Markdown 和 Word，并将所有附件打包成 ZIP：校园二手交易测试内容。',
   diagram_source_export_tool: '请生成校园二手交易流程的 Mermaid 流程图，并导出图表源码文件。',
   ai_ppt_generation_tool: '请生成一份 8 页 PPT，主题是校园二手交易平台介绍，包含发布商品、沟通议价、线下交易三个部分。',
+  meeting_task_tool: '测试个人任务管理工具的注册状态，返回工具定义信息。',
 }
 
 const getToolTestPrompt = (tool) => TOOL_TEST_PROMPTS[tool?.name]
@@ -216,6 +224,7 @@ const getToolCategoryLabel = (category) => {
     diagram_export: '图表导出',
     presentation_generation: 'PPT 生成',
     structured_diagram: '结构化图表',
+    meeting_service: '会议服务',
     capability_query: '能力查询',
   }
   return labels[category] || category || '-'
@@ -339,6 +348,10 @@ function AgentSettings() {
   const [llmModelOptions, setLlmModelOptions] = useState([])
   const [agentModelBindings, setAgentModelBindings] = useState({})
   const [draftBindings, setDraftBindings] = useState({})
+  const [agentSubModelBindings, setAgentSubModelBindings] = useState({})
+  const [draftSubModelBindings, setDraftSubModelBindings] = useState({})
+  const [agentSubModelBindingIds, setAgentSubModelBindingIds] = useState({})
+  const [modelLabelByPrefix, setModelLabelByPrefix] = useState({})
   const [questionAgentMappings, setQuestionAgentMappings] = useState({})
   const [draftQuestionAgentMappings, setDraftQuestionAgentMappings] = useState({})
   const [toolBindings, setToolBindings] = useState({})
@@ -383,6 +396,7 @@ function AgentSettings() {
       ])
       const configRows = configRes.data?.records || []
       const nextBindings = buildAgentModelBindings(configRows)
+      const nextSubModelBindings = buildAgentSubModelBindings(configRows)
       const nextToolToggles = buildToolToggles(configRows)
       const nextToolBindings = buildToolBindings(configRows)
       const nextToolRetrievalProfiles = buildToolRetrievalProfiles(configRows)
@@ -413,6 +427,10 @@ function AgentSettings() {
       setLlmModelOptions(buildLlmModelOptions(configRows))
       setAgentModelBindings(nextBindings)
       setDraftBindings(nextBindings)
+      setAgentSubModelBindings(nextSubModelBindings)
+      setDraftSubModelBindings(nextSubModelBindings)
+      setAgentSubModelBindingIds(buildAgentSubModelBindingIds(configRows))
+      setModelLabelByPrefix(buildAiModelLabelByPrefix(configRows))
       setQuestionAgentMappings(nextQuestionAgentMappings)
       setDraftQuestionAgentMappings(nextQuestionAgentMappings)
       setToolBindings(nextToolBindings)
@@ -490,6 +508,78 @@ function AgentSettings() {
       setSavingKey('')
     }
   }, [draftBindings])
+
+  /**
+   * 保存智能体子用途模型绑定（如会后纪要 minutes-model）。
+   * 只写 ai.agent-bindings.{agent}.{purposeModel} 这一个键，
+   * 绝不修改通用 .model —— 通用键仍由会中实时总结（Agent 1）使用，两者必须隔离。
+   */
+  const saveAgentSubModelBinding = useCallback(async (agentName, purposeModel) => {
+    const configPrefix = String(draftSubModelBindings[agentName]?.[purposeModel] || '').trim()
+    if (!configPrefix) {
+      message.warning('请先选择模型')
+      return
+    }
+    const savingTag = `sub-model:${agentName}:${purposeModel}`
+    setSavingKey(savingTag)
+    try {
+      await upsertSystemConfig({
+        configKey: `ai.agent-bindings.${agentName}.${purposeModel}`,
+        configValue: configPrefix,
+        configGroup: 'ai',
+        description: `智能体 ${agentName} ${AGENT_SUB_MODEL_BINDING_LABELS[purposeModel] || purposeModel}绑定`,
+        status: 1,
+        isDefault: 0,
+      })
+      setAgentSubModelBindings((prev) => ({
+        ...prev,
+        [agentName]: { ...(prev[agentName] || {}), [purposeModel]: configPrefix },
+      }))
+      message.success(`${AGENT_SUB_MODEL_BINDING_LABELS[purposeModel] || purposeModel}已保存`)
+    } catch (error) {
+      message.error(error.message || '模型保存失败')
+    } finally {
+      setSavingKey('')
+    }
+  }, [draftSubModelBindings])
+
+  /**
+   * 取消智能体的子用途模型专属绑定（例如会后纪要 minutes-model）。
+   *
+   * 语义是"取消专属绑定"而不是"改绑到某个模型"：按配置行 id 调用现有
+   * DELETE /api/system-config/{id} 真删除该行，不写入空值。
+   * 删除后该智能体回到项目既有的默认模型选择逻辑。
+   * 通用 .model（会中实时总结 Agent 1 使用）完全不涉及，不会被改动。
+   */
+  const cancelAgentSubModelBinding = useCallback((agentName, purposeModel) => {
+    const configId = agentSubModelBindingIds[agentName]?.[purposeModel]
+    const label = AGENT_SUB_MODEL_BINDING_LABELS[purposeModel] || purposeModel
+    if (!configId) {
+      message.warning(`当前没有${label}专属绑定，无需取消`)
+      return
+    }
+    Modal.confirm({
+      title: `取消${label}专属绑定`,
+      icon: <ExclamationCircleOutlined />,
+      content: `取消${label}专属模型后，该智能体将恢复使用系统默认模型选择逻辑；默认模型（会中实时总结等通用链路）不受影响。确定继续吗？`,
+      okText: '确认取消',
+      okButtonProps: { danger: true },
+      cancelText: '再想想',
+      async onOk() {
+        const savingTag = `cancel-sub-model:${agentName}:${purposeModel}`
+        setSavingKey(savingTag)
+        try {
+          await deleteSystemConfig(configId)
+          message.success(`已取消${label}专属绑定，恢复跟随系统默认`)
+          await fetchData()
+        } catch (error) {
+          message.error(error.message || '取消专属绑定失败')
+        } finally {
+          setSavingKey('')
+        }
+      },
+    })
+  }, [agentSubModelBindingIds, fetchData])
 
   const saveToolEnabled = useCallback(async (toolName, enabled) => {
     setSavingKey(`tool:${toolName}`)
@@ -746,13 +836,32 @@ function AgentSettings() {
   const configuredAgents = useMemo(() => agents.map((agent) => {
     const enabled = isAgentEnabled(agent)
     const boundModel = agentModelBindings[agent.name] || ''
+    const subBindings = agentSubModelBindings[agent.name] || {}
+    const draftSub = draftSubModelBindings[agent.name] || {}
+    const subIds = agentSubModelBindingIds[agent.name] || {}
+    // 声明的 + 已配置的 取并集：取消专属绑定后该行仍要显示为"跟随系统默认"，并可重新绑定
+    const purposes = Array.from(new Set([
+      ...(AGENT_SUB_MODEL_BINDINGS[agent.name] || []),
+      ...Object.keys(subBindings),
+    ]))
+    const subModelChanged = purposes.some((purpose) => {
+      const draftValue = draftSub[purpose] || ''
+      const savedValue = subBindings[purpose] || ''
+      // 草稿被清空且原本有值 => 视为待保存的"取消专属绑定"
+      return draftValue !== savedValue
+    })
     return {
       ...agent,
       enabled,
       boundModel,
       modelChanged: (draftBindings[agent.name] || '') !== boundModel,
+      subBindings,
+      subPurposes: purposes,
+      subIds,
+      draftSub,
+      subModelChanged,
     }
-  }), [agents, agentModelBindings, draftBindings])
+  }), [agents, agentModelBindings, draftBindings, agentSubModelBindings, agentSubModelBindingIds, draftSubModelBindings])
 
   const configuredTools = useMemo(() => tools.map((tool) => ({
     ...tool,
@@ -1099,23 +1208,38 @@ function AgentSettings() {
     {
       title: '默认模型',
       dataIndex: 'boundModel',
-      width: 380,
+      width: 420,
       render: (_, record) => {
-        const options = getModelOptionsForAgent(record)
-        return (
+        const purposes = record.subPurposes || []
+        // 已绑定但不在"已测试通过"清单里的模型也要能显示，否则下拉框会显示空值
+        const withCurrentValue = (options, prefix) => (
+          !prefix || options.some((option) => option.value === prefix)
+            ? options
+            : [...options, {
+              value: prefix,
+              label: `[${MODEL_MODALITY_LABELS.text}] ${modelLabelByPrefix[prefix] || prefix}`,
+              modality: 'text',
+            }]
+        )
+        const modelTag = (prefix) => (prefix ? (
+          <Tag className="agent-settings-model-tag">{modelLabelByPrefix[prefix] || prefix}</Tag>
+        ) : null)
+
+        const defaultOptions = withCurrentValue(getModelOptionsForAgent(record), record.boundModel)
+        const defaultSelect = (
           <Space.Compact className="agent-settings-model">
             <Select
               value={draftBindings[record.name] || undefined}
-              options={options}
-              placeholder={options.length ? `选择${getAgentModelRequirementText(record)}模型` : '没有已测试通过的可用模型'}
+              options={defaultOptions}
+              placeholder={defaultOptions.length ? `选择${getAgentModelRequirementText(record)}模型` : '没有已测试通过的可用模型'}
               showSearch
               optionFilterProp="label"
-              disabled={!options.length}
+              disabled={!defaultOptions.length}
               onChange={(value) => setDraftBindings((prev) => ({ ...prev, [record.name]: value }))}
             />
             <Button
               icon={<SaveOutlined />}
-              disabled={!options.length || !record.modelChanged}
+              disabled={!defaultOptions.length || !record.modelChanged}
               loading={savingKey === `model:${record.name}`}
               onClick={() => saveAgentModelBinding(record.name)}
             >
@@ -1123,9 +1247,79 @@ function AgentSettings() {
             </Button>
           </Space.Compact>
         )
+
+        if (!purposes.length) {
+          return defaultSelect
+        }
+
+        return (
+          <Space direction="vertical" size={8} className="agent-settings-model-group">
+            <div>
+              <Text type="secondary">默认模型（会中实时总结等通用链路）{modelTag(record.boundModel)}</Text>
+              {defaultSelect}
+            </div>
+            {purposes.map((purpose) => {
+              const boundPrefix = record.subBindings?.[purpose] || ''
+              const configId = record.subIds?.[purpose]
+              const subOptions = withCurrentValue(getModelOptionsForAgent(record), boundPrefix)
+              const draftValue = record.draftSub?.[purpose] || ''
+              return (
+                <div key={purpose}>
+                  <Text type="secondary">
+                    {AGENT_SUB_MODEL_BINDING_LABELS[purpose] || purpose}
+                    {boundPrefix
+                      ? modelTag(boundPrefix)
+                      : <Tag className="agent-settings-model-tag">{AGENT_SUB_MODEL_UNBOUND_TEXT}</Tag>}
+                  </Text>
+                  <Space.Compact className="agent-settings-model">
+                    <Select
+                      value={draftValue || undefined}
+                      options={subOptions}
+                      placeholder={
+                        subOptions.length
+                          ? (boundPrefix ? `更换${getAgentModelRequirementText(record)}模型` : `选择专属模型（当前${AGENT_SUB_MODEL_UNBOUND_TEXT}）`)
+                          : '没有已测试通过的可用模型'
+                      }
+                      showSearch
+                      optionFilterProp="label"
+                      disabled={!subOptions.length}
+                      onChange={(value) => setDraftSubModelBindings((prev) => ({
+                        ...prev,
+                        [record.name]: { ...(prev[record.name] || {}), [purpose]: value },
+                      }))}
+                    />
+                    <Button
+                      icon={<SaveOutlined />}
+                      disabled={!subOptions.length || !draftValue || draftValue === boundPrefix}
+                      loading={savingKey === `sub-model:${record.name}:${purpose}`}
+                      onClick={() => saveAgentSubModelBinding(record.name, purpose)}
+                    >
+                      保存
+                    </Button>
+                    {configId ? (
+                      <Button
+                        danger
+                        disabled={savingKey === `sub-model:${record.name}:${purpose}`}
+                        loading={savingKey === `cancel-sub-model:${record.name}:${purpose}`}
+                        onClick={() => cancelAgentSubModelBinding(record.name, purpose)}
+                      >
+                        取消专属绑定
+                      </Button>
+                    ) : null}
+                  </Space.Compact>
+                  {AGENT_SUB_MODEL_BINDING_HINTS[purpose] ? (
+                    <Text type="secondary" className="agent-settings-model-hint">
+                      {AGENT_SUB_MODEL_BINDING_HINTS[purpose]}
+                    </Text>
+                  ) : null}
+                </div>
+              )
+            })}
+          </Space>
+        )
       },
     },
-  ], [draftBindings, getModelOptionsForAgent, saveAgentEnabled, saveAgentModelBinding, savingKey])
+  ], [draftBindings, getModelOptionsForAgent, modelLabelByPrefix, saveAgentEnabled, saveAgentModelBinding, saveAgentSubModelBinding, cancelAgentSubModelBinding, savingKey])
 
   const toolBindingOptions = useMemo(() => [
     { value: '', label: '暂不绑定', agentName: '' },

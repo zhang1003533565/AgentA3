@@ -196,6 +196,22 @@
   width: 100%;
 }
 
+.agent-settings-model-group {
+  width: 100%;
+}
+
+.agent-settings-model-tag {
+  margin-inline-start: 6px;
+  font-weight: 500;
+}
+
+.agent-settings-model-hint {
+  display: block;
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
 .agent-settings-question-select {
   width: 100%;
   min-width: 260px;

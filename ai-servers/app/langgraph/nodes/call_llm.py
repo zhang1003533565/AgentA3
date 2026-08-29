@@ -11,7 +11,12 @@ def call_llm_node(state: ConversationState) -> None:
         if not state.answer:
             raise HTTPException(status_code=502, detail="Leader LLM 选择直接回答，但 answer 为空，已禁止本地兜底回答")
     elif state.active_agent != "leader_agent":
-        state.answer = run_specialist_agent(state.active_agent, state.input_text, state.matched_results)
+        state.answer = run_specialist_agent(
+            state.active_agent,
+            state.input_text,
+            state.matched_results,
+            authorization=state.authorization,
+        )
     else:
         state.answer = leader_agent.answer(
             prompt=state.prompt,
