@@ -119,12 +119,9 @@ const TOOL_TEST_PROMPTS = {
   java_facility_api: '请查询校园设施及其位置信息。',
   java_secondhand_api: '请查询当前在售的二手商品。',
   tool_capability_query: '请列出当前系统已经启用并且可以调用的工具能力。',
-  generated_export_tools: '请把以下内容整理为 Markdown 和 Word 文件并提供下载：校园二手交易应当当面验货、确认商品状态后再完成交易。',
-  text_to_markdown_tool: '请把以下内容按原文转成Markdown文件：校园二手交易应当当面验货、确认商品状态后再完成交易。',
+  text_to_markdown_tool: '请把以下内容整理为 Markdown 文件并提供下载：校园二手交易应当当面验货、确认商品状态后再完成交易。',
   text_to_txt_tool: '请把以下内容按原文转成纯文本文件：校园二手交易应当当面验货、确认商品状态后再完成交易。',
-  text_to_docx_tool: '请把以下内容按原文转成Word文件：校园二手交易应当当面验货、确认商品状态后再完成交易。',
-  markdown_export_tool: '请把以下内容导出为 Markdown 文件：校园二手交易测试内容。',
-  docx_export_tool: '请把以下内容导出为 Word 文档：校园二手交易测试内容。',
+  text_to_docx_tool: '请把以下内容整理为 Word 文件并提供下载：校园二手交易应当当面验货、确认商品状态后再完成交易。',
   excel_export_tool: '请把以下清单导出为 Excel：商品 A，分类教材；商品 B，分类数码。',
   pptx_export_tool: '请把以下内容生成并导出为 PPTX：校园二手交易平台介绍，包括发布、沟通、线下交易。',
   content_archive_tool: '请把以下内容分别导出为 Markdown 和 Word，并将所有附件打包成 ZIP：校园二手交易测试内容。',
@@ -642,9 +639,6 @@ function AgentSettings() {
 
   const buildToolImpactText = useCallback((record) => {
     const lines = []
-    if (record.name === 'generated_export_tools') {
-      lines.push('这是内容整理总开关，关闭后 Leader 不会调用导出整理能力，自动附件整理也会停止。')
-    }
     if (record.boundAgent) {
       const boundAgent = agents.find((item) => item.name === record.boundAgent)
       lines.push(`绑定智能体：${boundAgent?.role || record.boundAgent}，其启用状态会影响本工具可用性。`)
@@ -1380,7 +1374,7 @@ function AgentSettings() {
       width: 280,
       render: (value, record) => (
         <Space direction="vertical" size={4}>
-          <Tag color={record.name === 'generated_export_tools' ? 'purple' : 'cyan'}>{getToolDisplayName(record)}</Tag>
+          <Tag color={record.category === 'content_export' ? 'purple' : 'cyan'}>{getToolDisplayName(record)}</Tag>
           <Text type="secondary">{getToolCategoryLabel(record.category)}</Text>
         </Space>
       ),

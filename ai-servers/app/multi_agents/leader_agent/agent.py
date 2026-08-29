@@ -33,7 +33,7 @@ LEADER_OUTPUT_PUSH_STRATEGIES = [
         "push_type": "document",
         "triggers": ["导出文档", "生成文档", "文件版", "文档版", "下载文档", "打包下载", "转 Word", "转 DOCX", "题库 Excel", "题库表格", "Mermaid 源文件", "图表源码", "PPT 转 Word", "PPTX 转 DOCX", "PDF", "Word", "Excel", "ZIP"],
         "target_agents": ["textbook_knowledge_agent", "textbook_question_single_choice_agent", "meeting_summary_agent", "ppt_outline_agent", "ppt_to_docx_agent"],
-        "display_policy": "知识点、会议纪要、PPT 大纲和题库 JSON 会由 generated_export_tools 自动生成 md/docx/xlsx/zip 附件；Mermaid 图表会额外生成 mmd 源文件；PPTX 转 DOCX 仍由 ppt_to_docx_agent 处理。",
+        "display_policy": "知识点、会议纪要、PPT 大纲和题库 JSON 会按后台已启用的格式工具分别生成附件；Mermaid 图表会额外生成 mmd 源文件；PPTX 转 DOCX 仍由 ppt_to_docx_agent 处理。",
     },
     {
         "push_type": "text",
@@ -352,8 +352,8 @@ class LeaderAgent:
     ) -> Optional[LeaderPlan]:
         """Route verbatim text-to-file requests to the matching format-specific tool.
 
-        Content-organization phrasing such as "整理成" and PDF input conversions
-        ("把 pdf 转成 word") stay with generated_export_tools.
+        Content-organization phrasing such as "整理成" routes to the matching format-specific
+        content export tool. PDF input conversions ("把 pdf 转成 word") use Word 内容整理.
         """
         normalized = self._normalize_fast_route_text(input_text)
         if not normalized:
@@ -377,16 +377,39 @@ class LeaderAgent:
             return self._text_to_file_plan(
                 input_text,
                 "text_to_markdown_tool",
-                "用户已提供原文并要求转成 Markdown 文件，调用文本转 Markdown 工具。",
+                "用户已提供原文并要求转成 Markdown 文件，调用 Markdown 内容整理。",
                 callable_catalog,
             )
         if any(token in normalized for token in ("word", "docx")):
             return self._text_to_file_plan(
                 input_text,
                 "text_to_docx_tool",
-                "用户已提供原文并要求转成 Word 文件，调用文本转 Word 工具。",
+                "用户已提供原文并要求转成 Word 文件，调用 Word 内容整理。",
                 callable_catalog,
             )
+        return None
+
+    def _resolve_explicit_export_tool(
+        self,
+        normalized: str,
+        callable_catalog: Optional[Dict[str, Any]] = None,
+    ) -> Optional[str]:
+        if "txt" in normalized or "纯文本" in normalized:
+            return "text_to_txt_tool"
+        if "markdown" in normalized or "md文件" in normalized or (
+            "md" in normalized and "mmd" not in normalized
+        ):
+            return "text_to_markdown_tool"
+        if any(token in normalized for token in ("word", "docx")):
+            return "text_to_docx_tool"
+        if any(token in normalized for token in ("excel", "xlsx", "表格版")):
+            return "excel_export_tool"
+        if any(token in normalized for token in ("ppt", "pptx", "幻灯片")):
+            return "pptx_export_tool"
+        if any(token in normalized for token in ("文档版", "文件版")):
+            for tool_name in ("text_to_docx_tool", "text_to_markdown_tool", "text_to_txt_tool"):
+                if self._catalog_tool_enabled(callable_catalog, tool_name):
+                    return tool_name
         return None
 
     def _text_to_file_plan(
@@ -587,7 +610,8 @@ class LeaderAgent:
             return None
         if not any(token in normalized for token in action_tokens):
             return None
-        if not self._catalog_tool_enabled(callable_catalog, "generated_export_tools"):
+        tool_name = self._resolve_explicit_export_tool(normalized, callable_catalog)
+        if not tool_name or not self._catalog_tool_enabled(callable_catalog, tool_name):
             return None
         return LeaderPlan(
             intent="document_export",
@@ -595,8 +619,8 @@ class LeaderAgent:
             need_retrieval=False,
             rag_strategy="",
             action="call_tool",
-            tool_name="generated_export_tools",
-            route_reason="用户明确要求生成指定格式文件，由内容导出工具先调用文件内容编排智能体，再调用对应格式工具。",
+            tool_name=tool_name,
+            route_reason="用户明确要求生成指定格式文件，由对应内容整理工具先调用文件内容编排智能体，再生成附件。",
             route_mode="rules",
         )
 
@@ -1479,11 +1503,18 @@ def _leader_profile_usage_policy(callable_catalog: Optional[Dict[str, Any]]) -> 
         "profile_snapshot.outputPreferenceHints 只能用于提供后续图片版/文件版选项，不能凭偏好把普通学习、解释或问答请求改成生图任务。只有当前 user_input 明确要求图片、图解或具体图表时，才允许选择图片/图表智能体。",
         "如果任务既可做图片又可做文件且没有稳定偏好，先询问用户要图片形式还是文件形式。",
     ]
-    if _catalog_has_tool(callable_catalog, "generated_export_tools"):
+    content_export_tools = (
+        "text_to_markdown_tool",
+        "text_to_docx_tool",
+        "text_to_txt_tool",
+        "excel_export_tool",
+        "pptx_export_tool",
+    )
+    if any(_catalog_has_tool(callable_catalog, tool_name) for tool_name in content_export_tools):
         policies.extend([
-            "用户要求文件版/文档版/Excel/Word/打包下载时，调用内容整理导出工具；工具内部负责组织内容并生成附件，不要把长内容只当纯文字回复。",
-            "用户要求题库表格或题库 Excel 时，仍先选择对应题型智能体生成严格题库 JSON，再由导出工具转换为 md/docx/xlsx/zip。",
-            "如果用户已经提供了要导出的 Markdown、普通文本或标准题库 JSON，且只要求转成文件，可以直接调用内容整理导出工具。",
+            "用户要求文件版/文档版/Excel/Word/Markdown/PPT 文件时，按目标格式选择 text_to_markdown_tool、text_to_docx_tool、text_to_txt_tool、excel_export_tool 或 pptx_export_tool；工具内部负责组织内容并生成附件，不要把长内容只当纯文字回复。",
+            "用户要求题库表格或题库 Excel 时，仍先选择对应题型智能体生成严格题库 JSON，再由对应格式工具转换为 md/docx/xlsx。",
+            "用户已经提供了要导出的 Markdown、普通文本或标准题库 JSON，且要求整理成文件时，调用对应格式的内容整理工具。",
         ])
     if any(
         _catalog_has_tool(callable_catalog, tool_name)

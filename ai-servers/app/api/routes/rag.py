@@ -51,7 +51,11 @@ from app.learning_workflow import (
     run_learning_workflow,
 )
 from app.rag.document_conversion import DocxConversionError, FileContentExtractionError, PdfConversionError, PptConversionError, convert_docx_to_pdf, convert_docx_to_ppt, convert_pdf, convert_ppt_to_docx, convert_ppt_to_pdf, export_generated_answer, export_text_to_file, extract_file_content, materialize_generated_image_answer
-from app.rag.document_conversion.generated_exporter import GeneratedExportAccessError, open_generated_export
+from app.rag.document_conversion.generated_exporter import (
+    CONTENT_EXPORT_LEGACY_TOOL_ALIASES,
+    GeneratedExportAccessError,
+    open_generated_export,
+)
 from app.rag.structured.text_to_sql import TextToSqlService
 from app.services.assistant_resource_builder import (
     build_learning_resource_bundle,
@@ -211,6 +215,9 @@ REMOVED_TOOL_NAMES = frozenset({
     "generate_mind_map_image_tool",
     "generate_flowchart_image_tool",
     "generate_architecture_image_tool",
+    "generated_export_tools",
+    "markdown_export_tool",
+    "docx_export_tool",
 })
 IMAGE_RECOGNITION_TOOL_NAME = "recognize_image_tool"
 IMAGE_RECOGNITION_AGENT_NAME = "vision_agent"
@@ -350,36 +357,36 @@ class AgentExecutionError(Exception):
 
 GENERATED_CONTENT_TOOLS = [
     {
-        "name": "generated_export_tools",
-        "zhName": "内容整理工具",
-        "displayName": "内容整理工具（generated_export_tools）",
+        "name": "text_to_markdown_tool",
+        "zhName": "Markdown 内容整理",
+        "displayName": "Markdown 内容整理（text_to_markdown_tool）",
         "category": "content_export",
-        "purpose": "内容整理工具总开关。关闭后 Leader 不会调用导出整理能力，自动附件整理也会停止。",
-        "trigger": "用户要求文件版、文档版、表格版、源码版，或智能体生成结果适合沉淀为附件。",
-        "outputs": ["md", "docx", "xlsx", "pptx", "mmd", "zip"],
-        "status": "implemented",
-    },
-    {
-        "name": "markdown_export_tool",
-        "zhName": "Markdown 导出工具",
-        "displayName": "Markdown 导出工具（markdown_export_tool）",
-        "category": "content_export",
-        "purpose": "把知识点、会议纪要、PPT 大纲、题库等生成结果保存为 Markdown 阅读文件。",
-        "trigger": "专业智能体返回 markdown/question_bank/mermaid，或用户要求 md/Markdown 文件版。",
+        "purpose": "把知识点、会议纪要、PPT 大纲、题库或用户提供的文本整理/导出为 Markdown 文件。",
+        "trigger": "用户要求 md/Markdown 文件版，或要求把已提供文本按原文/整理后导出为 Markdown。",
         "outputs": ["md"],
         "status": "implemented",
         "boundAgent": FILE_CONTENT_PLANNER_AGENT_NAME,
     },
     {
-        "name": "docx_export_tool",
-        "zhName": "Word 导出工具",
-        "displayName": "Word 导出工具（docx_export_tool）",
+        "name": "text_to_docx_tool",
+        "zhName": "Word 内容整理",
+        "displayName": "Word 内容整理（text_to_docx_tool）",
         "category": "content_export",
-        "purpose": "把长内容整理成 Word 文档，减少会话里大段文字堆叠。",
-        "trigger": "用户要求 Word/DOCX/文档版/文件版，或内容适合沉淀为资料。",
+        "purpose": "把长内容或用户提供的文本整理/导出为 Word 文档，减少会话里大段文字堆叠。",
+        "trigger": "用户要求 Word/DOCX/文档版/文件版，或要求把已提供文本按原文/整理后导出为 Word。",
         "outputs": ["docx"],
         "status": "implemented",
         "boundAgent": FILE_CONTENT_PLANNER_AGENT_NAME,
+    },
+    {
+        "name": "text_to_txt_tool",
+        "zhName": "TXT 内容整理",
+        "displayName": "TXT 内容整理（text_to_txt_tool）",
+        "category": "content_export",
+        "purpose": "把用户提供的文本按原文导出为纯文本文件；也可在整理流程中输出 txt。",
+        "trigger": "用户要求把已提供的文本按原文转成 txt/纯文本文件时调用。",
+        "outputs": ["txt"],
+        "status": "implemented",
     },
     {
         "name": "excel_export_tool",
@@ -432,36 +439,6 @@ GENERATED_CONTENT_TOOLS = [
         "purpose": "保存 Mermaid/图表源码，方便后续继续编辑、复用或交给图片工具生成图解版。",
         "trigger": "answerType 为 mermaid_* 或回答中包含 Mermaid 代码块。",
         "outputs": ["mmd", "md", "zip"],
-        "status": "implemented",
-    },
-    {
-        "name": "text_to_markdown_tool",
-        "zhName": "文本转 Markdown 工具",
-        "displayName": "文本转 Markdown 工具（text_to_markdown_tool）",
-        "category": "content_export",
-        "purpose": "把用户提供的文本按原文导出为 Markdown 文件，不整理、不改写内容。",
-        "trigger": "用户要求把已提供的文本按原文转成 md/Markdown 文件时调用。",
-        "outputs": ["md"],
-        "status": "implemented",
-    },
-    {
-        "name": "text_to_txt_tool",
-        "zhName": "文本转 TXT 工具",
-        "displayName": "文本转 TXT 工具（text_to_txt_tool）",
-        "category": "content_export",
-        "purpose": "把用户提供的文本按原文导出为纯文本文件，不整理、不改写内容。",
-        "trigger": "用户要求把已提供的文本按原文转成 txt/纯文本文件时调用。",
-        "outputs": ["txt"],
-        "status": "implemented",
-    },
-    {
-        "name": "text_to_docx_tool",
-        "zhName": "文本转 Word 工具",
-        "displayName": "文本转 Word 工具（text_to_docx_tool）",
-        "category": "content_export",
-        "purpose": "把用户提供的文本按原文导出为 Word 文档，不整理、不改写内容。",
-        "trigger": "用户要求把已提供的文本按原文转成 word/docx 文件时调用。",
-        "outputs": ["docx"],
         "status": "implemented",
     },
     *FILE_CONTENT_EXTRACTION_TOOLS,
@@ -615,10 +592,15 @@ TEXT_TO_FILE_TOOL_BY_FORMAT = {
 TEXT_TO_FILE_TOOL_NAMES = frozenset(TEXT_TO_FILE_TOOL_BY_FORMAT.values())
 TEXT_TO_FILE_FORMAT_NAMES = frozenset(TEXT_TO_FILE_TOOL_BY_FORMAT)
 TEXT_TO_FILE_TOOL_LABELS = {
-    TEXT_TO_MARKDOWN_TOOL_NAME: "文本转 Markdown 工具",
-    TEXT_TO_TXT_TOOL_NAME: "文本转 TXT 工具",
-    TEXT_TO_DOCX_TOOL_NAME: "文本转 Word 工具",
+    TEXT_TO_MARKDOWN_TOOL_NAME: "Markdown 内容整理",
+    TEXT_TO_TXT_TOOL_NAME: "TXT 内容整理",
+    TEXT_TO_DOCX_TOOL_NAME: "Word 内容整理",
 }
+CONTENT_EXPORT_TOOL_NAMES = frozenset(TEXT_TO_FILE_TOOL_NAMES)
+FORMAT_EXPORT_TOOL_NAMES = CONTENT_EXPORT_TOOL_NAMES | frozenset({
+    "excel_export_tool",
+    "pptx_export_tool",
+})
 TOOL_CAPABILITY_QUERY_NAME = "tool_capability_query"
 TOOL_CAPABILITY_QUERY = {
     "name": TOOL_CAPABILITY_QUERY_NAME,
@@ -654,33 +636,23 @@ LEADER_CALLABLE_TOOLS = [
     *CAMPUS_SERVICE_TOOLS,
     TOOL_CAPABILITY_QUERY,
     {
-        "name": "generated_export_tools",
-        "zhName": "内容整理工具",
-        "displayName": "内容整理工具（generated_export_tools）",
-        "category": "content_export",
-        "purpose": "先由文件内容编排智能体确定内容与结构，再调用指定格式工具生成真实附件。",
-        "trigger": "用户明确要求 Word、Excel、Markdown、PPT 文件版，或打包下载。",
-        "outputs": ["md", "docx", "xlsx", "pptx", "mmd", "zip"],
-        "status": "implemented",
-        "configurable": True,
-    },
-    {
         "name": "text_to_markdown_tool",
-        "zhName": "文本转 Markdown 工具",
-        "displayName": "文本转 Markdown 工具（text_to_markdown_tool）",
+        "zhName": "Markdown 内容整理",
+        "displayName": "Markdown 内容整理（text_to_markdown_tool）",
         "category": "content_export",
-        "purpose": "把用户提供的文本按原文导出为 Markdown 文件，不整理、不改写内容。",
-        "trigger": "用户要求把已提供的文本按原文转成 md/Markdown 文件时调用。",
+        "purpose": "把知识点、会议纪要、PPT 大纲、题库或用户提供的文本整理/导出为 Markdown 文件。",
+        "trigger": "用户要求 md/Markdown 文件版，或要求把已提供文本按原文/整理后导出为 Markdown。",
         "outputs": ["md"],
         "status": "implemented",
         "configurable": True,
+        "boundAgent": FILE_CONTENT_PLANNER_AGENT_NAME,
     },
     {
         "name": "text_to_txt_tool",
-        "zhName": "文本转 TXT 工具",
-        "displayName": "文本转 TXT 工具（text_to_txt_tool）",
+        "zhName": "TXT 内容整理",
+        "displayName": "TXT 内容整理（text_to_txt_tool）",
         "category": "content_export",
-        "purpose": "把用户提供的文本按原文导出为纯文本文件，不整理、不改写内容。",
+        "purpose": "把用户提供的文本按原文导出为纯文本文件；也可在整理流程中输出 txt。",
         "trigger": "用户要求把已提供的文本按原文转成 txt/纯文本文件时调用。",
         "outputs": ["txt"],
         "status": "implemented",
@@ -688,12 +660,36 @@ LEADER_CALLABLE_TOOLS = [
     },
     {
         "name": "text_to_docx_tool",
-        "zhName": "文本转 Word 工具",
-        "displayName": "文本转 Word 工具（text_to_docx_tool）",
+        "zhName": "Word 内容整理",
+        "displayName": "Word 内容整理（text_to_docx_tool）",
         "category": "content_export",
-        "purpose": "把用户提供的文本按原文导出为 Word 文档，不整理、不改写内容。",
-        "trigger": "用户要求把已提供的文本按原文转成 word/docx 文件时调用。",
+        "purpose": "把长内容或用户提供的文本整理/导出为 Word 文档，减少会话里大段文字堆叠。",
+        "trigger": "用户要求 Word/DOCX/文档版/文件版，或要求把已提供文本按原文/整理后导出为 Word。",
         "outputs": ["docx"],
+        "status": "implemented",
+        "configurable": True,
+        "boundAgent": FILE_CONTENT_PLANNER_AGENT_NAME,
+    },
+    {
+        "name": "excel_export_tool",
+        "zhName": "Excel 导出工具",
+        "displayName": "Excel 导出工具（excel_export_tool）",
+        "category": "content_export",
+        "purpose": "把题库 JSON 或知识点清单整理成 Excel 表格，方便导入、筛选和二次加工。",
+        "trigger": "题库 JSON、知识清单、用户要求 Excel/表格。",
+        "outputs": ["xlsx"],
+        "status": "implemented",
+        "configurable": True,
+        "boundAgent": FILE_CONTENT_PLANNER_AGENT_NAME,
+    },
+    {
+        "name": "pptx_export_tool",
+        "zhName": "PPT 导出工具",
+        "displayName": "PPT 导出工具（pptx_export_tool）",
+        "category": "content_export",
+        "purpose": "把文件内容编排智能体生成的逐页大纲转换为真实 PPTX 文件。",
+        "trigger": "用户明确要求 PPT/PPTX/幻灯片文件。",
+        "outputs": ["pptx"],
         "status": "implemented",
         "configurable": True,
     },
@@ -844,9 +840,9 @@ def get_rag_framework(
         "knowledgeBaseBoundary": "第三方知识库能力由 Java 后端连接并对外代理；AI Server 只负责模型、多智能体、文件转换和工具编排。",
         "coverage": [
             {
-                "name": "generated_export_tools",
+                "name": "text_to_markdown_tool",
                 "category": "content_export",
-                "purpose": "把智能体生成结果自动转换为可下载附件，而不是只在会话中展示长文本。",
+                "purpose": "把智能体生成结果或用户文本整理/导出为 Markdown 附件。",
                 "status": "implemented",
             },
             {
@@ -957,7 +953,7 @@ def get_rag_framework(
             "POST /internal/rag/query",
             "POST /internal/rag/pdf/convert",
             "POST /internal/rag/ppt/convert",
-            "AUTO generated_export_tools: md/docx/xlsx/zip/mmd attachments for generated content",
+            "AUTO content export tools: per-format md/docx/txt/xlsx/pptx attachments when enabled",
             "GET /internal/rag/text-to-sql/schema",
             "POST /internal/rag/text-to-sql/execute",
         ],
@@ -998,7 +994,7 @@ _SYSTEM_TRIGGER_TOOLS = frozenset({
 })
 _RULE_DIRECT_TRIGGER_TOOLS = frozenset(TEXT_TO_FILE_TOOL_NAMES)
 _WORKFLOW_DEPENDENCY_TOOLS = frozenset({
-    "markdown_export_tool", "docx_export_tool", "excel_export_tool", "pptx_export_tool",
+    "excel_export_tool", "pptx_export_tool",
     "content_archive_tool", "diagram_source_export_tool",
 })
 
@@ -1789,12 +1785,12 @@ def _run_rag_query_core(request: RagQueryRequest, authorization: str) -> RagQuer
 
 
 ADMIN_SUB_EXPORT_TOOL_TARGETS = {
-    "markdown_export_tool": ("generated_export_tools", "md"),
-    "docx_export_tool": ("generated_export_tools", "docx"),
-    "excel_export_tool": ("generated_export_tools", "xlsx"),
-    "pptx_export_tool": ("generated_export_tools", "pptx"),
-    "content_archive_tool": ("generated_export_tools", "zip"),
-    "diagram_source_export_tool": ("generated_export_tools", "mmd"),
+    "markdown_export_tool": ("text_to_markdown_tool", "md"),
+    "docx_export_tool": ("text_to_docx_tool", "docx"),
+    "excel_export_tool": ("excel_export_tool", "xlsx"),
+    "pptx_export_tool": ("pptx_export_tool", "pptx"),
+    "content_archive_tool": ("excel_export_tool", "zip"),
+    "diagram_source_export_tool": ("text_to_markdown_tool", "mmd"),
 }
 
 
@@ -1818,7 +1814,7 @@ def _build_direct_tool_test_plan(tool_name: str) -> LeaderPlan:
     intent = "tool_test"
     if tool_name == IMAGE_STITCHING_TOOL["name"]:
         intent = "image_stitching"
-    elif tool_name in TEXT_TO_FILE_TOOL_NAMES or tool_name == "generated_export_tools":
+    elif tool_name in TEXT_TO_FILE_TOOL_NAMES or tool_name in FORMAT_EXPORT_TOOL_NAMES:
         intent = "document_export"
     elif tool_name == IMAGE_RECOGNITION_TOOL_NAME:
         intent = "image_understanding"
@@ -1897,8 +1893,8 @@ def _run_admin_direct_tool_test(
         )
     executable_tool, request = _resolve_admin_direct_tool_test(request, requested_tool)
     plan = _build_direct_tool_test_plan(executable_tool)
-    if executable_tool in TEXT_TO_FILE_TOOL_NAMES:
-        return _run_text_to_file_tool(request, plan, direct_tool_test=True)
+    if executable_tool in CONTENT_EXPORT_TOOL_NAMES:
+        return _run_content_export_tool(request, plan, direct_tool_test=True)
     response = _execute_leader_plan(request, authorization, None, plan, callable_catalog=None)
     return _normalize_direct_tool_test_response(response, requested_tool)
 
@@ -2201,6 +2197,13 @@ def _text_without_image_references(text: str) -> str:
     return cleaned.strip()
 
 
+_TRANSFORM_FORMAT_TOOL_BY_TYPE = {
+    **TEXT_TO_FILE_TOOL_BY_FORMAT,
+    "xlsx": "excel_export_tool",
+    "pptx": "pptx_export_tool",
+}
+
+
 def _requested_file_transform_plan(request: RagQueryRequest) -> Optional[LeaderPlan]:
     metadata = request.metadata if isinstance(request.metadata, dict) else {}
     interaction_type = str(metadata.get("interactionType") or "").strip().lower()
@@ -2212,33 +2215,11 @@ def _requested_file_transform_plan(request: RagQueryRequest) -> Optional[LeaderP
         not metadata.get("sourceMessageId") or not str(metadata.get("sourceMessageContent") or "").strip()
     ):
         return None
-    if interaction_type == "transform" and requested_output_type in TEXT_TO_FILE_FORMAT_NAMES:
-        tool_name = TEXT_TO_FILE_TOOL_BY_FORMAT[requested_output_type]
-        tool_label = TEXT_TO_FILE_TOOL_LABELS.get(tool_name, "文本转文件工具")
-        if not _is_tool_enabled(request, tool_name):
-            if interaction_type == "transform":
-                return LeaderPlan(
-                    intent="document_export",
-                    target_agent="leader_agent",
-                    need_retrieval=False,
-                    rag_strategy="",
-                    answer="当前暂不支持生成该格式文件，我可以先用文字为你说明内容。",
-                    action="direct_answer",
-                    route_reason="用户请求文本转文件，但对应导出能力当前不可用。",
-                    route_mode="capability_unavailable",
-                )
-            return None
-        return LeaderPlan(
-            intent="document_export",
-            target_agent="leader_agent",
-            need_retrieval=False,
-            rag_strategy="",
-            action="call_tool",
-            tool_name=tool_name,
-            route_reason=f"用户选择将当前消息按原文生成 {requested_output_type} 文件，调用已启用的{tool_label}。",
-            route_mode="rules",
-        )
-    if not _is_tool_enabled(request, "generated_export_tools"):
+    tool_name = _TRANSFORM_FORMAT_TOOL_BY_TYPE.get(requested_output_type)
+    if not tool_name:
+        return None
+    tool_label = TEXT_TO_FILE_TOOL_LABELS.get(tool_name) or _tool_zh_name(tool_name)
+    if not _is_tool_enabled(request, tool_name):
         if interaction_type == "transform":
             return LeaderPlan(
                 intent="document_export",
@@ -2251,14 +2232,19 @@ def _requested_file_transform_plan(request: RagQueryRequest) -> Optional[LeaderP
                 route_mode="capability_unavailable",
             )
         return None
+    route_reason = (
+        f"用户选择将当前消息按原文生成 {requested_output_type} 文件，调用已启用的{tool_label}。"
+        if requested_output_type in TEXT_TO_FILE_FORMAT_NAMES
+        else f"用户选择将当前消息生成 {requested_output_type} 文件，调用已启用的{tool_label}。"
+    )
     return LeaderPlan(
         intent="document_export",
         target_agent="leader_agent",
         need_retrieval=False,
         rag_strategy="",
         action="call_tool",
-        tool_name="generated_export_tools",
-        route_reason=f"用户选择将当前消息生成 {requested_output_type} 文件，直接调用已启用的内容导出工具。",
+        tool_name=tool_name,
+        route_reason=route_reason,
         route_mode="rules",
     )
 
@@ -2930,7 +2916,7 @@ def _execute_leader_plan(
         plan.action == "call_tool"
         and plan.tool_name in VISUAL_GENERATION_TOOL_NAMES
         and _normalize_requested_file_type(_requested_file_type_from_text(request.input)) == "docx"
-        and _is_tool_enabled(request, "generated_export_tools")
+        and _is_tool_enabled(request, TEXT_TO_DOCX_TOOL_NAME)
     ):
         response = _run_visual_docx_workflow(request, plan)
         _inject_tool_selection_into_response(response, callable_catalog)
@@ -2953,12 +2939,12 @@ def _execute_leader_plan(
             response = _run_tool_capability_query(request, plan)
         elif plan.tool_name in SERVICE_TOOL_NAMES:
             response = _run_service_tool(request, authorization, plan)
-        elif plan.tool_name == "generated_export_tools":
+        elif plan.tool_name in CONTENT_EXPORT_TOOL_NAMES:
+            response = _run_content_export_tool(request, plan)
+        elif plan.tool_name in ("excel_export_tool", "pptx_export_tool"):
             response = _run_generated_export_tool(request, plan)
         elif plan.tool_name == IMAGE_STITCHING_TOOL["name"]:
             response = _run_image_stitching_tool(request, plan)
-        elif plan.tool_name in TEXT_TO_FILE_TOOL_NAMES:
-            response = _run_text_to_file_tool(request, plan)
         elif plan.tool_name == IMAGE_RECOGNITION_TOOL_NAME:
             response = _run_image_recognition_tool(request, plan)
         elif plan.tool_name in VISUAL_GENERATION_TOOL_NAMES:
@@ -3005,7 +2991,7 @@ def _run_visual_docx_workflow(request: RagQueryRequest, visual_plan: LeaderPlan)
         need_retrieval=False,
         rag_strategy="",
         action="call_tool",
-        tool_name="generated_export_tools",
+        tool_name=TEXT_TO_DOCX_TOOL_NAME,
         route_reason="图片生成完成，继续调用内容整理和 Word 导出工具。",
     )
     export_response = _run_generated_export_tool(export_request, export_plan)
@@ -3025,7 +3011,7 @@ def _run_visual_docx_workflow(request: RagQueryRequest, visual_plan: LeaderPlan)
     export_response.metadata.update({
         "executionMode": "leader_multi_tool_workflow",
         "executionModeLabel": "Leader 协调图片生成、内容整理和 Word 导出",
-        "workflowTools": [visual_plan.tool_name, "file_content_planner_agent", "docx_export_tool"],
+        "workflowTools": [visual_plan.tool_name, "file_content_planner_agent", TEXT_TO_DOCX_TOOL_NAME],
         "generatedImageCount": len(image_bytes),
     })
     return export_response
@@ -3190,10 +3176,16 @@ def _is_tool_enabled(request: RagQueryRequest, tool_name: str) -> bool:
     if normalized == TOOL_CAPABILITY_QUERY_NAME:
         return True
     toggles = _tool_toggles_from_request(request)
-    if normalized not in toggles:
-        enabled = True
-    else:
+    if normalized in toggles:
         enabled = _parse_agent_enabled_value(toggles.get(normalized))
+    else:
+        enabled = None
+        for legacy_name in CONTENT_EXPORT_LEGACY_TOOL_ALIASES.get(normalized, ()):
+            if legacy_name in toggles:
+                enabled = _parse_agent_enabled_value(toggles.get(legacy_name))
+                break
+        if enabled is None:
+            enabled = True
     if not enabled:
         return False
     # 绑定智能体属于工具内部实现细节，不再作为 Leader 工具目录的二次开关。
@@ -4621,26 +4613,39 @@ def _build_stream_error_payload(
     }
 
 
+_EXPORT_TOOL_DEFAULT_FORMAT = {
+    TEXT_TO_MARKDOWN_TOOL_NAME: "md",
+    TEXT_TO_TXT_TOOL_NAME: "txt",
+    TEXT_TO_DOCX_TOOL_NAME: "docx",
+    "excel_export_tool": "xlsx",
+    "pptx_export_tool": "pptx",
+}
+
+
 def _run_generated_export_tool(request: RagQueryRequest, leader_plan) -> RagQueryResponse:
     request_metadata = request.metadata if isinstance(request.metadata, dict) else {}
+    tool_name = str(leader_plan.tool_name or "").strip()
     requested_output_type = _normalize_requested_file_type(
-        request_metadata.get("requestedOutputType") or _requested_file_type_from_text(request.input) or "document"
+        request_metadata.get("requestedOutputType")
+        or _EXPORT_TOOL_DEFAULT_FORMAT.get(tool_name)
+        or _requested_file_type_from_text(request.input)
+        or "document"
     )
     metadata = {
         "agentName": "leader_agent",
-        "targetAgent": "generated_export_tools",
-        "executedAgent": "generated_export_tools",
+        "targetAgent": tool_name,
+        "executedAgent": tool_name,
         "intent": leader_plan.intent,
         "needRetrieval": False,
         "retrievalSkipped": True,
         "leaderAction": leader_plan.action,
         "leaderActionLabel": _leader_action_label(leader_plan.action),
-        "toolName": leader_plan.tool_name,
-        "toolDisplayName": _tool_display_name(leader_plan.tool_name),
+        "toolName": tool_name,
+        "toolDisplayName": _tool_display_name(tool_name),
         "routeReason": leader_plan.route_reason,
-        "strategyLabel": "内容导出工具",
+        "strategyLabel": _tool_zh_name(tool_name) or "内容整理",
         "executionMode": "leader_call_tool",
-        "executionModeLabel": "Leader 调用内容导出工具",
+        "executionModeLabel": f"Leader 调用{_tool_zh_name(tool_name) or tool_name}",
         "answerType": "document_export",
         "requestedOutputType": requested_output_type,
         "allowGeneratedExportTool": True,
@@ -4715,7 +4720,7 @@ def _run_generated_export_tool(request: RagQueryRequest, leader_plan) -> RagQuer
     if not export_result.attachments:
         reason = export_result.diagnostics.get("reason") if isinstance(export_result.diagnostics, dict) else ""
         if reason == "tool_disabled":
-            disabled_tool = export_result.diagnostics.get("disabledTool") or "generated_export_tools"
+            disabled_tool = export_result.diagnostics.get("disabledTool") or tool_name
             raise HTTPException(status_code=403, detail=f"工具 {_tool_display_name(disabled_tool)} 已在后台关闭，Leader 本次不会调用。")
         if reason == "no_enabled_export_format":
             raise HTTPException(status_code=403, detail="当前没有开启可生成的附件格式，Leader 本次不会调用内容整理工具。")
@@ -4726,7 +4731,7 @@ def _run_generated_export_tool(request: RagQueryRequest, leader_plan) -> RagQuer
     formats = "、".join(item.get("ext", "").upper() for item in export_result.attachments if item.get("ext"))
     answer = f"已按文件形式整理完成，生成附件格式：{formats or '文件'}。"
     return _decorate_output_response(RagQueryResponse(
-        strategy="generated_export_tools",
+        strategy=tool_name,
         answer=answer,
         answerType="document_export",
         documents=[],
@@ -4738,7 +4743,7 @@ def _run_generated_export_tool(request: RagQueryRequest, leader_plan) -> RagQuer
                 "title": export_title,
                 **planner_model_metadata,
             }),
-            RagTraceResponse(stage="tool_call", detail={"toolName": leader_plan.tool_name, "toolDisplayName": _tool_display_name(leader_plan.tool_name), **export_result.diagnostics}),
+            RagTraceResponse(stage="tool_call", detail={"toolName": tool_name, "toolDisplayName": _tool_display_name(tool_name), **export_result.diagnostics}),
         ],
         metadata=metadata,
         attachments=export_result.attachments,
@@ -4769,6 +4774,37 @@ def _text_file_title(content: str) -> str:
         if match:
             return match.group(1).strip()[:60]
     return "文本文件"
+
+
+_VERBATIM_TEXT_MARKERS = (
+    "这段文字", "这段话", "这段文本", "以下文字", "以下文本", "下面内容", "以下内容", "按原文",
+)
+
+
+def _content_export_uses_planner(request: RagQueryRequest, leader_plan) -> bool:
+    metadata = request.metadata if isinstance(request.metadata, dict) else {}
+    interaction_type = str(metadata.get("interactionType") or "").strip().lower()
+    if interaction_type == "transform":
+        return False
+    route_reason = str(getattr(leader_plan, "route_reason", "") or "")
+    if "按原文" in route_reason:
+        return False
+    normalized = normalize_text(str(request.input or ""))
+    if any(token in normalized for token in ("整理成", "整理为", "文档版", "文件版", "表格版")):
+        return True
+    if any(token in route_reason for token in ("整理", "编排", "内容整理")):
+        return True
+    if any(token in normalized for token in _VERBATIM_TEXT_MARKERS):
+        return False
+    if any(token in normalized for token in ("导出", "生成", "转成", "转换成", "保存为", "制作成", "做成")):
+        return True
+    return leader_plan.route_mode == "rules" and str(getattr(leader_plan, "intent", "") or "") == "document_export"
+
+
+def _run_content_export_tool(request: RagQueryRequest, leader_plan, direct_tool_test: bool = False) -> RagQueryResponse:
+    if _content_export_uses_planner(request, leader_plan):
+        return _run_generated_export_tool(request, leader_plan)
+    return _run_text_to_file_tool(request, leader_plan, direct_tool_test=direct_tool_test)
 
 
 def _run_text_to_file_tool(request: RagQueryRequest, leader_plan, direct_tool_test: bool = False) -> RagQueryResponse:
@@ -5168,7 +5204,7 @@ def _push_strategy_for_output(answer_type: str, metadata: Dict[str, Any], output
         return {
             "pushType": "document",
             "trigger": "用户要求导出、转换、下载、生成 Word/PDF/PPT/Excel 文档，或知识/题库内容更适合文件阅读时触发。",
-            "agent": agent or "generated_export_tools",
+            "agent": agent or "text_to_docx_tool",
             "display": "以文档卡片推送到会话页，支持点击打开；不支持打开时复制链接。",
         }
     return {
@@ -5224,19 +5260,15 @@ def _file_format_follow_up_actions(answer_type: str, metadata: Dict[str, Any], a
     is_diagram = str(answer_type or "").startswith("mermaid") or agent.startswith("diagram_")
     is_question_bank = str(answer_type or "") == "question_bank" or agent.startswith("textbook_question_")
     if is_diagram:
-        if not _metadata_tool_enabled(metadata, "generated_export_tools"):
-            return []
         candidates = (
             ("Mermaid 源文件", "请把当前消息原内容生成 Mermaid 源文件。", "mmd", "diagram_source_export_tool"),
-            ("Markdown 文件", "请把当前消息原内容生成 Markdown 文件。", "md", "markdown_export_tool"),
+            ("Markdown 文件", "请把当前消息原内容生成 Markdown 文件。", "md", TEXT_TO_MARKDOWN_TOOL_NAME),
         )
     elif is_question_bank:
-        if not _metadata_tool_enabled(metadata, "generated_export_tools"):
-            return []
         candidates = (
             ("Excel 题库", "请把当前消息原内容生成 Excel 题库文件。", "xlsx", "excel_export_tool"),
-            ("Word 题库", "请把当前消息原内容生成 Word 题库文件。", "docx", "docx_export_tool"),
-            ("Markdown 题库", "请把当前消息原内容生成 Markdown 题库文件。", "md", "markdown_export_tool"),
+            ("Word 题库", "请把当前消息原内容生成 Word 题库文件。", "docx", TEXT_TO_DOCX_TOOL_NAME),
+            ("Markdown 题库", "请把当前消息原内容生成 Markdown 题库文件。", "md", TEXT_TO_MARKDOWN_TOOL_NAME),
         )
     else:
         # 文本转文件工具：按格式分别提供 Markdown / 纯文本 / Word。
@@ -5254,10 +5286,16 @@ def _file_format_follow_up_actions(answer_type: str, metadata: Dict[str, Any], a
 
 def _metadata_tool_enabled(metadata: Dict[str, Any], tool_name: str) -> bool:
     toggles = metadata.get("toolToggles") if isinstance(metadata, dict) else None
-    if not isinstance(toggles, dict) or tool_name not in toggles:
-        enabled = True
-    else:
+    if isinstance(toggles, dict) and tool_name in toggles:
         enabled = _parse_agent_enabled_value(toggles.get(tool_name))
+    else:
+        enabled = None
+        for legacy_name in CONTENT_EXPORT_LEGACY_TOOL_ALIASES.get(tool_name, ()):
+            if isinstance(toggles, dict) and legacy_name in toggles:
+                enabled = _parse_agent_enabled_value(toggles.get(legacy_name))
+                break
+        if enabled is None:
+            enabled = True
     if not enabled:
         return False
     return True
@@ -5476,8 +5514,9 @@ def _strategy_label(strategy_name: str) -> str:
         "java_canteen_api": "食堂餐饮查询工具",
         "java_facility_api": "设施位置查询工具",
         "java_secondhand_api": "旧物查询工具",
-        "generated_export_tools": "内容导出工具",
         **TEXT_TO_FILE_TOOL_LABELS,
+        "excel_export_tool": "Excel 导出工具",
+        "pptx_export_tool": "PPT 导出工具",
         IMAGE_RECOGNITION_TOOL_NAME: "图片识别工具",
         IMAGE_STITCHING_TOOL["name"]: "图片拼接工具",
         **{
@@ -5501,10 +5540,7 @@ def _tool_zh_name(tool_name: str) -> str:
         "java_canteen_api": "食堂餐饮查询工具",
         "java_facility_api": "设施位置查询工具",
         "java_secondhand_api": "旧物查询工具",
-        "generated_export_tools": "内容整理工具",
         **TEXT_TO_FILE_TOOL_LABELS,
-        "markdown_export_tool": "Markdown 导出工具",
-        "docx_export_tool": "Word 导出工具",
         "excel_export_tool": "Excel 导出工具",
         "pptx_export_tool": "PPT 导出工具",
         "content_archive_tool": "附件打包工具",

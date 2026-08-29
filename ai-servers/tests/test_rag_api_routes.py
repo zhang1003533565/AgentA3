@@ -173,14 +173,17 @@ class RagApiRoutesTest(unittest.TestCase):
         self.assertNotIn("image_agent", {item["name"] for item in catalog["agents"]})
 
     def test_file_export_tool_can_reuse_leader_model_when_planner_has_no_separate_binding(self):
-        request = SimpleNamespace(metadata={
-            "agentToggles": {"file_content_planner_agent": True},
-            "agentModelConfigs": {},
-            "toolToggles": {"generated_export_tools": True},
-        })
+        request = SimpleNamespace(
+            input="导出word",
+            metadata={
+                "agentToggles": {"file_content_planner_agent": True},
+                "agentModelConfigs": {},
+                "toolToggles": {"text_to_docx_tool": True},
+            },
+        )
 
         catalog = self._rag_routes._build_leader_callable_catalog(request)
-        export_tool = next(item for item in catalog["tools"] if item["name"] == "generated_export_tools")
+        export_tool = next(item for item in catalog["tools"] if item["name"] == "text_to_docx_tool")
 
         self.assertTrue(export_tool["enabled"])
 
@@ -401,7 +404,11 @@ class RagApiRoutesTest(unittest.TestCase):
                 "executedAgent": "textbook_knowledge_agent",
                 "intent": "knowledge_source_clarification",
                 "knowledgeSourceMode": "source_selection_required",
-                "toolToggles": {"generated_export_tools": True},
+                "toolToggles": {
+                    "text_to_markdown_tool": True,
+                    "text_to_txt_tool": True,
+                    "text_to_docx_tool": True,
+                },
             },
         )
 
@@ -446,7 +453,7 @@ class RagApiRoutesTest(unittest.TestCase):
 
         self.assertEqual(200, response.status_code)
         payload = response.json()
-        self.assertEqual("generated_export_tools", payload["metadata"]["executedAgent"])
+        self.assertEqual("text_to_docx_tool", payload["metadata"]["executedAgent"])
         self.assertEqual("file_content_planner_agent", payload["metadata"]["promptAgent"])
         self.assertEqual(["docx"], [item["ext"] for item in payload["attachments"]])
         self.assertEqual(["leader_route", "agent_answer", "tool_call"], [item["stage"] for item in payload["trace"]])
@@ -524,17 +531,16 @@ class RagApiRoutesTest(unittest.TestCase):
         payload = response.json()
         self.assertEqual(["docx"], [item["ext"] for item in payload["attachments"]])
         self.assertEqual(87, payload["metadata"]["selectedSourceMessageId"])
-        self.assertEqual("generated_export_tools", payload["metadata"]["executedAgent"])
+        self.assertEqual("text_to_docx_tool", payload["metadata"]["executedAgent"])
 
     def test_file_format_actions_only_include_enabled_real_tools(self):
         actions = self._rag_routes._file_format_follow_up_actions(
             "question_bank",
             {
                 "toolToggles": {
-                    "generated_export_tools": True,
+                    "text_to_markdown_tool": True,
+                    "text_to_docx_tool": False,
                     "excel_export_tool": True,
-                    "docx_export_tool": False,
-                    "markdown_export_tool": True,
                 },
             },
             "textbook_question_single_choice_agent",
@@ -550,7 +556,11 @@ class RagApiRoutesTest(unittest.TestCase):
             answerType="markdown",
             metadata={
                 "executedAgent": "textbook_knowledge_agent",
-                "toolToggles": {"generated_export_tools": True},
+                "toolToggles": {
+                    "text_to_markdown_tool": True,
+                    "text_to_txt_tool": True,
+                    "text_to_docx_tool": True,
+                },
             },
         )
 
@@ -641,7 +651,7 @@ class RagApiRoutesTest(unittest.TestCase):
         self.assertGreaterEqual(
             set(coverage),
             {
-                "generated_export_tools",
+                "text_to_markdown_tool",
                 "question_bank_validation",
                 "agent_enabled_gate",
                 "campus_service_tools",
@@ -1052,7 +1062,7 @@ class RagApiRoutesTest(unittest.TestCase):
         self.assertEqual(200, schedule_response.status_code)
         self.assertEqual("java_schedule_api", schedule_response.json()["metadata"]["toolName"])
         self.assertEqual(200, ppt_response.status_code)
-        self.assertEqual("generated_export_tools", ppt_response.json()["metadata"]["targetAgent"])
+        self.assertEqual("pptx_export_tool", ppt_response.json()["metadata"]["targetAgent"])
         self.assertEqual(["pptx"], [item["ext"] for item in ppt_response.json()["attachments"]])
         self.assertEqual(200, diagram_response.status_code)
         diagram_payload = diagram_response.json()
