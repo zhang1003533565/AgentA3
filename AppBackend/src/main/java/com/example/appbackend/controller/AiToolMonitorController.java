@@ -148,8 +148,6 @@ public class AiToolMonitorController {
                     "content_export", "内容整理", "按原文导出纯文本文件"),
             new ToolDefinition("text_to_docx_tool", "Word 内容整理", "Word 内容整理（text_to_docx_tool）",
                     "content_export", "内容整理", "整理/导出 Word 文档"),
-            new ToolDefinition("diagram_source_export_tool", "图表源码导出工具", "图表源码导出工具（diagram_source_export_tool）",
-                    "diagram_export", "图表导出", "导出 Mermaid 图表源码"),
             new ToolDefinition("tool_capability_query", "能力查询工具", "能力查询工具（tool_capability_query）",
                     "internal_routing", "内部路由", "查询当前已启用的工具能力")
     );

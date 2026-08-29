@@ -380,7 +380,6 @@ const TOOL_LABELS = {
   docx_export_tool: 'Word 导出工具',
   excel_export_tool: 'Excel 导出工具',
   content_archive_tool: '附件打包工具',
-  diagram_source_export_tool: '图表源码导出工具'
 }
 const INTENT_LABELS = {
   smalltalk: '闲聊',

@@ -31,9 +31,9 @@ LEADER_OUTPUT_PUSH_STRATEGIES = [
     },
     {
         "push_type": "document",
-        "triggers": ["导出文档", "生成文档", "文件版", "文档版", "下载文档", "打包下载", "转 Word", "转 DOCX", "题库 Excel", "题库表格", "Mermaid 源文件", "图表源码", "PPT 转 Word", "PPTX 转 DOCX", "PDF", "Word", "Excel", "ZIP"],
+        "triggers": ["导出文档", "生成文档", "文件版", "文档版", "下载文档", "打包下载", "转 Word", "转 DOCX", "题库 Excel", "题库表格", "PPT 转 Word", "PPTX 转 DOCX", "PDF", "Word", "Excel", "ZIP"],
         "target_agents": ["textbook_knowledge_agent", "textbook_question_single_choice_agent", "meeting_summary_agent", "ppt_outline_agent", "ppt_to_docx_agent"],
-        "display_policy": "知识点、会议纪要、PPT 大纲和题库 JSON 会按后台已启用的格式工具分别生成附件；Mermaid 图表会额外生成 mmd 源文件；PPTX 转 DOCX 仍由 ppt_to_docx_agent 处理。",
+        "display_policy": "知识点、会议纪要、PPT 大纲和题库 JSON 会按后台已启用的格式工具分别生成附件；Mermaid 图表可按 Markdown 文件导出；PPTX 转 DOCX 仍由 ppt_to_docx_agent 处理。",
     },
     {
         "push_type": "text",
@@ -1524,7 +1524,7 @@ def _leader_profile_usage_policy(callable_catalog: Optional[Dict[str, Any]]) -> 
             "用户要求把已提供的文本按原文转成 txt/md/word 文件时，按目标格式分别选择 text_to_txt_tool、text_to_markdown_tool 或 text_to_docx_tool，不整理、不改写内容。"
         )
     policies.extend([
-        "用户要求 Mermaid 源文件、图表源码或后续编辑图表时，图表智能体返回 Mermaid 后会自动生成 mmd/md/zip 附件。",
+        "Mermaid 图表如需文件版，可按 Markdown 文件导出；不再单独提供 mmd 源码附件。",
         "用户表达课表、活动、会议列表/状态、食堂餐饮、设施位置、旧物二手等查询意图时，你必须根据当前语义自行从 leader_callable_catalog.tools 中选择对应的 Java 后端服务工具，而不是依赖系统关键词规则或编造答案。",
         "当前 user_input 永远优先于 conversation_context；只有 user_input 缺少主语或对象时，才允许用 conversation_context 补全。",
         "如果 user_input 是追问、省略主语或短句，例如“上几次呢”“老师呢”“在哪上”“什么时候呢”“这个呢”，必须结合 conversation_context 的最近主题、最近工具和摘要恢复真实意图；上下文已能确定时不要再反问用户。",

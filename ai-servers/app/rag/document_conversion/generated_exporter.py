@@ -125,7 +125,6 @@ DOCX_EXPORT_TOOL_NAME = "docx_export_tool"
 EXCEL_EXPORT_TOOL_NAME = "excel_export_tool"
 PPTX_EXPORT_TOOL_NAME = "pptx_export_tool"
 ARCHIVE_EXPORT_TOOL_NAME = "content_archive_tool"
-DIAGRAM_SOURCE_EXPORT_TOOL_NAME = "diagram_source_export_tool"
 TEXT_TO_MARKDOWN_TOOL_NAME = "text_to_markdown_tool"
 TEXT_TO_TXT_TOOL_NAME = "text_to_txt_tool"
 TEXT_TO_DOCX_TOOL_NAME = "text_to_docx_tool"
@@ -146,12 +145,12 @@ FORMAT_EXPORT_TOOL_BY_FORMAT = {
     "xlsx": EXCEL_EXPORT_TOOL_NAME,
     "pptx": PPTX_EXPORT_TOOL_NAME,
     "zip": ARCHIVE_EXPORT_TOOL_NAME,
-    "mmd": DIAGRAM_SOURCE_EXPORT_TOOL_NAME,
 }
 RETIRED_EXPORT_TOOL_NAMES = frozenset({
     EXCEL_EXPORT_TOOL_NAME,
     PPTX_EXPORT_TOOL_NAME,
     ARCHIVE_EXPORT_TOOL_NAME,
+    "diagram_source_export_tool",
 })
 KNOWN_EXPORT_TOOL_NAMES = {
     GENERATED_EXPORT_TOOL_NAME,
@@ -160,7 +159,6 @@ KNOWN_EXPORT_TOOL_NAMES = {
     EXCEL_EXPORT_TOOL_NAME,
     PPTX_EXPORT_TOOL_NAME,
     ARCHIVE_EXPORT_TOOL_NAME,
-    DIAGRAM_SOURCE_EXPORT_TOOL_NAME,
     *TEXT_TO_FILE_TOOL_NAMES,
 }
 
@@ -1024,7 +1022,7 @@ def _wants_export_format(metadata: Dict[str, Any], file_format: str) -> bool:
             return False
         return _is_export_tool_enabled(metadata, export_tool)
     if requested == "zip":
-        return file_format in {"md", "docx", "xlsx", "pptx", "mmd", "zip"}
+        return file_format in {"md", "docx", "xlsx", "pptx", "zip"}
     return requested == file_format
 
 
@@ -1151,22 +1149,14 @@ def _export_markdown_content(content: str, metadata: Dict[str, Any]) -> Generate
 
 
 def _export_diagram_source(content: str, metadata: Dict[str, Any]) -> GeneratedExportResult:
-    title = _title_from_metadata(metadata, "图表源码")
-    slug = _slugify(title or "diagram-source")
+    title = _title_from_metadata(metadata, "图表")
+    slug = _slugify(title or "diagram")
     mermaid_code = _extract_mermaid_code(content) or str(content or "").strip()
-    markdown = f"# {title or '图表源码'}\n\n```mermaid\n{mermaid_code}\n```\n"
-    paths: List[Path] = []
+    markdown = f"# {title or '图表'}\n\n```mermaid\n{mermaid_code}\n```\n"
     attachments: List[Dict[str, Any]] = []
-    if _wants_export_format(metadata, "mmd") and _is_export_tool_enabled(metadata, DIAGRAM_SOURCE_EXPORT_TOOL_NAME):
-        path = _write_text_file(slug, "mmd", mermaid_code.strip() + "\n")
-        paths.append(path)
-        attachments.append(_attachment_for_file(path, DIAGRAM_SOURCE_EXPORT_TOOL_NAME, "Mermaid 源文件", title))
     if _wants_export_format(metadata, "md") and _is_export_tool_enabled(metadata, TEXT_TO_MARKDOWN_TOOL_NAME):
         path = _write_text_file(f"{slug}-mermaid", "md", markdown)
-        paths.append(path)
         attachments.append(_attachment_for_file(path, TEXT_TO_MARKDOWN_TOOL_NAME, "Markdown", title))
-    if _wants_export_format(metadata, "zip") and _is_export_tool_enabled(metadata, ARCHIVE_EXPORT_TOOL_NAME) and len(paths) >= 2:
-        attachments.append(_attachment_for_file(_write_archive(slug, paths), ARCHIVE_EXPORT_TOOL_NAME, "打包文件", title))
     attachments = _keep_requested_attachments(attachments, metadata)
     if not attachments:
         return _no_enabled_export_format_result("diagram_source", metadata)

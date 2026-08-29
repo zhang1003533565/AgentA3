@@ -50,7 +50,6 @@ const TOOL_TAB_GROUPS = [
   { key: 'structured_diagram', label: '结构化图表', categories: ['structured_diagram'] },
   { key: 'content', label: '内容导出', categories: ['content_export'] },
   { key: 'presentation', label: 'PPT 生成', categories: ['presentation_generation'] },
-  { key: 'diagram_export', label: '图表导出', categories: ['diagram_export'] },
   { key: 'file_content', label: '文件识别', categories: ['file_content_extraction'] },
   { key: 'capability', label: '能力查询', categories: ['capability_query'] },
 ]
@@ -122,7 +121,6 @@ const TOOL_TEST_PROMPTS = {
   text_to_markdown_tool: '请把以下内容整理为 Markdown 文件并提供下载：校园二手交易应当当面验货、确认商品状态后再完成交易。',
   text_to_txt_tool: '请把以下内容按原文转成纯文本文件：校园二手交易应当当面验货、确认商品状态后再完成交易。',
   text_to_docx_tool: '请把以下内容整理为 Word 文件并提供下载：校园二手交易应当当面验货、确认商品状态后再完成交易。',
-  diagram_source_export_tool: '请生成校园二手交易流程的 Mermaid 流程图，并导出图表源码文件。',
   ai_ppt_generation_tool: '请生成一份 8 页 PPT，主题是校园二手交易平台介绍，包含发布商品、沟通议价、线下交易三个部分。',
   meeting_task_tool: '测试个人任务管理工具的注册状态，返回工具定义信息。',
 }
@@ -179,6 +177,23 @@ const isToolTestImageFile = (file) => (
   || ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'tif', 'tiff'].includes(getToolTestFileExtension(file))
 )
 
+const getServiceToolTestStatus = (response) => {
+  const toolResultStatus = String(response?.metadata?.toolResultStatus || '').trim().toLowerCase()
+  if (toolResultStatus === 'error' || response?.metadata?.serviceToolBackendFailure) {
+    return {
+      status: 'error',
+      message: '工具已调用，但 Java 后端请求失败，请检查 AppBackend 是否运行、登录 token 是否有效。',
+    }
+  }
+  if (toolResultStatus === 'empty') {
+    return {
+      status: 'warning',
+      message: '工具已调用，但未查询到匹配数据，可检查数据库是否有对应测试数据。',
+    }
+  }
+  return null
+}
+
 const responseContainsTool = (response, toolName) => {
   if (!response || !toolName) return false
   const values = []
@@ -217,7 +232,6 @@ const getToolCategoryLabel = (category) => {
     structured_query: '结构化查询',
     content_export: '内容导出',
     file_content_extraction: '文件识别',
-    diagram_export: '图表导出',
     presentation_generation: 'PPT 生成',
     structured_diagram: '结构化图表',
     meeting_service: '会议服务',
@@ -1101,14 +1115,21 @@ function AgentSettings() {
       if (pptTemplateSelection?.draft) setToolTestPptDraft(pptTemplateSelection.draft)
       const matched = responseContainsTool(res.data, selectedToolTest.name)
         || (isPptTool && (Boolean(pptTask?.taskId) || Boolean(pptTemplateSelection)))
+      const serviceToolStatus = getServiceToolTestStatus(res.data)
+      const finalStatus = serviceToolStatus?.status || (matched ? 'success' : 'mismatch')
       setToolTestResult({
-        status: matched ? 'success' : 'mismatch',
+        status: finalStatus,
         matched,
         durationMs,
         request: payload,
         response: res.data,
+        message: serviceToolStatus?.message,
       })
-      if (matched) {
+      if (serviceToolStatus?.status === 'error') {
+        message.error(serviceToolStatus.message)
+      } else if (serviceToolStatus?.status === 'warning') {
+        message.warning(serviceToolStatus.message)
+      } else if (matched) {
         if (pptTask?.taskId) {
           message.success('PPT 生成任务已创建，可在下方查看进度')
         } else if (pptTemplateSelection) {
@@ -2144,9 +2165,11 @@ function AgentSettings() {
                       <Space direction="vertical" size={14} className="agent-settings-tool-test-result-body">
                         <Alert
                           showIcon
-                          type={toolTestResult.status === 'success' ? 'success' : toolTestResult.status === 'mismatch' || toolTestResult.status === 'unavailable' ? 'warning' : 'error'}
+                          type={toolTestResult.status === 'success' ? 'success' : toolTestResult.status === 'mismatch' || toolTestResult.status === 'unavailable' || toolTestResult.status === 'warning' ? 'warning' : 'error'}
                           message={toolTestResult.status === 'success'
                             ? toolTestResult.mode === 'manual' ? '测试通过：文件解析成功' : '测试通过：目标工具已成功调用'
+                            : toolTestResult.status === 'warning'
+                              ? '工具已调用，但未返回业务数据'
                             : toolTestResult.status === 'mismatch'
                               ? '请求成功，但未在 trace 或附件中确认目标工具'
                               : toolTestResult.status === 'unavailable'

@@ -222,6 +222,7 @@ REMOVED_TOOL_NAMES = frozenset({
     "excel_export_tool",
     "pptx_export_tool",
     "content_archive_tool",
+    "diagram_source_export_tool",
 })
 IMAGE_RECOGNITION_TOOL_NAME = "recognize_image_tool"
 IMAGE_RECOGNITION_AGENT_NAME = "vision_agent"
@@ -403,17 +404,6 @@ GENERATED_CONTENT_TOOLS = [
         "status": "implemented",
         "configurable": True,
         "boundAgent": PPT_OUTLINE_AGENT_NAME,
-    },
-    {
-        "name": "diagram_source_export_tool",
-        "zhName": "图表源码导出工具",
-        "displayName": "图表源码导出工具（diagram_source_export_tool）",
-        "category": "diagram_export",
-        "purpose": "保存 Mermaid/图表源码，方便后续继续编辑、复用或交给图片工具生成图解版。",
-        "trigger": "answerType 为 mermaid_* 或回答中包含 Mermaid 代码块。",
-        "outputs": ["mmd", "md"],
-        "status": "implemented",
-        "configurable": True,
     },
     *FILE_CONTENT_EXTRACTION_TOOLS,
 ]
@@ -738,12 +728,12 @@ def get_rag_capabilities(
         },
         "documentConversion": {
             "supportedInputs": ["pdf", "pptx"],
-            "supportedOutputs": ["docx", "md", "xlsx", "zip", "mmd"],
+            "supportedOutputs": ["docx", "md", "xlsx", "zip"],
             "ocr": False,
             "generatedContentExport": {
                 "knowledge": ["md", "docx", "xlsx", "zip"],
                 "questionBank": ["md", "docx", "xlsx", "zip"],
-                "diagramSource": ["mmd", "md", "zip"],
+                "diagramSource": ["md"],
                 "trigger": "知识点、会议纪要、PPT 大纲和题库 JSON 返回后由 AI Server 自动生成附件",
                 "tools": GENERATED_CONTENT_TOOLS,
             },
@@ -940,11 +930,6 @@ _SYSTEM_TRIGGER_TOOLS = frozenset({
     *[tool["name"] for tool in FILE_CONTENT_EXTRACTION_TOOLS],
 })
 _RULE_DIRECT_TRIGGER_TOOLS = frozenset(TEXT_TO_FILE_TOOL_NAMES)
-_WORKFLOW_DEPENDENCY_TOOLS = frozenset({
-    "diagram_source_export_tool",
-})
-
-
 def _annotate_tool_trigger(tool: Dict[str, Any]) -> Dict[str, Any]:
     item = dict(tool or {})
     name = str(item.get("name") or "").strip()
@@ -954,8 +939,6 @@ def _annotate_tool_trigger(tool: Dict[str, Any]) -> Dict[str, Any]:
         trigger_type, stage = "system", "input_preprocessing"
     elif name in _RULE_DIRECT_TRIGGER_TOOLS:
         trigger_type, stage = "rule_direct", "direct_conversion"
-    elif name in _WORKFLOW_DEPENDENCY_TOOLS:
-        trigger_type, stage = "workflow_dependency", "output_materialization"
     else:
         trigger_type, stage = "leader", "business_orchestration"
     item["triggerType"] = trigger_type
@@ -1736,7 +1719,6 @@ ADMIN_SUB_EXPORT_TOOL_TARGETS = {
     "excel_export_tool": ("text_to_docx_tool", "xlsx"),
     "pptx_export_tool": ("ai_ppt_generation_tool", "pptx"),
     "content_archive_tool": ("text_to_markdown_tool", "zip"),
-    "diagram_source_export_tool": ("text_to_markdown_tool", "mmd"),
 }
 
 
@@ -5193,7 +5175,6 @@ def _file_format_follow_up_actions(answer_type: str, metadata: Dict[str, Any], a
     is_question_bank = str(answer_type or "") == "question_bank" or agent.startswith("textbook_question_")
     if is_diagram:
         candidates = (
-            ("Mermaid 源文件", "请把当前消息原内容生成 Mermaid 源文件。", "mmd", "diagram_source_export_tool"),
             ("Markdown 文件", "请把当前消息原内容生成 Markdown 文件。", "md", TEXT_TO_MARKDOWN_TOOL_NAME),
         )
     elif is_question_bank:
@@ -5461,7 +5442,6 @@ def _tool_zh_name(tool_name: str) -> str:
         "java_secondhand_api": "旧物查询工具",
         **TEXT_TO_FILE_TOOL_LABELS,
         "content_archive_tool": "附件打包工具",
-        "diagram_source_export_tool": "图表源码导出工具",
         **{
             tool_name: config["zhName"]
             for tool_name, config in VISUAL_GENERATION_TOOL_CONFIG.items()

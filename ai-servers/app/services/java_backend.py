@@ -9,6 +9,7 @@ from collections import OrderedDict, deque
 from datetime import date, timedelta
 from threading import RLock
 from typing import Any, Dict, List, Optional
+from urllib.error import HTTPError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
@@ -97,6 +98,30 @@ class JavaBackendRetriever:
                 self._record_cache_miss(path, elapsed_ms, cache_key, normalized, user_key, payload)
                 self._write_cache(path, cache_key, payload, elapsed_ms, normalized, user_key)
                 return payload
+        except HTTPError as exc:
+            elapsed_ms = int((time.perf_counter() - started) * 1000)
+            body = exc.read().decode("utf-8", errors="replace")
+            payload: Dict[str, Any] = {}
+            try:
+                parsed = json.loads(body)
+                if isinstance(parsed, dict):
+                    payload = parsed
+            except json.JSONDecodeError:
+                payload = {}
+            status = "error" if exc.code >= 500 else "miss"
+            self._record_cache_miss(path, elapsed_ms, cache_key, normalized, user_key, payload or None, status=status)
+            if exc.code >= 500:
+                self._record_failure()
+            else:
+                self._record_success()
+            if exc.code >= 400:
+                logger.info(
+                    "java api business response path=%s http_status=%s elapsed_ms=%s",
+                    path,
+                    exc.code,
+                    elapsed_ms,
+                )
+            return payload
         except Exception:
             elapsed_ms = int((time.perf_counter() - started) * 1000)
             self._record_cache_miss(path, elapsed_ms, cache_key, normalized, user_key, None, status="error")
@@ -962,9 +987,21 @@ class JavaBackendRetriever:
         return results[:10]
 
     def _search_facilities(self, authorization: str, input_text: str) -> List[Dict[str, Any]]:
-        keyword = self._keyword_from_input(input_text, {"设施", "位置", "在哪", "哪里", "地图", "导航", "定位", "怎么走", "路线"})
+        domain_tokens = {"设施", "位置", "在哪", "哪里", "地图", "导航", "定位", "怎么走", "路线"}
+        keyword = self._keyword_from_input(input_text, domain_tokens)
+        text = str(input_text or "")
+        navigation_intent = any(token in text for token in ("在哪", "哪里", "导航", "定位", "怎么走", "路线"))
         results: List[Dict[str, Any]] = []
-        if keyword:
+
+        def append_facilities(name: Optional[str] = None) -> None:
+            params: Dict[str, Any] = {"pageNum": 1, "pageSize": 10}
+            if name:
+                params["name"] = name
+            facility_payload = self._get_json("/api/v1/facility/list", authorization, params=params)
+            facilities = self._page_records(self._extract_result_data(facility_payload))
+            results.extend(self._facility_result(row) for row in facilities[:10])
+
+        if keyword and navigation_intent:
             search_payload = self._get_json("/api/v1/map/search", authorization, params={"keyword": keyword, "limit": 10})
             markers = self._extract_result_data(search_payload)
             if isinstance(markers, list):
@@ -975,10 +1012,10 @@ class JavaBackendRetriever:
                 located_result = self._locate_result(located)
                 if located_result:
                     results.insert(0, located_result)
-        else:
-            facility_payload = self._get_json("/api/v1/facility/list", authorization, params={"pageNum": 1, "pageSize": 10})
-            facilities = self._page_records(self._extract_result_data(facility_payload))
-            results.extend(self._facility_result(row) for row in facilities[:10])
+
+        if not results:
+            append_facilities(keyword if keyword else None)
+
         return self._dedupe_results(results)[:10]
 
     def _search_secondhand(self, authorization: str, input_text: str) -> List[Dict[str, Any]]:
@@ -1010,7 +1047,7 @@ class JavaBackendRetriever:
             "帮我", "请", "一下", "查一下", "查询", "查找", "查", "找", "看看", "看下",
             "有哪些", "有什么", "有没有", "多少", "列表", "推荐", "最近", "今天", "明天",
             "本周", "这周", "我的", "我", "想", "要", "可以", "吗", "呢", "的", "安排",
-            "信息", "详情", "状态", "当前", "在",
+            "信息", "详情", "状态", "当前", "在", "及其", "以及", "和", "校园",
         } | set(domain_tokens)
         candidate = text
         for token in sorted(remove_tokens, key=len, reverse=True):

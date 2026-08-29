@@ -430,10 +430,10 @@ class GeneratedExporterTest(unittest.TestCase):
                 {"executedAgent": "diagram_flowchart_agent"},
             )
 
-            self.assertEqual(["mmd", "md"], [item["ext"] for item in result.attachments])
+            self.assertEqual(["md"], [item["ext"] for item in result.attachments])
             self.assertEqual("diagram_source", result.diagnostics["contentKind"])
-            mmd_key = next(item["storageKey"] for item in result.attachments if item["ext"] == "mmd")
-            self.assertIn("flowchart TD", (generated_exporter.EXPORT_ROOT / mmd_key).read_text(encoding="utf-8"))
+            md_key = next(item["storageKey"] for item in result.attachments if item["ext"] == "md")
+            self.assertIn("flowchart TD", (generated_exporter.EXPORT_ROOT / md_key).read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":
