@@ -82,6 +82,16 @@ LEARNING_WORKFLOW_AGENT_SPECS = {
     ),
 }
 
+JOB_RADAR_AGENT_SPECS = {
+    "weekly_job_recommendation_agent": (
+        "岗位雷达智能体",
+        "weekly_job_recommendation",
+        "整理近一周软件工程方向热门岗位，输出岗位名称、薪资区间与技能要求 JSON。",
+        "请输出近一周国内软件工程方向热度前五的具体岗位推荐",
+        ["strict_weekly_job_json"],
+    ),
+}
+
 RESUME_AGENT_SPECS = {
     "resume_create_agent": (
         "AI 简历生成智能体",
@@ -125,6 +135,7 @@ AGENT_ORDER = [
     *MEETING_AGENT_SPECS.keys(),
     *PPT_AGENT_SPECS.keys(),
     *RESUME_AGENT_SPECS.keys(),
+    *JOB_RADAR_AGENT_SPECS.keys(),
     *LEARNING_WORKFLOW_AGENT_SPECS.keys(),
     "python_coding_tutor_agent",
     "python_problem_generator_agent",
@@ -142,6 +153,7 @@ INTERNAL_VISUAL_AGENTS = frozenset({
 })
 FILE_EXPORT_INTERNAL_AGENTS = frozenset({"file_content_planner_agent"})
 RESUME_INTERNAL_AGENTS = frozenset({"resume_create_agent", "resume_edit_agent", "resume_polish_expand_agent"})
+JOB_RADAR_INTERNAL_AGENTS = frozenset({"weekly_job_recommendation_agent"})
 INTERNAL_ONLY_AGENT_NAMES = frozenset({"tool_intent_router_agent"})
 LEADER_CALLABLE_AGENT_ORDER = tuple(
     agent_name
@@ -153,6 +165,7 @@ LEADER_CALLABLE_AGENT_ORDER = tuple(
     and agent_name not in INTERNAL_VISUAL_AGENTS
     and agent_name not in FILE_EXPORT_INTERNAL_AGENTS
     and agent_name not in RESUME_INTERNAL_AGENTS
+    and agent_name not in JOB_RADAR_INTERNAL_AGENTS
 )
 
 
@@ -227,6 +240,26 @@ def _learning_workflow_agent_profile(
         "aliases": [intent, role, role.replace("智能体", ""), agent_name],
         "exampleInput": example_input,
         "requiredModelModalities": TEXT_MODEL_MODALITY,
+    }
+
+
+def _job_radar_agent_profile(agent_name: str, role: str, intent: str, purpose: str, example_input: str, outputs: list[str]) -> Dict[str, Any]:
+    return {
+        "role": role,
+        "purpose": purpose,
+        "inputs": ["refresh_request"],
+        "outputs": outputs,
+        "skills": ["job market analysis", "career guidance", "json structuring", intent],
+        "intent": intent,
+        "needRetrieval": False,
+        "executionMode": "direct_agent",
+        "executionModeLabel": f"直接{role.replace('智能体', '')}",
+        "defaultRagStrategy": "",
+        "supportedRagStrategies": [],
+        "aliases": [intent, role, role.replace("智能体", ""), agent_name, "岗位雷达", "热门岗位"],
+        "exampleInput": example_input,
+        "requiredModelModalities": TEXT_MODEL_MODALITY,
+        "internalOnly": True,
     }
 
 
@@ -465,6 +498,10 @@ AGENT_PROFILES: Dict[str, Dict[str, Any]] = {
     **{
         agent_name: _resume_agent_profile(agent_name, *spec)
         for agent_name, spec in RESUME_AGENT_SPECS.items()
+    },
+    **{
+        agent_name: _job_radar_agent_profile(agent_name, *spec)
+        for agent_name, spec in JOB_RADAR_AGENT_SPECS.items()
     },
     "python_coding_tutor_agent": {
         "role": "Python 编程辅导智能体",

@@ -69,6 +69,7 @@ import CampusDiscountView from '../views/CampusDiscountView.vue'
 import DocumentConvertView from '../views/DocumentConvertView.vue'
 import CareerNebulaView from '../views/CareerNebulaView.vue'
 import CareerPlanetView from '../views/CareerPlanetView.vue'
+import HotJobsView from '../views/HotJobsView.vue'
 import { getToken } from '../utils/auth'
 
 const routes = [
@@ -81,6 +82,7 @@ const routes = [
   { path: '/meetings/room/:sessionId', name: 'meeting-room', component: MeetingRoomView },
   { path: '/ai', name: 'ai', component: AiAssistantView },
   { path: '/ai-tools', name: 'ai-tools', component: AiToolsView },
+  { path: '/jobs/hot', name: 'hot-jobs', component: HotJobsView },
   { path: '/ai-original', name: 'ai-original', component: AiOriginalView },
   { path: '/ai-original/add', name: 'ai-original-add', component: WatermarkAddView },
   { path: '/ai-original/batch', name: 'ai-original-batch', component: WatermarkBatchView },

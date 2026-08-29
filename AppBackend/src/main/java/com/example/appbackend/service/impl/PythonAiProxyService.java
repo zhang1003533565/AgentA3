@@ -53,6 +53,7 @@ public class PythonAiProxyService {
     private static final String GENERATOR_AGENT_NAME = "python_problem_generator_agent";
     private static final String RESUME_POLISH_EXPAND_AGENT_NAME = "resume_polish_expand_agent";
     private static final String RESUME_EDIT_AGENT_NAME = "resume_edit_agent";
+    private static final String WEEKLY_JOB_AGENT_NAME = "weekly_job_recommendation_agent";
     private static final String AGENT_MODEL_BINDING_PREFIX = "ai.agent-bindings.";
     private static final String AGENT_ENABLED_PREFIX = "ai.agent-enabled.";
     private static final String TOOL_ENABLED_PREFIX = "ai.tool-enabled.";
@@ -316,6 +317,29 @@ public class PythonAiProxyService {
         Long userId = extractUserId(token);
         Map<String, Object> sanitized = sanitizeRagRequest(withAgentToggles(request, userId));
         return postRagObject("/internal/rag/query", sanitized, authorization, requestedModel);
+    }
+
+    public Object queryRagAsSystem(Map<String, Object> request) {
+        String token = jwtUtil.generateToken("weekly-job-radar", 0L, "system");
+        return queryRag(request, "Bearer " + token);
+    }
+
+    public Object queryWeeklyJobRecommendations(String authorization) {
+        Map<String, Object> request = new LinkedHashMap<>();
+        request.put("agentName", WEEKLY_JOB_AGENT_NAME);
+        request.put("input", "请输出近一周国内软件工程方向热度前五的具体岗位推荐。");
+        request.put("metadata", Map.of("requestPurpose", "weekly_job_recommendation"));
+        String model = resolveAgentBoundModel(WEEKLY_JOB_AGENT_NAME);
+        if (!StringUtils.hasText(model)) {
+            model = resolveAgentBoundModel(DEFAULT_AGENT_NAME);
+        }
+        if (StringUtils.hasText(model)) {
+            request.put("llmModel", model);
+        }
+        if (StringUtils.hasText(authorization)) {
+            return queryRag(request, authorization);
+        }
+        return queryRagAsSystem(request);
     }
 
     /**

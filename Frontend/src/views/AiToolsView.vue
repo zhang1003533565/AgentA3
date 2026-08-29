@@ -117,6 +117,7 @@ const baseTools = [
   { name: '知识图谱', desc: '查看课程知识关系与学习路径', category: ['diagram', 'learning'], artSet: 'core', art: 4, route: '/learning/knowledge-graph', accent: '#18a37d' },
   { name: '校园地图', desc: '查询校园地点、设施和导航', category: ['campus'], artSet: 'service', art: 1, route: '/map', accent: '#56aa1b' },
   { name: 'AI 简历', desc: '智能创建、解析与优化简历', category: ['hot', 'campus'], artSet: 'service', art: 2, route: '/resume', accent: '#1768e6' },
+  { name: '岗位雷达', desc: 'AI 整理近一周软件工程热门岗位', category: ['hot', 'campus'], artSet: 'service', art: 3, route: '/jobs/hot', accent: '#527797' },
   { name: 'PDF → Word', desc: 'PDF 转 Word 文档', category: ['convert'], artSet: 'core', art: 0, route: '/convert?type=pdf_to_docx', accent: '#5C7A99' },
   { name: 'PPT → Word', desc: 'PPT 转 Word 文档', category: ['convert'], artSet: 'core', art: 1, route: '/convert?type=ppt_to_docx', accent: '#6B9B7A' },
   { name: 'Word → PDF', desc: 'Word 转 PDF 文档', category: ['convert'], artSet: 'core', art: 2, route: '/convert?type=docx_to_pdf', accent: '#B89B7A' },

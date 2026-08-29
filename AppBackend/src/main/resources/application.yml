@@ -104,6 +104,10 @@ ai:
     internal-token: ${AI_INTERNAL_TOKEN:dev-internal-token-change-me-32chars}
   assistant:
     public-resource-hosts: ${AI_ASSISTANT_PUBLIC_RESOURCE_HOSTS:}
+
+job-recommendation:
+  weekly:
+    cron: ${JOB_RECOMMENDATION_WEEKLY_CRON:0 0 6 ? * MON}
   learning:
     workflow:
       fallback-max-entries: ${AI_LEARNING_WORKFLOW_FALLBACK_MAX_ENTRIES:1024}
