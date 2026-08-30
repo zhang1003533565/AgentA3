@@ -101,7 +101,8 @@ public class AssistantEnvelopeService {
             "agentName", "targetAgent", "toolName", "toolDisplayName", "routeReason", "intent",
             "resultCount", "documentCount", "strategy", "summarizedByModel", "message", "promptPreview",
             "toolParams", "requestUrls", "plannedRequestUrls", "leaderActionLabel", "planningAnswer",
-            "triggerType", "resultStatus", "toolMs", "summaryMs", "serviceToolBackendStatus", "strategyLabel");
+            "triggerType", "resultStatus", "resultPreview", "resultMessage", "toolMs", "summaryMs",
+            "serviceToolBackendStatus", "strategyLabel", "javaBackendCount", "backendFailure");
     private static final Set<String> DEFAULT_SSE_FIELDS = Set.of(
             "message", "status", "stage", "progress");
     private static final Set<String> LEARNING_SSE_EVENTS = Set.of(

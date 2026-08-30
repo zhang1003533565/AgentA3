@@ -5027,6 +5027,133 @@ def _run_disabled_tool_response(
     )
 
 
+def _build_tool_result_preview(tool_results: List[Dict[str, Any]], limit: int = 5) -> List[str]:
+    preview: List[str] = []
+    for item in tool_results[:limit]:
+        if not isinstance(item, dict):
+            continue
+        item_type = str(item.get("type") or "").strip()
+        if item_type == "tool_execution_error":
+            preview.append(f"错误：{item.get('message') or item.get('reason') or '接口调用失败'}")
+            continue
+        if item_type == "tool_empty_result":
+            continue
+        title = (
+            item.get("title")
+            or item.get("name")
+            or item.get("courseName")
+            or item.get("content")
+        )
+        if not str(title or "").strip():
+            continue
+        extras: List[str] = []
+        price = item.get("price")
+        if price is not None and str(price).strip():
+            extras.append(f"¥{price}")
+        location = item.get("location") or item.get("classroom")
+        if location:
+            extras.append(str(location))
+        start_time = item.get("startTime")
+        if start_time:
+            extras.append(str(start_time))
+        line = str(title).strip()
+        if extras:
+            line = f"{line}（{' · '.join(extras)}）"
+        preview.append(line[:120])
+    return preview
+
+
+def _build_service_tool_workflow_trace(
+    *,
+    leader_plan,
+    tool_name: str,
+    tool_display_name: str,
+    tool_params: Dict[str, Any],
+    request_urls: List[str],
+    planning_answer: str,
+    retrieval_meta: Dict[str, Any],
+    tool_ms: int,
+    tool_results: List[Dict[str, Any]],
+    results: List[Dict[str, Any]],
+    result_status: str,
+    backend_failure: Dict[str, Any],
+    summarized_by_model: bool,
+    summary_mode: str,
+    summary_ms: int,
+    agent_name: str = "leader_agent",
+) -> List[RagTraceResponse]:
+    planned_urls = build_service_tool_request_urls(
+        tool_name,
+        tool_params,
+        base_url=data_store.java_base_url,
+    )
+    tool_start_detail = {
+        "message": planning_answer,
+        "intent": leader_plan.intent,
+        "toolName": tool_name,
+        "toolDisplayName": tool_display_name,
+        "toolParams": tool_params,
+        "plannedRequestUrls": planned_urls,
+        "routeReason": leader_plan.route_reason,
+        "triggerType": "leader",
+    }
+    result_preview = _build_tool_result_preview(tool_results)
+    result_count = len(tool_results)
+    if result_status == "empty":
+        result_message = "接口调用成功，但未返回匹配数据。"
+    elif result_status == "error":
+        result_message = str(backend_failure.get("reason") or backend_failure.get("message") or "接口调用失败。")
+    elif result_count:
+        result_message = f"接口返回 {result_count} 条数据。"
+    else:
+        result_message = "接口调用完成。"
+    tool_call_detail = {
+        "message": "向后端发起实际查询并接收响应。",
+        "toolName": tool_name,
+        "toolDisplayName": tool_display_name,
+        "toolParams": tool_params,
+        "requestUrls": request_urls,
+        "planningAnswer": planning_answer,
+        "toolMs": tool_ms,
+        "resultStatus": result_status,
+        "resultCount": result_count,
+        "resultPreview": result_preview,
+        "resultMessage": result_message,
+    }
+    summary_detail = {
+        "message": result_message,
+        "agentName": agent_name,
+        "toolName": tool_name,
+        "toolDisplayName": tool_display_name,
+        "summarizedByModel": summarized_by_model,
+        "summaryMode": summary_mode,
+        "summaryMs": summary_ms,
+        "resultStatus": result_status,
+        "resultCount": result_count,
+        "resultPreview": result_preview,
+        "serviceToolBackendStatus": str(backend_failure.get("status") or "ok"),
+        **({"backendFailure": backend_failure} if backend_failure else {}),
+    }
+    return [
+        RagTraceResponse(stage="request_submitted", detail={"message": "已提交给智能助手，等待分析"}),
+        RagTraceResponse(stage="tool_start", detail=tool_start_detail),
+        RagTraceResponse(stage="leader_route", detail=_leader_plan_detail(leader_plan)),
+        RagTraceResponse(stage="tool_call", detail=tool_call_detail),
+        RagTraceResponse(stage="tool_result_summary", detail=summary_detail),
+        RagTraceResponse(stage="session_ready", detail={
+            "message": f"会话已建立，由 {agent_name} 处理",
+            "agentName": agent_name,
+        }),
+        RagTraceResponse(stage="retrieval", detail={
+            "message": f"查询完成，共 {len(results)} 条可用数据" if results else "查询完成，暂无可展示数据",
+            "documentCount": len(results),
+            "javaBackendCount": len(results),
+            "resultStatus": result_status,
+            "resultCount": result_count,
+        }),
+    ]
+
+
 def _run_service_tool(request: RagQueryRequest, authorization: str, leader_plan) -> RagQueryResponse:
     tool_name = leader_plan.tool_name
     tool_display_name = _tool_display_name(tool_name)
@@ -5138,47 +5265,24 @@ def _run_service_tool(request: RagQueryRequest, authorization: str, leader_plan)
         answer=answer,
         answerType=answer_type,
         documents=documents,
-        trace=[
-            RagTraceResponse(stage="tool_start", detail={
-                "message": planning_answer,
-                "intent": leader_plan.intent,
-                "toolName": tool_name,
-                "toolDisplayName": tool_display_name,
-                "toolParams": tool_params,
-                "plannedRequestUrls": build_service_tool_request_urls(
-                    tool_name,
-                    tool_params,
-                    base_url=data_store.java_base_url,
-                ),
-                "routeReason": leader_plan.route_reason,
-                "triggerType": "leader",
-            }),
-            RagTraceResponse(stage="leader_route", detail=_leader_plan_detail(leader_plan)),
-            RagTraceResponse(stage="tool_call", detail={
-                "toolName": tool_name,
-                "toolDisplayName": tool_display_name,
-                "toolParams": tool_params,
-                "requestUrls": request_urls,
-                "planningAnswer": planning_answer,
-                "toolMs": tool_ms,
-                **retrieval_meta,
-                "resultStatus": result_status,
-                "resultCount": len(tool_results),
-            }),
-            RagTraceResponse(stage="tool_result_summary", detail={
-                "agentName": "leader_agent",
-                "toolName": tool_name,
-                "toolDisplayName": tool_display_name,
-                "toolParams": tool_params,
-                "requestUrls": request_urls,
-                "summarizedByModel": summarized_by_model,
-                "summaryMode": summary_mode,
-                "summaryMs": summary_ms,
-                "resultCount": len(results),
-                "serviceToolBackendStatus": str(backend_failure.get("status") or "ok"),
-                **({"backendFailure": backend_failure} if backend_failure else {}),
-            }),
-        ],
+        trace=_build_service_tool_workflow_trace(
+            leader_plan=leader_plan,
+            tool_name=tool_name,
+            tool_display_name=tool_display_name,
+            tool_params=tool_params,
+            request_urls=request_urls,
+            planning_answer=planning_answer,
+            retrieval_meta=retrieval_meta,
+            tool_ms=tool_ms,
+            tool_results=tool_results,
+            results=results,
+            result_status=result_status,
+            backend_failure=backend_failure,
+            summarized_by_model=summarized_by_model,
+            summary_mode=summary_mode,
+            summary_ms=summary_ms,
+            agent_name=str(metadata.get("executedAgent") or metadata.get("agentName") or "leader_agent"),
+        ),
         metadata=metadata,
     )), toolMs=tool_ms, summaryMs=summary_ms)
 

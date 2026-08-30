@@ -47,6 +47,7 @@ const IconLine = (props) => {
     clock: 'M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20Z M12 6v6l4 2',
     pin: 'M20 10c0 5-8 12-8 12S4 15 4 10a8 8 0 1 1 16 0Z M12 13a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z',
     chevron: 'm9 18 6-6-6-6',
+    chevronDown: 'm6 9 6 6 6-6',
     check: 'm20 6-11 11-5-5',
     home: 'M3 11 12 3l9 8 M5 10v11h14V10 M9 21v-7h6v7',
     x: 'M18 6 6 18 M6 6l12 12',
@@ -111,6 +112,8 @@ const messageList = ref(null)
 const timelineProgress = ref(0)
 const timelineHoverIndex = ref(-1)
 const timelineDragging = ref(false)
+const showScrollToBottom = ref(false)
+const SCROLL_BOTTOM_THRESHOLD = 96
 const quickPrompts = ['查课表', '图书馆时间', '奖学金申请', '校园卡补办']
 const feedback = ref({})
 let activeStreamTask = null
@@ -180,14 +183,37 @@ function formatWorkflowToolParamValue(key, value) {
   return String(value)
 }
 
+const workflowToolParamDisplayOrder = [
+  'mode', 'keyword', 'status', 'timePhase', 'scope', 'week', 'weekday', 'date', 'month',
+  'courseKeyword', 'sessionStart', 'sessionEnd', 'sort', 'page', 'size', 'navigationIntent',
+]
+
+function normalizeToolParamsForDisplay(params) {
+  if (!params || typeof params !== 'object') return {}
+  const normalized = { ...params }
+  const page = normalized.page ?? normalized.pageNum ?? normalized.current
+  const size = normalized.size ?? normalized.pageSize
+  delete normalized.pageNum
+  delete normalized.current
+  delete normalized.pageSize
+  if (page !== undefined && page !== null && page !== '') normalized.page = page
+  if (size !== undefined && size !== null && size !== '') normalized.size = size
+  return normalized
+}
+
 function formatWorkflowToolParams(toolName, params) {
-  if (!params || typeof params !== 'object') return []
-  return Object.entries(params)
-    .filter(([key, value]) => formatWorkflowToolParamValue(key, value))
-    .map(([key, value]) => {
-      const label = workflowToolParamLabels[key] || key
-      return `查询·${label}：${formatWorkflowToolParamValue(key, value)}`
-    })
+  const normalized = normalizeToolParamsForDisplay(params)
+  const keys = [
+    ...workflowToolParamDisplayOrder.filter((key) => formatWorkflowToolParamValue(key, normalized[key])),
+    ...Object.keys(normalized).filter((key) => (
+      !workflowToolParamDisplayOrder.includes(key) && formatWorkflowToolParamValue(key, normalized[key])
+    )),
+  ]
+  return keys.map((key) => ({
+    key,
+    label: workflowToolParamLabels[key] || key,
+    value: formatWorkflowToolParamValue(key, normalized[key]),
+  }))
 }
 
 function formatWorkflowRequestUrls(detail) {
@@ -196,7 +222,37 @@ function formatWorkflowRequestUrls(detail) {
   const urls = Array.isArray(actual) && actual.length
     ? actual
     : (Array.isArray(planned) ? planned : [])
-  return [...new Set(urls.filter(Boolean))].map((url) => `请求URL：${url}`)
+  return [...new Set(urls.filter(Boolean))]
+}
+
+const workflowResultStatusLabels = {
+  ok: '返回数据',
+  empty: '无匹配数据',
+  error: '查询失败',
+}
+
+function buildWorkflowResultSummary(detail) {
+  const status = String(detail?.resultStatus || '').trim()
+    || (Number(detail?.resultCount || detail?.documentCount || 0) > 0 ? 'ok' : '')
+    || (detail?.serviceToolBackendStatus && detail.serviceToolBackendStatus !== 'ok' ? 'error' : '')
+  const count = Number(detail?.resultCount ?? detail?.documentCount ?? detail?.javaBackendCount ?? 0)
+  const preview = Array.isArray(detail?.resultPreview) ? detail.resultPreview.filter(Boolean) : []
+  const tone = status === 'error' ? 'error' : (status === 'empty' || count === 0 ? 'empty' : 'ok')
+  const label = workflowResultStatusLabels[status] || (count > 0 ? `返回 ${count} 条` : '查询结果')
+  const lines = []
+  if (detail?.resultMessage) {
+    lines.push(String(detail.resultMessage))
+  } else if (status === 'error') {
+    lines.push(String(detail?.backendFailure?.reason || detail?.backendFailure?.message || detail?.message || '后端接口调用失败。'))
+  } else if (status === 'empty' || count === 0) {
+    lines.push('接口调用成功，但未返回可展示的数据。')
+  } else {
+    lines.push(`共返回 ${count} 条数据。`)
+  }
+  if (detail?.toolMs) {
+    lines.push(`耗时 ${detail.toolMs} ms`)
+  }
+  return { label, tone, lines, preview, count, status: status || tone }
 }
 
 function workflowDetailText(detail, fallback = '') {
@@ -232,6 +288,36 @@ function buildWorkflowFailureDescription(entry, detail, fallback = '') {
   return lines.join('\n')
 }
 
+function buildWorkflowStepDescription(stage, detail, entry) {
+  const fallback = entry?.message || ''
+  switch (stage) {
+    case 'request_submitted':
+      return workflowDetailText(detail, fallback || '已提交给智能助手，等待分析')
+    case 'tool_start':
+      return workflowDetailText(detail, fallback || '准备调用校园数据工具')
+    case 'leader_route':
+      return [
+        detail?.toolDisplayName || detail?.toolName ? `路由到：${detail.toolDisplayName || detail.toolName}` : '',
+        detail?.routeReason || detail?.leaderActionLabel || '',
+        workflowDetailText(detail, fallback),
+      ].filter(Boolean).join('\n')
+    case 'tool_call':
+      return workflowDetailText(detail, fallback || '向后端发起实际查询并接收响应。')
+    case 'tool_result_summary':
+      return buildWorkflowResultSummary(detail).lines.join('\n')
+    case 'session_ready':
+      return workflowDetailText(detail, fallback || '会话已建立')
+    case 'retrieval':
+      if (detail?.resultCount !== undefined || detail?.documentCount !== undefined) {
+        const count = Number(detail.resultCount ?? detail.documentCount ?? 0)
+        return detail?.message || (count > 0 ? `查询完成，共 ${count} 条可用数据` : '查询完成，暂无可展示数据')
+      }
+      return workflowDetailText(detail, fallback || '正在检索相关资料')
+    default:
+      return workflowDetailText(detail, fallback)
+  }
+}
+
 function normalizeWorkflowStep(entry, index, status = 'completed') {
   const stage = String(entry?.stage || entry?.event || 'processing')
   const detail = entry?.detail && typeof entry.detail === 'object' ? entry.detail : entry
@@ -241,35 +327,39 @@ function normalizeWorkflowStep(entry, index, status = 'completed') {
   const intent = detail?.intent || entry?.intent || ''
   const failurePhase = detail?.failurePhase || entry?.failurePhase || detail?.failureStage || entry?.failureStage || ''
   const toolParams = detail?.toolParams || detail?.tool_params || entry?.toolParams || entry?.tool_params || {}
-  const queryParamLines = formatWorkflowToolParams(toolName, toolParams)
-  const requestUrlLines = formatWorkflowRequestUrls(detail)
   const isFailed = resolvedStatus === 'failed' || stage === 'failed'
+  const isQueryStage = stage === 'tool_call'
+  const showQueryParams = isQueryStage
+  const showRequestUrls = isQueryStage
+  const showResultSummary = stage === 'tool_call' || stage === 'tool_result_summary'
+  const queryParams = showQueryParams ? formatWorkflowToolParams(toolName, toolParams) : []
+  const requestUrls = showRequestUrls ? formatWorkflowRequestUrls(detail) : []
+  const resultSummary = showResultSummary ? buildWorkflowResultSummary(detail) : null
   const title = isFailed
     ? `执行失败${failurePhase ? ` · ${failurePhase}` : ''}`
-    : (workflowStageLabels[stage] || toolName || agentName || '执行处理')
+    : (isQueryStage ? '调用工具 · 后端查询' : (workflowStageLabels[stage] || toolName || agentName || '执行处理'))
   const description = isFailed
     ? buildWorkflowFailureDescription(entry, detail, entry?.message || '')
-    : [
-      workflowDetailText(detail, entry?.message || ''),
-      queryParamLines.length ? `查询参数：${queryParamLines.join('；')}` : '',
-      requestUrlLines.length ? requestUrlLines.join('\n') : '',
-    ].filter(Boolean).join('\n')
+    : buildWorkflowStepDescription(stage, detail, entry)
   return {
     id: `${stage}-${index}-${toolName || agentName}`,
     stage,
     title,
     description,
+    queryParams,
+    requestUrls,
+    resultSummary,
     meta: [
+      isQueryStage && '本步骤发起后端查询',
       workflowTriggerLabels[detail?.triggerType || entry?.triggerType],
       failurePhase && `阶段：${failurePhase}`,
       toolName && `工具：${toolName}`,
-      agentName && `智能体：${agentName}`,
-      intent && `意图：${intent}`,
-      detail?.routeReason || entry?.routeReason,
-      ...queryParamLines,
-      ...requestUrlLines,
+      agentName && stage !== 'tool_call' && `智能体：${agentName}`,
+      intent && stage === 'leader_route' && `意图：${intent}`,
+      detail?.routeReason && stage === 'leader_route' && detail.routeReason,
     ].filter(Boolean),
     status: isFailed ? 'failed' : resolvedStatus,
+    highlight: isQueryStage,
   }
 }
 
@@ -322,26 +412,106 @@ function mergeWorkflowWithTrace(clientSteps = [], backendTrace = []) {
 }
 
 function enrichHistoryTrace(trace = [], retrievalMeta = {}) {
-  const toolParams = retrievalMeta?.toolParams || retrievalMeta?.tool_params
-  const requestUrls = retrievalMeta?.requestUrls || retrievalMeta?.request_urls
-  if (!Array.isArray(trace) || (!toolParams && !requestUrls)) {
+  if (!Array.isArray(trace) || !trace.length) {
     return trace
   }
-  const enrichStages = new Set(['tool_start', 'leader_route', 'tool_call', 'tool_result_summary'])
+  const toolParams = retrievalMeta?.toolParams || retrievalMeta?.tool_params
+  const requestUrls = retrievalMeta?.requestUrls || retrievalMeta?.request_urls
+  const resultCount = retrievalMeta?.toolResultCount ?? retrievalMeta?.documentCount ?? retrievalMeta?.javaBackendCount
+  const resultStatus = retrievalMeta?.toolResultStatus
+    || (retrievalMeta?.toolResultEmpty ? 'empty' : '')
+    || (Number(resultCount) > 0 ? 'ok' : '')
   return trace.map((entry) => {
     const stage = String(entry?.stage || '').trim()
-    if (!enrichStages.has(stage)) {
-      return entry
-    }
     const detail = entry?.detail && typeof entry.detail === 'object' ? { ...entry.detail } : { ...entry }
-    if (toolParams && !detail.toolParams && !detail.tool_params) {
-      detail.toolParams = toolParams
+    if (stage === 'tool_call') {
+      if (toolParams && !detail.toolParams && !detail.tool_params) {
+        detail.toolParams = toolParams
+      }
+      if (requestUrls && !detail.requestUrls && !detail.request_urls) {
+        detail.requestUrls = requestUrls
+      }
     }
-    if (requestUrls && !detail.requestUrls && !detail.request_urls) {
-      detail.requestUrls = requestUrls
+    if (stage === 'tool_call' || stage === 'tool_result_summary' || stage === 'retrieval') {
+      if (resultStatus && !detail.resultStatus) {
+        detail.resultStatus = resultStatus
+      }
+      if (resultCount !== undefined && detail.resultCount === undefined) {
+        detail.resultCount = resultCount
+      }
     }
     return { stage, detail }
   })
+}
+
+const SERVICE_WORKFLOW_STAGES = [
+  'request_submitted',
+  'tool_start',
+  'leader_route',
+  'tool_call',
+  'tool_result_summary',
+  'session_ready',
+  'retrieval',
+]
+
+function expandPersistedWorkflowTrace(trace = [], retrievalMeta = {}, agentName = 'leader_agent') {
+  const normalized = Array.isArray(trace) ? trace : []
+  const byStage = new Map()
+  for (const entry of normalized) {
+    const stage = String(entry?.stage || '').trim()
+    if (stage && !byStage.has(stage)) {
+      byStage.set(stage, entry)
+    }
+  }
+  const hasServiceFlow = SERVICE_WORKFLOW_STAGES.some((stage) => byStage.has(stage))
+  if (!hasServiceFlow) {
+    return normalized
+  }
+
+  const toolStep = normalized.find((entry) => (
+    ['tool_start', 'leader_route', 'tool_call', 'tool_result_summary'].includes(String(entry?.stage || '').trim())
+  ))
+  const toolDetail = toolStep?.detail && typeof toolStep.detail === 'object' ? toolStep.detail : toolStep || {}
+  const toolParams = toolDetail.toolParams || toolDetail.tool_params || retrievalMeta?.toolParams || retrievalMeta?.tool_params
+  const requestUrls = toolDetail.requestUrls || toolDetail.request_urls || retrievalMeta?.requestUrls || retrievalMeta?.request_urls
+  const documentCount = retrievalMeta?.documentCount ?? retrievalMeta?.javaBackendCount ?? toolDetail.documentCount ?? toolDetail.resultCount ?? 0
+  const resolvedAgent = retrievalMeta?.executedAgent || retrievalMeta?.agentName || toolDetail.agentName || agentName
+
+  const defaults = {
+    request_submitted: { stage: 'request_submitted', detail: { message: '已提交给智能助手，等待分析' } },
+    session_ready: {
+      stage: 'session_ready',
+      detail: {
+        message: `会话已建立，由 ${resolvedAgent} 处理`,
+        agentName: resolvedAgent,
+      },
+    },
+    retrieval: {
+      stage: 'retrieval',
+      detail: {
+        message: documentCount > 0 ? `查询完成，共 ${documentCount} 条可用数据` : '查询完成，暂无可展示数据',
+        documentCount,
+        javaBackendCount: documentCount,
+        resultCount: documentCount,
+      },
+    },
+  }
+
+  const expanded = []
+  for (const stage of SERVICE_WORKFLOW_STAGES) {
+    if (byStage.has(stage)) {
+      expanded.push(byStage.get(stage))
+    } else if (defaults[stage]) {
+      expanded.push(defaults[stage])
+    }
+  }
+  for (const entry of normalized) {
+    const stage = String(entry?.stage || '').trim()
+    if (stage && !SERVICE_WORKFLOW_STAGES.includes(stage) && !expanded.some((item) => String(item?.stage) === stage)) {
+      expanded.push(entry)
+    }
+  }
+  return expanded
 }
 
 function appendWorkflowStep(messageId, entry, status = 'running') {
@@ -401,7 +571,11 @@ function normalizeConversation(item) {
 function normalizeHistoryMessage(item, index) {
   const role = item?.role === 'user' ? 'user' : 'assistant'
   const retrievalMeta = item?.retrievalMeta && typeof item.retrievalMeta === 'object' ? item.retrievalMeta : {}
-  const trace = enrichHistoryTrace(Array.isArray(item?.trace) ? item.trace : [], retrievalMeta)
+  const trace = expandPersistedWorkflowTrace(
+    enrichHistoryTrace(Array.isArray(item?.trace) ? item.trace : [], retrievalMeta),
+    retrievalMeta,
+    item?.agentName || retrievalMeta?.executedAgent || 'leader_agent',
+  )
   return {
     id: item?.id || `${role}-${index}`,
     role,
@@ -538,13 +712,22 @@ const result = ref('')`
 async function scrollMessages() {
   await nextTick()
   messageList.value?.scrollTo({ top: messageList.value.scrollHeight, behavior: 'smooth' })
+  updateScrollAffordance()
+}
+
+function updateScrollAffordance() {
+  const element = messageList.value
+  if (!element) {
+    showScrollToBottom.value = false
+    return
+  }
+  const maximum = Math.max(0, element.scrollHeight - element.clientHeight)
+  timelineProgress.value = maximum ? element.scrollTop / maximum : 0
+  showScrollToBottom.value = maximum - element.scrollTop > SCROLL_BOTTOM_THRESHOLD
 }
 
 function syncTimelineProgress() {
-  const element = messageList.value
-  if (!element) return
-  const maximum = Math.max(0, element.scrollHeight - element.clientHeight)
-  timelineProgress.value = maximum ? element.scrollTop / maximum : 0
+  updateScrollAffordance()
 }
 
 function scrollToTimelineProgress(progress) {
@@ -1071,8 +1254,16 @@ async function sendMessage(text, options = {}) {
         syncConversationSession(requestConversationId, payload?.sessionId)
         const current = messages.value.find((item) => item.id === assistantMessageId)
         const finalContent = String(payload?.answer || current?.content || '').trim()
-        const workflowSteps = mergeWorkflowWithTrace(current?.workflowSteps || [], payload?.trace)
         const retrievalMeta = payload?.retrievalMeta || payload?.metadata || {}
+        const expandedTrace = expandPersistedWorkflowTrace(
+          payload?.trace || [],
+          retrievalMeta,
+          payload?.agentName || retrievalMeta?.executedAgent || 'leader_agent',
+        )
+        const backendSteps = traceWorkflowSteps(expandedTrace)
+        const workflowSteps = backendSteps.length
+          ? backendSteps
+          : mergeWorkflowWithTrace(current?.workflowSteps || [], payload?.trace || [])
         updateChatMessage(assistantMessageId, {
           content: finalContent || 'AI 已完成本次资源分析。',
           attachments: normalizeMessageAttachments(payload?.attachments, payload?.resources),
@@ -1791,11 +1982,33 @@ function handleUpload(event) {
                         <span class="workflow-toggle">{{ message.workflowExpanded ? '收起' : '展开详情' }} <IconLine name="chevron" :size="13" /></span>
                       </button>
                       <div v-if="message.workflowExpanded" class="workflow-details">
-                        <div v-for="(step, stepIndex) in message.workflowSteps" :key="step.id || `${message.id}-workflow-${stepIndex}`" :class="['workflow-step', step.status]">
+                        <div v-for="(step, stepIndex) in message.workflowSteps" :key="step.id || `${message.id}-workflow-${stepIndex}`" :class="['workflow-step', step.status, { highlight: step.highlight }]">
                           <span class="workflow-step-index">{{ stepIndex + 1 }}</span>
                           <div class="workflow-step-copy">
                             <strong>{{ step.title }}</strong>
                             <p v-if="step.description">{{ step.description }}</p>
+                            <div v-if="step.queryParams?.length" class="workflow-info-block">
+                              <span class="workflow-info-label">查询参数</span>
+                              <ul class="workflow-info-list">
+                                <li v-for="param in step.queryParams" :key="`${step.id}-${param.key}`">
+                                  <span>{{ param.label }}</span>
+                                  <strong>{{ param.value }}</strong>
+                                </li>
+                              </ul>
+                            </div>
+                            <div v-if="step.requestUrls?.length" class="workflow-info-block">
+                              <span class="workflow-info-label">请求 URL</span>
+                              <ul class="workflow-info-list workflow-url-list">
+                                <li v-for="url in step.requestUrls" :key="`${step.id}-${url}`"><code>{{ url }}</code></li>
+                              </ul>
+                            </div>
+                            <div v-if="step.resultSummary" :class="['workflow-result-block', step.resultSummary.tone]">
+                              <span class="workflow-info-label">返回结果 · {{ step.resultSummary.label }}</span>
+                              <p v-for="(line, lineIndex) in step.resultSummary.lines" :key="`${step.id}-result-${lineIndex}`">{{ line }}</p>
+                              <ul v-if="step.resultSummary.preview?.length" class="workflow-info-list">
+                                <li v-for="(item, previewIndex) in step.resultSummary.preview" :key="`${step.id}-preview-${previewIndex}`">{{ item }}</li>
+                              </ul>
+                            </div>
                             <div v-if="step.meta?.length" class="workflow-step-meta"><span v-for="meta in step.meta" :key="meta">{{ meta }}</span></div>
                           </div>
                           <span class="workflow-step-status">{{ step.status === 'running' ? '进行中' : step.status === 'failed' ? '失败' : '已完成' }}</span>
@@ -1898,6 +2111,19 @@ function handleUpload(event) {
               <strong>{{ messages[timelineHoverIndex]?.content?.slice(0, 34) || '附件消息' }}</strong>
             </aside>
           </nav>
+
+          <Transition name="scroll-to-bottom-fade">
+            <button
+              v-if="!isFreshChat && showScrollToBottom"
+              class="scroll-to-bottom"
+              type="button"
+              title="回到底部"
+              aria-label="回到底部"
+              @click="scrollMessages()"
+            >
+              <IconLine name="chevronDown" :size="18" />
+            </button>
+          </Transition>
 
           <div class="composer-zone">
             <div v-if="pendingResources.length" class="upload-queue">
@@ -2486,6 +2712,33 @@ function handleUpload(event) {
 
 .chat-page { position: relative; height: calc(100vh - 60px); min-height: 600px; overflow: hidden; background: var(--surface); }
 .chat-scroll { height: 100%; overflow-y: auto; padding: 48px clamp(24px, 6vw, 88px) 220px; }
+.scroll-to-bottom {
+  position: absolute;
+  z-index: 9;
+  left: 50%;
+  bottom: 188px;
+  display: grid;
+  width: 36px;
+  height: 36px;
+  place-items: center;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+  background: var(--surface);
+  box-shadow: 0 4px 18px rgba(15, 23, 42, .1);
+  transform: translateX(-50%);
+  transition: color .15s ease, border-color .15s ease, box-shadow .15s ease, background .15s ease;
+}
+.scroll-to-bottom:hover {
+  color: var(--text);
+  border-color: var(--line-strong);
+  background: var(--surface);
+  box-shadow: 0 6px 22px rgba(15, 23, 42, .14);
+}
+.scroll-to-bottom-fade-enter-active,
+.scroll-to-bottom-fade-leave-active { transition: opacity .18s ease, transform .18s ease; }
+.scroll-to-bottom-fade-enter-from,
+.scroll-to-bottom-fade-leave-to { opacity: 0; transform: translateX(-50%) translateY(8px); }
 .conversation-timeline {
   position: absolute;
   z-index: 8;
@@ -2584,12 +2837,26 @@ function handleUpload(event) {
 .workflow-summary[aria-expanded='true'] .workflow-toggle svg { transform: rotate(180deg); }
 .workflow-details { padding: 3px 10px 10px 15px; border-top: 1px solid var(--line); background: var(--surface); }
 .workflow-step { position: relative; display: grid; grid-template-columns: 22px minmax(0, 1fr) auto; gap: 8px; padding: 10px 0; }
+.workflow-step.highlight { padding: 12px 10px; margin: 0 -10px; border-radius: 8px; background: rgba(74, 111, 165, 0.05); }
+.workflow-step.highlight .workflow-step-index { border-color: var(--accent); color: var(--accent); }
 .workflow-step:not(:last-child)::after { position: absolute; top: 31px; bottom: -3px; left: 10px; width: 1px; background: var(--line-strong); content: ''; }
 .workflow-step-index { display: grid; z-index: 1; width: 21px; height: 21px; place-items: center; border: 1px solid var(--line-strong); border-radius: 50%; color: var(--muted); background: var(--surface); font-size: 9px; }
 .workflow-step.running .workflow-step-index { border-color: var(--accent); color: var(--accent); }
 .workflow-step-copy { min-width: 0; }
 .workflow-step-copy strong { display: block; font-size: 11px; }
 .workflow-step-copy p { margin: 2px 0 0; color: var(--muted); font-size: 10px; line-height: 1.45; white-space: pre-line; }
+.workflow-info-block { margin-top: 8px; padding: 8px 10px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--surface); }
+.workflow-info-label { display: block; margin-bottom: 4px; color: var(--text); font-size: 9px; font-weight: 600; letter-spacing: 0.02em; }
+.workflow-info-list { margin: 0; padding: 0; list-style: none; }
+.workflow-info-list li { display: flex; justify-content: space-between; gap: 10px; padding: 3px 0; color: var(--muted); font-size: 10px; line-height: 1.4; }
+.workflow-info-list li strong { color: var(--text); font-weight: 500; text-align: right; }
+.workflow-url-list li { display: block; }
+.workflow-url-list code { display: block; overflow-wrap: anywhere; color: var(--text); font-size: 9px; line-height: 1.45; }
+.workflow-result-block { margin-top: 8px; padding: 8px 10px; border-radius: 6px; border: 1px solid var(--line-strong); background: var(--surface-soft); }
+.workflow-result-block.ok { border-color: rgba(58, 138, 98, 0.25); background: rgba(58, 138, 98, 0.06); }
+.workflow-result-block.empty { border-color: rgba(160, 120, 60, 0.25); background: rgba(160, 120, 60, 0.06); }
+.workflow-result-block.error { border-color: rgba(196, 79, 79, 0.25); background: rgba(196, 79, 79, 0.06); }
+.workflow-result-block p { margin: 2px 0 0; color: var(--muted); font-size: 10px; line-height: 1.45; }
 .workflow-step-meta { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 5px; }
 .workflow-step-meta span { padding: 2px 5px; border-radius: 4px; color: var(--muted); background: var(--surface-soft); font-size: 9px; }
 .workflow-step-status { align-self: start; color: #3a8a62; font-size: 9px; }
@@ -2980,6 +3247,7 @@ function handleUpload(event) {
   .mobile-tabs button.active { color: var(--primary); background: var(--primary-soft); }
   .chat-page { height: calc(100vh - 184px); min-height: 520px; }
   .chat-scroll { padding: 25px 14px 212px; }
+  .scroll-to-bottom { bottom: 176px; }
   .conversation-timeline { display: none; }
   .welcome-block { margin-bottom: 28px; }
   .welcome-block h1 { font-size: 26px; }

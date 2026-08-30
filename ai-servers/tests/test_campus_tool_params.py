@@ -18,10 +18,11 @@ class CampusToolParamsTest(unittest.TestCase):
         self.assertEqual("PUBLISHED", params["status"])
 
     def test_activity_list_query_uses_list_mode(self):
-        params = build_activity_params("今天校园有什么讲座")
-
-        self.assertEqual("list", params["mode"])
-        self.assertEqual("", params["keyword"])
+        for query in ("今天校园有什么讲座", "现在有什么活动", "最近有什么活动", "校园有什么活动"):
+            with self.subTest(query=query):
+                params = build_activity_params(query)
+                self.assertEqual("list", params["mode"], query)
+                self.assertEqual("", params["keyword"], query)
 
     def test_extract_activity_keyword_handles_detail_query(self):
         self.assertEqual("AI学习工坊", extract_activity_keyword("AI学习工坊这个活动怎么样"))
@@ -67,6 +68,17 @@ class CampusToolParamsTest(unittest.TestCase):
         self.assertEqual(1, len(urls))
         self.assertIn("/api/activities", urls[0])
         self.assertIn("status=PUBLISHED", urls[0])
+        self.assertNotIn("/api/activities/search", urls[0])
+
+    def test_secondhand_list_query_omits_keyword(self):
+        from app.services.campus_tool_params import build_secondhand_params
+
+        for query in ("现在有什么二手的东西", "有什么闲置物品", "最近有哪些旧物"):
+            with self.subTest(query=query):
+                params = build_secondhand_params(query)
+                self.assertNotIn("keyword", params, query)
+                self.assertEqual(1, params["current"])
+                self.assertEqual(10, params["size"])
 
 
 if __name__ == "__main__":

@@ -65,19 +65,34 @@ def _keyword_from_input(input_text: str, domain_tokens: set[str]) -> str:
     return text[:60] if len(text) >= 2 and not any(token in text for token in domain_tokens) else ""
 
 
+def _is_activity_list_query(text: str) -> bool:
+    normalized = re.sub(r"[\s，。！？、,.!?;；:：\n\r\t]", "", str(text or ""))
+    if not normalized:
+        return False
+    list_patterns = (
+        r"^(现在|今天|今日|最近|近期|当前|校园)?(有)?(什么|哪些|有没有).*(活动|讲座|比赛|报名)",
+        r"^(什么|哪些|有没有).*(活动|讲座|比赛)",
+        r"^(活动|讲座|比赛|校园活动)(列表|安排|信息)?$",
+        r"^(最近|近期|当前)(活动|讲座|比赛)",
+    )
+    return any(re.search(pattern, normalized) for pattern in list_patterns)
+
+
 def extract_activity_keyword(input_text: str) -> str:
     text = re.sub(r"[，。！？、,.!?;；:：\n\r\t]", " ", str(input_text or "")).strip()
     if not text:
         return ""
+    if _is_activity_list_query(text):
+        return ""
     match = re.search(r"([^\s]{2,40}?)活动", text)
     if match:
         name = match.group(1).strip()
-        name = re.sub(r"^(这个|那个|什么|哪些|校园|最近|当前)+", "", name)
-        name = re.sub(r"(这个|那个|怎么样|如何|详情|介绍|值得|评价|好不好|咋样|吗|呢|不)+$", "", name)
-        if len(name) >= 2:
+        name = re.sub(r"^(这个|那个|什么|哪些|校园|最近|当前|现在|今天|今日)+", "", name)
+        name = re.sub(r"(这个|那个|怎么样|如何|详情|介绍|值得|评价|好不好|咋样|吗|呢|不|有什么|有哪些|有没有)+$", "", name)
+        if len(name) >= 2 and not _is_activity_list_query(f"{name}活动"):
             return name[:60]
     keyword = _keyword_from_input(input_text, {"活动", "讲座", "比赛", "报名", "校园活动"})
-    if keyword and len(keyword) >= 2:
+    if keyword and len(keyword) >= 2 and not _is_activity_list_query(keyword):
         return keyword
     if any(token in text for token in ("活动", "讲座", "比赛", "报名")):
         return ""
@@ -199,10 +214,24 @@ def build_facility_params(input_text: str) -> Dict[str, Any]:
     return params
 
 
+def _is_secondhand_list_query(text: str) -> bool:
+    normalized = re.sub(r"[\s，。！？、,.!?;；:：\n\r\t]", "", str(text or ""))
+    if not normalized:
+        return False
+    list_patterns = (
+        r"^(现在|今天|今日|最近|近期|当前)?(有)?(什么|哪些|有没有).*(二手|旧物|闲置|东西|物品)",
+        r"^(什么|哪些|有没有).*(二手|旧物|闲置|东西|物品)",
+        r"^(二手|旧物|闲置)(物品|东西)?(列表)?$",
+    )
+    return any(re.search(pattern, normalized) for pattern in list_patterns)
+
+
 @_register("java_secondhand_api")
 def build_secondhand_params(input_text: str) -> Dict[str, Any]:
-    keyword = _keyword_from_input(input_text, {"旧物", "二手", "闲置", "物品", "卖", "买", "转让"})
     params: Dict[str, Any] = {"current": 1, "size": 10, "sort": "latest"}
+    if _is_secondhand_list_query(input_text):
+        return params
+    keyword = _keyword_from_input(input_text, {"旧物", "二手", "闲置", "物品", "东西", "卖", "买", "转让"})
     if keyword:
         params["keyword"] = keyword
     return params
