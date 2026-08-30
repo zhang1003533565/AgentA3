@@ -69,7 +69,7 @@ class SystemConfigServiceImplTest {
     }
 
     @Test
-    void completeLocalLlmConfigOverridesDatabaseTextConfig() {
+    void completeLocalLlmConfigWithOverrideFlagOverridesDatabaseTextConfig() {
         String key = "ai.service.text.api-key";
         RecordingRepository repository = new RecordingRepository(config(key, "database-key"));
         SystemConfigServiceImpl service = new SystemConfigServiceImpl(repository.proxy(), completeLocalLlmEnvironment());
@@ -79,7 +79,7 @@ class SystemConfigServiceImplTest {
     }
 
     @Test
-    void completeLocalLlmConfigOverridesAgentBindingToDefaultTextPrefix() {
+    void completeLocalLlmConfigWithOverrideFlagOverridesAgentBindingToDefaultTextPrefix() {
         String key = "ai.agent-bindings.diagram_architecture_agent.model";
         RecordingRepository repository = new RecordingRepository(config(key, "ai.service.text.public"));
         SystemConfigServiceImpl service = new SystemConfigServiceImpl(repository.proxy(), completeLocalLlmEnvironment());
@@ -89,11 +89,27 @@ class SystemConfigServiceImplTest {
     }
 
     @Test
+    void completeLocalLlmConfigWithoutOverrideFlagFallsBackToDatabase() {
+        String key = "ai.service.text.api-key";
+        RecordingRepository repository = new RecordingRepository(config(key, "database-key"));
+        MockEnvironment environment = new MockEnvironment()
+                .withProperty("LLM_PROVIDER", "deepseek")
+                .withProperty("LLM_BASE_URL", "https://api.deepseek.com")
+                .withProperty("LLM_API_KEY", "local-key")
+                .withProperty("LLM_MODEL", "deepseek-chat");
+        SystemConfigServiceImpl service = new SystemConfigServiceImpl(repository.proxy(), environment);
+
+        assertEquals("database-key", service.getValue(key, ""));
+        assertEquals(1, repository.findActiveCalls());
+    }
+
+    @Test
     void partialLocalLlmConfigFallsBackToDatabase() {
         String key = "ai.service.text.api-key";
         RecordingRepository repository = new RecordingRepository(config(key, "database-key"));
         MockEnvironment environment = new MockEnvironment()
-                .withProperty("LLM_API_KEY", "local-key");
+                .withProperty("LLM_API_KEY", "local-key")
+                .withProperty("LLM_CONFIG_OVERRIDE", "true");
         SystemConfigServiceImpl service = new SystemConfigServiceImpl(repository.proxy(), environment);
 
         assertEquals("database-key", service.getValue(key, ""));
@@ -105,7 +121,8 @@ class SystemConfigServiceImplTest {
                 .withProperty("LLM_PROVIDER", "deepseek")
                 .withProperty("LLM_BASE_URL", "https://api.deepseek.com")
                 .withProperty("LLM_API_KEY", "local-key")
-                .withProperty("LLM_MODEL", "deepseek-chat");
+                .withProperty("LLM_MODEL", "deepseek-chat")
+                .withProperty("LLM_CONFIG_OVERRIDE", "true");
     }
 
     private static SystemConfig config(String key, String value) {

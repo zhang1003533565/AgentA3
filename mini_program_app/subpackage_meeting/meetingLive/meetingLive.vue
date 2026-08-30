@@ -109,12 +109,14 @@
 			<view class="subtitle-card">
 				<view class="subtitle-header">
 					<text class="subtitle-title">实时字幕</text>
-					<view class="subtitle-summary-toggle" @click="setAgentSummary(!agentEnabled)">
+					<!-- 仅主持人可操作 AI 总结开关；普通成员仅展示当前状态文字，无 Toggle 无点击 -->
+					<view v-if="isHost" class="subtitle-summary-toggle" @click="setAgentSummary(!agentEnabled)">
 						<text class="subtitle-summary-text">AI 总结</text>
 						<view class="subtitle-summary-switch" :class="{ 'subtitle-summary-switch--active': agentEnabled }">
 							<view class="subtitle-summary-knob"></view>
 						</view>
 					</view>
+					<text v-else class="subtitle-summary-status" :class="{ 'subtitle-summary-status--on': agentEnabled }">{{ agentEnabled ? 'AI总结已开启' : 'AI总结未开启' }}</text>
 				</view>
 				<scroll-view class="subtitle-body" scroll-y>
 					<view v-if="subtitleLines.length === 0" class="subtitle-empty"></view>
@@ -398,7 +400,13 @@ export default {
 			aiSummaryPending: false,
 			aiSummaryActiveId: '',
 			lastSummaryInput: '',
+			lastSummaryOutput: '',
 			lastSummaryErrorInput: '',
+			// 总结窗口相关状态
+			summaryWindowStart: null,
+			lastSummaryTime: null,
+			hasShownEmptyNotice: false,
+			lastProcessedTranscriptIndex: 0,
 			meetingTranscriptLines: [],
 			memberPanelVisible: false,
 			morePanelVisible: false,
@@ -421,7 +429,13 @@ export default {
 			memberPageIndex: 0,
 			swipeStartX: 0,
 			refreshTimer: null,
-			meetingEndedHandled: false
+			meetingEndedHandled: false,
+			// 是否已从后端获取过 Agent 1 历史摘要，防止 WebSocket 重连时重复加载
+			aiSummaryHistoryLoaded: false,
+			// 历史摘要未到达时的重试定时器
+			aiSummaryHistoryRetryTimer: null,
+			// 已从会议详情接口加载过的 transcription 记录 id，避免轮询时重复添加
+			loadedRecordIds: {}
 		}
 	},
 	onLoad(options) {
@@ -434,6 +448,7 @@ export default {
 
 		this.initCurrentMember()
 		this.restoreSubtitleRecords()
+		this.restoreAiSummaryRecords()
 		this.startTimer()
 		this.loadMeeting()
 		this.initAsr()
@@ -495,6 +510,12 @@ export default {
 				this.$nextTick(() => {
 					this.scrollSubtitleRecordToBottom()
 				})
+			}
+		},
+		aiSummaryItems: {
+			deep: true,
+			handler() {
+				this.persistAiSummaryRecords()
 			}
 		}
 	},
@@ -584,6 +605,74 @@ export default {
 			if (session.status === 'ended' && !this.isHost) {
 				this.handleMeetingEndedByHost()
 			}
+			// 从会议详情同步后端已持久化的 ASR 转写记录，让后进入/重连用户能看到完整实时字幕
+			this.syncTranscriptRecordsFromDetail(detail.records || [])
+		},
+		// 将会议详情中的 transcription 记录解析并合并到本地字幕列表，实现实时字幕历史同步
+		syncTranscriptRecordsFromDetail(records) {
+			if (!Array.isArray(records) || records.length === 0) return
+			const newItems = []
+			records.forEach(record => {
+				if (!record || !record.id || record.source !== 'transcription') return
+				if (this.loadedRecordIds[record.id]) return
+				this.loadedRecordIds[record.id] = true
+				const items = this.parseTranscriptRecord(record)
+				newItems.push(...items)
+			})
+			if (newItems.length === 0) return
+			this.subtitleRecords = [...this.subtitleRecords, ...newItems]
+			this.subtitleRecords.sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0))
+			if (this.subtitleRecords.length > 200) {
+				this.subtitleRecords = this.subtitleRecords.slice(-200)
+			}
+			this.persistSubtitleRecords()
+			console.log('[Subtitle] synced', newItems.length, 'lines from records, total', this.subtitleRecords.length)
+		},
+		// 解析后端转写记录内容。格式示例："[说话人：张三] 这是第一句话\n[说话人：李四] 这是第二句话"
+		parseTranscriptRecord(record) {
+			const content = (record?.content || '').trim()
+			if (!content) return []
+			const { time, timestamp } = this._parseMeetingRecordTime(record.createTime)
+			const items = []
+			content.split('\n').forEach(line => {
+				const trimmed = line.trim()
+				if (!trimmed) return
+				const match = trimmed.match(/^\[说话人：(.+?)\]\s*(.*)$/)
+				const speaker = match ? match[1].trim() : '参会成员'
+				const text = match ? match[2].trim() : trimmed
+				if (!text) return
+				items.push({
+					speaker,
+					text,
+					time,
+					isSelf: this.isSelfSpeakerByName(speaker),
+					isDanmaku: false,
+					timestamp: timestamp || Date.now()
+				})
+			})
+			return items
+		},
+		// 解析会议详情接口返回的 createTime 为时间和时间戳
+		_parseMeetingRecordTime(createTime) {
+			if (!createTime) return { time: '', timestamp: 0 }
+			try {
+				const d = new Date(createTime)
+				if (isNaN(d.getTime())) return { time: String(createTime).slice(11, 16) || '', timestamp: 0 }
+				const time = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+				return { time, timestamp: d.getTime() }
+			} catch (error) {
+				return { time: String(createTime).slice(11, 16) || '', timestamp: 0 }
+			}
+		},
+		// 根据说话人姓名判断是否为自己，用于字幕样式区分
+		isSelfSpeakerByName(speaker) {
+			const user = getUserInfo()
+			const currentId = user?.id || user?.userId || ''
+			const currentName = getCurrentDisplayName() || ''
+			if (!currentId && !currentName) return false
+			if (currentName && speaker && String(currentName) === String(speaker)) return true
+			if (currentId && speaker && String(currentId) === String(speaker)) return true
+			return false
 		},
 		initCurrentMember() {
 			const currentName = getCurrentDisplayName()
@@ -645,6 +734,12 @@ export default {
 				this.asrSocketReady = true
 				this.asrReconnectAttempts = 0
 				this.asrStatusText = this.muted ? '已静音' : '识别服务连接中'
+				// 每次 WebSocket 连接建立后请求会议级 Agent 1 历史摘要，支持中途入会查看完整历史总结。
+				// 首次进入和断线重连都应重新获取，避免消息时序导致漏收历史。
+				this.aiSummaryHistoryLoaded = false
+				this.requestAiSummaryHistory()
+				// 若 5 秒内未收到后端推送的历史摘要，再补发一次请求（后端当前会主动推送，这里作为防抖兜底）
+				this.scheduleAiSummaryHistoryRetry()
 			})
 			this.asrSocket.onMessage((event) => {
 				console.log('[ASR-Socket] message', event.data?.slice(0, 200))
@@ -658,6 +753,7 @@ export default {
 			})
 			this.asrSocket.onClose(() => {
 				console.log('[ASR-Socket] closed')
+				this.clearAiSummaryHistoryRetryTimer()
 				// 关播/会议结束时才不再重连，平时断线都要自动重连以维持广播通道
 				const shouldReconnect = !this.asrManualClosing && !!this.sessionId
 				this.asrSocketReady = false
@@ -874,6 +970,7 @@ export default {
 		},
 		closeAsr() {
 			this.clearAiSummaryTimer()
+			this.clearAiSummaryHistoryRetryTimer()
 			this.asrManualClosing = true
 			this.clearAsrReconnectTimer()
 			if (this.asrRecorder && this.asrRecording) {
@@ -1007,9 +1104,8 @@ export default {
 			}
 			// 弹幕广播：来自其他参会成员，上屏滚动并写入记录
 			if (payload.type === 'danmaku') {
-				const user = getUserInfo()
-				const currentId = user?.id || user?.userId || ''
-				// 去重：自己发送的弹幕本地已上屏，跳过回环
+				// 去重：自己发送的弹幕本地已上屏，跳过回环；userInfo 可能无 id，统一走 JWT 兜底解析（与主持人判定一致）
+				const currentId = getCurrentUserId()
 				if (currentId && payload.speakerUserId && String(currentId) === String(payload.speakerUserId)) return
 				const speaker = payload.speaker || '参会成员'
 				const text = (payload.text || '').trim()
@@ -1034,6 +1130,93 @@ export default {
 				}
 				this.persistSubtitleRecords()
 			}
+			// 会议级 Agent 1 历史摘要：中途入会时后端主动推送从会议开始到当前时刻已产生的全部 AI 实时总结
+			if (payload.type === 'ai_summary_history') {
+				this.clearAiSummaryHistoryRetryTimer()
+				if (Array.isArray(payload.items) && payload.items.length > 0) {
+					// 非主持人收到历史摘要时自动开启 AI 总结画布（会议级状态）
+					if (!this.isHost && !this.agentEnabled) {
+						this.agentEnabled = true
+						this.memberPageIndex = 0
+					}
+					const existingIds = new Set(this.aiSummaryItems.map(item => item.id))
+					const merged = [...this.aiSummaryItems]
+					payload.items.forEach(item => {
+						if (item && item.id && !existingIds.has(item.id)) {
+							merged.push({ id: item.id, text: item.text || '', time: item.time || '' })
+							existingIds.add(item.id)
+						}
+					})
+					// 用新数组赋值触发响应式更新，并限制最大数量
+					if (merged.length > 20) {
+						merged.splice(0, merged.length - 20)
+					}
+					this.aiSummaryItems = merged
+					// 把最新一条历史摘要作为 lastSummaryOutput，避免后续增量摘要重复历史内容
+					const lastItem = merged[merged.length - 1]
+					if (lastItem && lastItem.text) {
+						this.lastSummaryOutput = lastItem.text
+					}
+					// 历史摘要加载完成后，更新状态文本
+					if (this.agentEnabled) {
+						this.aiSummaryStatusText = '历史重点已加载'
+					}
+					console.log('[AI-Summary] history loaded', merged.length, 'items')
+				} else {
+					console.log('[AI-Summary] history empty')
+				}
+				this.aiSummaryHistoryLoaded = true
+				return
+			}
+			// 其他客户端完成的 Agent 1 实时摘要广播：追加到本地摘要列表，实现会议级共享
+			if (payload.type === 'ai_summary') {
+				const incomingId = payload.id || ''
+				const incomingText = (payload.text || '').trim()
+				const incomingTime = payload.time || ''
+				if (!incomingId || !incomingText) return
+				// 非主持人收到摘要广播时自动开启 AI 总结画布（会议级状态）
+				if (!this.isHost && !this.agentEnabled) {
+					this.agentEnabled = true
+					this.memberPageIndex = 0
+					this.aiSummaryStatusText = '重点已更新'
+				}
+				// ID 去重：已在列表中则跳过
+				if (this.aiSummaryItems.some(item => item.id === incomingId)) return
+				// 文本相似度去重：如果本地最近 30 秒内已生成了内容相近的摘要，替换本地版本防止重复显示
+				const recentCutoff = Date.now() - 30000
+				let duplicateFound = false
+				for (let i = this.aiSummaryItems.length - 1; i >= 0; i--) {
+					const local = this.aiSummaryItems[i]
+					if (local._createdAt && local._createdAt >= recentCutoff) {
+						const overlap = this._computeTextOverlap(incomingText, local.text)
+						if (overlap > 0.5) {
+							local.id = incomingId
+							local.text = incomingText
+							local.time = incomingTime
+							delete local._createdAt
+							duplicateFound = true
+							break
+						}
+					}
+				}
+				if (!duplicateFound) {
+					this.aiSummaryItems.push({ id: incomingId, text: incomingText, time: incomingTime })
+					// 限制摘要数量，保留最新的条目
+					if (this.aiSummaryItems.length > 20) {
+						this.aiSummaryItems = this.aiSummaryItems.slice(this.aiSummaryItems.length - 20)
+					}
+				}
+				return
+			}
+		},
+		// 计算两段文本的字符重叠率，用于 AI 摘要去重判断
+		_computeTextOverlap(text1, text2) {
+			if (!text1 || !text2) return 0
+			const chars1 = new Set(text1.split(''))
+			const chars2 = new Set(text2.split(''))
+			let overlap = 0
+			chars1.forEach(c => { if (chars2.has(c)) overlap++ })
+			return overlap / Math.max(chars1.size, chars2.size)
 		},
 		isSelfSpeaker(payload) {
 			const user = getUserInfo()
@@ -1083,28 +1266,39 @@ export default {
 				this.subtitleRecords = this.subtitleRecords.slice(-200)
 			}
 			this.persistSubtitleRecords()
-			if (this.agentEnabled) {
-				// 每次 final 转写新增后，延迟 3 秒触发实时重点提炼，防抖避免每句话都调用 LLM
-				this.scheduleAiSummary(3000)
-			}
+			// 不再由 ASR final 自动触发，改为通过时间窗口机制检查是否满足总结条件
 		},
 		toggleAgentSummary(event) {
 			this.setAgentSummary(!!event.detail.value, true)
 		},
 		setAgentSummary(enabled, shouldClosePanel = false) {
+			// 非主持人不能手动切换 AI 总结开关，画布显示由会议级状态自动控制
+			if (!this.isHost) return
 			this.agentEnabled = !!enabled
 			this.memberPageIndex = 0
 			if (shouldClosePanel) this.closePanel()
 			if (this.agentEnabled) {
 				this.aiSummaryStatusText = this.hasSummarySourceText() ? '准备提炼重点' : '等待发言'
-				this.scheduleAiSummary(0)
+				// 初始化总结窗口状态
+				this.summaryWindowStart = Date.now()
+				this.lastProcessedTranscriptIndex = this.meetingTranscriptLines.length
+				this.lastSummaryTime = null
+				this.hasShownEmptyNotice = false
+				// 如果历史摘要尚未加载，立即补一次请求（后端会主动推送）
+				if (!this.aiSummaryHistoryLoaded) {
+					this.requestAiSummaryHistory()
+					this.scheduleAiSummaryHistoryRetry()
+				}
+				// 不再使用 scheduleAiSummary(0)，改用 checkIfShouldSummarize() 定时检测
+				this.startSummaryWindowTimer()
 			} else {
+				this.stopSummaryWindowTimer()
 				this.clearAiSummaryTimer()
 				this.aiSummaryStatusText = '已关闭'
 			}
 		},
 		scheduleAiSummary(delay = 0) {
-			if (!this.agentEnabled) return
+			if (!this.agentEnabled || !this.isHost) return
 			this.clearAiSummaryTimer()
 			this.aiSummaryTimer = setTimeout(() => {
 				this.runAiSummary()
@@ -1116,7 +1310,100 @@ export default {
 				this.aiSummaryTimer = null
 			}
 		},
+		// ===== 总结窗口定时器 =====
+		summaryWindowTimer: null,
+		startSummaryWindowTimer() {
+			this.stopSummaryWindowTimer()
+			const CHECK_INTERVAL = 10000
+			this.summaryWindowTimer = setInterval(() => {
+				this.checkIfShouldSummarize()
+			}, CHECK_INTERVAL)
+			console.log('[AI-Summary] Summary window timer started')
+		},
+		stopSummaryWindowTimer() {
+			if (this.summaryWindowTimer) {
+				clearInterval(this.summaryWindowTimer)
+				this.summaryWindowTimer = null
+			}
+			console.log('[AI-Summary] Summary window timer stopped')
+		},
+		checkIfShouldSummarize() {
+			if (!this.agentEnabled || !this.isHost) return
+			const windowDuration = Date.now() - this.summaryWindowStart
+			const TWO_MINUTES = 120 * 1000
+			if (windowDuration < TWO_MINUTES) {
+				const newTranscripts = this.meetingTranscriptLines.length - this.lastProcessedTranscriptIndex
+				if (newTranscripts <= 0) return
+				return
+			}
+			const allTranscripts = [...this.meetingTranscriptLines]
+			const transcriptFromIndex = allTranscripts.slice(this.lastProcessedTranscriptIndex)
+			if (transcriptFromIndex.length === 0) {
+				if (!this.hasShownEmptyNotice) {
+					this.hasShownEmptyNotice = true
+					this.createAiSummaryItem('暂无新的关键进展。')
+					this.aiSummaryStatusText = '暂无新的关键进展'
+					this.resetSummaryWindow()
+				} else {
+					console.log('[AI-Summary] Skipping duplicate empty notice')
+				}
+				return
+			}
+			let hasMeaningfulContent = false
+			for (const line of transcriptFromIndex) {
+				if (this.hasMeaningfulTranscript(line)) {
+					hasMeaningfulContent = true
+					break
+				}
+			}
+			if (!hasMeaningfulContent) {
+				if (!this.hasShownEmptyNotice) {
+					this.hasShownEmptyNotice = true
+					this.createAiSummaryItem('暂无新的关键进展。')
+					this.aiSummaryStatusText = '暂无新的关键进展'
+					this.resetSummaryWindow()
+				}
+				return
+			}
+			console.log('[AI-Summary] Window closed, triggering summary')
+			this.runAiSummary()
+		},
+		hasMeaningfulTranscript(line) {
+			if (!line || typeof line !== 'string') return false
+			const text = line.trim()
+			if (text.length === 0) return false
+			const meaninglessPatterns = [
+				/^嗯.*$/i,
+				/^啊.*$/i,
+				/^哦.*$/i,
+				/^好$/i,
+				/^行$/i,
+				/^我同意$/i,
+				/^没问题$/i,
+				/^明白了$/i,
+				/^对$/i,
+				/^是的$/i,
+				/^是$/i,
+				/^不是$/i,
+			]
+			for (const pattern of meaninglessPatterns) {
+				if (pattern.test(text)) return false
+			}
+			if (text.length > 3) {
+				return /[0-9]/.test(text) || /[年月日时分秒]/.test(text)
+			}
+			return false
+		},
+		resetSummaryWindow() {
+			this.summaryWindowStart = Date.now()
+			this.lastProcessedTranscriptIndex = this.meetingTranscriptLines.length
+			this.lastSummaryTime = null
+			this.hasShownEmptyNotice = false
+			console.log('[AI-Summary] Summary window reset')
+		},
 		async runAiSummary() {
+			// 只有主持人才生成 AI 摘要，非主持人仅展示广播结果
+			if (!this.isHost) return
 			if (!this.agentEnabled || !this.hasSummarySourceText()) {
 				this.aiSummaryStatusText = this.agentEnabled ? '等待发言' : '等待发言'
 				return
@@ -1142,80 +1429,133 @@ export default {
 			const streamItem = this.createAiSummaryItem('正在提炼会议重点...')
 			let streamText = ''
 			let streamError = ''
-			try {
-				await streamLlmChat({
-					sessionId: `meeting-${this.sessionId}-summary`,
-					agentName: 'meeting_summary_agent',
-					input: content
-				}, {
-					onDelta: (delta) => {
-						if (!delta) return
-						streamText += delta
-						this.updateAiSummaryItem(streamItem.id, streamText)
-					},
-					onDone: (payload) => {
-						const answer = (payload?.answer || '').trim()
-						if (answer && !streamText.trim()) {
-							streamText = answer
+			if (streamItem) {
+				try {
+					await streamLlmChat({
+						sessionId: `meeting-${this.sessionId}-summary`,
+						agentName: 'meeting_summary_agent',
+						input: content
+					}, {
+						onDelta: (delta) => {
+							if (!delta) return
+							streamText += delta
 							this.updateAiSummaryItem(streamItem.id, streamText)
+						},
+						onDone: (payload) => {
+							const answer = (payload?.answer || '').trim()
+							if (answer && !streamText.trim()) {
+								streamText = answer
+								this.updateAiSummaryItem(streamItem.id, streamText)
+							}
+						},
+						onError: (payload) => {
+							streamError = payload?.message || '流式总结失败'
 						}
-					},
-					onError: (payload) => {
-						streamError = payload?.message || '流式总结失败'
+					})
+					if (streamError) {
+						throw new Error(streamError)
 					}
-				})
-				if (streamError) {
-					throw new Error(streamError)
+					if (streamText.trim()) {
+						this.lastSummaryOutput = streamText.trim()
+						this.aiSummaryStatusText = '重点已更新'
+						// 摘要生成完成后发送到后端，由后端存入会议级缓存并广播给所有在线成员
+						this.sendAiSummaryToBackend(streamItem.id, streamText.trim(), streamItem.time)
+						// 重置总结窗口状态，准备下一轮收集
+						this.resetSummaryWindow()
+					}
+				} catch (error) {
+					this.aiSummaryStatusText = '智能体暂不可用'
+					if (this.lastSummaryErrorInput !== content) {
+						this.lastSummaryErrorInput = content
+						const message = error?.msg || error?.message || '请求失败'
+						const tip = message.includes('模型') || message.includes('配置')
+							? '请先在后台 AI 模块完成语言模型配置并测试成功'
+							: message
+						this.updateAiSummaryItem(streamItem.id, `已尝试调用会议总结智能体，但请求失败：${tip}`)
+					}
+				} finally {
+					this.aiSummaryRunning = false
+					if (this.aiSummaryPending && this.agentEnabled) {
+						this.scheduleAiSummary(0)
+					}
 				}
-				if (streamText.trim()) {
-					this.aiSummaryStatusText = '重点已更新'
-				} else {
-					this.aiSummaryStatusText = '智能体未返回内容'
-					this.updateAiSummaryItem(streamItem.id, '已尝试提炼会议重点，但本次没有返回可用内容。请继续发言后我会再次尝试。')
-				}
-			} catch (error) {
-				this.aiSummaryStatusText = '智能体暂不可用'
-				if (this.lastSummaryErrorInput !== content) {
-					this.lastSummaryErrorInput = content
-					const message = error?.msg || error?.message || '请求失败'
-					const tip = message.includes('模型') || message.includes('配置')
-						? '请先在后台 AI 模块完成语言模型配置并测试成功'
-						: message
-					this.updateAiSummaryItem(streamItem.id, `已尝试调用会议总结智能体，但请求失败：${tip}`)
-				}
-			} finally {
-				this.aiSummaryRunning = false
-				if (this.aiSummaryPending && this.agentEnabled) {
-					this.scheduleAiSummary(0)
-				}
+			} else {
+				this.aiSummaryStatusText = '智能体未返回内容'
+				this.updateAiSummaryItem(streamItem.id, '已尝试提炼会议重点，但本次没有返回可用内容。请继续发言后我会再次尝试。')
 			}
 		},
 		buildSummaryInput() {
 			// 只使用 isFinal 的转写记录（已确认说完的内容）作为会中实时重点的数据源
 			const transcript = this.meetingTranscriptLines.slice(-40).join('\n')
 			if (!transcript.trim()) return ''
-			const input = [
+
+			const lines = [
 				`会议主题：${this.title}`,
-				'你是会中实时重点智能体，请根据下方实时转写内容，提炼当前会议讨论的核心重点。',
 				'',
-				'输出要求：',
-				'- 不要逐句重复字幕，要进行压缩和提炼',
-				'- 只输出转写中真实出现的信息，不要臆造结论',
-				'- 按以下三个板块输出（如某板块无内容则省略该板块）：',
+				'你是会中实时增量摘要智能体。你的职责是：每次只输出【上一轮摘要之后新增或变化的内容】，帮助用户快速了解"刚刚发生了什么"。',
 				'',
-				'**会议重点**',
-				'• 当前正在讨论的核心问题',
-				'• 重要观点、关键事实、重要数据',
+				'## 核心规则',
 				'',
-				'**讨论进展**',
-				'• 当前讨论了什么、已形成哪些共识、哪些问题尚未解决',
+				'### 1. 增量更新（最重要）',
+				'- 只分析和输出【上一轮摘要之后新出现的信息】',
+				'- 上一轮摘要中已经覆盖的内容，禁止再次完整重复',
+				'- 只有当历史内容发生了状态变化（如：从讨论变成决定、方案从待定变成确认）时，才允许再次提及，且必须体现变化',
+				'- 如果本轮没有重要新增内容，直接输出："暂无新的关键进展。"',
 				'',
-				'**重要事项**',
-				'• 重要决定、需要后续确认的问题、明确提出的关键待办',
+				'### 2. 禁止固定标题模板',
+				'- 不要每次都机械输出"会议重点"、"讨论进展"、"重要事项"等固定标题',
+				'- 根据本轮新增内容的实际类型，动态选择表达方式',
+				'- 如果一句话能表达清楚，就直接输出一句话，不要强行加标题',
 				'',
-				'实时转写：',
-				transcript
-			].join('\n')
+				'### 3. 动态内容风格',
+				'根据本轮新增内容类型，灵活使用以下风格（不是每次都要全部出现）：',
+				'- 新增讨论：张三提出……，李四认为……',
+				'- 新形成决定：会议确认采用……',
+				'- 新增任务：李四负责……，截止时间为……',
+				'- 状态变化：原本讨论的XX已确定……',
+				'- 待确认：XX时间/人选尚未确定',
+				'- 观点新增：王五提出……',
+				'- 如果内容简单，直接用自然语言描述即可',
+				'',
+				'### 4. 说话人信息必须保留',
+				'- 转写中包含 [说话人：XXX] 或 [发言者：XXX] 标记',
+				'- 当说话人明确时，必须保留人物名称：张三提出……、李四补充……',
+				'- 无法确定说话人时，才使用中性表达',
+				'',
+				'### 5. 任务信息需要突出',
+				'- 出现明确任务分配时，必须突出：谁负责什么',
+				'- 有截止时间则标注截止时间',
+				'- 严禁猜测负责人或自行生成截止时间',
+				'',
+				'### 6. 决定与观点必须区分',
+				'- 个人观点只能写"XX认为……"，不能写成"会议决定……"',
+				'- 只有明确出现"确定/同意/最终决定"等表述，才能写"新形成决定"',
+				'',
+				'### 7. 长度控制',
+				'- 每次输出 1~4 个核心信息点即可',
+				'- 不要输出长篇会议总结',
+				'- 不要复制原始字幕',
+				'- 你是实时摘要，不是会后会议纪要',
+				'',
+				'### 8. 禁止 AI 猜测',
+				'- 不要臆造转写中未出现的信息',
+				'- 不要推断负责人、截止时间、结论',
+				'',
+			]
+
+			// 将上一轮摘要作为上下文传入，让 AI 知道哪些内容已经报道过
+			if (this.lastSummaryOutput) {
+				lines.push('## 上一轮已输出的摘要（禁止重复以下内容）')
+				lines.push(this.lastSummaryOutput)
+				lines.push('')
+				lines.push('请基于以上已知内容，只输出本轮新增或变化的信息。')
+				lines.push('')
+			}
+
+			lines.push('## 当前实时转写内容')
+			lines.push(transcript)
+
+			const input = lines.join('\n')
 			return input.length > 3900 ? input.slice(input.length - 3900) : input
 		},
 		hasSummarySourceText() {
@@ -1230,10 +1570,11 @@ export default {
 				time
 			}
 			this.aiSummaryItems.push({
-				...item
+				...item,
+				_createdAt: Date.now()
 			})
-			if (this.aiSummaryItems.length > 5) {
-				this.aiSummaryItems = this.aiSummaryItems.slice(this.aiSummaryItems.length - 5)
+			if (this.aiSummaryItems.length > 20) {
+				this.aiSummaryItems = this.aiSummaryItems.slice(this.aiSummaryItems.length - 20)
 			}
 			this.aiSummaryActiveId = item.id
 			return item
@@ -1300,6 +1641,39 @@ export default {
 				this.asrSocket.send({ data: JSON.stringify({ type: 'danmaku', speaker, text }) })
 			} catch (error) {}
 		},
+		// 向后端请求当前会议的 Agent 1 历史摘要，支持中途入会成员查看从会议开始到当前时刻的全部实时总结
+		requestAiSummaryHistory() {
+			if (!this.asrSocket || !this.asrSocketReady) return
+			try {
+				this.asrSocket.send({ data: JSON.stringify({ type: 'ai_summary_history_request' }) })
+				console.log('[AI-Summary] requested history for meeting', this.sessionId, 'loaded=', this.aiSummaryHistoryLoaded)
+			} catch (error) {}
+		},
+		// 若历史摘要在一定时间内未到达，自动补发请求，降低因 WebSocket 消息时序导致漏收的概率
+		scheduleAiSummaryHistoryRetry() {
+			this.clearAiSummaryHistoryRetryTimer()
+			this.aiSummaryHistoryRetryTimer = setTimeout(() => {
+				if (!this.aiSummaryHistoryLoaded && this.asrSocket && this.asrSocketReady) {
+					console.log('[AI-Summary] retry request history')
+					this.requestAiSummaryHistory()
+				}
+			}, 5000)
+		},
+		clearAiSummaryHistoryRetryTimer() {
+			if (this.aiSummaryHistoryRetryTimer) {
+				clearTimeout(this.aiSummaryHistoryRetryTimer)
+				this.aiSummaryHistoryRetryTimer = null
+			}
+		},
+		// 将本地完成的 Agent 1 摘要发送到后端，由后端存储到会议级缓存并广播给所有在线成员
+		sendAiSummaryToBackend(id, text, time) {
+			if (!this.asrSocket || !this.asrSocketReady) return
+			if (!id || !text || !text.trim()) return
+			try {
+				this.asrSocket.send({ data: JSON.stringify({ type: 'ai_summary', id, text: text.trim(), time }) })
+				console.log('[AI-Summary] sent to backend id=' + id)
+			} catch (error) {}
+		},
 		// 字幕记录本地持久化：按会议 sessionId 存储，托管/离开页面后再次进入可恢复
 		persistSubtitleRecords() {
 			if (!this.sessionId) return
@@ -1321,6 +1695,55 @@ export default {
 					this.subtitleRecords = validList.slice(-200)
 				}
 			} catch (error) {}
+		},
+		// AI 实时摘要本地持久化：按会议 sessionId 存储，同设备刷新/重新进入可恢复
+		persistAiSummaryRecords() {
+			if (!this.sessionId) return
+			try {
+				const storable = this.aiSummaryItems.slice(-20).map(item => ({
+					id: item.id,
+					text: item.text,
+					time: item.time
+				}))
+				uni.setStorageSync(`meeting_ai_summary_${this.sessionId}`, storable)
+			} catch (error) {}
+		},
+		// 进入会议时恢复该会议的本地 AI 实时摘要，作为后端推送之外的兜底
+		restoreAiSummaryRecords() {
+			if (!this.sessionId) return
+			try {
+				const list = uni.getStorageSync(`meeting_ai_summary_${this.sessionId}`)
+				if (!Array.isArray(list) || list.length === 0) return
+				// 只恢复 2 小时内的本地摘要，避免旧会议数据干扰
+				const cutoff = Date.now() - 2 * 60 * 60 * 1000
+				const validList = list.filter(item => {
+					if (!item || !item.id || !item.text) return false
+					const ts = this._extractAiSummaryTimestamp(item.id)
+					return ts === 0 || ts >= cutoff
+				})
+				if (validList.length === 0) return
+				const existingIds = new Set(this.aiSummaryItems.map(item => item.id))
+				validList.forEach(item => {
+					if (!existingIds.has(item.id)) {
+						this.aiSummaryItems.push({ id: item.id, text: item.text, time: item.time })
+						existingIds.add(item.id)
+					}
+				})
+				if (this.aiSummaryItems.length > 20) {
+					this.aiSummaryItems = this.aiSummaryItems.slice(this.aiSummaryItems.length - 20)
+				}
+				const lastItem = this.aiSummaryItems[this.aiSummaryItems.length - 1]
+				if (lastItem && lastItem.text) {
+					this.lastSummaryOutput = lastItem.text
+				}
+				console.log('[AI-Summary] restored local', this.aiSummaryItems.length, 'items')
+			} catch (error) {}
+		},
+		// 从 ai-summary-{timestamp}-{seq} 的 id 中提取时间戳，用于判断本地缓存是否过期
+		_extractAiSummaryTimestamp(id) {
+			if (!id || typeof id !== 'string') return 0
+			const match = id.match(/ai-summary-(\d+)-/)
+			return match ? parseInt(match[1], 10) || 0 : 0
 		},
 		showMembers() {
 			this.morePanelVisible = false
@@ -1811,6 +2234,14 @@ export default {
 	color: #86C9A8;
 	font-size: 22rpx;
 	font-weight: 850;
+}
+.subtitle-summary-status {
+	color: #8a9499;
+	font-size: 22rpx;
+	font-weight: 850;
+}
+.subtitle-summary-status--on {
+	color: #86C9A8;
 }
 .subtitle-summary-switch {
 	width: 88rpx;

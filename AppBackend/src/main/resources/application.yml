@@ -25,7 +25,7 @@ spring:
       mode: ${SPRING_SQL_INIT_MODE:never}
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
-    url: ${SPRING_DATASOURCE_URL:jdbc:mysql://localhost:3306/smart-campus?useUnicode=true&characterEncoding=UTF-8&serverTimezone=Asia/Shanghai}
+    url: ${SPRING_DATASOURCE_URL:jdbc:mysql://localhost:3306/smart-campus?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai}
     username: ${SPRING_DATASOURCE_USERNAME:root}
     password: ${SPRING_DATASOURCE_PASSWORD:123456}
   jpa:
@@ -100,9 +100,14 @@ ai:
     timeout-seconds: ${AI_PYTHON_TIMEOUT_SECONDS:180}
     ppt-timeout-seconds: ${AI_PYTHON_PPT_TIMEOUT_SECONDS:300}
     file-response-max-in-memory-bytes: ${AI_PYTHON_FILE_RESPONSE_MAX_IN_MEMORY_BYTES:52428800}
+    max-in-memory-bytes: ${AI_PYTHON_MAX_IN_MEMORY_BYTES:52428800}
     internal-token: ${AI_INTERNAL_TOKEN:dev-internal-token-change-me-32chars}
   assistant:
     public-resource-hosts: ${AI_ASSISTANT_PUBLIC_RESOURCE_HOSTS:}
+
+job-recommendation:
+  weekly:
+    cron: ${JOB_RECOMMENDATION_WEEKLY_CRON:0 0 6 ? * MON}
   learning:
     workflow:
       fallback-max-entries: ${AI_LEARNING_WORKFLOW_FALLBACK_MAX_ENTRIES:1024}

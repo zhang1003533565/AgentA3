@@ -111,33 +111,52 @@ class LeaderFastRouteTest(unittest.TestCase):
             chat_service=self.provider,
             callable_catalog={
                 "agents": [],
-                "tools": [{"name": "generate_flowchart_image_tool", "enabled": True}],
+                "tools": [{"name": "generate_flowchart_tool", "enabled": True}],
             },
         )
 
         self.assertEqual(0, self.provider.calls)
         self.assertEqual("diagram_flowchart", plan.intent)
         self.assertEqual("call_tool", plan.action)
-        self.assertEqual("generate_flowchart_image_tool", plan.tool_name)
+        self.assertEqual("generate_flowchart_tool", plan.tool_name)
         self.assertEqual("rules", plan.route_mode)
 
     def test_explicit_file_export_requests_use_content_export_tool_without_calling_router_model(self):
         requests = {
-            "给我导出word": "document_export",
-            "把这些内容转成 Excel": "document_export",
-            "整理成 Markdown 文件": "document_export",
-            "给我制作成 PPT": "document_export",
+            "给我导出word": ("document_export", "text_to_docx_tool"),
+            "整理成 Markdown 文件": ("document_export", "text_to_markdown_tool"),
+            "给我制作成 PPT": ("document_export", "ai_ppt_generation_tool"),
         }
 
-        for query, expected_intent in requests.items():
+        for query, (expected_intent, expected_tool) in requests.items():
             with self.subTest(query=query):
                 plan = self.agent.plan(query, chat_service=self.provider)
                 self.assertEqual(expected_intent, plan.intent)
                 self.assertEqual("call_tool", plan.action)
-                self.assertEqual("generated_export_tools", plan.tool_name)
+                self.assertEqual(expected_tool, plan.tool_name)
                 self.assertEqual("rules", plan.route_mode)
 
         self.assertEqual(0, self.provider.calls)
+
+    def test_disabled_content_export_tool_skips_export_fast_route(self):
+        plan = self.agent.plan(
+            "把这些内容整理成 Word 文件",
+            chat_service=self.provider,
+            callable_catalog={"tools": []},
+        )
+
+        self.assertNotEqual("text_to_docx_tool", plan.tool_name)
+        self.assertEqual(1, self.provider.calls)
+
+    def test_export_fast_route_ignores_attachment_context_keywords(self):
+        plan = self.agent.plan(
+            "这个讲的是什么\n\n文件内容提取结果：\n【文件：report.pdf】\n请整理成word并生成docx文档",
+            chat_service=self.provider,
+            callable_catalog={"tools": [{"name": "text_to_docx_tool", "enabled": True}]},
+            routing_input_text="这个讲的是什么",
+        )
+
+        self.assertNotEqual("text_to_docx_tool", plan.tool_name)
 
     def test_generic_python_learning_request_delegates_to_knowledge_agent_not_image(self):
         plan = self.agent.plan(
@@ -220,7 +239,7 @@ class LeaderFastRouteTest(unittest.TestCase):
             "need_retrieval": False,
             "rag_strategy": "",
             "action": "call_tool",
-            "tool_name": "generate_mind_map_image_tool",
+            "tool_name": "generate_mind_map_tool",
             "route_reason": "用户偏好图解，生成学习路线思维导图。",
             "answer": "正在生成思维导图。",
         }, "")
@@ -229,7 +248,7 @@ class LeaderFastRouteTest(unittest.TestCase):
         self.assertEqual("diagram_mind_map_image", plan.intent)
         self.assertEqual("leader_agent", plan.target_agent)
         self.assertEqual("call_tool", plan.action)
-        self.assertEqual("generate_mind_map_image_tool", plan.tool_name)
+        self.assertEqual("generate_mind_map_tool", plan.tool_name)
         self.assertEqual("llm", plan.route_mode)
 
     def test_every_catalogued_leader_callable_agent_passes_plan_validation(self):
@@ -246,20 +265,35 @@ class LeaderFastRouteTest(unittest.TestCase):
 
     def test_explicit_service_queries_use_matching_java_tool_without_llm(self):
         cases = (
-            ("今天校园有什么讲座", "activity_query", "java_activity_api"),
-            ("查询我的会议列表", "meeting_query", "java_meeting_api"),
-            ("食堂今天吃什么", "canteen_query", "java_canteen_api"),
+            ("今天校园有什么讲座", "activity_query", "java_activity_api", "list"),
+            ("AI学习工坊这个活动怎么样", "activity_query", "java_activity_api", "search"),
+            ("查询我的会议列表", "meeting_query", "java_meeting_api", None),
+            ("食堂今天吃什么", "canteen_query", "java_canteen_api", None),
         )
 
-        for query, intent, tool_name in cases:
+        for query, intent, tool_name, activity_mode in cases:
             with self.subTest(query=query):
                 plan = self.agent.plan(query, chat_service=self.provider)
                 self.assertEqual(intent, plan.intent)
                 self.assertEqual("call_tool", plan.action)
                 self.assertEqual(tool_name, plan.tool_name)
                 self.assertEqual("rules", plan.route_mode)
+                if tool_name == "java_activity_api":
+                    self.assertIsInstance(plan.tool_params, dict)
+                    if activity_mode:
+                        self.assertEqual(activity_mode, plan.tool_params.get("mode"))
+                    if activity_mode == "search":
+                        self.assertEqual("AI学习工坊", plan.tool_params.get("keyword"))
+                if tool_name == "java_schedule_api":
+                    self.assertEqual("current_week", plan.tool_params.get("scope"))
 
         self.assertEqual(0, self.provider.calls)
+
+    def test_schedule_fast_route_includes_tool_params(self):
+        plan = self.agent.plan("我想查询今日课表", chat_service=self.provider)
+
+        self.assertEqual("java_schedule_api", plan.tool_name)
+        self.assertEqual("current_week", plan.tool_params.get("scope"))
 
     def test_ambiguous_or_multi_intent_queries_fall_back_to_llm(self):
         queries = (
@@ -443,6 +477,12 @@ class LeaderFastRouteTest(unittest.TestCase):
         self.assertEqual("llm_fallback", available_plan.intent)
         self.assertEqual("llm", available_plan.route_mode)
         self.assertEqual(2, self.provider.calls)
+
+    def test_job_radar_intent_routes_to_weekly_job_recommendation_tool(self):
+        plan = self.agent._plan_with_rules("帮我看看本周热门软件工程岗位推荐")
+        self.assertEqual("weekly_job_recommendation", plan.intent)
+        self.assertEqual("call_tool", plan.action)
+        self.assertEqual("weekly_job_recommendation_tool", plan.tool_name)
 
 
 if __name__ == "__main__":

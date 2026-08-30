@@ -1,0 +1,90 @@
+.ai-model-config-page {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 24px;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+}
+
+.ai-model-config-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 24px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.ai-model-config-kicker {
+  color: #1890ff;
+  font-size: 14px;
+  font-weight: 500;
+  margin-bottom: 8px;
+}
+
+.ai-model-config-toolbar > div h2 {
+  margin: 0 0 8px 0;
+  color: #1f1f1f;
+  font-weight: 600;
+}
+
+.ai-model-config-toolbar > div p {
+  margin: 0;
+  color: #8c8c8c;
+}
+
+.ai-model-config-card {
+  border-radius: 8px;
+  box-shadow: none;
+  border: 1px solid #f0f0f0;
+}
+
+.ai-model-config-status {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.ai-model-config-status-icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 8px;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 24px;
+}
+
+.ai-model-config-tags {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.status-active {
+  background: #f6ffed;
+  border-color: #b7eb8f;
+  color: #52c41a;
+}
+
+.status-inactive {
+  background: #fafafa;
+  border-color: #d9d9d9;
+  color: #8c8c8c;
+}
+
+.observability-form .form-hint {
+  display: block;
+  margin-top: 4px;
+  color: #8c8c8c;
+  font-size: 12px;
+}
+
+.observability-key-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 16px;
+}

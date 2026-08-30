@@ -8,4 +8,3 @@ tools:
   - docx_export_tool
   - excel_export_tool
   - content_archive_tool
-  - diagram_source_export_tool

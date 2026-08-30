@@ -22,7 +22,6 @@ RESOURCE_SPECS = [
     ("mind_map", "diagram_mind_map_agent"),
     ("practice_set", "python_practice_set_agent"),
     ("code_lab", "python_code_lab_agent"),
-    ("presentation", "ppt_outline_agent"),
     ("extended_reading", "extension_reading_agent"),
 ]
 
@@ -74,7 +73,7 @@ def workflow_result():
         "packageMetadata": {
             "packageId": "package-route-1",
             "title": "Python 循环个性化学习包",
-            "resourceCount": 6,
+            "resourceCount": 5,
             "resourceTypes": [item[0] for item in RESOURCE_SPECS],
             "evidenceIds": ["ev-loop"],
         },
@@ -131,15 +130,6 @@ def _resource_payload(resource_type):
                 "markdown": "由智能体 content 字段承载实验说明与源码。",
                 "evidenceIds": ["ev-loop"],
             },
-        }
-    if resource_type == "presentation":
-        return {
-            "kind": resource_type,
-            "outline": {"slides": [
-                {"title": "循环概念", "bullets": ["遍历序列"], "evidenceIds": ["ev-loop"]},
-                {"title": "循环示例", "bullets": ["range 用法"], "evidenceIds": ["ev-loop"]},
-            ]},
-            "metadata": {},
         }
     return {"kind": resource_type, "reading": {"markdown": "循环扩展阅读"}}
 
@@ -270,8 +260,8 @@ def test_learning_stream_emits_real_monotonic_stages(monkeypatch, tmp_path):
     assert done["workflowId"] == "workflow-route-1"
     assert done["status"] == "completed"
     assert done["pathDraft"]["title"] == "循环强化路径"
-    assert done["packageMetadata"]["resourceCount"] == 6
-    assert len(done["resources"]) >= 6
+    assert done["packageMetadata"]["resourceCount"] == 5
+    assert len(done["resources"]) >= 5
     assert all(item["schemaVersion"] == "assistant-resource-v1" for item in done["resources"])
     assert done["evidenceChain"]["schemaVersion"] == "assistant-evidence-v1"
     assert any(item["metadata"].get("resourceKind") == "code_lab" for item in done["resources"])
@@ -299,7 +289,7 @@ def test_rejected_optional_resource_is_partial_and_never_delivered(
     )
     rejected["reviewStatus"] = "rejected"
     rejected["reviewIssues"] = ["拓展阅读证据不足"]
-    raw_result["packageMetadata"]["resourceCount"] = 5
+    raw_result["packageMetadata"]["resourceCount"] = 4
     raw_result["packageMetadata"]["resourceTypes"] = [
         item[0] for item in RESOURCE_SPECS if item[0] != "extended_reading"
     ]
@@ -412,7 +402,6 @@ def test_real_delivery_isolates_rejected_code_and_keeps_other_artifacts(
         "errorType": "LearningContentGuardError",
     }]
     assert attachments
-    assert attachments_by_type["presentation"]
 
 
 def test_real_agent_code_lab_contract_exports_python_markdown_and_archive(
@@ -700,7 +689,7 @@ def test_mind_map_mermaid_contract_exports_only_mindmap_source(monkeypatch, tmp_
     )
 
     assert not [item for item in failures if item["resourceType"] == "mind_map"]
-    assert {item["ext"] for item in attachments_by_type["mind_map"]} >= {"mmd", "md"}
+    assert {item["ext"] for item in attachments_by_type["mind_map"]} >= {"md"}
 
 
 def test_mind_map_rejects_wrong_mermaid_diagram_type(monkeypatch, tmp_path):

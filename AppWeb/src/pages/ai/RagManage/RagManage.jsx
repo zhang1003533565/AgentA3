@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Alert, Button, Card, Col, Collapse, Empty, Form, Image, Input, Row, Select, Space, Table, Tabs, Tag, Typography, message } from 'antd'
-import { DatabaseOutlined, PlayCircleOutlined, ReloadOutlined, SaveOutlined } from '@ant-design/icons'
+import { Alert, Button, Card, Col, Collapse, Empty, Form, Image, Input, Row, Select, Space, Table, Tabs, Tag, Typography, Upload, message } from 'antd'
+import { DatabaseOutlined, PlayCircleOutlined, PlusOutlined, ReloadOutlined, SaveOutlined } from '@ant-design/icons'
 import { importExamQuestions } from '../../../api/examQuestion'
 import {
   getRagAgents,
@@ -22,6 +22,41 @@ import './RagManage.css'
 
 const { TextArea } = Input
 const { Text, Title } = Typography
+const MAX_AGENT_TEST_IMAGES = 8
+const MAX_AGENT_TEST_IMAGE_BYTES = 10 * 1024 * 1024
+const MAX_AGENT_TEST_IMAGE_EDGE = 1800
+
+const readFileAsDataUrl = (file) => new Promise((resolve, reject) => {
+  const reader = new FileReader()
+  reader.onload = () => resolve(String(reader.result || ''))
+  reader.onerror = () => reject(new Error('图片读取失败'))
+  reader.readAsDataURL(file)
+})
+
+const loadImageElement = (src) => new Promise((resolve, reject) => {
+  const image = new window.Image()
+  image.onload = () => resolve(image)
+  image.onerror = () => reject(new Error('图片解析失败'))
+  image.src = src
+})
+
+const canvasToDataUrl = (canvas, type, quality) => canvas.toDataURL(type, quality)
+
+const normalizeAgentTestImage = async (file) => {
+  const source = await readFileAsDataUrl(file)
+  const image = await loadImageElement(source)
+  const ratio = Math.min(1, MAX_AGENT_TEST_IMAGE_EDGE / Math.max(image.width, image.height))
+  if (ratio === 1 && file.size <= 2 * 1024 * 1024) return source
+
+  const canvas = document.createElement('canvas')
+  canvas.width = Math.max(1, Math.round(image.width * ratio))
+  canvas.height = Math.max(1, Math.round(image.height * ratio))
+  const context = canvas.getContext('2d')
+  if (!context) throw new Error('当前浏览器不支持图片压缩')
+  context.drawImage(image, 0, 0, canvas.width, canvas.height)
+  const outputType = file.type === 'image/png' ? 'image/png' : 'image/jpeg'
+  return canvasToDataUrl(canvas, outputType, outputType === 'image/png' ? undefined : 0.82)
+}
 
 const QUESTION_AGENT_TYPES = {
   textbook_question_single_choice_agent: 'single_choice',
@@ -212,9 +247,7 @@ const agentExampleInputs = {
   leader_agent: '数据结构：栈与队列\n\n栈遵循后进先出原则，只能在栈顶进行插入和删除。队列遵循先进先出原则，只能在队尾插入、队头删除。循环队列通过取模运算复用数组空间。',
   diagram_mind_map_agent: '操作系统：进程调度\n\n进程调度是操作系统按照一定策略从就绪队列中选择进程分配 CPU 的过程。常见算法包括先来先服务、短作业优先、优先级调度、时间片轮转和多级反馈队列。',
   diagram_flowchart_agent: '括号匹配算法流程\n\n从左到右扫描字符串。遇到左括号时入栈；遇到右括号时，如果栈为空则匹配失败，否则弹出栈顶左括号并判断类型是否对应。扫描结束后，如果栈为空则括号匹配成功，否则匹配失败。',
-  diagram_activity_agent: '会议任务活动流程\n\n张老师提出本周完成数据结构复习资料初稿。李明负责整理栈与队列知识点，周三前提交。王芳负责生成练习题，周四前提交。陈强负责代码案例，周五前提交。最终汇总人尚未确定。',
   diagram_architecture_agent: '智慧校园 AI 智能体架构材料\n\n前端 AppWeb 负责展示智能体列表、输入材料、模型选择和执行结果。Java 后端 AppBackend 负责鉴权、读取模型配置、接入第三方知识库并代理调用 Python AI 服务。Python ai-servers 负责智能体路由、工具编排和专业智能体执行。',
-  mind_map_agent: '操作系统：进程调度\n\n进程调度是操作系统按照一定策略从就绪队列中选择进程分配 CPU 的过程。常见算法包括先来先服务、短作业优先、优先级调度、时间片轮转和多级反馈队列。',
   textbook_knowledge_agent: '数据结构：栈与队列\n\n栈是后进先出的受限线性表。队列是先进先出的受限线性表。循环队列用于解决顺序队列假溢出问题。',
   textbook_question_single_choice_agent: '数据结构：栈与队列\n\n栈只允许在栈顶进行插入和删除。队列只允许在队尾插入、队头删除。栈常用于括号匹配，队列常用于任务排队。',
   textbook_question_fill_blank_agent: '数据结构：栈与队列\n\n栈顶、栈底、入栈、出栈、队头、队尾、入队、出队、LIFO、FIFO、循环队列、front、rear。',
@@ -232,7 +265,6 @@ const agentExampleInputs = {
   ppt_outline_agent: '数据结构：栈与队列\n\n课程重点包括栈的后进先出、队列的先进先出、循环队列的队空队满条件，以及括号匹配和任务调度等应用。',
   ppt_structure_agent: '数据结构栈与队列 PPT 结构选择\n\n根据 Presenton 模板组件 Schema 为每页选择合适的 layoutId。',
   ppt_review_agent: 'PPT 大纲：数据结构栈与队列\n\n第 1 页课程导入；第 2 页栈；第 3 页队列；第 4 页循环队列；第 5 页应用案例；第 6 页课堂练习。',
-  ppt_image_agent: 'PPT 插图素材：数据结构栈与队列\n\n封面包含栈容器和队列队伍。栈图体现入栈出栈，队列图体现入队出队，循环队列图体现 front 和 rear。',
   ppt_to_docx_agent: 'PPTX 转 DOCX 转换需求\n\n请上传一个 .pptx 文件，将每页幻灯片按顺序整理成 Word 文档。要求保留可提取的文字、表格和图片；内容可以根据 Word 文档重新排版。',
   image_agent: '操作系统：进程调度配图素材\n\n画面元素包括就绪队列、CPU、调度器、进程卡片、时间片和优先级标记。',
 }
@@ -303,6 +335,7 @@ function RagManage({ page = 'playground' }) {
   const [questionImportLoading, setQuestionImportLoading] = useState(false)
   const [llmModelOptions, setLlmModelOptions] = useState([])
   const [agentModelBindings, setAgentModelBindings] = useState({})
+  const [agentTestImages, setAgentTestImages] = useState([])
   const [queryForm] = Form.useForm()
   const [sqlForm] = Form.useForm()
   const [agentTestForm] = Form.useForm()
@@ -374,12 +407,41 @@ function RagManage({ page = 'playground' }) {
 
   const fillAgentTestForm = useCallback((agent) => {
     if (!agent) return
+    setAgentTestImages([])
     agentTestForm.setFieldsValue({
       agentName: agent.name,
       llmModel: getDefaultModelForAgent(agent) || undefined,
       input: getAgentExampleInput(agent),
     })
   }, [agentTestForm, getAgentExampleInput, getDefaultModelForAgent])
+
+  const beforeAgentTestImageUpload = async (file) => {
+    if (!file.type?.startsWith('image/')) {
+      message.error('只能上传图片文件')
+      return Upload.LIST_IGNORE
+    }
+    if (file.size > MAX_AGENT_TEST_IMAGE_BYTES) {
+      message.error('单张图片不能超过 10MB')
+      return Upload.LIST_IGNORE
+    }
+    try {
+      const dataUrl = await normalizeAgentTestImage(file)
+      setAgentTestImages((current) => {
+        if (current.length >= MAX_AGENT_TEST_IMAGES) return current
+        return [...current, {
+          uid: file.uid,
+          name: file.name,
+          status: 'done',
+          type: file.type,
+          url: dataUrl,
+          thumbUrl: dataUrl,
+        }]
+      })
+    } catch (error) {
+      message.error(error.message || '图片处理失败')
+    }
+    return Upload.LIST_IGNORE
+  }
 
   const saveAgentExampleInput = async (agentName, inputValue, options = {}) => {
     const selectedAgentName = agentName || 'leader_agent'
@@ -538,6 +600,9 @@ function RagManage({ page = 'playground' }) {
         agentRole: agent.role,
         needRetrieval: agent.needRetrieval,
       },
+    }
+    if (agentTestImages.length) {
+      payload.imageDataUrls = agentTestImages.map((item) => item.url)
     }
 
     setAgentTestLoading(true)
@@ -992,6 +1057,41 @@ function RagManage({ page = 'playground' }) {
                     rules={[{ required: true, message: '请输入测试内容' }]}
                   >
                     <TextArea rows={8} placeholder="输入一段课程内容、会议记录、PPT 大纲或任务要求" />
+                  </Form.Item>
+                  <Form.Item
+                    noStyle
+                    shouldUpdate={(prev, next) => prev.agentName !== next.agentName}
+                  >
+                    {({ getFieldValue }) => {
+                      const selectedAgent = agents.find((item) => item.name === getFieldValue('agentName'))
+                      const supportsVision = getAgentRequiredModelModalities(selectedAgent).includes('vision')
+                      if (!supportsVision) return null
+                      return (
+                        <Form.Item
+                          label="测试图片"
+                          extra={`支持 JPG、PNG、WebP 等常见图片，最多 ${MAX_AGENT_TEST_IMAGES} 张，单张不超过 10MB。`}
+                        >
+                          <Upload
+                            accept="image/*"
+                            listType="picture-card"
+                            fileList={agentTestImages}
+                            beforeUpload={beforeAgentTestImageUpload}
+                            onRemove={(file) => {
+                              setAgentTestImages((current) => current.filter((item) => item.uid !== file.uid))
+                              return true
+                            }}
+                            multiple
+                          >
+                            {agentTestImages.length < MAX_AGENT_TEST_IMAGES ? (
+                              <div>
+                                <PlusOutlined />
+                                <div className="rag-agent-image-upload-label">上传图片</div>
+                              </div>
+                            ) : null}
+                          </Upload>
+                        </Form.Item>
+                      )
+                    }}
                   </Form.Item>
                   <Form.Item
                     noStyle

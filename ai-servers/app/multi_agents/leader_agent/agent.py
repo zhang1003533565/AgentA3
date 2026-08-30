@@ -1,19 +1,47 @@
 import json
 import os
 import re
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from typing import Any, Dict, List, Optional
 
 from fastapi import HTTPException
 
-from app.multi_agents.catalog import LEADER_CALLABLE_AGENT_ORDER, get_agent_profile, normalize_agent_name
+from app.model_providers.multimodal import extract_image_references
 from app.model_providers.factory import get_chat_model_provider
+from app.multi_agents.catalog import LEADER_CALLABLE_AGENT_ORDER, get_agent_profile, normalize_agent_name
 from app.multi_agents.runtime import load_agent_prompt
+from app.services.campus_tool_params import CAMPUS_SERVICE_TOOL_NAMES, resolve_campus_tool_params
 from app.services.memory_store import memory_store
 from app.utils.logger import get_logger
-from app.utils.text_utils import is_all_semester_schedule_query, is_course_count_query, is_course_teacher_query, is_course_time_query, is_schedule_intent, is_semester_schedule_query
+from app.utils.text_utils import is_all_semester_schedule_query, is_course_count_query, is_course_teacher_query, is_course_time_query, is_schedule_intent, is_semester_schedule_query, normalize_text
 
 logger = get_logger("multi_agents.leader")
+
+_CARD_COMPANION_REQUIREMENTS = [
+    "前端会在你的文字回答上方展示结构化结果卡片，用户点击卡片即可查看详情。",
+    "因此正文不要逐条重复卡片里已有的名称、时间、地点、价格、状态等明细。",
+    "正文只做 companion 说明：共查到几条、请查看上方卡片、必要时一句整体建议或筛选说明。",
+    "若需点名某条，只提名称并说明可在对应卡片查看，不要重新展开完整字段。",
+    "控制在 2-4 句；不要编号列表，不要用 Markdown 三级标题或分隔线。",
+]
+
+_CARD_COMPANION_MODES = {
+    "activity_query",
+    "secondhand_query",
+    "meeting_query",
+    "canteen_query",
+    "facility_location",
+    "course_list",
+}
+
+_TOOL_CARD_LABELS = {
+    "java_activity_api": "活动",
+    "java_secondhand_api": "二手物品",
+    "java_meeting_api": "会议",
+    "java_canteen_api": "餐饮结果",
+    "java_facility_api": "设施",
+    "java_schedule_api": "课程",
+}
 
 LEADER_OUTPUT_PUSH_STRATEGIES = [
     {
@@ -22,20 +50,17 @@ LEADER_OUTPUT_PUSH_STRATEGIES = [
         "target_agents": [],
         "target_tools": [
             "generate_image_tool",
-            "generate_mind_map_image_tool",
-            "generate_flowchart_image_tool",
-            "generate_activity_image_tool",
-            "generate_architecture_image_tool",
-            "generate_knowledge_graph_image_tool",
-            "generate_ppt_image_tool",
+            "generate_mind_map_tool",
+            "generate_flowchart_tool",
+            "generate_architecture_tool",
         ],
-        "display_policy": "返回图片 URL 或图片生成 JSON 时，App 会话页以图片卡片展示，支持点击预览。",
+        "display_policy": "图片请求返回图片卡片；思维导图/流程图/架构图返回可编辑结构化图表。",
     },
     {
         "push_type": "document",
-        "triggers": ["导出文档", "生成文档", "文件版", "文档版", "下载文档", "打包下载", "转 Word", "转 DOCX", "题库 Excel", "题库表格", "Mermaid 源文件", "图表源码", "PPT 转 Word", "PPTX 转 DOCX", "PDF", "Word", "Excel", "ZIP"],
+        "triggers": ["导出文档", "生成文档", "文件版", "文档版", "下载文档", "打包下载", "转 Word", "转 DOCX", "题库 Excel", "题库表格", "PPT 转 Word", "PPTX 转 DOCX", "PDF", "Word", "Excel", "ZIP"],
         "target_agents": ["textbook_knowledge_agent", "textbook_question_single_choice_agent", "meeting_summary_agent", "ppt_outline_agent", "ppt_to_docx_agent"],
-        "display_policy": "知识点、会议纪要、PPT 大纲和题库 JSON 会由 generated_export_tools 自动生成 md/docx/xlsx/zip 附件；Mermaid 图表会额外生成 mmd 源文件；PPTX 转 DOCX 仍由 ppt_to_docx_agent 处理。",
+        "display_policy": "知识点、会议纪要、PPT 大纲和题库 JSON 会按后台已启用的格式工具分别生成附件；Mermaid 图表可按 Markdown 文件导出；PPTX 转 DOCX 仍由 ppt_to_docx_agent 处理。",
     },
     {
         "push_type": "text",
@@ -45,23 +70,14 @@ LEADER_OUTPUT_PUSH_STRATEGIES = [
     },
 ]
 
-CAMPUS_SERVICE_TOOL_NAMES = {
-    "java_schedule_api",
-    "java_activity_api",
-    "java_meeting_api",
-    "java_canteen_api",
-    "java_facility_api",
-    "java_secondhand_api",
-}
-
 VISUAL_GENERATION_TOOL_NAMES = {
     "generate_image_tool",
-    "generate_mind_map_image_tool",
-    "generate_flowchart_image_tool",
-    "generate_activity_image_tool",
-    "generate_architecture_image_tool",
-    "generate_knowledge_graph_image_tool",
-    "generate_ppt_image_tool",
+}
+
+STRUCTURED_DIAGRAM_TOOL_NAMES = {
+    "generate_mind_map_tool",
+    "generate_flowchart_tool",
+    "generate_architecture_tool",
 }
 
 # Set to false/0/off to restore the original model-only routing path immediately.
@@ -299,6 +315,22 @@ _ACTIVITY_NON_QUERY_TOKENS = (
     "创建活动",
     "发布活动",
 )
+_ACTIVITY_DETAIL_QUERY_TOKENS = (
+    "怎么样",
+    "详情",
+    "介绍",
+    "值得",
+    "评价",
+    "好不好",
+    "咋样",
+)
+_PENDING_TOOL_ANSWER_MARKERS = (
+    "正在为你查询",
+    "正在查询",
+    "稍等片刻",
+    "请稍候",
+    "请等待",
+)
 _SCHEDULE_NON_QUERY_TOKENS = (
     "生成课表",
     "制作课表",
@@ -330,13 +362,110 @@ class LeaderPlan:
     route_reason: str = ""
     answer: str = ""
     route_mode: str = ""
+    tool_params: Dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
 
 
+
+_VERBATIM_EXPORT_ACTION_TOKENS = (
+    "转成", "转换成", "转换为", "导出为", "保存为",
+)
+_VERBATIM_TEXT_MARKERS = (
+    "这段文字", "这段话", "这段文本", "以下文字", "以下文本", "下面内容", "以下内容", "按原文",
+)
+
+
 class LeaderAgent:
     name = "leader_agent"
+
+    def _plan_verbatim_text_to_file_request(
+        self,
+        input_text: str,
+        callable_catalog: Optional[Dict[str, Any]] = None,
+    ) -> Optional[LeaderPlan]:
+        """Route verbatim text-to-file requests to the matching format-specific tool.
+
+        Content-organization phrasing such as "整理成" routes to the matching format-specific
+        content export tool. PDF input conversions ("把 pdf 转成 word") use Word 内容整理.
+        """
+        normalized = self._normalize_fast_route_text(input_text)
+        if not normalized:
+            return None
+        if "整理成" in normalized:
+            return None
+        if not any(token in normalized for token in _VERBATIM_EXPORT_ACTION_TOKENS):
+            return None
+
+        if "txt" in normalized or "纯文本" in normalized:
+            return self._text_to_file_plan(
+                input_text,
+                "text_to_txt_tool",
+                "用户要求按原文导出 txt/纯文本文件，调用文本转 TXT 工具。",
+                callable_catalog,
+            )
+        has_verbatim_marker = any(token in normalized for token in _VERBATIM_TEXT_MARKERS)
+        if not has_verbatim_marker:
+            return None
+        if any(token in normalized for token in ("md", "markdown")):
+            return self._text_to_file_plan(
+                input_text,
+                "text_to_markdown_tool",
+                "用户已提供原文并要求转成 Markdown 文件，调用 Markdown 内容整理。",
+                callable_catalog,
+            )
+        if any(token in normalized for token in ("word", "docx")):
+            return self._text_to_file_plan(
+                input_text,
+                "text_to_docx_tool",
+                "用户已提供原文并要求转成 Word 文件，调用 Word 内容整理。",
+                callable_catalog,
+            )
+        return None
+
+    def _resolve_explicit_export_tool(
+        self,
+        normalized: str,
+        callable_catalog: Optional[Dict[str, Any]] = None,
+    ) -> Optional[str]:
+        if "txt" in normalized or "纯文本" in normalized:
+            return "text_to_txt_tool"
+        if "markdown" in normalized or "md文件" in normalized or (
+            "md" in normalized and "mmd" not in normalized
+        ):
+            return "text_to_markdown_tool"
+        if any(token in normalized for token in ("word", "docx")):
+            return "text_to_docx_tool"
+        if any(token in normalized for token in ("excel", "xlsx", "表格版")):
+            return None
+        if any(token in normalized for token in ("ppt", "pptx", "幻灯片")):
+            return "ai_ppt_generation_tool"
+        if any(token in normalized for token in ("文档版", "文件版")):
+            for tool_name in ("text_to_docx_tool", "text_to_markdown_tool", "text_to_txt_tool"):
+                if self._catalog_tool_enabled(callable_catalog, tool_name):
+                    return tool_name
+        return None
+
+    def _text_to_file_plan(
+        self,
+        input_text: str,
+        tool_name: str,
+        reason: str,
+        callable_catalog: Optional[Dict[str, Any]] = None,
+    ) -> Optional[LeaderPlan]:
+        if not self._catalog_tool_enabled(callable_catalog, tool_name):
+            return None
+        return LeaderPlan(
+            intent="document_export",
+            target_agent="leader_agent",
+            need_retrieval=False,
+            rag_strategy="",
+            action="call_tool",
+            tool_name=tool_name,
+            route_reason=reason,
+            route_mode="rules",
+        )
 
     def plan(
         self,
@@ -348,21 +477,23 @@ class LeaderAgent:
         callable_catalog: Optional[Dict[str, Any]] = None,
         conversation_context: Optional[Dict[str, Any]] = None,
         learning_context: Optional[Dict[str, Any]] = None,
+        routing_input_text: Optional[str] = None,
     ) -> LeaderPlan:
+        route_text = str(routing_input_text or input_text or "")
         forced_plan = self._plan_for_requested_agent(requested_agent, rag_strategy)
         if forced_plan:
-            return forced_plan
+            return self._finalize_campus_tool_plan(forced_plan, route_text)
 
-        file_export_plan = self._plan_explicit_file_export_request(input_text)
+        file_export_plan = self._plan_explicit_file_export_request(route_text, callable_catalog)
         if file_export_plan:
-            return file_export_plan
+            return self._finalize_campus_tool_plan(file_export_plan, route_text)
 
         tool_selection = callable_catalog.get("toolSelection") if isinstance(callable_catalog, dict) else {}
         if (
             isinstance(tool_selection, dict)
             and tool_selection.get("intent") == "capability_inquiry"
         ):
-            return LeaderPlan(
+            return self._finalize_campus_tool_plan(LeaderPlan(
                 intent="capability_inquiry",
                 target_agent="leader_agent",
                 need_retrieval=False,
@@ -372,12 +503,12 @@ class LeaderAgent:
                 route_reason="用户询问系统能力，调用能力查询工具读取当前已启用工具。",
                 answer="正在查询当前已启用的工具能力。",
                 route_mode="rules",
-            )
+            ), route_text)
 
         if self._is_explicit_visual_generation_request(input_text):
             visual_plan = self._plan_with_rules(input_text, rag_strategy)
             if visual_plan.action == "call_tool" and visual_plan.tool_name in VISUAL_GENERATION_TOOL_NAMES:
-                return visual_plan
+                return self._finalize_campus_tool_plan(visual_plan, route_text)
 
         fast_plan = self._plan_high_confidence_service_query(
             input_text,
@@ -391,15 +522,18 @@ class LeaderAgent:
                 fast_plan.intent,
                 fast_plan.tool_name,
             )
-            return fast_plan
+            return self._finalize_campus_tool_plan(fast_plan, route_text)
 
-        return self._plan_with_llm(
-            input_text,
-            rag_strategy,
-            chat_service,
-            profile_context=profile_context,
-            callable_catalog=callable_catalog,
-            conversation_context=conversation_context,
+        return self._finalize_campus_tool_plan(
+            self._plan_with_llm(
+                input_text,
+                rag_strategy,
+                chat_service,
+                profile_context=profile_context,
+                callable_catalog=callable_catalog,
+                conversation_context=conversation_context,
+            ),
+            route_text,
         )
 
     def _plan_learning_workflow(
@@ -492,10 +626,17 @@ class LeaderAgent:
             "画一个", "画一张", "制作一个", "制作一张", "做一个", "做一张", "转成",
         ))
 
-    def _plan_explicit_file_export_request(self, input_text: str) -> Optional[LeaderPlan]:
+    def _plan_explicit_file_export_request(
+        self,
+        input_text: str,
+        callable_catalog: Optional[Dict[str, Any]] = None,
+    ) -> Optional[LeaderPlan]:
         normalized = self._normalize_fast_route_text(input_text)
         if "ppt大纲" in normalized or "pptx大纲" in normalized or "幻灯片大纲" in normalized:
             return None
+        text_to_file_plan = self._plan_verbatim_text_to_file_request(input_text, callable_catalog)
+        if text_to_file_plan:
+            return text_to_file_plan
         format_tokens = (
             "word", "docx", "excel", "xlsx", "markdown", "md文件", "ppt", "pptx",
             "文档版", "文件版", "表格版", "幻灯片",
@@ -507,14 +648,17 @@ class LeaderAgent:
             return None
         if not any(token in normalized for token in action_tokens):
             return None
+        tool_name = self._resolve_explicit_export_tool(normalized, callable_catalog)
+        if not tool_name or not self._catalog_tool_enabled(callable_catalog, tool_name):
+            return None
         return LeaderPlan(
             intent="document_export",
             target_agent="leader_agent",
             need_retrieval=False,
             rag_strategy="",
             action="call_tool",
-            tool_name="generated_export_tools",
-            route_reason="用户明确要求生成指定格式文件，由内容导出工具先调用文件内容编排智能体，再调用对应格式工具。",
+            tool_name=tool_name,
+            route_reason="用户明确要求生成指定格式文件，由对应内容整理工具先调用文件内容编排智能体，再生成附件。",
             route_mode="rules",
         )
 
@@ -538,32 +682,22 @@ class LeaderAgent:
                 route_reason="命中课表意图，优先调用 Java 后端课表接口。",
                 answer=answer,
             )
-        if self._is_structured_query(normalized):
-            return LeaderPlan(
-                intent="structured_query",
-                target_agent="leader_agent",
-                need_retrieval=False,
-                rag_strategy="text_to_sql",
-                action="call_tool",
-                tool_name="text_to_sql",
-                route_reason="命中统计/查询结构化数据意图，使用 Text-to-SQL 查询接口。",
-            )
         if any(token in normalized for token in ("知识图谱", "实体关系图", "概念关系图", "knowledge graph")):
-            return LeaderPlan("knowledge_graph_image", "leader_agent", False, "", action="call_tool", tool_name="generate_knowledge_graph_image_tool", route_reason="命中知识图谱生成意图，调用知识图谱图片生成工具。")
+            return LeaderPlan("knowledge_graph_image", "leader_agent", False, "", action="call_tool", tool_name="generate_image_tool", route_reason="命中知识图谱生成意图，调用通用图片生成工具。")
         if "架构图" in normalized and "提示词" in normalized:
-            return LeaderPlan("architecture_diagram_prompt", "leader_agent", False, "", action="call_tool", tool_name="generate_architecture_image_tool", route_reason="命中架构图生成意图，调用架构图图片生成工具。")
+            return LeaderPlan("architecture_diagram_prompt", "leader_agent", False, "", action="call_tool", tool_name="generate_architecture_tool", route_reason="命中架构图生成意图，调用架构图生成工具。")
         if any(token in normalized for token in ("架构图", "系统架构图", "architecture diagram", "architecture")):
-            return LeaderPlan("diagram_architecture", "leader_agent", False, "", action="call_tool", tool_name="generate_architecture_image_tool", route_reason="命中架构图生成意图，调用架构图图片生成工具。")
+            return LeaderPlan("diagram_architecture", "leader_agent", False, "", action="call_tool", tool_name="generate_architecture_tool", route_reason="命中架构图生成意图，调用架构图生成工具。")
         if "活动图" in normalized and "提示词" in normalized:
-            return LeaderPlan("diagram_activity_prompt", "leader_agent", False, "", action="call_tool", tool_name="generate_activity_image_tool", route_reason="命中活动图生成意图，调用活动图图片生成工具。")
+            return LeaderPlan("diagram_activity_prompt", "leader_agent", False, "", action="call_tool", tool_name="generate_image_tool", route_reason="命中活动图生成意图，调用通用图片生成工具。")
         if any(token in normalized for token in ("活动图", "泳道图", "activity diagram", "任务活动图")):
-            return LeaderPlan("diagram_activity", "leader_agent", False, "", action="call_tool", tool_name="generate_activity_image_tool", route_reason="命中活动图生成意图，调用活动图图片生成工具。")
+            return LeaderPlan("diagram_activity", "leader_agent", False, "", action="call_tool", tool_name="generate_image_tool", route_reason="命中活动图生成意图，调用通用图片生成工具。")
         if "流程图" in normalized and "提示词" in normalized:
-            return LeaderPlan("diagram_flowchart_prompt", "leader_agent", False, "", action="call_tool", tool_name="generate_flowchart_image_tool", route_reason="命中流程图生成意图，调用流程图图片生成工具。")
+            return LeaderPlan("diagram_flowchart_prompt", "leader_agent", False, "", action="call_tool", tool_name="generate_flowchart_tool", route_reason="命中流程图生成意图，调用流程图生成工具。")
         if any(token in normalized for token in ("流程图", "flowchart", "流程")):
-            return LeaderPlan("diagram_flowchart", "leader_agent", False, "", action="call_tool", tool_name="generate_flowchart_image_tool", route_reason="命中流程图生成意图，调用流程图图片生成工具。")
+            return LeaderPlan("diagram_flowchart", "leader_agent", False, "", action="call_tool", tool_name="generate_flowchart_tool", route_reason="命中流程图生成意图，调用流程图生成工具。")
         if any(token in normalized for token in ("思维导图", "mindmap", "mind map", "脑图")):
-            return LeaderPlan("diagram_mind_map", "leader_agent", False, "", action="call_tool", tool_name="generate_mind_map_image_tool", route_reason="命中思维导图生成意图，调用思维导图图片生成工具。")
+            return LeaderPlan("diagram_mind_map", "leader_agent", False, "", action="call_tool", tool_name="generate_mind_map_tool", route_reason="命中思维导图生成意图，调用思维导图生成工具。")
         if (
             any(token in normalized for token in ("生成图片", "画一张", "画张", "配图", "插图", "封面图", "海报", "图片素材", "文生图"))
             and not any(token in normalized for token in ("ppt", "课件", "幻灯片"))
@@ -571,6 +705,19 @@ class LeaderAgent:
             return LeaderPlan("image_generation", "leader_agent", False, "", action="call_tool", tool_name="generate_image_tool", route_reason="命中图片生成/配图意图，调用通用图片生成工具。")
         if any(token in normalized for token in ("个人画像汇总", "画像汇总", "画像总结", "画像分析", "画像雷达总结", "profile summary")):
             return LeaderPlan("profile_summary", "profile_summary_agent", False, "", route_reason="命中个人画像汇总意图，分发给个人画像汇总智能体。")
+        if any(token in normalized for token in (
+            "热门岗位", "岗位推荐", "岗位雷达", "就业方向", "本周热招", "招聘趋势",
+            "软件工程岗位", "hot job", "job recommendation", "weekly job",
+        )):
+            return LeaderPlan(
+                "weekly_job_recommendation",
+                "leader_agent",
+                False,
+                "",
+                action="call_tool",
+                tool_name="weekly_job_recommendation_tool",
+                route_reason="命中热门岗位/岗位雷达意图，调用岗位雷达工具。",
+            )
         if any(token in normalized for token in ("多选题", "多项选择")):
             return LeaderPlan("multiple_choice", "textbook_question_multiple_choice_agent", False, "", route_reason="命中多选题生成意图，分发给多选题智能体。")
         if any(token in normalized for token in ("选择题", "单选题", "单项选择")):
@@ -614,9 +761,17 @@ class LeaderAgent:
                 and any(token in normalized for token in ("图片", "配图", "插图", "封面图", "封面"))
             )
         ):
-            return LeaderPlan("ppt_image", "leader_agent", False, "", action="call_tool", tool_name="generate_ppt_image_tool", route_reason="命中 PPT 图片/配图意图，调用 PPT 配图生成工具。")
+            return LeaderPlan("ppt_image", "leader_agent", False, "", action="call_tool", tool_name="generate_image_tool", route_reason="命中 PPT 图片/配图意图，调用通用图片生成工具。")
         if any(token in normalized for token in ("ppt", "幻灯片", "课件", "演示文稿")):
-            return LeaderPlan("ppt_outline", "ppt_outline_agent", False, "", route_reason="命中 PPT/课件生成意图，默认分发给 PPT 大纲智能体。")
+            return LeaderPlan(
+                "ppt_generation",
+                "leader_agent",
+                False,
+                "",
+                action="call_tool",
+                tool_name="ai_ppt_generation_tool",
+                route_reason="命中 PPT/课件生成意图，调用 AI PPT 生成工具。",
+            )
         if any(token in normalized for token in ("md", "markdown", "知识点提取", "提取知识点", "知识点整理")):
             return LeaderPlan("textbook_knowledge", "textbook_knowledge_agent", False, "", route_reason="命中 Markdown/文本教材知识点整理意图，统一交给教材知识点智能体。")
         if any(token in normalized for token in ("教材", "课本", "章节", "考点", "知识点", "课程内容")):
@@ -731,9 +886,96 @@ class LeaderAgent:
             token in normalized for token in _FAST_ROUTE_QUERY_SCOPE_TOKENS
         ) or any(token in normalized for token in _FAST_ROUTE_QUESTION_TOKENS)
 
+    def _is_named_activity_query(self, normalized: str) -> bool:
+        if any(token in normalized for token in _ACTIVITY_NON_QUERY_TOKENS):
+            return False
+        if self._is_service_meta_question(normalized):
+            return False
+        if "活动" not in normalized:
+            return False
+        if any(token in normalized for token in ("有什么", "有哪些", "有没有")):
+            return False
+        if any(token in normalized for token in _ACTIVITY_DETAIL_QUERY_TOKENS):
+            return True
+        return bool(re.search(r"活动.{0,6}(吗|呢|不)$", normalized))
+
+    def _answer_looks_like_pending_tool_reply(self, answer: str) -> bool:
+        text = str(answer or "").strip()
+        return any(marker in text for marker in _PENDING_TOOL_ANSWER_MARKERS)
+
+    def _enforce_campus_service_tool_for_data_query(
+        self,
+        plan: LeaderPlan,
+        input_text: str,
+        callable_catalog: Optional[Dict[str, Any]],
+    ) -> LeaderPlan:
+        if plan.action == "call_tool":
+            return plan
+        normalized = self._normalize_fast_route_text(input_text)
+        tool_name = ""
+        intent = ""
+        label = ""
+        route_reason = ""
+        domain = ""
+        if self._is_named_activity_query(normalized) and self._catalog_tool_enabled(callable_catalog, "java_activity_api"):
+            domain = "activity"
+            tool_name = "java_activity_api"
+            intent = "activity_query"
+            label = "校园活动"
+            route_reason = "用户询问具体活动详情或评价，必须先调用活动查询工具获取数据，不能由 Leader 直接回答。"
+        elif self._answer_looks_like_pending_tool_reply(plan.answer):
+            domains = self._fast_route_domains(normalized)
+            if len(domains) == 1:
+                domain = domains[0]
+                tool_map = {
+                    "schedule": "java_schedule_api",
+                    "activity": "java_activity_api",
+                    "meeting": "java_meeting_api",
+                    "canteen": "java_canteen_api",
+                }
+                tool_name = tool_map.get(domain, "")
+                if tool_name and self._catalog_tool_enabled(callable_catalog, tool_name):
+                    intent = {
+                        "schedule": "schedule",
+                        "activity": "activity_query",
+                        "meeting": "meeting_query",
+                        "canteen": "canteen_query",
+                    }[domain]
+                    label = {
+                        "schedule": "课表",
+                        "activity": "校园活动",
+                        "meeting": "会议安排",
+                        "canteen": "食堂餐饮",
+                    }[domain]
+                    route_reason = (
+                        f"Leader 路由返回了“进行中”式 direct_answer，但用户是在查询{label}数据，"
+                        f"已强制改为调用 {tool_name}。"
+                    )
+                else:
+                    tool_name = ""
+        if not tool_name:
+            return plan
+        if domain == "schedule" and tool_name == "java_schedule_api":
+            intent, answer = self._schedule_fast_route_response(input_text)
+        else:
+            answer = f"正在为你查询{label}。"
+        return LeaderPlan(
+            intent=intent,
+            target_agent="leader_agent",
+            need_retrieval=False,
+            rag_strategy="",
+            action="call_tool",
+            tool_name=tool_name,
+            route_reason=route_reason,
+            answer=answer,
+            route_mode="rules",
+        )
+
     def _is_high_confidence_activity_query(self, normalized: str) -> bool:
         if any(token in normalized for token in _ACTIVITY_NON_QUERY_TOKENS):
             return False
+        if self._is_named_activity_query(normalized):
+            return True
         if not any(token in normalized for token in _FAST_ROUTE_ACTIVITY_TOKENS):
             return False
         if normalized in {
@@ -877,6 +1119,27 @@ class LeaderAgent:
                 return True
         return False
 
+    def _sanitize_planned_tool(
+        self,
+        plan: LeaderPlan,
+        callable_catalog: Optional[Dict[str, Any]],
+    ) -> LeaderPlan:
+        if plan.action != "call_tool" or not str(plan.tool_name or "").strip():
+            return plan
+        if self._catalog_tool_enabled(callable_catalog, plan.tool_name):
+            return plan
+        return LeaderPlan(
+            intent=plan.intent or "campus_search",
+            target_agent="leader_agent",
+            need_retrieval=False,
+            rag_strategy="",
+            action="direct_answer",
+            tool_name="",
+            route_reason="所选能力不在当前启用清单，改为直接回答用户问题。",
+            answer=plan.answer,
+            route_mode="llm_fallback",
+        )
+
     def _catalog_tool_enabled(self, callable_catalog: Optional[Dict[str, Any]], tool_name: str) -> bool:
         if not isinstance(callable_catalog, dict):
             return True
@@ -961,6 +1224,8 @@ class LeaderAgent:
         if not parsed:
             raise HTTPException(status_code=502, detail=f"Leader LLM 路由结果字段不合法：{plan}")
         parsed = self._enforce_current_input_output_intent(parsed, input_text, callable_catalog)
+        parsed = self._sanitize_planned_tool(parsed, callable_catalog)
+        parsed = self._enforce_campus_service_tool_for_data_query(parsed, input_text, callable_catalog)
         logger.info(
             "leader llm plan intent=%s action=%s target=%s retrieval=%s",
             parsed.intent,
@@ -998,6 +1263,12 @@ class LeaderAgent:
             detail="Leader 模型选择了与当前输入不符的图片能力，已拒绝生成系统纠偏回复。",
         )
 
+    def _finalize_campus_tool_plan(self, plan: LeaderPlan, input_text: str) -> LeaderPlan:
+        if plan.action != "call_tool" or plan.tool_name not in CAMPUS_SERVICE_TOOL_NAMES:
+            return plan
+        plan.tool_params = resolve_campus_tool_params(plan.tool_name, input_text, plan.tool_params)
+        return plan
+
     def _parse_llm_plan(self, plan: Dict[str, Any], requested_rag_strategy: str) -> Optional[LeaderPlan]:
         if not isinstance(plan, dict):
             return None
@@ -1008,10 +1279,11 @@ class LeaderAgent:
         target_agent = "leader_agent"
         need_retrieval = False
         rag_strategy = self._normalize_rag_strategy(plan.get("rag_strategy") or plan.get("ragStrategy"))
-        if action == "call_tool" and tool_name == "text_to_sql" and not rag_strategy:
-            rag_strategy = "text_to_sql"
-        elif action != "call_tool":
+        if action != "call_tool":
             rag_strategy = ""
+        tool_params = plan.get("tool_params") or plan.get("toolParams") or {}
+        if not isinstance(tool_params, dict):
+            tool_params = {}
         return LeaderPlan(
             intent=str(plan.get("intent") or "campus_search").strip() or "campus_search",
             target_agent=target_agent,
@@ -1022,6 +1294,7 @@ class LeaderAgent:
             route_reason=str(plan.get("route_reason") or plan.get("routeReason") or "Leader LLM 完成意图识别。").strip(),
             answer=str(plan.get("answer") or "").strip(),
             route_mode="llm",
+            tool_params=tool_params if action == "call_tool" else {},
         )
 
     def _plan_for_requested_agent(self, requested_agent: Optional[str], rag_strategy: str) -> Optional[LeaderPlan]:
@@ -1033,11 +1306,6 @@ class LeaderAgent:
             return None
         # 专业智能体不再作为 Leader 的独立路由目标；相关能力必须以系统工具形式进入工具目录。
         return None
-
-    def _is_structured_query(self, normalized_text: str) -> bool:
-        query_tokens = ("统计", "数量", "多少", "有多少", "列表", "查询", "查一下", "排名")
-        domain_tokens = ("优惠券", "优惠", "满减", "食堂", "餐厅", "档口", "菜品", "课程", "课表")
-        return any(token in normalized_text for token in query_tokens) and any(token in normalized_text for token in domain_tokens)
 
     def load_memory(self, session_token: str) -> List[Dict[str, str]]:
         return memory_store.get_history(session_token)
@@ -1100,7 +1368,8 @@ class LeaderAgent:
             "answer_requirements": [
                 "用自然中文回答用户，不要输出 JSON。",
                 "严格按用户问题的范围回答；不要主动扩展成文档、报告、分析或完整明细。",
-                "前端按纯文本展示；不要使用 Markdown 标题、加粗、分隔线、代码块或表格语法。",
+                "前端支持 Markdown 渲染：优先用 ##/### 标题、列表、加粗组织层级；代码用 ```语言 围栏；表格仅在确有必要时使用。",
+                "answer_policy 若要求纯文本或固定格式，则遵守该策略，不要强行套 Markdown。",
                 "不要在答案末尾反问用户还要哪部分；用户需要会继续问。",
                 "只能基于 tool_results 里的数据整理，不要编造课程、活动、会议、菜品、位置、物品、时间、地点或数量。",
                 "当用户提到简称、英文缩写、别名或不完整名称时，由你在 tool_results 中做语义匹配；不要要求完全同名。",
@@ -1115,7 +1384,9 @@ class LeaderAgent:
         text = provider.complete(
             system_prompt=(
                 "你负责把智慧校园系统接口返回的数据整理成给用户看的最终回答。"
-                "你不是路由器，不要重新选择工具或智能体；不要输出 JSON、代码块、内部字段名或文档式大纲。"
+                "你不是路由器，不要重新选择工具或智能体；不要输出 JSON 或内部字段名。"
+                "当 answer_policy 要求 card_companion 时，明细已在上方结果卡片展示，正文只做简短 companion 说明。"
+                "默认用清晰的 Markdown 层级组织答案；若 answer_policy 指定纯文本、固定格式或 card_companion，则严格遵守。"
                 "必须遵守用户意图对应的 answer_policy，答案短而准。"
             ),
             user_prompt=json.dumps(payload, ensure_ascii=False),
@@ -1124,12 +1395,45 @@ class LeaderAgent:
         parsed = parse_json_object(answer)
         if parsed and parsed.get("action") and parsed.get("intent"):
             return ""
-        return self._clean_tool_answer(answer, plan)
+        return self._clean_tool_answer(answer, plan, tool_results)
 
-    def _clean_tool_answer(self, answer: str, plan: LeaderPlan) -> str:
+    def _should_use_card_companion(self, plan: LeaderPlan, tool_results: List[Dict[str, Any]]) -> bool:
+        if plan.tool_name not in CAMPUS_SERVICE_TOOL_NAMES:
+            return False
+        real_results = [
+            item for item in (tool_results or [])
+            if isinstance(item, dict) and str(item.get("type") or "") not in {"tool_empty_result", "tool_execution_error"}
+        ]
+        if not real_results:
+            return False
+        policy = self._tool_result_answer_policy("", plan, tool_results)
+        return bool(policy.get("card_companion")) or str(policy.get("mode") or "") in _CARD_COMPANION_MODES
+
+    def _card_companion_fallback(self, plan: LeaderPlan, tool_results: List[Dict[str, Any]]) -> str:
+        real_results = [
+            item for item in (tool_results or [])
+            if isinstance(item, dict) and str(item.get("type") or "") not in {"tool_empty_result", "tool_execution_error"}
+        ]
+        count = len(real_results)
+        label = _TOOL_CARD_LABELS.get(str(plan.tool_name or ""), "结果")
+        if count <= 0:
+            return "暂未查到可展示的数据，你可以调整筛选条件后重试。"
+        return (
+            f"共为你找到 {count} 条{label}，详情已展示在上方卡片中。"
+            "点击对应卡片即可查看完整信息；如需某一条的进一步说明，可以直接告诉我名称。"
+        )
+
+    def _clean_tool_answer(self, answer: str, plan: LeaderPlan, tool_results: Optional[List[Dict[str, Any]]] = None) -> str:
         text = str(answer or "").strip()
         if plan.tool_name not in CAMPUS_SERVICE_TOOL_NAMES:
             return text
+        if tool_results is not None and self._should_use_card_companion(plan, tool_results):
+            list_lines = [
+                line for line in text.splitlines()
+                if re.match(r"^\s*(\d+[\.、)]\s|[-*]\s)", line)
+            ]
+            if len(list_lines) >= 2:
+                return self._card_companion_fallback(plan, tool_results)
         text = re.sub(r"^#{1,6}\s*", "", text, flags=re.MULTILINE)
         text = re.sub(r"\*\*(.*?)\*\*", r"\1", text)
         text = re.sub(r"`([^`]+)`", r"\1", text)
@@ -1207,12 +1511,12 @@ class LeaderAgent:
                 return {
                     "mode": mode,
                     "format": "short_course_list",
+                    "card_companion": True,
                     "requirements": [
-                        "用户是在问本学期/全部学期有哪些课，只列课程清单，不展开每次上课时间、周次、地点或教室。",
+                        "用户是在问本学期/全部学期有哪些课。",
+                        *_CARD_COMPANION_REQUIREMENTS,
                         "把同一门课的多条上课安排合并成一门课；课程数量按去重后的课程数，不按上课安排条数。",
-                        "可以保留学期、课程名、教师、学分、考核方式；没有字段就不要提。",
                         "不要输出“具体如下”“完整课表”“上课安排”“第几周”“第几节”等多余说明。",
-                        "不要使用三级标题、分隔线或文档式 Markdown；最多用一句引导语加简短项目符号。",
                     ],
                 }
             if mode == "session_lookup":
@@ -1234,14 +1538,26 @@ class LeaderAgent:
                 ],
             }
         if plan.tool_name == "java_activity_api":
+            normalized = normalize_text(input_text)
+            if any(token in normalized for token in _ACTIVITY_DETAIL_QUERY_TOKENS):
+                return {
+                    "mode": "activity_detail",
+                    "format": "activity_detail_answer",
+                    "requirements": [
+                        "用户是在问某个具体活动怎么样、是否值得参加或活动详情，只基于 tool_results 中匹配到的活动数据回答。",
+                        "优先给出活动名、时间、地点、报名/状态，并基于已有字段做简短客观评价；没有的数据不要编造。",
+                        "若 tool_results 为空或未匹配到该活动，明确说明未查到该活动，不要伪造评价。",
+                        "不要输出 Markdown 的 **、###、---；不要最后反问用户。",
+                    ],
+                }
             return {
                 "mode": "activity_query",
                 "format": "activity_list_answer",
+                "card_companion": True,
                 "requirements": [
-                    "用户是在问校园活动、讲座、比赛或报名信息，只回答匹配到的活动内容。",
-                    "每条活动优先包含活动名、时间、地点、报名/状态；字段不存在就不要提。",
-                    "用户问最近/可报名/某类活动时，只筛选并展示相关活动，不要把所有接口字段铺开。",
-                    "结果较多时最多先展示 5 条，并说明还查到多少条。",
+                    "用户是在问校园活动、讲座、比赛或报名信息。",
+                    *_CARD_COMPANION_REQUIREMENTS,
+                    "若结果超过卡片展示数量，说明总共查到多少条。",
                     "不要编造报名链接、名额、主办方或地点。",
                 ],
             }
@@ -1249,11 +1565,11 @@ class LeaderAgent:
             return {
                 "mode": "meeting_query",
                 "format": "meeting_list_answer",
+                "card_companion": True,
                 "requirements": [
-                    "用户是在问会议列表、我的会议、预约会议或会议状态，只回答会议安排信息。",
-                    "每条会议优先包含会议名、时间、地点/会议室、状态；字段不存在就不要提。",
+                    "用户是在问会议列表、我的会议、预约会议或会议状态。",
+                    *_CARD_COMPANION_REQUIREMENTS,
                     "会议纪要、总结、转写和成员分析不是这个工具的输出，不要把查询结果写成会议纪要。",
-                    "结果较多时最多先展示 5 条，并说明还查到多少条。",
                     "不要编造参会人、会议链接或审批状态。",
                 ],
             }
@@ -1261,11 +1577,11 @@ class LeaderAgent:
             return {
                 "mode": "canteen_query",
                 "format": "canteen_answer",
+                "card_companion": True,
                 "requirements": [
-                    "用户是在问食堂、餐厅、档口、菜品、吃什么或餐饮优惠，只回答餐饮相关结果。",
-                    "每条结果优先包含名称、食堂/档口、价格/优惠、位置；字段不存在就不要提。",
+                    "用户是在问食堂、餐厅、档口、菜品、吃什么或餐饮优惠。",
+                    *_CARD_COMPANION_REQUIREMENTS,
                     "用户问某个菜品或吃什么时，由你在 tool_results 中匹配菜品、档口或优惠，不要要求完全同名。",
-                    "结果较多时最多先展示 5 条，并说明还查到多少条。",
                     "不要编造价格、库存、营业时间或优惠规则。",
                 ],
             }
@@ -1273,11 +1589,11 @@ class LeaderAgent:
             return {
                 "mode": "facility_location",
                 "format": "facility_location_answer",
+                "card_companion": True,
                 "requirements": [
-                    "用户是在问教学楼、宿舍、操场、食堂等设施位置，只回答匹配设施的位置和必要定位信息。",
-                    "每条结果优先包含设施名、位置、楼宇/校区、类型；字段不存在就不要提。",
+                    "用户是在问教学楼、宿舍、操场、食堂等设施位置。",
+                    *_CARD_COMPANION_REQUIREMENTS,
                     "用户问路线或导航时，只能基于 tool_results 已有位置提示，不能编造路线。",
-                    "结果较多时最多先展示 5 条，并说明还查到多少条。",
                     "不要输出经纬度以外的内部字段名。",
                 ],
             }
@@ -1285,11 +1601,11 @@ class LeaderAgent:
             return {
                 "mode": "secondhand_query",
                 "format": "secondhand_answer",
+                "card_companion": True,
                 "requirements": [
-                    "用户是在问旧物、二手、闲置或转让物品，只回答匹配物品信息。",
-                    "每条结果优先包含物品名、价格、成色/状态、发布位置或时间；字段不存在就不要提。",
+                    "用户是在问旧物、二手、闲置或转让物品。",
+                    *_CARD_COMPANION_REQUIREMENTS,
                     "不要展示手机号、微信号、精确个人联系信息等敏感信息；如接口返回联系人，只提示在系统内查看。",
-                    "结果较多时最多先展示 5 条，并说明还查到多少条。",
                     "不要编造砍价建议、交易状态或联系方式。",
                 ],
             }
@@ -1353,10 +1669,83 @@ class LeaderAgent:
         rag_strategy = str(value or "").strip()
         if not rag_strategy or rag_strategy in {"按目标智能体默认策略", "默认策略", "目标智能体默认策略"}:
             return ""
-        return "text_to_sql" if rag_strategy == "text_to_sql" else ""
+        return ""
 
 
 leader_agent = LeaderAgent()
+
+
+def _catalog_has_tool(callable_catalog: Optional[Dict[str, Any]], tool_name: str) -> bool:
+    if not isinstance(callable_catalog, dict):
+        return True
+    tools = callable_catalog.get("tools")
+    if not isinstance(tools, list):
+        return True
+    return any(
+        isinstance(item, dict) and str(item.get("name") or "").strip() == tool_name
+        for item in tools
+    )
+
+
+def _leader_profile_usage_policy(callable_catalog: Optional[Dict[str, Any]]) -> List[str]:
+    policies = [
+        "必须参考 profile_snapshot，但用户当前问题优先级最高。",
+        "高置信度画像可以用于推荐顺序、解释深度和资源形式。",
+        "中低置信度画像只能作为倾向，不能武断判断用户能力。",
+        "行为证据实时沉淀，雷达图分数由 Java 后端定时汇总更新。",
+        "Leader 不能直接更新画像分数；发现明确证据或冲突时只在 route_reason 中说明，由 Java 按 campus-profile-evidence-v1 记录候选证据。",
+        "当前输入与画像冲突时，以当前输入完成本轮回答，并在 route_reason 中说明冲突倾向。",
+        "profile_snapshot.outputPreferenceHints 只能用于提供后续图片版/文件版选项，不能凭偏好把普通学习、解释或问答请求改成生图任务。只有当前 user_input 明确要求图片、图解或具体图表时，才允许选择图片/图表智能体。",
+        "如果任务既可做图片又可做文件且没有稳定偏好，先询问用户要图片形式还是文件形式。",
+    ]
+    content_export_tools = (
+        "text_to_markdown_tool",
+        "text_to_docx_tool",
+        "text_to_txt_tool",
+        "ai_ppt_generation_tool",
+    )
+    if any(_catalog_has_tool(callable_catalog, tool_name) for tool_name in content_export_tools):
+        policies.extend([
+            "用户要求文件版/文档版/Word/Markdown 文件时，按目标格式选择 text_to_markdown_tool、text_to_docx_tool 或 text_to_txt_tool；工具内部负责组织内容并生成附件，不要把长内容只当纯文字回复。",
+            "用户要求 PPT/PPTX/幻灯片文件时，选择 ai_ppt_generation_tool 生成完整演示文稿。",
+            "用户要求题库表格或题库 Excel 时，仍先选择对应题型智能体生成严格题库 JSON，再由 md/docx 内容整理工具导出。",
+            "用户已经提供了要导出的 Markdown、普通文本或标准题库 JSON，且要求整理成文件时，调用对应格式的内容整理工具。",
+        ])
+    if any(
+        _catalog_has_tool(callable_catalog, tool_name)
+        for tool_name in ("text_to_txt_tool", "text_to_markdown_tool", "text_to_docx_tool")
+    ):
+        policies.append(
+            "用户要求把已提供的文本按原文转成 txt/md/word 文件时，按目标格式分别选择 text_to_txt_tool、text_to_markdown_tool 或 text_to_docx_tool，不整理、不改写内容。"
+        )
+    policies.extend([
+        "Mermaid 图表如需文件版，可按 Markdown 文件导出；不再单独提供 mmd 源码附件。",
+        "用户表达课表、活动、会议列表/状态、食堂餐饮、设施位置、旧物二手等查询意图时，你必须根据当前语义自行从 leader_callable_catalog.tools 中选择对应的 Java 后端服务工具，而不是依赖系统关键词规则或编造答案。",
+        "当前 user_input 永远优先于 conversation_context；只有 user_input 缺少主语或对象时，才允许用 conversation_context 补全。",
+        "如果 user_input 是追问、省略主语或短句，例如“上几次呢”“老师呢”“在哪上”“什么时候呢”“这个呢”，必须结合 conversation_context 的最近主题、最近工具和摘要恢复真实意图；上下文已能确定时不要再反问用户。",
+        "如果 user_input 已经表达新的课表状态意图，例如“今天有课吗”“从什么时候开始没有课”“哪天没课”，不要把最近课程主题补进去；这类问题是课表查询，不是某门课时间查询。",
+        "conversation_context 只用于理解本会话追问，不得当作事实来源编造答案；涉及课表、会议、食堂等业务数据仍必须调用对应启用工具。",
+        "用户问某门课的老师是谁、任课老师、授课教师、谁教某门课时，这是课程信息查询，必须优先选择 java_schedule_api，不要路由到教材知识点智能体。",
+        "用户问某门课什么时候学、什么时候上课、周几几点上时，也是课程信息查询，必须优先选择 java_schedule_api；但“什么时候开始没有课/哪天没课/今天有课吗”属于课表状态查询，不要套用最近课程。",
+        "用户问某门课本学期有几节课、几次课、多少课时或上课次数时，也是课程信息查询，必须优先选择 java_schedule_api。",
+        "用户问某个具体活动怎么样、是否值得参加、活动详情或介绍时，必须 action=call_tool 且 tool_name=java_activity_api；禁止 direct_answer，也禁止只回复“正在查询”。",
+        "action=call_tool 且 tool_name 为 java_schedule_api、java_activity_api、java_meeting_api、java_canteen_api、java_facility_api、java_secondhand_api 时，必须同时输出 tool_params 结构化查询参数；系统会合并 tool_params 与规则解析，优先使用 tool_params。",
+        "java_schedule_api 的 tool_params 示例：{\"scope\":\"current_week|week|semester|all_semesters\",\"week\":null,\"weekday\":null,\"date\":null,\"month\":null,\"courseKeyword\":\"\",\"sessionStart\":null,\"sessionEnd\":null}。",
+        "java_activity_api 的 tool_params 示例：{\"mode\":\"list|search\",\"keyword\":\"\",\"status\":\"PUBLISHED\",\"timePhase\":null,\"page\":1,\"size\":10}；具体活动名查询时 mode=search 且 keyword 填活动名。",
+        "java_meeting_api 的 tool_params 示例：{\"keyword\":\"\",\"pageNum\":1,\"pageSize\":10}；java_canteen_api：{\"mode\":\"search|browse\",\"keyword\":\"\"}。",
+        "会议纪要/总结/转写/成员分析以及活动图/流程图等能力，统一通过已启用的系统工具处理，不要单独委派专业智能体。",
+        "路由只有两种：普通问题使用 direct_answer；确实需要系统能力时使用 call_tool。只能选择 leader_callable_catalog.tools 中的工具；该列表已经过滤掉后台关闭项，禁止选择或提及未出现在清单中的工具。",
+        "用户询问你有什么功能、是否支持生图/PPT/题库/文档/图表等能力时，必须 action=call_tool，tool_name=tool_capability_query；能力清单由该工具读取当前后台开关后返回，不能由 Leader 根据静态目录直接回答。",
+        "问候和闲聊可以由 Leader 直接回答；能力询问不允许 direct_answer，必须调用 tool_capability_query。",
+        "能力查询工具返回结果后，面向普通用户说明可完成的事情，不要主动输出内部 agent/tool 标识；只有用户明确询问技术名称时才可给出。",
+        "某项能力未出现在启用清单中时，必须明确回答当前不可用或尚未完成配置，不得声称可以生成后再执行失败，也不得向用户暴露已关闭工具的内部名称。",
+        "leader_output_push_strategies 只是已启用能力的输出路由提示，不能单独证明某种生成能力当前可用。",
+        "所有图片、活动图、知识图谱和 PPT 配图请求都必须 action=call_tool，并从 leader_callable_catalog.tools 选择 generate_image_tool；思维导图、流程图、架构图必须选择对应的 generate_*_tool 结构化图表工具；不要单独委派任何智能体。",
+        "target_agent 固定为 leader_agent；call_tool 时 tool_name 必须来自 leader_callable_catalog.tools.name。",
+        "action=call_tool 时，answer 必须是一句简短自然的进行中回复，例如“正在为你查询今日课表。”；最终结果会在工具返回后再由模型整理。",
+        "用户要求生成图片/海报/配图，且出现「这样的」「类似」「同款」等指代时，必须先结合 conversation_context 与最近识图/讨论结果整理完整画面需求，再调用 generate_image_tool；不要只把用户最后一句话直接交给图片工具。",
+    ])
+    return policies
 
 
 def build_leader_router_user_prompt(
@@ -1366,43 +1755,13 @@ def build_leader_router_user_prompt(
     callable_catalog: Optional[Dict[str, Any]] = None,
     conversation_context: Optional[Dict[str, Any]] = None,
 ) -> str:
+    cleaned_input, _ = extract_image_references(input_text or "")
     return json.dumps({
-        "user_input": input_text or "",
+        "user_input": cleaned_input,
         "profile_snapshot": profile_context or {},
         "conversation_context": conversation_context or {},
         "leader_callable_catalog": callable_catalog or {},
-        "profile_usage_policy": [
-            "必须参考 profile_snapshot，但用户当前问题优先级最高。",
-            "高置信度画像可以用于推荐顺序、解释深度和资源形式。",
-            "中低置信度画像只能作为倾向，不能武断判断用户能力。",
-            "行为证据实时沉淀，雷达图分数由 Java 后端定时汇总更新。",
-            "Leader 不能直接更新画像分数；发现明确证据或冲突时只在 route_reason 中说明，由 Java 按 campus-profile-evidence-v1 记录候选证据。",
-            "当前输入与画像冲突时，以当前输入完成本轮回答，并在 route_reason 中说明冲突倾向。",
-            "profile_snapshot.outputPreferenceHints 只能用于提供后续图片版/文件版选项，不能凭偏好把普通学习、解释或问答请求改成生图任务。只有当前 user_input 明确要求图片、图解或具体图表时，才允许选择图片/图表智能体。",
-            "如果任务既可做图片又可做文件且没有稳定偏好，先询问用户要图片形式还是文件形式。",
-            "用户要求文件版/文档版/Excel/Word/打包下载时，调用已启用的 generated_export_tools；工具内部负责组织内容并生成附件，不要把长内容只当纯文字回复。",
-            "用户要求题库表格或题库 Excel 时，仍先选择对应题型智能体生成严格题库 JSON，再由导出工具转换为 md/docx/xlsx/zip。",
-            "用户要求 Mermaid 源文件、图表源码或后续编辑图表时，图表智能体返回 Mermaid 后会自动生成 mmd/md/zip 附件。",
-            "如果用户已经提供了要导出的 Markdown、普通文本或标准题库 JSON，且只要求转成文件，可以直接 call_tool: generated_export_tools。",
-            "用户表达课表、活动、会议列表/状态、食堂餐饮、设施位置、旧物二手等查询意图时，你必须根据当前语义自行从 leader_callable_catalog.tools 中选择对应的 Java 后端服务工具，而不是依赖系统关键词规则或编造答案。",
-            "当前 user_input 永远优先于 conversation_context；只有 user_input 缺少主语或对象时，才允许用 conversation_context 补全。",
-            "如果 user_input 是追问、省略主语或短句，例如“上几次呢”“老师呢”“在哪上”“什么时候呢”“这个呢”，必须结合 conversation_context 的最近主题、最近工具和摘要恢复真实意图；上下文已能确定时不要再反问用户。",
-            "如果 user_input 已经表达新的课表状态意图，例如“今天有课吗”“从什么时候开始没有课”“哪天没课”，不要把最近课程主题补进去；这类问题是课表查询，不是某门课时间查询。",
-            "conversation_context 只用于理解本会话追问，不得当作事实来源编造答案；涉及课表、会议、食堂等业务数据仍必须调用对应启用工具。",
-            "用户问某门课的老师是谁、任课老师、授课教师、谁教某门课时，这是课程信息查询，必须优先选择 java_schedule_api，不要路由到教材知识点智能体。",
-            "用户问某门课什么时候学、什么时候上课、周几几点上时，也是课程信息查询，必须优先选择 java_schedule_api；但“什么时候开始没有课/哪天没课/今天有课吗”属于课表状态查询，不要套用最近课程。",
-            "用户问某门课本学期有几节课、几次课、多少课时或上课次数时，也是课程信息查询，必须优先选择 java_schedule_api。",
-            "会议纪要/总结/转写/成员分析以及活动图/流程图等能力，统一通过已启用的系统工具处理，不要单独委派专业智能体。",
-            "路由只有两种：普通问题使用 direct_answer；确实需要系统能力时使用 call_tool。只能选择 leader_callable_catalog.tools 中的工具；该列表已经过滤掉后台关闭项。",
-            "用户询问你有什么功能、是否支持生图/PPT/题库/文档/图表等能力时，必须 action=call_tool，tool_name=tool_capability_query；能力清单由该工具读取当前后台开关后返回，不能由 Leader 根据静态目录直接回答。",
-            "问候和闲聊可以由 Leader 直接回答；能力询问不允许 direct_answer，必须调用 tool_capability_query。",
-            "能力查询工具返回结果后，面向普通用户说明可完成的事情，不要主动输出内部 agent/tool 标识；只有用户明确询问技术名称时才可给出。",
-            "某项能力未出现在启用清单中时，必须明确回答当前不可用或尚未完成配置，不得声称可以生成后再执行失败。",
-            "leader_output_push_strategies 只是已启用能力的输出路由提示，不能单独证明某种生成能力当前可用。",
-            "所有图片、思维导图、流程图、活动图、架构图、知识图谱和 PPT 配图请求都必须 action=call_tool，并从 leader_callable_catalog.tools 选择对应 generate_*_image_tool；不要单独委派任何智能体。",
-            "target_agent 固定为 leader_agent；call_tool 时 tool_name 必须来自 leader_callable_catalog.tools.name。",
-            "action=call_tool 时，answer 必须是一句简短自然的进行中回复，例如“正在为你查询今日课表。”；最终结果会在工具返回后再由模型整理。",
-        ],
+        "profile_usage_policy": _leader_profile_usage_policy(callable_catalog),
         "leader_output_push_strategies": LEADER_OUTPUT_PUSH_STRATEGIES,
     }, ensure_ascii=False)
 

@@ -1,0 +1,33 @@
+FROM node:20-bookworm-slim
+
+ENV CHROMIUM_PATH=/usr/bin/chromium \
+    PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium \
+    PRESENTON_ENABLE_PPTX=true \
+    PRESENTON_EXPORT_ROOT=/app/presenton_runtime/presentation-export \
+    BUILT_PYTHON_MODULE_PATH=/app/presenton_runtime/presentation-export/py/convert-linux-current
+
+WORKDIR /app
+
+RUN apt-get update \
+    && apt-get install --no-install-recommends --yes chromium fonts-noto-cjk ca-certificates unzip \
+    && rm -rf /var/lib/apt/lists/*
+
+# Keep the requested application family stable in the Linux renderer. The
+# project uses Noto Serif as its logical CJK family, while Debian's CJK font
+# package exposes the concrete family as Noto Serif CJK SC.
+COPY presenton_runtime/fontconfig-pptx.conf /etc/fonts/local.conf
+RUN fc-cache -f
+
+COPY presenton_runtime ./presenton_runtime
+COPY app/ppt_generation/assets/templates ./templates
+
+RUN cd /app/presenton_runtime \
+    && npm ci --omit=dev \
+    && npm install --no-save --include=optional sharp@0.34.4 \
+    && npx esbuild src/template-v2-json-to-html.ts --bundle --platform=node --format=esm --outfile=dist/template-v2-json-to-html.mjs \
+    && node sync-presentation-export.cjs --force \
+    && chown -R node:node /app
+
+USER node
+
+ENTRYPOINT ["node", "/app/presenton_runtime/src/render.mjs"]

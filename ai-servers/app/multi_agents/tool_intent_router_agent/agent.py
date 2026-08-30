@@ -96,7 +96,7 @@ class ToolIntentRouterAgent:
             "时间": ("今天", "明天", "后天", "本周", "下周", "上午", "下午", "晚上"),
             "数量": ("多少", "几节", "几项", "几个", "几张", "几页"),
             "地点": ("哪里", "在哪", "地点", "教室", "教学楼", "宿舍"),
-            "格式": ("word", "docx", "excel", "xlsx", "markdown", "ppt", "pptx", "pdf", "zip"),
+            "格式": ("word", "docx", "excel", "xlsx", "markdown", "txt", "纯文本", "ppt", "pptx", "pdf", "zip"),
         }.items():
             values = [marker for marker in markers if _normalize(marker) in normalized]
             if values:
@@ -127,7 +127,7 @@ class ToolIntentRouterAgent:
 _DOMAIN_KEYWORDS = {
     "课表", "课程安排", "有什么课", "校园活动", "讲座", "比赛", "会议", "食堂", "餐厅", "教学楼", "宿舍",
     "二手", "导出", "下载", "打包", "图片", "识别", "截图", "思维导图", "流程图", "架构图", "知识图谱",
-    "统计", "数量", "列表", "排名", "word", "docx", "excel", "xlsx", "markdown", "ppt", "pptx", "pdf", "zip",
+    "统计", "数量", "列表", "排名", "word", "docx", "excel", "xlsx", "markdown", "txt", "纯文本", "ppt", "pptx", "pdf", "zip", "文本转文件",
 }
 
 tool_intent_router_agent = ToolIntentRouterAgent()

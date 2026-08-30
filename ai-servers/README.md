@@ -63,13 +63,13 @@ uv run python -m uvicorn app.main:app --host 127.0.0.1 --port 8081
 
 `POST /internal/chat`、SSE 接口和 `POST /internal/rag/query` 都支持传入 `agentName` 指定当前多智能体之一：
 
-`leader_agent`、`diagram_mind_map_agent`、`diagram_flowchart_agent`、`diagram_activity_agent`、`diagram_architecture_agent`、`mind_map_agent`、`textbook_knowledge_agent`、`textbook_question_single_choice_agent`、`textbook_question_fill_blank_agent`、`textbook_question_true_false_agent`、`textbook_question_multiple_choice_agent`、`textbook_question_short_answer_agent`、`textbook_question_calculation_agent`、`textbook_question_programming_agent`、`meeting_controller_agent`、`meeting_transcription_agent`、`meeting_summary_agent`、`meeting_member_analysis_agent`、`meeting_resource_recommendation_agent`、`meeting_voice_broadcast_agent`、`ppt_outline_agent`、`ppt_structure_agent`、`ppt_review_agent`、`ppt_image_agent`、`ppt_to_docx_agent`、`image_agent`。
+`leader_agent`、`diagram_mind_map_agent`、`diagram_flowchart_agent`、`diagram_architecture_agent`、`textbook_knowledge_agent`、`textbook_question_single_choice_agent`、`textbook_question_fill_blank_agent`、`textbook_question_true_false_agent`、`textbook_question_multiple_choice_agent`、`textbook_question_short_answer_agent`、`textbook_question_calculation_agent`、`textbook_question_programming_agent`、`meeting_controller_agent`、`meeting_transcription_agent`、`meeting_summary_agent`、`meeting_member_analysis_agent`、`meeting_resource_recommendation_agent`、`meeting_voice_broadcast_agent`、`ppt_outline_agent`、`ppt_structure_agent`、`ppt_review_agent`、`ppt_to_docx_agent`、`image_agent`。
 
 `agentName` 留空或传 `leader_agent` 时由 Leader 先做意图识别，再决定直接回答、调用专业智能体，或调用 Text-to-SQL / Java 后端接口。Java 后端会从 `system_config` 读取 `ai.service.text.provider`、`ai.service.text.base-url`、`ai.service.text.api-key`、`ai.service.text.model`，再通过内部请求头传给 Python；配置缺失或 LLM 调用失败会直接报错，不做本地规则兜底。只有 `needRetrieval=true` 的专业智能体才需要 `ragStrategy`；`leader_agent` 不传 RAG 策略。
 
 ```json
 {
-  "agentName": "mind_map_agent",
+  "agentName": "diagram_mind_map_agent",
   "input": "把操作系统进程调度整理成思维导图"
 }
 ```

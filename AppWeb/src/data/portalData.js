@@ -34,6 +34,7 @@ export const portalGroups = [
       { path: '/facility/teaching', label: '教学楼设置', icon: 'bank', pageKey: 'facility-teaching' },
       { path: '/facility/dormitory', label: '宿舍设置', icon: 'home', pageKey: 'facility-dormitory' },
       { path: '/facility/marker', label: '标点管理', icon: 'pushpin', pageKey: 'facility-marker' },
+     { path: '/facility/public', label: '公共设施设置', icon: 'appstore' },
       { path: '/facility/analytics', label: '设施统计', icon: 'bar-chart', pageKey: 'facility-analytics' },
       { path: '/facility/nav-analytics', label: '导航统计', icon: 'line-chart', pageKey: 'map-analytics' },
     ],
@@ -64,6 +65,7 @@ export const portalGroups = [
     label: '课程学习',
     items: [
       { path: '/learning/courses', label: '校园课程管理', icon: 'book' },
+      { path: '/learning/python-problems', label: 'Python 题库管理', icon: 'appstore' },
     ],
   },
   {
@@ -83,11 +85,17 @@ export const portalGroups = [
       { path: '/ai/agent-settings', label: '智能体设置', icon: 'setting' },
       { path: '/ai/rag/agents', label: '智能体测试', icon: 'robot' },
       { path: '/ai/agent-cache', label: '缓存监控', icon: 'line-chart' },
+      { path: '/ai/tool-monitor', label: '工具调用监控', icon: 'monitor' },
       { path: '/ai/observability', label: '观测配置', icon: 'line-chart' },
       { path: '/ai/knowledge', label: '知识库管理', icon: 'file-search' },
       { path: '/admin/knowledge-chat', label: '知识库聊天', icon: 'message' },
       { path: '/ai/profile-rules', label: '画像规则', icon: 'pie-chart' },
     ],
+  },
+  {
+    label: '岗位星图',
+    path: '/career/nebula',
+    items: [],
   },
 ]
 
@@ -104,6 +112,7 @@ export const moduleCards = [
   { title: '智能体设置', description: '集中维护智能体开关、默认模型和运行边界', route: '/ai/agent-settings' },
   { title: '智能体测试', description: '测试智能体调用、导入题库并维护示例输入', route: '/ai/rag/agents' },
   { title: '缓存监控', description: '查看普通智能体工具缓存命中率和接口明细', route: '/ai/agent-cache' },
+  { title: '工具调用监控', description: '查看工具启用状态与每次工具调用时的意图识别打分情况', route: '/ai/tool-monitor' },
   { title: '题库管理', description: '查看智能体导入的标准题库', route: QUESTION_BANK_ROUTES.questions },
   { title: '试卷生成', description: '从现有题库随机或手工组卷并下载 Word 试卷', route: QUESTION_BANK_ROUTES.createPaper },
   { title: '知识库管理', description: '维护 MaxKB 账号、环境地址和知识库文档', route: '/ai/knowledge' },
@@ -541,6 +550,25 @@ export const getNavMetaByPath = (path) => {
   }
 }
 
+// 下钻页面的面包屑规则：带 path 的父级可点击返回（match 支持正则匹配动态路由）
+const drilldownBreadcrumbs = [
+  {
+    match: /^\/facility\/canteen\/[^/]+\/stalls$/,
+    items: ['校园设施', { label: '食堂管理', path: '/facility/canteen' }, '档口管理'],
+  },
+  {
+    match: /^\/facility\/restaurant$/,
+    items: ['校园设施', { label: '食堂管理', path: '/facility/canteen' }, '档口管理'],
+  },
+  {
+    match: /^\/facility\/stall-dish$/,
+    items: ['校园设施', { label: '食堂管理', path: '/facility/canteen' }, '档口菜品管理'],
+  },
+  {
+    match: /^\/facility\/analytics\/[^/]+$/,
+    items: ['校园设施', { label: '设施统计', path: '/facility/analytics' }, '图文详情'],
+  },
+]
 const normalizePortalPath = (path) => {
   const normalized = String(path || '').split(/[?#]/, 1)[0].replace(/\/+$/, '')
   return normalized || '/'
@@ -548,6 +576,8 @@ const normalizePortalPath = (path) => {
 
 export const getBreadcrumbByPath = (path) => {
   const normalizedPath = normalizePortalPath(path)
+  const drilldown = drilldownBreadcrumbs.find((rule) => rule.match.test(normalizedPath))
+  if (drilldown) return drilldown.items
 
   for (const section of navigationSections) {
     const item = section.items.find((navItem) => normalizePortalPath(navItem.path) === normalizedPath)
@@ -592,6 +622,39 @@ export const getBreadcrumbByPath = (path) => {
       { label: '食堂管理', path: '/facility/canteen' },
       { label: '档口管理', path: `/facility/canteen/${indoorMatch[1]}/stalls` },
       { label: '楼层档口定位' },
+    ]
+  }
+
+  const teachingIndoorMatch = normalizedPath.match(/^\/facility\/teaching\/([^/]+)\/rooms\/indoor$/)
+  if (teachingIndoorMatch) {
+    return [
+      '校园设施',
+      { label: '教学楼设置', path: '/facility/teaching' },
+      { label: '楼层教室定位' },
+    ]
+  }
+
+  if (/^\/facility\/teaching\/[^/]+\/rooms$/.test(normalizedPath)) {
+    return [
+      '校园设施',
+      { label: '教学楼设置', path: '/facility/teaching' },
+      { label: '楼层列表' },
+    ]
+  }
+
+  if (/^\/facility\/dormitory\/[^/]+\/rooms\/indoor$/.test(normalizedPath)) {
+    return [
+      '校园设施',
+      { label: '宿舍设置', path: '/facility/dormitory' },
+      { label: '楼层房间定位' },
+    ]
+  }
+
+  if (/^\/facility\/dormitory\/[^/]+\/rooms$/.test(normalizedPath)) {
+    return [
+      '校园设施',
+      { label: '宿舍设置', path: '/facility/dormitory' },
+      { label: '楼层列表' },
     ]
   }
 

@@ -5,10 +5,8 @@
 | Agent | 中文名称 | 职责 |
 | --- | --- | --- |
 | `leader_agent` | Leader 智能体 | 统一路由、任务拆解、会话记忆、基于 LLM 的直接回答 |
-| `architecture_prompt_agent` | 图表架构图提示词智能体 | 根据系统说明、模块依赖和数据流生成可交给架构图智能体使用的提示词 |
 | `diagram_mind_map_agent` | 图表思维导图智能体 | 根据知识点材料和证据生成 Mermaid 思维导图 |
 | `diagram_flowchart_agent` | 图表流程图智能体 | 根据步骤、算法或业务过程生成 Mermaid 流程图 |
-| `diagram_activity_agent` | 图表活动图智能体 | 根据角色协作、任务执行和活动顺序生成 Mermaid 活动图 |
 | `diagram_architecture_agent` | 图表架构图智能体 | 根据系统模块、服务依赖和数据流生成 Mermaid 架构结构，不直接生图 |
 | `textbook_knowledge_agent` | 教材知识点智能体 | 统一处理教材、Markdown 教材文本和知识点整理；第三方知识库证据由 Java 后端接入后作为输入传入 |
 | `textbook_question_single_choice_agent` | 选择题智能体 | 基于知识点生成单选题、选项、答案和解析 |
@@ -21,7 +19,6 @@
 | `ppt_outline_agent` | PPT 大纲智能体 | 基于主题和证据生成 PPT 页结构、大纲和页面建议 |
 | `ppt_structure_agent` | Presenton 结构智能体 | 按 Presenton 布局组件 Schema 为每页选择 layoutId |
 | `ppt_review_agent` | PPT 审查智能体 | 审查 PPT 内容和布局，输出问题清单、修改建议和置信度 |
-| `ppt_image_agent` | PPT 配图提示词智能体 | 为 PPT 封面、插图和示意图生成图片提示词，不直接生图 |
 | `ppt_to_docx_agent` | PPT 转 DOCX 智能体 | 将 PPTX 文件转换为 DOCX，按幻灯片顺序重排内容并保留图片 |
 
 每个智能体文件夹都包含：`agent.py`、`skill.md`、`prompt.md`、`contract.md`、`tools.yaml`，方便后续单独调整 skill。
@@ -33,12 +30,10 @@
 | 功能 | `agentName` | 执行边界 | 主要输入 |
 | --- | --- | --- | --- |
 | Leader 自动分发 | 留空或 `leader_agent` | Java 后端负责第三方知识库接入 | `input` |
-| 架构图提示词 | `architecture_prompt_agent` | 直接处理输入上下文 | `input` 为系统说明、模块依赖或数据流材料 |
-| 思维导图图片 | `generate_mind_map_image_tool` | 工具编排 | 工具内部调用 `mind_map_agent` 生成提示词，再调用唯一图片入口 |
-| 流程图图片 | `generate_flowchart_image_tool` | 工具编排 | 工具内部调用 `diagram_flowchart_prompt_agent` 生成提示词，再调用唯一图片入口 |
-| 活动图图片 | `generate_activity_image_tool` | 工具编排 | 工具内部调用 `diagram_activity_prompt_agent` 生成提示词，再调用唯一图片入口 |
-| 架构图图片 | `generate_architecture_image_tool` | 工具编排 | 工具内部调用 `architecture_prompt_agent` 生成提示词，再调用唯一图片入口 |
-| 知识图谱图片 | `generate_knowledge_graph_image_tool` | 工具编排 | 工具内部调用 `knowledge_graph_prompt_agent` 生成提示词，再调用唯一图片入口 |
+| 思维导图 | `generate_mind_map_tool` | 工具编排 | 调用 App 结构化 JSON 生成；模型绑定 `diagram_mind_map_agent` |
+| 流程图 | `generate_flowchart_tool` | 工具编排 | 调用 App 结构化 JSON 生成；模型绑定 `diagram_flowchart_agent` |
+| 架构图 | `generate_architecture_tool` | 工具编排 | 调用 App 结构化 JSON 生成；模型绑定 `diagram_architecture_agent` |
+| PPT 课件 | `ai_ppt_generation_tool` | 工具编排 | 触发与 App 相同的 Presenton 编排任务；模型绑定 `ppt_outline_agent` |
 | 教材知识点 | `textbook_knowledge_agent` | Java 后端负责第三方知识库接入 | `input` 为章节、知识点问题或 Markdown 教材文本 |
 | 选择题 | `textbook_question_single_choice_agent` | 直接处理输入上下文 | `input` 为出题范围 |
 | 填空题 | `textbook_question_fill_blank_agent` | 直接处理输入上下文 | `input` 为出题范围 |
@@ -50,7 +45,6 @@
 | PPT 大纲 | `ppt_outline_agent` | 直接处理输入上下文 | `input` 为课件主题 |
 | PPT 结构选版 | `ppt_structure_agent` | Presenton 模板结构选择 | `input` 为模板布局 Schema 和 PPT 大纲 JSON |
 | PPT 审查 | `ppt_review_agent` | 直接处理输入上下文 | `input` 为 PPT 大纲、布局或页面内容 |
-| PPT 图片 | `generate_ppt_image_tool` | 工具编排 | 工具内部调用 `ppt_image_agent` 生成提示词，再调用唯一图片入口 |
 | PPT 转 DOCX | `ppt_to_docx_agent` | 确定性文件转换 | 上传 `.pptx` 文件后通过文档转换接口生成 `.docx` |
 
 请求示例：

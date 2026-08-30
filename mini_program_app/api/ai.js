@@ -219,6 +219,23 @@ export function getMeetingDetail(sessionId) {
   })
 }
 
+/**
+ * 查询「我的会议任务」。
+ * 复用后端现有 GET /api/meeting-tasks/my：该接口以 JWT 解析出的 currentUserId 为准，
+ * 只返回 assignee_id 等于当前登录用户的任务，不接受前端传入他人 userId，
+ * 因此个人视角的数据隔离由服务端保证。
+ * @param {{status?: string}} params 可选按状态过滤（PENDING / COMPLETED）
+ */
+export function getMyMeetingTasks(params = {}) {
+  const data = {}
+  if (params.status) data.status = params.status
+  return request({
+    url: '/api/meeting-tasks/my',
+    method: 'GET',
+    data
+  })
+}
+
 export function getMeetings(params = {}) {
   return request({
     url: '/api/meetings',

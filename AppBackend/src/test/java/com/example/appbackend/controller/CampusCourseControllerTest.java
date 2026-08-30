@@ -4,6 +4,7 @@ import com.example.appbackend.dto.CampusCourseDTO;
 import com.example.appbackend.exception.GlobalExceptionHandler;
 import com.example.appbackend.service.CampusCourseService;
 import com.example.appbackend.service.CourseMaterialService;
+import com.example.appbackend.service.SystemConfigService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.web.servlet.MockMvc;
@@ -19,6 +20,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class CampusCourseControllerTest {
     private CampusCourseService service;
     private CourseMaterialService materialService;
+    private SystemConfigService systemConfigService;
     private MockMvc adminMvc;
     private MockMvc appMvc;
 
@@ -26,13 +28,14 @@ class CampusCourseControllerTest {
     void setUp() {
         service = mock(CampusCourseService.class);
         materialService = mock(CourseMaterialService.class);
+        systemConfigService = mock(SystemConfigService.class);
         when(service.adminList()).thenReturn(List.of());
         CampusCourseDTO.CourseSummary course = new CampusCourseDTO.CourseSummary();
         course.setId(8L);
         course.setName("Python程序设计");
         when(service.studentList(42L)).thenReturn(List.of(course));
 
-        adminMvc = MockMvcBuilders.standaloneSetup(new AdminCampusCourseController(service))
+        adminMvc = MockMvcBuilders.standaloneSetup(new AdminCampusCourseController(service, systemConfigService))
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .build();
         appMvc = MockMvcBuilders.standaloneSetup(new AppCampusCourseController(service, materialService))

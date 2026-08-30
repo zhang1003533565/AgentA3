@@ -23,6 +23,8 @@ public interface DishRepository extends JpaRepository<Dish, Long> {
 
     List<Dish> findByStallPlaceId(Long stallPlaceId);
 
+    void deleteByStallPlaceId(Long stallPlaceId);
+
     @Query("SELECT dish FROM Dish dish JOIN MapPlace stall ON dish.stallPlaceId = stall.id " +
             "WHERE stall.parentId = :floorPlaceId AND dish.isAvailable = true")
     List<Dish> findAvailableByFloorPlaceId(@Param("floorPlaceId") Long floorPlaceId);

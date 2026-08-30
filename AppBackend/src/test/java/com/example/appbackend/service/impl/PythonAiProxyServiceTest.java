@@ -112,7 +112,7 @@ class PythonAiProxyServiceTest {
         Assertions.assertEquals("1001", userIdRef.get());
         Assertions.assertEquals("https://llm.test/v1", aiBaseUrlRef.get());
         Assertions.assertEquals("test-ai-key", aiApiKeyRef.get());
-        Assertions.assertEquals("test-model", aiModelRef.get());
+        Assertions.assertEquals("qwen3.8-27b", aiModelRef.get());
 
         ObjectMapper mapper = new ObjectMapper();
         JsonNode reqJson = mapper.readTree(requestBodyRef.get());
@@ -121,6 +121,41 @@ class PythonAiProxyServiceTest {
         Assertions.assertTrue(reqJson.path("ragStrategy").isMissingNode() || reqJson.path("ragStrategy").isNull());
         Assertions.assertEquals("ppt_outline_agent", reqJson.path("agentName").asText());
         Assertions.assertEquals("哪个食堂有黄焖鸡", reqJson.path("input").asText());
+        Assertions.assertTrue(reqJson.path("attachments").isArray());
+        Assertions.assertTrue(reqJson.path("images").isArray());
+        Assertions.assertTrue(reqJson.path("imageUrls").isArray());
+    }
+
+    @Test
+    void chat_resumePolishAgentShouldReuseResumeEditModelBinding() throws Exception {
+        AtomicReference<String> aiModelRef = new AtomicReference<>();
+        AtomicReference<String> requestBodyRef = new AtomicReference<>();
+        server = HttpServer.create(new InetSocketAddress(0), 0);
+        server.createContext("/internal/chat", exchange -> {
+            aiModelRef.set(exchange.getRequestHeaders().getFirst("X-AI-Model"));
+            requestBodyRef.set(readBody(exchange));
+            writeJson(exchange, 200, """
+                    {"sessionId":"resume-session","sessionToken":"token","model":"qwen3.8-27b",
+                     "ragStrategy":"direct_agent","agentName":"resume_polish_expand_agent",
+                     "searchKeyword":"","matchedResults":[],"retrievalMeta":{},"trace":[],"answer":"优化结果"}
+                    """);
+        });
+        server.start();
+
+        LlmChatRequest request = new LlmChatRequest();
+        request.setAgentName("resume_polish_expand_agent");
+        request.setInput("润色个人优势");
+
+        LlmChatResponse response = newService(
+                server.getAddress().getPort(), new ResumePolishBindingSystemConfigService())
+                .chat(request, "Bearer " + buildJwtToken(1002L));
+
+        Assertions.assertEquals("优化结果", response.getAnswer());
+        Assertions.assertEquals("deepseek-v4-flash-0731", aiModelRef.get());
+        JsonNode requestJson = new ObjectMapper().readTree(requestBodyRef.get());
+        Assertions.assertTrue(requestJson.path("attachments").isArray());
+        Assertions.assertTrue(requestJson.path("images").isArray());
+        Assertions.assertTrue(requestJson.path("imageUrls").isArray());
     }
 
     @Test
@@ -172,7 +207,7 @@ class PythonAiProxyServiceTest {
         Assertions.assertEquals("Bearer " + token, authRef.get());
         Assertions.assertEquals("1003", userIdRef.get());
         Assertions.assertEquals("test-internal-token", internalTokenRef.get());
-        Assertions.assertEquals("test-model", aiModelRef.get());
+        Assertions.assertEquals("qwen3.8-27b", aiModelRef.get());
 
         ObjectMapper mapper = new ObjectMapper();
         JsonNode reqJson = mapper.readTree(requestBodyRef.get());
@@ -185,6 +220,46 @@ class PythonAiProxyServiceTest {
                 .path("ppt_outline_agent")
                 .path("tested")
                 .asBoolean());
+    }
+
+    @Test
+    void streamRag_withPdfAttachment_shouldStillForwardLeaderModelHeaders() throws Exception {
+        AtomicReference<String> modelRef = new AtomicReference<>();
+        CountDownLatch requestArrived = new CountDownLatch(1);
+        server = HttpServer.create(new InetSocketAddress(0), 0);
+        server.createContext("/internal/rag/query/stream", exchange -> {
+            modelRef.set(exchange.getRequestHeaders().getFirst("X-AI-Model"));
+            requestArrived.countDown();
+            exchange.getResponseHeaders().set(
+                    "Content-Type", MediaType.TEXT_EVENT_STREAM_VALUE + ";charset=UTF-8");
+            exchange.sendResponseHeaders(200, 0);
+            exchange.getResponseBody().write(("""
+                    event: done
+                    data: {"answer":"已读取 PDF","trace":[]}
+
+                    """).getBytes(StandardCharsets.UTF_8));
+            exchange.getResponseBody().flush();
+            exchange.close();
+        });
+        server.start();
+
+        SseEmitter emitter = newService(server.getAddress().getPort()).streamRag(
+                Map.of(
+                        "input", "总结这份 PDF",
+                        "agentName", "leader_agent",
+                        "attachments", List.of(Map.of(
+                                "name", "report.pdf",
+                                "mimeType", "application/pdf",
+                                "url", "https://example.com/report.pdf"
+                        ))
+                ),
+                "Bearer " + buildJwtToken(1004L)
+        );
+
+        Assertions.assertTrue(requestArrived.await(2, TimeUnit.SECONDS));
+        Assertions.assertNotNull(modelRef.get());
+        Assertions.assertFalse(modelRef.get().isBlank());
+        emitter.complete();
     }
 
     @Test
@@ -476,7 +551,7 @@ class PythonAiProxyServiceTest {
             TimeUnit.MILLISECONDS.sleep(25);
         }
         Assertions.assertEquals("test-internal-token", internalToken.get());
-        Assertions.assertEquals("test-model", model.get());
+        Assertions.assertEquals("qwen3.8-27b", model.get());
         JsonNode body = new ObjectMapper().readTree(requestBody.get());
         Assertions.assertEquals("列表切片", body.path("input").asText());
         Assertions.assertTrue(body.path("llmModel").isMissingNode());
@@ -616,7 +691,7 @@ class PythonAiProxyServiceTest {
     }
 
     @Test
-    void generateArchitecture_shouldForwardTextAiHeadersWhenAgentBindingMissing() throws Exception {
+    void generateArchitecture_shouldForwardTextAiHeadersWhenAgentBound() throws Exception {
         AtomicReference<String> authRef = new AtomicReference<>();
         AtomicReference<String> userIdRef = new AtomicReference<>();
         AtomicReference<String> providerRef = new AtomicReference<>();
@@ -638,7 +713,7 @@ class PythonAiProxyServiceTest {
         });
         server.start();
 
-        SystemConfigService systemConfigService = new NoAgentBindingSystemConfigService();
+        SystemConfigService systemConfigService = new TestSystemConfigService();
         String token = buildJwtToken(3001L);
         Object response = newService(
                 server.getAddress().getPort(),
@@ -653,13 +728,38 @@ class PythonAiProxyServiceTest {
         Assertions.assertEquals("测试架构图", ((Map<?, ?>) response).get("title"));
         Assertions.assertEquals("Bearer " + token, authRef.get());
         Assertions.assertEquals("3001", userIdRef.get());
-        Assertions.assertEquals("deepseek", providerRef.get());
+        Assertions.assertEquals("qwen", providerRef.get());
         Assertions.assertEquals("https://llm.test/v1", baseUrlRef.get());
         Assertions.assertEquals("test-ai-key", apiKeyRef.get());
-        Assertions.assertEquals("test-model", modelRef.get());
+        Assertions.assertEquals("deepseek-v4-flash-0731", modelRef.get());
 
         JsonNode request = new ObjectMapper().readTree(requestBodyRef.get());
         Assertions.assertEquals("校园二手交易系统架构图", request.path("description").asText());
+    }
+
+    @Test
+    void generateArchitecture_shouldFailWhenAgentBindingMissing() throws Exception {
+        server = HttpServer.create(new InetSocketAddress(0), 0);
+        server.createContext("/internal/architecture/generate", exchange -> {
+            writeJson(exchange, 200, "{\"title\":\"不应命中\",\"nodes\":[],\"edges\":[]}");
+        });
+        server.start();
+
+        SystemConfigService systemConfigService = new NoAgentBindingSystemConfigService();
+        String token = buildJwtToken(3001L);
+        BusinessException error = Assertions.assertThrows(
+                BusinessException.class,
+                () -> newService(
+                        server.getAddress().getPort(),
+                        systemConfigService,
+                        newSystemConfigRepository(systemConfigService)
+                ).generateArchitecture(
+                        Map.of("description", "校园二手交易系统架构图"),
+                        "Bearer " + token
+                )
+        );
+
+        Assertions.assertTrue(error.getMessage().contains("diagram_architecture_agent"));
     }
 
     @Test
@@ -692,10 +792,10 @@ class PythonAiProxyServiceTest {
         );
 
         Assertions.assertInstanceOf(Map.class, response);
-        Assertions.assertEquals("deepseek", providerRef.get());
+        Assertions.assertEquals("qwen", providerRef.get());
         Assertions.assertEquals("https://llm.test/v1", baseUrlRef.get());
         Assertions.assertEquals("test-ai-key", apiKeyRef.get());
-        Assertions.assertEquals("test-model", modelRef.get());
+        Assertions.assertEquals("qwen3.8-27b", modelRef.get());
 
         JsonNode request = new ObjectMapper().readTree(requestBodyRef.get());
         Assertions.assertEquals("material.txt", request.path("sourceName").asText());
@@ -938,7 +1038,7 @@ class PythonAiProxyServiceTest {
                 return "ai.service.text";
             }
             if ("ai.service.text.provider".equals(key)) {
-                return "deepseek";
+                return "qwen";
             }
             if ("ai.service.text.base-url".equals(key)) {
                 return "https://llm.test/v1";
@@ -947,11 +1047,11 @@ class PythonAiProxyServiceTest {
                 return "test-ai-key";
             }
             if ("ai.service.text.model".equals(key)) {
-                return "test-model";
+                return "qwen-plus";
             }
             if ("ai.service.text.tested-fingerprint".equals(key)) {
                 return QuestionGenerationServiceImpl.fingerprint(
-                        "deepseek", "https://llm.test/v1", "test-ai-key", "test-model"
+                        "qwen", "https://llm.test/v1", "test-ai-key", "qwen-plus"
                 );
             }
             if ("ai.service.embedding.qwen.provider".equals(key)) {
@@ -995,6 +1095,19 @@ class PythonAiProxyServiceTest {
         public String getValue(String key, String defaultValue) {
             if (key.startsWith("ai.agent-bindings.") && key.endsWith(".model")) {
                 return "";
+            }
+            return super.getValue(key, defaultValue);
+        }
+    }
+
+    private static final class ResumePolishBindingSystemConfigService extends TestSystemConfigService {
+        @Override
+        public String getValue(String key, String defaultValue) {
+            if ("ai.agent-bindings.resume_polish_expand_agent.model".equals(key)) {
+                return "";
+            }
+            if ("ai.agent-bindings.resume_edit_agent.model".equals(key)) {
+                return "ai.service.text";
             }
             return super.getValue(key, defaultValue);
         }

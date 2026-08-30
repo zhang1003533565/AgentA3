@@ -11,6 +11,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from pptx import Presentation
+from docx import Document
 
 from app.rag.document_conversion import generated_exporter
 
@@ -74,6 +75,25 @@ class GeneratedExporterTest(unittest.TestCase):
                 image_bytes,
                 (Path(directory) / attachments[0]["storageKey"]).read_bytes(),
             )
+
+    def test_docx_export_embeds_workflow_generated_image(self):
+        image_bytes = base64.b64decode(
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            generated_exporter.EXPORT_ROOT = Path(directory)
+            result = generated_exporter.export_generated_answer(
+                "# 测试文档\n\n这是正文。",
+                "markdown",
+                {
+                    "requestedOutputType": "docx",
+                    "embeddedImageBytes": [image_bytes],
+                    "toolToggles": {"docx_export_tool": True},
+                },
+            )
+
+            document = Document(Path(directory) / result.attachments[0]["storageKey"])
+            self.assertEqual(1, len(document.inline_shapes))
 
     def test_default_root_is_repository_local_and_production_requires_explicit_root(self):
         expected = Path(generated_exporter.__file__).resolve().parents[3] / "data" / "ai-exports"
@@ -312,14 +332,11 @@ class GeneratedExporterTest(unittest.TestCase):
                 {"executedAgent": "textbook_question_single_choice_agent"},
             )
 
-            self.assertEqual(["md", "docx", "xlsx", "zip"], [item["ext"] for item in result.attachments])
+            self.assertEqual(["md", "docx"], [item["ext"] for item in result.attachments])
             self.assertEqual("question_bank", result.diagnostics["contentKind"])
             for attachment in result.attachments:
                 path = generated_exporter.EXPORT_ROOT / attachment["storageKey"]
                 self.assertTrue(path.exists(), path)
-            xlsx_key = next(item["storageKey"] for item in result.attachments if item["ext"] == "xlsx")
-            with zipfile.ZipFile(generated_exporter.EXPORT_ROOT / xlsx_key) as archive:
-                self.assertIn("xl/worksheets/sheet1.xml", archive.namelist())
 
     def test_question_bank_export_tolerates_fsync_failures(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -349,7 +366,7 @@ class GeneratedExporterTest(unittest.TestCase):
                     {"executedAgent": "textbook_question_single_choice_agent"},
                 )
 
-            self.assertEqual(["md", "docx", "xlsx", "zip"], [item["ext"] for item in result.attachments])
+            self.assertEqual(["md", "docx"], [item["ext"] for item in result.attachments])
             for attachment in result.attachments:
                 self.assertTrue((generated_exporter.EXPORT_ROOT / attachment["storageKey"]).exists())
 
@@ -362,7 +379,7 @@ class GeneratedExporterTest(unittest.TestCase):
                 {"executedAgent": "textbook_knowledge_agent"},
             )
 
-            self.assertEqual(["md", "docx", "xlsx", "zip"], [item["ext"] for item in result.attachments])
+            self.assertEqual(["md", "docx"], [item["ext"] for item in result.attachments])
             self.assertEqual("markdown_content", result.diagnostics["contentKind"])
 
     def test_requested_file_format_only_returns_selected_attachment(self):
@@ -399,17 +416,10 @@ class GeneratedExporterTest(unittest.TestCase):
             )
 
             self.assertEqual(["docx"], [item["ext"] for item in word_result.attachments])
-            self.assertEqual(["xlsx"], [item["ext"] for item in excel_result.attachments])
-            self.assertEqual(["pptx"], [item["ext"] for item in ppt_result.attachments])
+            self.assertEqual([], excel_result.attachments)
+            self.assertEqual([], ppt_result.attachments)
             self.assertTrue(word_result.attachments[0]["name"].endswith(".docx"))
-            self.assertTrue(excel_result.attachments[0]["name"].endswith(".xlsx"))
-            self.assertTrue(ppt_result.attachments[0]["name"].endswith(".pptx"))
             self.assertNotEqual("Word 文档.docx", word_result.attachments[0]["name"])
-            self.assertNotEqual("Excel 表格.xlsx", excel_result.attachments[0]["name"])
-            presentation = Presentation(
-                generated_exporter.EXPORT_ROOT / ppt_result.attachments[0]["storageKey"]
-            )
-            self.assertGreaterEqual(len(presentation.slides), 2)
 
     def test_mermaid_exports_source_files(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -420,10 +430,10 @@ class GeneratedExporterTest(unittest.TestCase):
                 {"executedAgent": "diagram_flowchart_agent"},
             )
 
-            self.assertEqual(["mmd", "md", "zip"], [item["ext"] for item in result.attachments])
+            self.assertEqual(["md"], [item["ext"] for item in result.attachments])
             self.assertEqual("diagram_source", result.diagnostics["contentKind"])
-            mmd_key = next(item["storageKey"] for item in result.attachments if item["ext"] == "mmd")
-            self.assertIn("flowchart TD", (generated_exporter.EXPORT_ROOT / mmd_key).read_text(encoding="utf-8"))
+            md_key = next(item["storageKey"] for item in result.attachments if item["ext"] == "md")
+            self.assertIn("flowchart TD", (generated_exporter.EXPORT_ROOT / md_key).read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":

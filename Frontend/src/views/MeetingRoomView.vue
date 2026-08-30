@@ -1,8 +1,9 @@
 <script setup>
-import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
-import { endMeeting, getMeetingDetail, getMeetingComments, sendMeetingComment } from '../api/meetings'
+import { useMeetingAsr } from '../composables/useMeetingAsr'
+import { endMeeting, getMeetingDetail, getMeetingComments, leaveMeeting, sendMeetingComment, transferHost } from '../api/meetings'
 import { getUserInfo } from '../utils/auth'
 
 const route = useRoute()
@@ -13,22 +14,31 @@ const loading = ref(true)
 const error = ref('')
 const myName = ref('我')
 const myMicOn = ref(true)
-const subtitlesOn = ref(false)
+const sidePanelTab = ref('comments')
 const showMembers = ref(false)
 const showInvite = ref(false)
 const showSettings = ref(false)
+const leaveActionVisible = ref(false)
+const transferHostVisible = ref(false)
+const selectedTransferMember = ref('')
+const transferring = ref(false)
 const copyTip = ref('')
 const now = ref(Date.now())
 const ending = ref(false)
 const comments = ref([])
 const commentDraft = ref('')
+const danmakuDraft = ref('')
 const commentListRef = ref(null)
+const intelligenceListRef = ref(null)
 
 let enteredAt = Date.now()
 let timer = null
 let pollTimer = null
 
 const session = computed(() => detail.value?.session || null)
+const sessionId = computed(() => route.params.sessionId)
+const meetingTitle = computed(() => session.value?.title || '未命名会议')
+const asrEnabled = computed(() => session.value?.status === 'active')
 
 const isCreator = computed(() => {
   const user = getUserInfo() || {}
@@ -38,7 +48,35 @@ const isCreator = computed(() => {
   return userId != null && String(creatorId) === String(userId)
 })
 
+const {
+  asrItems,
+  aiSummaryItems,
+  subtitleRecords,
+  agentEnabled,
+  panelMode,
+  asrStatusText,
+  aiSummaryStatusText,
+  asrReconnectVisible,
+  livePanelTitle,
+  livePanelStatus,
+  latestSubtitleLine,
+  initAsr,
+  closeAsr,
+  reconnectAsr,
+  setAgentSummary,
+  sendDanmaku,
+  syncRecordsFromDetail,
+} = useMeetingAsr({
+  sessionId,
+  meetingTitle,
+  isHost: isCreator,
+  micEnabled: myMicOn,
+  enabled: asrEnabled,
+})
+
 const canEndMeeting = computed(() => isCreator.value && session.value?.status === 'active')
+
+const transferableMembers = computed(() => tiles.value.filter((tile) => !tile.isSelf))
 
 const elapsedLabel = computed(() => {
   const startSource = session.value?.startTime
@@ -99,6 +137,17 @@ function leaveRoom() {
   router.replace('/meetings')
 }
 
+async function exitRoom() {
+  if (session.value?.status === 'active' && !isCreator.value) {
+    try {
+      await leaveMeeting(session.value.sessionId)
+    } catch {
+      /* 忽略离开接口异常，仍返回列表 */
+    }
+  }
+  leaveRoom()
+}
+
 /* ---------- 评论区 ---------- */
 const currentUserId = computed(() => {
   const user = getUserInfo() || {}
@@ -149,6 +198,71 @@ async function sendComment() {
   }
 }
 
+function submitDanmaku() {
+  const text = danmakuDraft.value.trim()
+  if (!text) return
+  sendDanmaku(text)
+  danmakuDraft.value = ''
+  nextTick(() => {
+    if (intelligenceListRef.value) intelligenceListRef.value.scrollTop = intelligenceListRef.value.scrollHeight
+  })
+}
+
+function toggleAgentMode(enabled) {
+  setAgentSummary(enabled)
+}
+
+function handleHostLeave() {
+  if (!isCreator.value) {
+    exitRoom()
+    return
+  }
+  leaveActionVisible.value = true
+}
+
+function closeLeaveAction() {
+  leaveActionVisible.value = false
+}
+
+function openTransferHost() {
+  leaveActionVisible.value = false
+  transferHostVisible.value = true
+  selectedTransferMember.value = ''
+}
+
+function closeTransferHost() {
+  transferHostVisible.value = false
+}
+
+function selectTransferMember(name) {
+  selectedTransferMember.value = name
+}
+
+async function confirmTransferHost() {
+  if (!selectedTransferMember.value) {
+    error.value = '请选择新主持人'
+    return
+  }
+  if (!session.value) return
+  transferring.value = true
+  error.value = ''
+  try {
+    const result = await transferHost(session.value.sessionId, { newHostName: selectedTransferMember.value })
+    if (result?.data) detail.value = result.data
+    transferHostVisible.value = false
+    try {
+      await leaveMeeting(session.value.sessionId)
+    } catch {
+      /* 忽略离开接口异常 */
+    }
+    leaveRoom()
+  } catch (cause) {
+    error.value = cause.message || '转交主持人失败'
+  } finally {
+    transferring.value = false
+  }
+}
+
 async function endRoom() {
   if (!session.value) return
   ending.value = true
@@ -169,6 +283,7 @@ async function loadRoom() {
   try {
     const result = await getMeetingDetail(route.params.sessionId)
     detail.value = result?.data || null
+    syncRecordsFromDetail(result?.data?.records || [])
   } catch (cause) {
     error.value = cause.message || '会议信息加载失败'
   } finally {
@@ -180,7 +295,12 @@ async function refreshDetail() {
   if (loading.value || ending.value) return
   try {
     const result = await getMeetingDetail(route.params.sessionId)
-    if (result?.data) detail.value = result.data
+    if (result?.data) {
+      detail.value = result.data
+      if (result.data.session?.status === 'ended' && !isCreator.value) {
+        router.replace('/meetings')
+      }
+    }
   } catch {
     /* 忽略轮询异常 */
   }
@@ -201,13 +321,29 @@ onMounted(() => {
     now.value = Date.now()
   }, 1000)
   pollTimer = setInterval(refreshDetail, 8000)
-  loadRoom()
+  loadRoom().then(() => {
+    if (asrEnabled.value) initAsr()
+  })
 })
 
 onBeforeUnmount(() => {
   if (timer) clearInterval(timer)
   if (pollTimer) clearInterval(pollTimer)
+  closeAsr()
 })
+
+watch(asrEnabled, (value) => {
+  if (value) initAsr()
+  else closeAsr()
+})
+
+watch([asrItems, aiSummaryItems, subtitleRecords], () => {
+  nextTick(() => {
+    if (intelligenceListRef.value && sidePanelTab.value === 'intelligence') {
+      intelligenceListRef.value.scrollTop = intelligenceListRef.value.scrollHeight
+    }
+  })
+}, { deep: true })
 </script>
 
 <template>
@@ -245,7 +381,15 @@ onBeforeUnmount(() => {
           >
             {{ ending ? '结束中…' : '结束会议' }}
           </button>
-          <button v-else class="room-btn room-btn--leave" type="button" @click="leaveRoom">离开会议</button>
+          <button
+            v-if="canEndMeeting"
+            class="room-btn room-btn--ghost"
+            type="button"
+            @click="handleHostLeave"
+          >
+            离开
+          </button>
+          <button v-else-if="session.status === 'active'" class="room-btn room-btn--leave" type="button" @click="exitRoom">离开会议</button>
         </div>
       </header>
 
@@ -273,39 +417,96 @@ onBeforeUnmount(() => {
           </div>
         </main>
 
-        <!-- 评论区 -->
-        <aside class="room-comments">
-          <div class="room-comments__head">
-            <h2>评论区</h2>
-            <span>{{ comments.length }} 条</span>
+        <!-- 右侧：评论 + 智能助手 -->
+        <aside class="room-sidepanel">
+          <div class="room-sidepanel__tabs">
+            <button type="button" :class="{ active: sidePanelTab === 'comments' }" @click="sidePanelTab = 'comments'">评论</button>
+            <button type="button" :class="{ active: sidePanelTab === 'intelligence' }" @click="sidePanelTab = 'intelligence'">智能助手</button>
           </div>
-          <div ref="commentListRef" class="room-comments__list">
-            <p v-if="!comments.length" class="room-comments__empty">还没有评论，来抢个沙发吧</p>
-            <div
-              v-for="(comment, index) in comments"
-              :key="index"
-              class="room-comment"
-              :class="{ 'room-comment--self': comment.isSelf }"
-            >
-              <span class="room-comment__avatar">{{ initialOf(comment.name) }}</span>
-              <div class="room-comment__body">
-                <div class="room-comment__meta">
-                  <strong>{{ comment.name }}<em v-if="comment.isSelf">（我）</em></strong>
-                  <time>{{ comment.time }}</time>
+
+          <div v-show="sidePanelTab === 'comments'" class="room-comments">
+            <div class="room-comments__head">
+              <h2>评论区</h2>
+              <span>{{ comments.length }} 条</span>
+            </div>
+            <div ref="commentListRef" class="room-comments__list">
+              <p v-if="!comments.length" class="room-comments__empty">还没有评论，来抢个沙发吧</p>
+              <div
+                v-for="(comment, index) in comments"
+                :key="index"
+                class="room-comment"
+                :class="{ 'room-comment--self': comment.isSelf }"
+              >
+                <span class="room-comment__avatar">{{ initialOf(comment.name) }}</span>
+                <div class="room-comment__body">
+                  <div class="room-comment__meta">
+                    <strong>{{ comment.name }}<em v-if="comment.isSelf">（我）</em></strong>
+                    <time>{{ comment.time }}</time>
+                  </div>
+                  <p class="room-comment__text">{{ comment.text }}</p>
                 </div>
-                <p class="room-comment__text">{{ comment.text }}</p>
               </div>
             </div>
+            <form class="room-comments__input" @submit.prevent="sendComment">
+              <input v-model="commentDraft" type="text" maxlength="300" placeholder="发表你的评论…" />
+              <button class="room-btn room-btn--primary" type="submit" :disabled="!commentDraft.trim()">发送</button>
+            </form>
           </div>
-          <form class="room-comments__input" @submit.prevent="sendComment">
-            <input v-model="commentDraft" type="text" maxlength="300" placeholder="发表你的评论…" />
-            <button class="room-btn room-btn--primary" type="submit" :disabled="!commentDraft.trim()">发送</button>
-          </form>
+
+          <div v-show="sidePanelTab === 'intelligence'" class="room-intelligence">
+            <div class="room-intelligence__head">
+              <div>
+                <h2>{{ livePanelTitle }}</h2>
+                <span>{{ livePanelStatus }}</span>
+              </div>
+              <button v-if="asrReconnectVisible" type="button" class="room-intelligence__reconnect" @click="reconnectAsr">重新连接</button>
+            </div>
+
+            <div v-if="isCreator" class="room-intelligence__modes">
+              <button type="button" :class="{ active: !agentEnabled }" @click="toggleAgentMode(false)">语音弹幕</button>
+              <button type="button" :class="{ active: agentEnabled }" @click="toggleAgentMode(true)">AI 总结</button>
+            </div>
+
+            <div ref="intelligenceListRef" class="room-intelligence__list">
+              <template v-if="agentEnabled">
+                <p v-if="!aiSummaryItems.length" class="room-comments__empty">等待会议发言，AI 将提炼重点…</p>
+                <article v-for="item in aiSummaryItems" :key="item.id" class="room-intelligence__card room-intelligence__card--summary">
+                  <time>{{ item.time }}</time>
+                  <p>{{ item.text }}</p>
+                </article>
+              </template>
+              <template v-else>
+                <p v-if="!asrItems.length && !subtitleRecords.length" class="room-comments__empty">开启麦克风后，发言会自动转成字幕</p>
+                <article
+                  v-for="item in asrItems"
+                  :key="item.id"
+                  class="room-intelligence__bubble"
+                  :class="{ 'room-intelligence__bubble--self': item.isSelf, 'room-intelligence__bubble--partial': !item.isFinal }"
+                >
+                  <strong>{{ item.speaker }}</strong>
+                  <p>{{ item.text }}</p>
+                </article>
+                <article
+                  v-for="(item, index) in subtitleRecords"
+                  :key="`record-${index}-${item.timestamp}`"
+                  class="room-intelligence__record"
+                >
+                  <span>{{ item.time }} · {{ item.speaker }}{{ item.isDanmaku ? '（弹幕）' : '' }}</span>
+                  <p>{{ item.text }}</p>
+                </article>
+              </template>
+            </div>
+
+            <form class="room-comments__input" @submit.prevent="submitDanmaku">
+              <input v-model="danmakuDraft" type="text" maxlength="120" placeholder="发送会议弹幕…" />
+              <button class="room-btn room-btn--primary" type="submit" :disabled="!danmakuDraft.trim()">发送</button>
+            </form>
+          </div>
         </aside>
       </div>
 
       <!-- 字幕条 -->
-      <div v-if="subtitlesOn" class="room-subtitles">实时字幕已开启，正在识别会议发言…</div>
+      <div v-if="latestSubtitleLine && session.status === 'active'" class="room-subtitles">{{ latestSubtitleLine }}</div>
 
       <!-- 底部控制栏 -->
       <footer class="room-controls">
@@ -332,14 +533,14 @@ onBeforeUnmount(() => {
           <span class="room-control__label">成员</span>
         </button>
 
-        <button class="room-control" :class="{ 'room-control--active': subtitlesOn }" type="button" @click="subtitlesOn = !subtitlesOn">
+        <button class="room-control" :class="{ 'room-control--active': sidePanelTab === 'intelligence' }" type="button" @click="sidePanelTab = 'intelligence'">
           <span class="room-control__icon">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-              <rect x="2.5" y="5" width="19" height="14" rx="2.5" />
-              <path d="M6 12h5M13.5 12H18M6 15.5h3.5M12 15.5H18" />
+              <path d="M12 3v3M12 18v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M3 12h3M18 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1" />
+              <circle cx="12" cy="12" r="4.2" />
             </svg>
           </span>
-          <span class="room-control__label">字幕</span>
+          <span class="room-control__label">智能助手</span>
         </button>
 
         <button class="room-control" type="button" @click="showInvite = true">
@@ -395,6 +596,61 @@ onBeforeUnmount(() => {
         </div>
       </div>
 
+      <!-- 主持人离开选项 -->
+      <div v-if="leaveActionVisible" class="room-mask" @click.self="closeLeaveAction">
+        <div class="room-modal room-modal--actions">
+          <div class="room-modal__head">
+            <h2>离开会议</h2>
+            <button class="room-modal__close" type="button" aria-label="关闭" @click="closeLeaveAction">×</button>
+          </div>
+          <p class="room-modal__tip">你是主持人，离开前可以选择结束会议或转交主持人。</p>
+          <button class="room-action-btn room-action-btn--danger" type="button" :disabled="ending" @click="closeLeaveAction(); endRoom()">
+            全员结束会议
+          </button>
+          <button
+            class="room-action-btn"
+            type="button"
+            :disabled="!transferableMembers.length"
+            @click="openTransferHost"
+          >
+            转交主持人并离开
+          </button>
+          <button class="room-action-btn room-action-btn--ghost" type="button" @click="closeLeaveAction">暂不离开</button>
+        </div>
+      </div>
+
+      <!-- 转交主持人 -->
+      <div v-if="transferHostVisible" class="room-mask" @click.self="closeTransferHost">
+        <div class="room-modal">
+          <div class="room-modal__head">
+            <h2>选择新主持人</h2>
+            <button class="room-modal__close" type="button" aria-label="关闭" @click="closeTransferHost">×</button>
+          </div>
+          <ul v-if="transferableMembers.length" class="room-members">
+            <li
+              v-for="member in transferableMembers"
+              :key="member.name"
+              class="room-member room-member--selectable"
+              :class="{ 'room-member--selected': selectedTransferMember === member.name }"
+              @click="selectTransferMember(member.name)"
+            >
+              <span class="room-member__avatar">{{ initialOf(member.name) }}</span>
+              <span class="room-member__name">{{ member.name }}</span>
+              <span v-if="selectedTransferMember === member.name" class="room-member__check">✓</span>
+            </li>
+          </ul>
+          <p v-else class="room-modal__tip">暂无其他参会成员可转交</p>
+          <button
+            class="room-action-btn"
+            type="button"
+            :disabled="!selectedTransferMember || transferring"
+            @click="confirmTransferHost"
+          >
+            {{ transferring ? '转交中…' : '确认转交并离开' }}
+          </button>
+        </div>
+      </div>
+
       <!-- 设置弹窗 -->
       <div v-if="showSettings" class="room-mask" @click.self="showSettings = false">
         <div class="room-modal">
@@ -413,12 +669,26 @@ onBeforeUnmount(() => {
           </div>
           <div class="room-setting-row">
             <div>
-              <p>实时字幕</p>
-              <span>在画面下方显示会议实时字幕</span>
+              <p>AI 实时总结</p>
+              <span>{{ isCreator ? '主持人开启后，全会议成员可看到增量重点' : '主持人开启后会自动同步到此处' }}</span>
             </div>
-            <button class="room-switch" :class="{ 'room-switch--on': subtitlesOn }" type="button" role="switch" :aria-checked="subtitlesOn" @click="subtitlesOn = !subtitlesOn">
+            <button
+              class="room-switch"
+              :class="{ 'room-switch--on': agentEnabled, 'room-switch--disabled': !isCreator }"
+              type="button"
+              role="switch"
+              :aria-checked="agentEnabled"
+              :disabled="!isCreator"
+              @click="isCreator && toggleAgentMode(!agentEnabled)"
+            >
               <i></i>
             </button>
+          </div>
+          <div class="room-setting-row">
+            <div>
+              <p>识别状态</p>
+              <span>{{ asrStatusText }}</span>
+            </div>
           </div>
         </div>
       </div>
@@ -575,6 +845,51 @@ onBeforeUnmount(() => {
   background: #b91c1c;
 }
 
+.room-btn--ghost {
+  color: #475569;
+  background: #f1f5f9;
+}
+
+.room-btn--ghost:hover {
+  background: #e2e8f0;
+}
+
+.room-action-btn {
+  display: block;
+  width: 100%;
+  min-height: 44px;
+  margin-top: 10px;
+  padding: 0 16px;
+  border-radius: 10px;
+  color: #1e293b;
+  background: #f8fafc;
+  font-size: 14px;
+  font-weight: 600;
+  text-align: center;
+}
+
+.room-action-btn:hover:not(:disabled) {
+  background: #eef2f7;
+}
+
+.room-action-btn--danger {
+  color: #ffffff;
+  background: #dc2626;
+}
+
+.room-action-btn--danger:hover:not(:disabled) {
+  background: #b91c1c;
+}
+
+.room-action-btn--ghost {
+  color: #64748b;
+  background: transparent;
+}
+
+.room-modal--actions .room-modal__tip {
+  margin-bottom: 8px;
+}
+
 /* ---------- 主体布局 ---------- */
 .room-body {
   display: grid;
@@ -666,8 +981,8 @@ onBeforeUnmount(() => {
   background: #fff1ef;
 }
 
-/* ---------- 评论区 ---------- */
-.room-comments {
+/* ---------- 右侧智能面板 ---------- */
+.room-sidepanel {
   display: flex;
   flex-direction: column;
   max-height: 520px;
@@ -676,6 +991,160 @@ onBeforeUnmount(() => {
   border-radius: 14px;
   background: #ffffff;
   box-shadow: 0 8px 20px rgba(30, 43, 76, 0.04);
+  overflow: hidden;
+}
+
+.room-sidepanel__tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  border-bottom: 1px solid #eef2f7;
+}
+
+.room-sidepanel__tabs button {
+  min-height: 42px;
+  color: #64748b;
+  background: #f8fafc;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.room-sidepanel__tabs button.active {
+  color: #2563eb;
+  background: #ffffff;
+  box-shadow: inset 0 -2px 0 #2563eb;
+}
+
+.room-intelligence {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+.room-intelligence__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 14px 16px 10px;
+}
+
+.room-intelligence__head h2 {
+  margin: 0;
+  color: #17233a;
+  font-size: 15px;
+}
+
+.room-intelligence__head span {
+  display: block;
+  margin-top: 4px;
+  color: #8494a7;
+  font-size: 12px;
+}
+
+.room-intelligence__reconnect {
+  flex-shrink: 0;
+  min-height: 30px;
+  padding: 0 10px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  color: #2563eb;
+  background: #ffffff;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.room-intelligence__modes {
+  display: inline-flex;
+  gap: 6px;
+  margin: 0 16px 10px;
+  padding: 4px;
+  border: 1px solid #e0e6ec;
+  border-radius: 9px;
+  background: #f4f7fa;
+}
+
+.room-intelligence__modes button {
+  flex: 1;
+  min-height: 30px;
+  border-radius: 7px;
+  color: #65758a;
+  background: transparent;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.room-intelligence__modes button.active {
+  color: #2563eb;
+  background: #ffffff;
+  box-shadow: 0 2px 8px rgba(30, 43, 76, 0.08);
+}
+
+.room-intelligence__list {
+  display: grid;
+  align-content: start;
+  gap: 10px;
+  flex: 1;
+  min-height: 0;
+  padding: 0 16px 12px;
+  overflow-y: auto;
+}
+
+.room-intelligence__bubble,
+.room-intelligence__record,
+.room-intelligence__card {
+  padding: 10px 12px;
+  border: 1px solid #eef2f7;
+  border-radius: 10px;
+  background: #fafbfd;
+}
+
+.room-intelligence__bubble--self {
+  border-color: #dbeafe;
+  background: #eff6ff;
+}
+
+.room-intelligence__bubble--partial {
+  opacity: 0.72;
+}
+
+.room-intelligence__bubble strong,
+.room-intelligence__record span {
+  display: block;
+  margin-bottom: 4px;
+  color: #64748b;
+  font-size: 12px;
+}
+
+.room-intelligence__bubble p,
+.room-intelligence__record p,
+.room-intelligence__card p {
+  margin: 0;
+  color: #26384d;
+  font-size: 13px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+
+.room-intelligence__card--summary time {
+  display: block;
+  margin-bottom: 6px;
+  color: #2563eb;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.room-switch--disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* ---------- 评论区 ---------- */
+.room-comments {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
 }
 
 .room-comments__head {
@@ -973,6 +1442,26 @@ onBeforeUnmount(() => {
   background: #fafbfd;
 }
 
+.room-member--selectable {
+  cursor: pointer;
+}
+
+.room-member--selectable:hover {
+  border-color: #cbd5e1;
+  background: #f8fafc;
+}
+
+.room-member--selected {
+  border-color: #93c5fd;
+  background: #eff6ff;
+}
+
+.room-member__check {
+  margin-left: auto;
+  color: #2563eb;
+  font-weight: 700;
+}
+
 .room-member__avatar {
   display: grid;
   place-items: center;
@@ -1143,6 +1632,11 @@ onBeforeUnmount(() => {
   .room-comments {
     flex: 0 0 auto;
     height: 320px;
+  }
+
+  .room-sidepanel {
+    flex: 0 0 auto;
+    height: 360px;
   }
 }
 

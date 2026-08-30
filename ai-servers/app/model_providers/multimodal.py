@@ -170,5 +170,24 @@ def build_multimodal_human_content(text: str) -> Any:
         return text
 
     content: List[Dict[str, Any]] = [{"type": "text", "text": cleaned_text or "请根据图片回答用户问题。"}]
-    content.extend({"type": "image_url", "image_url": {"url": url}} for url in image_urls)
+    content.extend(
+        {"type": "image_url", "image_url": {"url": url, "detail": "auto"}}
+        for url in image_urls
+    )
     return content
+
+
+def build_explicit_multimodal_content(user_text: str, image_urls: Iterable[str]) -> List[Dict[str, Any]]:
+    """Build OpenAI-compatible multimodal parts from plain text and image URLs."""
+    cleaned_text, extracted_urls = extract_image_references(user_text)
+    merged_urls = _dedupe([*(image_urls or []), *extracted_urls])
+    prompt_text = cleaned_text or str(user_text or "").strip() or "请根据图片回答用户问题。"
+    if not merged_urls:
+        return [{"type": "text", "text": prompt_text}]
+    return [
+        {"type": "text", "text": prompt_text},
+        *(
+            {"type": "image_url", "image_url": {"url": url, "detail": "auto"}}
+            for url in merged_urls
+        ),
+    ]

@@ -24,6 +24,30 @@ public class FacilityRequest {
     @Schema(description = "设施描述")
     private String description;
 
+    @Schema(description = "材质")
+    private String material;
+
+    @Schema(description = "总高度（米）")
+    private BigDecimal height;
+
+    @Schema(description = "重量（吨）")
+    private BigDecimal weight;
+
+    @Schema(description = "基座形制")
+    private String baseType;
+
+    @Schema(description = "文化背景")
+    private String cultureBackground;
+
+    @Schema(description = "文化背景放大文字")
+    private String cultureHighlightText;
+
+    @Schema(description = "寓意解读")
+    private String meaningInterpretation;
+
+    @Schema(description = "校园故事")
+    private String campusStory;
+
     @Schema(description = "设施状态: 1-正常/开放 2-维护中 3-关闭/不可用")
     private Integer status;
 

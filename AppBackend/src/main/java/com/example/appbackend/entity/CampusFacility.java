@@ -34,6 +34,38 @@ public class CampusFacility {
     @Schema(description = "设施描述", example = "位于学校南门，主要提供快餐服务")
     private String description;
 
+    @Column(length = 100, columnDefinition = "VARCHAR(100) COMMENT '材质'")
+    @Schema(description = "材质", example = "花岗岩")
+    private String material;
+
+    @Column(precision = 10, scale = 2, columnDefinition = "DECIMAL(10,2) COMMENT '总高度（米）'")
+    @Schema(description = "总高度（米）", example = "3.50")
+    private BigDecimal height;
+
+    @Column(precision = 10, scale = 2, columnDefinition = "DECIMAL(10,2) COMMENT '重量（吨）'")
+    @Schema(description = "重量（吨）", example = "2.80")
+    private BigDecimal weight;
+
+    @Column(name = "base_type", length = 100, columnDefinition = "VARCHAR(100) COMMENT '基座形制'")
+    @Schema(description = "基座形制", example = "方形基座")
+    private String baseType;
+
+    @Column(name = "culture_background", columnDefinition = "TEXT COMMENT '文化背景'")
+    @Schema(description = "文化背景")
+    private String cultureBackground;
+
+    @Column(name = "culture_highlight_text", length = 100, columnDefinition = "VARCHAR(100) COMMENT '文化背景放大文字'")
+    @Schema(description = "文化背景放大文字")
+    private String cultureHighlightText;
+
+    @Column(name = "meaning_interpretation", columnDefinition = "TEXT COMMENT '寓意解读'")
+    @Schema(description = "寓意解读")
+    private String meaningInterpretation;
+
+    @Column(name = "campus_story", columnDefinition = "TEXT COMMENT '校园故事'")
+    @Schema(description = "校园故事")
+    private String campusStory;
+
     @Column(length = 200, columnDefinition = "VARCHAR(200) COMMENT '位置描述'")
     @Schema(description = "位置描述", example = "南门东侧100米")
     private String location;

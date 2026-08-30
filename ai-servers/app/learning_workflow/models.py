@@ -8,7 +8,6 @@ ResourceType = Literal[
     "mind_map",
     "practice_set",
     "code_lab",
-    "presentation",
     "extended_reading",
 ]
 QuestionType = Literal[
@@ -185,19 +184,6 @@ class CodeLabPayload(StrictWorkflowModel):
     codeLab: Dict[str, Any] = Field(min_length=1)
 
 
-class PresentationPayload(StrictWorkflowModel):
-    kind: Literal["presentation"]
-    outline: Any
-    metadata: Dict[str, Any] = Field(default_factory=dict)
-
-    @field_validator("outline")
-    @classmethod
-    def validate_outline(cls, value: Any) -> Any:
-        if value is None or value == "" or value == [] or value == {}:
-            raise ValueError("outline must not be empty")
-        return value
-
-
 class ExtendedReadingPayload(StrictWorkflowModel):
     kind: Literal["extended_reading"]
     reading: Dict[str, Any] = Field(min_length=1)
@@ -209,7 +195,6 @@ ResourcePayload = Annotated[
         MindMapPayload,
         PracticeSetPayload,
         CodeLabPayload,
-        PresentationPayload,
         ExtendedReadingPayload,
     ],
     Field(discriminator="kind"),
@@ -277,8 +262,8 @@ class ResourceReviewResult(StrictWorkflowModel):
 class ResourcePackageMetadata(StrictWorkflowModel):
     packageId: str = Field(min_length=1)
     title: str = Field(min_length=1)
-    resourceCount: int = Field(ge=5)
-    resourceTypes: List[ResourceType] = Field(min_length=5)
+    resourceCount: int = Field(ge=4)
+    resourceTypes: List[ResourceType] = Field(min_length=4)
     evidenceIds: List[str] = Field(min_length=1)
 
     @field_validator("packageId", "title")
@@ -387,7 +372,6 @@ __all__ = [
     "MindMapPayload",
     "PracticeQuestion",
     "PracticeSetPayload",
-    "PresentationPayload",
     "ResourceBrief",
     "ResourcePackageMetadata",
     "ResourcePayload",

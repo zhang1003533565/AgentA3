@@ -4,7 +4,10 @@
  * H5 环境用原生 fetch + FormData（支持代理相对路径）
  * APP/小程序用 uni.uploadFile（绝对地址）
  */
+// compressorjs 依赖浏览器 Blob/Canvas，仅在 H5 端加载；APP/小程序继续使用 uni API。
+// #ifdef H5
 import Compressor from 'compressorjs'
+// #endif
 import { BASE_URL } from './config.js'
 import { getToken } from './storage.js'
 

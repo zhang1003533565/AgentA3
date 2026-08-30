@@ -108,6 +108,14 @@
           <text class="cell-arrow">›</text>
         </view>
         <view class="cell-divider"></view>
+        <view class="cell" @click="switchAccount">
+          <view class="cell-left">
+            <view class="cell-icon"><image class="cell-icon-img" src="/static/icons/line/users.svg" mode="aspectFit" /></view>
+            <text class="cell-label">切换账号</text>
+          </view>
+          <text class="cell-arrow">›</text>
+        </view>
+        <view class="cell-divider"></view>
         <view class="cell" @click="logout">
           <view class="cell-left">
             <view class="cell-icon"><image class="cell-icon-img" src="/static/icons/line/log-out.svg" mode="aspectFit" /></view>
@@ -124,7 +132,7 @@
 <script>
 import AppMainTabBar from '@/components/app-main-tab-bar/app-main-tab-bar.vue'
 import NavBar from '@/components/nav-bar/nav-bar.vue'
-import { getUserInfo, setUserInfo } from '@/utils/storage.js'
+import { clearAuth, getUserInfo, setUserInfo } from '@/utils/storage.js'
 import { updateAvatar } from '@/api/user.js'
 import { getUploadErrorMessage, uploadImage } from '@/utils/upload.js'
 import { getMessageState, refreshMessageState, stopMessageSync, subscribeMessageStore } from '@/utils/messageStore.js'
@@ -234,17 +242,31 @@ export default {
     },
     logout() {
       uni.showModal({
-        title: '提示',
+        title: '退出登录',
         content: '确定要退出登录吗？',
         success: (res) => {
           if (res.confirm) {
-            stopMessageSync()
-            uni.removeStorageSync('token')
-            uni.removeStorageSync('userInfo')
-            uni.reLaunch({ url: '/pages/login/login' })
+            this.clearSessionAndGoLogin()
           }
         }
       })
+    },
+    switchAccount() {
+      uni.showModal({
+        title: '切换账号',
+        content: '切换账号将退出当前账号，是否继续？',
+        confirmText: '继续',
+        success: (res) => {
+          if (res.confirm) {
+            this.clearSessionAndGoLogin()
+          }
+        }
+      })
+    },
+    clearSessionAndGoLogin() {
+      stopMessageSync()
+      clearAuth()
+      uni.reLaunch({ url: '/pages/login/login' })
     }
   }
 }

@@ -18,20 +18,28 @@ router = APIRouter(prefix="/internal/rag/ppt-generation", tags=["internal-ppt-ge
 
 class OutlineRequest(BaseModel):
     sourceName: str = Field(min_length=1, max_length=255)
-    sourceContent: str = Field(default="", max_length=200000)
-    sourceFileId: str = Field(default="", max_length=80)
-    outlineMode: str = Field(default="ai_outline", max_length=32)
-    pageCount: int = Field(default=15, ge=3, le=50)
-    scene: str = Field(default="review", max_length=32)
-    topic: str = Field(default="", max_length=200)
+    sourceContent: Optional[str] = Field(default="", max_length=200000)
+    sourceFileId: Optional[str] = Field(default="", max_length=80)
+    outlineMode: Optional[str] = Field(default="ai_outline", max_length=32)
+    pageCount: int = Field(default=30, ge=3, le=50)
+    sourceSupplement: Optional[str] = Field(default="", max_length=200000)
+    topic: Optional[str] = Field(default="", max_length=200)
+    # Java DTO 可能把未填写的可选字段序列化为 JSON null；接口层先接住，
+    # service 会按通用受众/简洁清晰做默认归一化。
+    audience: Optional[str] = Field(default="", max_length=64)
+    tone: Optional[str] = Field(default="", max_length=32)
 
 
 class SlidesRequest(BaseModel):
     outline: Dict[str, Any]
-    sourceContent: str = Field(default="", max_length=200000)
-    sourceFileId: str = Field(default="", max_length=80)
-    settings: Dict[str, Any] = Field(default_factory=dict)
-    sharedPrompt: str = Field(default="", max_length=2000)
+    sourceContent: Optional[str] = Field(default="", max_length=200000)
+    sourceSupplement: Optional[str] = Field(default="", max_length=200000)
+    sourceFileId: Optional[str] = Field(default="", max_length=80)
+    settings: Optional[Dict[str, Any]] = None
+    sharedPrompt: Optional[str] = Field(default="", max_length=2000)
+    audience: Optional[str] = Field(default="", max_length=64)
+    tone: Optional[str] = Field(default="", max_length=32)
+    contentQuality: Optional[Dict[str, Any]] = None
 
 
 class TaskRequest(BaseModel):
@@ -40,7 +48,8 @@ class TaskRequest(BaseModel):
     slides: List[Dict[str, Any]] = Field(min_length=2, max_length=50)
     sharedPrompt: str = Field(default="", max_length=2000)
     settings: Dict[str, Any] = Field(default_factory=dict)
-    exportFormats: List[str] = Field(default_factory=lambda: ["pptx"])
+    exportFormats: List[str] = Field(default_factory=lambda: ["pptx"], max_length=1)
+    contentQuality: Optional[Dict[str, Any]] = None
 
 
 class FileUploadRequest(BaseModel):
@@ -52,6 +61,13 @@ class FileUploadRequest(BaseModel):
 class SlideImageRequest(BaseModel):
     imageBase64: str = Field(min_length=1, max_length=12_000_000)
     extension: str = Field(default="png", max_length=8)
+
+
+class PreviewRequest(BaseModel):
+    templateId: str = Field(default="general", max_length=64)
+    title: str = Field(default="演示文稿", max_length=255)
+    slide: Dict[str, Any]
+    settings: Optional[Dict[str, Any]] = None
 
 
 def _identity(authorization: Optional[str], user_id: Optional[str]) -> str:
@@ -136,6 +152,21 @@ def generate_outline(request: OutlineRequest, authorization: Optional[str] = Hea
     )
 
 
+@router.post("/outlines/tasks")
+def create_outline_task(request: OutlineRequest, authorization: Optional[str] = Header(None),
+                        x_user_id: Optional[str] = Header(None, alias="X-User-Id"),
+                        provider: Optional[str] = Header(None, alias="X-AI-Provider"),
+                        base_url: Optional[str] = Header(None, alias="X-AI-Base-Url"),
+                        api_key: Optional[str] = Header(None, alias="X-AI-Api-Key"),
+                        model: Optional[str] = Header(None, alias="X-AI-Model")):
+    user_id = _identity(authorization, x_user_id)
+    return ppt_generation_service.create_outline_task(
+        user_id,
+        request.model_dump(),
+        _llm_config(provider, base_url, api_key, model),
+    )
+
+
 @router.post("/slides")
 def generate_slides(request: SlidesRequest, authorization: Optional[str] = Header(None),
                     x_user_id: Optional[str] = Header(None, alias="X-User-Id"),
@@ -149,6 +180,14 @@ def generate_slides(request: SlidesRequest, authorization: Optional[str] = Heade
         _llm_config(provider, base_url, api_key, model),
         user_id,
     )
+
+
+@router.post("/previews")
+def render_preview(request: PreviewRequest,
+                   authorization: Optional[str] = Header(None),
+                   x_user_id: Optional[str] = Header(None, alias="X-User-Id")):
+    user_id = _identity(authorization, x_user_id)
+    return ppt_generation_service.render_preview(request.model_dump(), user_id)
 
 
 @router.post("/slides/tasks")
@@ -248,7 +287,7 @@ async def stream_task(task_id: str, authorization: Optional[str] = Header(None),
             elif time.monotonic() - last_heartbeat >= 15:
                 yield ": keepalive\n\n"
                 last_heartbeat = time.monotonic()
-            if task["status"] in {"completed", "failed", "cancelled"}:
+            if task["status"] in {"completed", "failed", "cancelled", "timed_out"}:
                 break
             await asyncio.sleep(0.4)
     return StreamingResponse(events(), media_type="text/event-stream", headers={"Cache-Control": "no-cache"})
@@ -271,8 +310,8 @@ def _artifact_response(export_file):
 @router.get("/tasks/{task_id}/files/{file_format}")
 def download_file(task_id: str, file_format: str, authorization: Optional[str] = Header(None),
                   x_user_id: Optional[str] = Header(None, alias="X-User-Id")):
-    if file_format not in {"pptx", "pdf"}:
-        raise HTTPException(status_code=400, detail="仅支持下载 pptx 或 pdf")
+    if file_format != "pptx":
+        raise HTTPException(status_code=400, detail="PPT 生成任务仅支持下载 PPTX")
     return _artifact_response(ppt_generation_service.open_artifact(_identity(authorization, x_user_id), task_id, file_format))
 
 

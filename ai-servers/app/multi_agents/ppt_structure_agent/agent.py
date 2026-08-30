@@ -13,8 +13,21 @@ class PptStructureAgent:
     name = "ppt_structure_agent"
 
     def process(self, input_text: str, evidence: List[Dict[str, Any]], chat_service=None) -> str:
-        answer = complete_agent_or_raise(self.name, input_text, evidence or [], model_provider=chat_service)
-        return json.dumps(normalize_structure_answer(answer), ensure_ascii=False)
+        request = input_text
+        for attempt in range(2):
+            try:
+                answer = complete_agent_or_raise(self.name, request, evidence or [], model_provider=chat_service)
+                return json.dumps(normalize_structure_answer(answer), ensure_ascii=False)
+            except HTTPException as exc:
+                detail = str(getattr(exc, "detail", "") or "")
+                if attempt or int(getattr(exc, "status_code", 0) or 0) != 502 or "LLM 返回内容为空" in detail:
+                    raise
+                request = (
+                    f"{input_text}\n\n上一轮响应未通过 PPT 布局 JSON 校验。"
+                    "请只返回一个可直接 json.loads 的 JSON 对象，禁止 Markdown、代码围栏、解释文字；"
+                    "必须包含非空 layouts 数组，每项必须包含正整数 slideIndex 和有效 layoutId。"
+                )
+        raise RuntimeError("ppt_structure_agent structured retry did not execute")
 
 
 def normalize_structure_answer(value: str) -> Dict[str, Any]:

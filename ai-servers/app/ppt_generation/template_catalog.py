@@ -25,7 +25,11 @@ class EmbeddedTemplateCatalog:
 
     def list_templates(self) -> List[Dict[str, Any]]:
         templates: List[Dict[str, Any]] = []
-        for template_id, (name, description) in _CATALOG.items():
+        for template_id in self._template_ids():
+            name, description = _CATALOG.get(
+                template_id,
+                (template_id.replace("_", " ").replace("-", " ").title(), "项目内发现的 PPT 模板"),
+            )
             directory = self._directory(template_id)
             if not directory.is_dir():
                 continue
@@ -45,7 +49,11 @@ class EmbeddedTemplateCatalog:
         return path.read_bytes(), "image/png"
 
     def contains(self, template_id: str) -> bool:
-        return template_id in _CATALOG and self._directory(template_id).is_dir()
+        try:
+            directory = self._directory(template_id)
+        except FileNotFoundError:
+            return False
+        return directory.is_dir() and (directory / "template.json").is_file()
 
     def load(self, template_id: str) -> Dict[str, Any]:
         path = self._directory(template_id) / "template.json"
@@ -74,6 +82,12 @@ class EmbeddedTemplateCatalog:
     def layout_summaries(self, template_id: str) -> List[Dict[str, Any]]:
         payload = self.load(template_id)
         summaries: List[Dict[str, Any]] = []
+        # Keep the structure selector aligned with the same semantic model
+        # used by validation/filling.  The old summary exposed only names and
+        # element types, so a metric slot looked like an ordinary text slot to
+        # the selector and card count was left to guesswork.
+        from app.ppt_generation.template_model import parse_slide_layout, semantic_content_contract
+
         for layout in payload.get("layouts") or []:
             if not isinstance(layout, dict) or not str(layout.get("id") or "").strip():
                 continue
@@ -82,26 +96,74 @@ class EmbeddedTemplateCatalog:
             texts: List[str] = []
             self._collect_slots(layout.get("components") or [], kinds, names)
             self._collect_preview_texts(layout.get("components") or [], texts)
+            semantic_slots: List[Dict[str, Any]] = []
+            try:
+                model = parse_slide_layout(layout)
+                for name, elements in model.elements.items():
+                    for occurrence, element in enumerate(elements):
+                        if element.element_type not in {"text", "text-list"} or not element.mutable_text:
+                            continue
+                        semantic_slots.append({
+                            "name": name,
+                            "occurrence": occurrence,
+                            "semanticRole": element.semantic_role,
+                            "contentContract": semantic_content_contract(
+                                element.semantic_role,
+                                element.constraint,
+                            ),
+                            "capacity": {
+                                "recommendedChars": int(element.constraint.recommended_chars),
+                                "hardMaxChars": int(element.constraint.hard_max_chars),
+                                "maxLines": int(element.constraint.max_lines),
+                                "charsPerLine": int(element.constraint.chars_per_line),
+                            } if element.constraint else {},
+                        })
+            except Exception:
+                # A malformed optional semantic summary must not make an
+                # otherwise readable template disappear from the catalog.
+                semantic_slots = []
             summaries.append({
                 "id": str(layout["id"]),
                 "description": str(layout.get("description") or ""),
                 "elementTypes": sorted(kinds),
                 "slots": names[:40],
                 "previewTexts": texts[:8],
+                "semanticSlots": semantic_slots[:80],
+                "requiresNumericData": any(
+                    slot.get("semanticRole") in {"metric_value", "card_value"}
+                    for slot in semantic_slots
+                ),
                 # Presenton generates slide content against the component
                 # schema, not against coordinates. Keep the useful contract
                 # fields in the prompt while avoiding the full template JSON.
-                "componentSchema": self._component_schema(layout.get("components") or []),
+                "componentSchema": self.component_schema(layout.get("components") or []),
             })
         return summaries
 
     def _directory(self, template_id: str) -> Path:
-        if template_id not in _CATALOG:
-            raise FileNotFoundError("PPT 模板不存在")
-        path = (self.root / template_id).resolve()
-        if not path.is_relative_to(self.root):
+        candidate = str(template_id or "").strip()
+        path = (self.root / candidate).resolve()
+        if not candidate or not path.is_relative_to(self.root) or not path.is_dir() or not (path / "template.json").is_file():
             raise FileNotFoundError("PPT 模板不存在")
         return path
+
+    def _template_ids(self) -> List[str]:
+        """Return catalogued templates plus any valid template.json directories.
+
+        The bundled catalog keeps names/descriptions stable for the shipped
+        templates, while directory discovery prevents a newly added project
+        template from silently remaining unavailable in the app.
+        """
+        discovered: List[str] = []
+        try:
+            discovered = sorted(
+                path.name
+                for path in self.root.iterdir()
+                if path.is_dir() and (path / "template.json").is_file()
+            )
+        except OSError:
+            discovered = []
+        return list(dict.fromkeys([*(_CATALOG.keys()), *discovered]))
 
     @staticmethod
     def _layout_count(path: Path) -> int:
@@ -131,8 +193,14 @@ class EmbeddedTemplateCatalog:
         cls._collect_slots(values.get("child"), kinds, names)
 
     @classmethod
-    def _component_schema(cls, values: Any) -> List[Dict[str, Any]]:
+    def component_schema(cls, values: Any) -> List[Dict[str, Any]]:
         result: List[Dict[str, Any]] = []
+        try:
+            from app.ppt_generation.template_model import parse_slide_layout, semantic_content_contract
+
+            schema_model = parse_slide_layout({"id": "component-schema", "components": deepcopy(values)})
+        except Exception:
+            schema_model = None
 
         def visit(value: Any) -> None:
             if isinstance(value, list):
@@ -144,10 +212,34 @@ class EmbeddedTemplateCatalog:
             name = str(value.get("name") or "").strip()
             element_type = str(value.get("type") or "").strip()
             if name and element_type:
-                item: Dict[str, Any] = {"name": name, "type": element_type}
+                occurrence = sum(1 for existing in result if existing.get("name") == name)
+                item: Dict[str, Any] = {"name": name, "type": element_type, "occurrence": occurrence}
                 for key in ("max_length", "min_length", "max_children", "min_children"):
                     if value.get(key) is not None:
                         item[key] = value[key]
+                if schema_model is not None:
+                    element = schema_model.element(name, occurrence)
+                    if element is not None and element.constraint is not None:
+                        constraint = element.constraint
+                        # The raw template max_length often describes an
+                        # English/ideal-font box and is larger than the real
+                        # CJK geometry. Expose the effective contract so the
+                        # model cannot plan copy the browser will wrap.
+                        item["max_length"] = int(constraint.hard_max_chars)
+                        if "min_length" in item:
+                            item["min_length"] = min(int(item["min_length"] or 0), int(constraint.hard_max_chars))
+                        item["role"] = element.role
+                        item["semanticRole"] = element.semantic_role
+                        item["contentContract"] = semantic_content_contract(
+                            element.semantic_role,
+                            constraint,
+                        )
+                        item["capacity"] = {
+                            "recommendedChars": int(constraint.recommended_chars),
+                            "hardMaxChars": int(constraint.hard_max_chars),
+                            "maxLines": int(constraint.max_lines),
+                            "charsPerLine": int(constraint.chars_per_line),
+                        }
                 if element_type == "image":
                     item["replaceable"] = "replaceable_template_image" in str(value.get("data") or "")
                 result.append(item)

@@ -17,6 +17,7 @@ test('AI Create loads published campus courses instead of hard-coding course car
   assert.match(page, /\['热门工具', '格式转换', '校园课程', '职场创意', '社交媒体'\]/)
   assert.match(page, /AI对话[\s\S]*AI伪原创[\s\S]*文案提取[\s\S]*视频去字幕[\s\S]*AI玩图/)
   assert.match(page, /试卷生成[\s\S]*题库生成[\s\S]*PPT生成/)
+  assert.match(page, /name: '学习计划拆解',[\s\S]*themeColor: '#5B7F80',[\s\S]*lightColor: 'rgba\(91, 127, 128, 0\.22\)'/)
   assert.match(page, /getCampusCourses/)
   assert.match(page, /campusCourses\.value = records\.map/)
   assert.match(page, /campusCourseDetail\/campusCourseDetail\?courseId=/)
@@ -45,10 +46,11 @@ test('every visible AI Create action resolves to a real page and never silently 
     assert.match(route, /^\//, `${name} should resolve to a page`)
   }
 
+  assert.match(resolveAiToolDestination({ name: 'PPT生成' }), /resourceGenerate\/resourceGenerate\?resourceType=presentation/)
+  assert.equal(resolveAiToolDestination({ name: '试卷生成' }), '/subpackage_ai/paperHome/paperHome')
   assert.match(resolveAiToolDestination({ name: 'PPT生成' }), /resourceGenerate\/resourceGenerate\?resourceType=presentation&presentationEntry=templateFirst/)
   assert.match(resolveAiToolDestination({ name: 'AIPPT' }), /presentationEntry=templateFirst/)
   assert.match(resolveAiToolDestination({ name: 'PPT大纲' }), /presentationEntry=templateFirst/)
-  assert.match(resolveAiToolDestination({ name: '试卷生成' }), /resourceType=practice_set/)
   assert.equal(resolveAiToolDestination({ name: '题库生成' }), '/subpackage_ai/questionBankGenerate/questionBankGenerate')
   assert.equal(resolveAiToolDestination({ name: '思维导图' }), '/subpackage_ai/mindmapGenerate/mindmapGenerate')
   assert.equal(resolveAiToolDestination({ name: '活动图' }), '/subpackage_ai/activityGenerate/activityGenerate')

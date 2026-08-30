@@ -40,6 +40,14 @@ export function endMeeting(id) {
   return request({ url: `/api/meetings/${encodeURIComponent(id)}/end`, method: 'POST' })
 }
 
+export function leaveMeeting(id) {
+  return request({ url: `/api/meetings/${encodeURIComponent(id)}/leave`, method: 'POST' })
+}
+
+export function transferHost(id, data) {
+  return request({ url: `/api/meetings/${encodeURIComponent(id)}/transfer-host`, method: 'POST', data })
+}
+
 export function organizeMeeting(id) {
   return request({ url: `/api/meetings/${encodeURIComponent(id)}/organize`, method: 'POST' })
 }
@@ -54,5 +62,37 @@ export function getMeetingComments(sessionId) {
 
 export function sendMeetingComment(sessionId, data) {
   return request({ url: `/api/meetings/${encodeURIComponent(sessionId)}/comments`, method: 'POST', data })
+}
+
+export function getMyMeetingTasks(params = {}) {
+  return request({
+    url: '/api/meeting-tasks/my',
+    method: 'GET',
+    params,
+  })
+}
+
+export function runMeetingAgent(sessionId, data) {
+  return request({
+    url: `/api/meetings/${encodeURIComponent(sessionId)}/agents/run`,
+    method: 'POST',
+    data,
+  })
+}
+
+export function previewMeetingAgent(sessionId, data) {
+  return request({
+    url: `/api/meetings/${encodeURIComponent(sessionId)}/agents/preview`,
+    method: 'POST',
+    data,
+  })
+}
+
+export function saveMeetingRecord(sessionId, data) {
+  return request({
+    url: `/api/meetings/${encodeURIComponent(sessionId)}/records`,
+    method: 'POST',
+    data,
+  })
 }
 

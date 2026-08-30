@@ -34,8 +34,7 @@ PPT_AGENT_SPECS = {
     "ppt_structure_agent": ("PPT 结构智能体", "ppt_structure", "按照 Presenton 的结构选择契约，为每一页选择模板中的布局组件。", "根据确认后的 PPT 大纲和模板布局目录选择逐页 layoutId"),
     "ppt_content_agent": ("PPT 逐页内容智能体", "ppt_content", "根据确认后的大纲和原始资料撰写逐页标题、要点、解释与视觉建议。", "根据确认后的大纲生成逐页可展示内容"),
     "ppt_review_agent": ("PPT 审查智能体", "ppt_review", "负责审查 PPT 内容、布局和教学适配度，并输出问题清单与置信度评分。", "审查这份 PPT 大纲和布局，给出问题清单、修改建议和置信度"),
-    "ppt_image_agent": ("PPT 配图提示词智能体", "ppt_image", "只负责为 PPT 封面、插图、示意图生成图片提示词和视觉素材建议，不直接调用图片模型。", "根据这份 PPT 大纲生成封面图和关键页面插图提示词"),
-    "ppt_to_docx_agent": ("PPT 转 DOCX 智能体", "ppt_to_docx", "负责将 PPTX 文件转换为 DOCX，按幻灯片顺序重排内容并保留图片。", "上传 PPTX 文件后转换为 DOCX，保留图片并允许 Word 重新排版"),
+    "ppt_to_docx_agent": ("PPT 转 DOCX 智能体", "ppt_to_docx", "负责将 PPTX 文件转换为 DOCX，按幻灯片顺序重排内容并保留图片。", "上传 PPTX 文件后转换为 DOCX，允许 Word 重新排版"),
 }
 
 LEARNING_WORKFLOW_AGENT_SPECS = {
@@ -83,14 +82,44 @@ LEARNING_WORKFLOW_AGENT_SPECS = {
     ),
 }
 
+JOB_RADAR_AGENT_SPECS = {
+    "weekly_job_recommendation_agent": (
+        "岗位雷达智能体",
+        "weekly_job_recommendation",
+        "整理近一周软件工程方向热门岗位名称与技能方向，输出 JSON；不生成薪资。",
+        "请输出近一周国内软件工程方向热度前五的具体岗位推荐",
+        ["strict_weekly_job_json"],
+    ),
+}
+
+RESUME_AGENT_SPECS = {
+    "resume_create_agent": (
+        "AI 简历生成智能体",
+        "resume_create",
+        "通过多轮对话收集用户个人信息、教育背景、工作经历等，最终输出结构化简历 JSON。",
+        "帮我写一份数据结构课程的简历",
+        ["resume_json"],
+    ),
+    "resume_edit_agent": (
+        "AI 一键改简历智能体",
+        "resume_edit",
+        "分析用户上传的现有简历问题，逐段优化完善，使简历更专业、更有竞争力。",
+        "帮我看一下这份简历哪里需要优化，如何改进？",
+        ["resume_optimization_json"],
+    ),
+    "resume_polish_expand_agent": (
+        "简历润色扩展智能体",
+        "resume_polish_expand",
+        "针对简历中的单个字段或经历段落，在不编造事实的前提下进行专业润色，或给出可补充的事实方向与追问清单。",
+        "目标岗位是 Java 后端工程师，请润色这段项目经历，并给出还可以补充哪些真实信息",
+        ["resume_polish_expand_json"],
+    ),
+}
+
 DIAGRAM_AGENT_SPECS = {
     "diagram_mind_map_agent": ("图表思维导图智能体", "diagram_mind_map", "把知识点层级、概念关系和学习路径整理成 Mermaid 思维导图。", "进程调度知识点思维导图材料"),
     "diagram_flowchart_agent": ("图表流程图智能体", "diagram_flowchart", "把算法步骤、业务过程和知识点流程整理成 Mermaid 流程图。", "括号匹配算法流程材料"),
-    "diagram_activity_agent": ("图表活动图智能体", "diagram_activity", "把角色协作、任务执行和活动顺序整理成 Mermaid 活动图。", "会议任务活动流程材料"),
     "diagram_architecture_agent": ("图表架构图智能体", "diagram_architecture", "把系统模块、服务依赖和数据流整理成 Mermaid 架构图。", "智慧校园 AI 智能体架构材料"),
-    "diagram_flowchart_prompt_agent": ("流程图提示词智能体", "diagram_flowchart_prompt", "把算法步骤、业务流程整理成用于生成流程图图片的文生图提示词。", "括号匹配算法流程"),
-    "diagram_activity_prompt_agent": ("活动图提示词智能体", "diagram_activity_prompt", "把角色协作、任务流程整理成用于生成活动图图片的文生图提示词。", "会议任务活动流程"),
-    "knowledge_graph_prompt_agent": ("知识图谱提示词智能体", "knowledge_graph_prompt", "把实体、概念和关系整理成用于生成知识图谱图片的文生图提示词。", "操作系统进程调度知识图谱"),
 }
 
 AGENT_ORDER = [
@@ -98,16 +127,18 @@ AGENT_ORDER = [
     "tool_intent_router_agent",
     "profile_summary_agent",
     "vision_agent",
-    "architecture_prompt_agent",
     *DIAGRAM_AGENT_SPECS.keys(),
-    "mind_map_agent",
     "image_agent",
     "file_content_planner_agent",
     "textbook_knowledge_agent",
     *QUESTION_AGENT_SPECS.keys(),
     *MEETING_AGENT_SPECS.keys(),
     *PPT_AGENT_SPECS.keys(),
+    *RESUME_AGENT_SPECS.keys(),
+    *JOB_RADAR_AGENT_SPECS.keys(),
     *LEARNING_WORKFLOW_AGENT_SPECS.keys(),
+    "python_coding_tutor_agent",
+    "python_problem_generator_agent",
     "activity_publish_agent",
 ]
 
@@ -115,20 +146,15 @@ LEARNING_WORKFLOW_INTERNAL_AGENTS = frozenset(LEARNING_WORKFLOW_AGENT_SPECS)
 DIAGRAM_SOURCE_AGENTS = frozenset({
     "diagram_mind_map_agent",
     "diagram_flowchart_agent",
-    "diagram_activity_agent",
     "diagram_architecture_agent",
 })
 INTERNAL_VISUAL_AGENTS = frozenset({
     "vision_agent",
     "image_agent",
-    "mind_map_agent",
-    "architecture_prompt_agent",
-    "diagram_flowchart_prompt_agent",
-    "diagram_activity_prompt_agent",
-    "knowledge_graph_prompt_agent",
-    "ppt_image_agent",
 })
 FILE_EXPORT_INTERNAL_AGENTS = frozenset({"file_content_planner_agent"})
+RESUME_INTERNAL_AGENTS = frozenset({"resume_create_agent", "resume_edit_agent", "resume_polish_expand_agent"})
+JOB_RADAR_INTERNAL_AGENTS = frozenset({"weekly_job_recommendation_agent"})
 INTERNAL_ONLY_AGENT_NAMES = frozenset({"tool_intent_router_agent"})
 LEADER_CALLABLE_AGENT_ORDER = tuple(
     agent_name
@@ -139,6 +165,8 @@ LEADER_CALLABLE_AGENT_ORDER = tuple(
     and agent_name not in DIAGRAM_SOURCE_AGENTS
     and agent_name not in INTERNAL_VISUAL_AGENTS
     and agent_name not in FILE_EXPORT_INTERNAL_AGENTS
+    and agent_name not in RESUME_INTERNAL_AGENTS
+    and agent_name not in JOB_RADAR_INTERNAL_AGENTS
 )
 
 
@@ -215,21 +243,65 @@ def _learning_workflow_agent_profile(
         "requiredModelModalities": TEXT_MODEL_MODALITY,
     }
 
+
+def _job_radar_agent_profile(agent_name: str, role: str, intent: str, purpose: str, example_input: str, outputs: list[str]) -> Dict[str, Any]:
+    return {
+        "role": role,
+        "purpose": purpose,
+        "inputs": ["refresh_request"],
+        "outputs": outputs,
+        "skills": ["job market analysis", "career guidance", "json structuring", intent],
+        "intent": intent,
+        "needRetrieval": False,
+        "executionMode": "direct_agent",
+        "executionModeLabel": f"直接{role.replace('智能体', '')}",
+        "defaultRagStrategy": "",
+        "supportedRagStrategies": [],
+        "aliases": [intent, role, role.replace("智能体", ""), agent_name, "岗位雷达", "热门岗位"],
+        "exampleInput": example_input,
+        "requiredModelModalities": TEXT_MODEL_MODALITY,
+        "internalOnly": True,
+        "toolName": "weekly_job_recommendation_tool",
+    }
+
+
+def _resume_agent_profile(agent_name: str, role: str, intent: str, purpose: str, example_input: str, outputs: list[str]) -> Dict[str, Any]:
+    input_map = {
+        "resume_create_agent": ["user_request", "conversation_context"],
+        "resume_edit_agent": ["uploaded_resume", "target_position", "conversation_context"],
+        "resume_polish_expand_agent": ["section", "original_text", "target_position", "job_description", "mode"],
+    }
+    return {
+        "role": role,
+        "purpose": purpose,
+        "inputs": input_map[agent_name],
+        "outputs": outputs,
+        "skills": ["resume generation", "resume optimization", "resume polishing", "truthful expansion", intent],
+        "intent": intent,
+        "needRetrieval": False,
+        "executionMode": "direct_agent",
+        "executionModeLabel": f"直接{role.replace('智能体', '')}",
+        "defaultRagStrategy": "",
+        "supportedRagStrategies": [],
+        "aliases": [intent, role, role.replace("智能体", ""), agent_name],
+        "exampleInput": example_input,
+        "requiredModelModalities": TEXT_MODEL_MODALITY,
+    }
+
 def _ppt_profile(agent_name: str, role: str, intent: str, purpose: str, example_input: str) -> Dict[str, Any]:
     output_type = {
         "ppt_outline_agent": "ppt_outline_markdown",
         "ppt_structure_agent": "presenton_structure_json",
         "ppt_content_agent": "slide_json",
         "ppt_review_agent": "ppt_review_markdown",
-        "ppt_image_agent": "ppt_image_prompt_markdown",
         "ppt_to_docx_agent": "docx_file",
     }[agent_name]
     alias_core = intent.replace("ppt_", "")
     extra_aliases = []
     if agent_name == "ppt_outline_agent":
-        extra_aliases = ["ppt", "课件大纲智能体", "PPT大纲智能体"]
+        extra_aliases = ["ppt", "课件大纲智能体", "PPT 大纲智能体"]
     elif agent_name == "ppt_to_docx_agent":
-        extra_aliases = ["ppt转docx", "pptx转docx", "ppt转word", "pptx转word", "PPT转DOCX智能体", "PPT转Word智能体"]
+        extra_aliases = ["ppt 转 docx", "pptx 转 docx", "ppt 转 word", "pptx 转 word", "PPT 转 DOCX 智能体", "PPT 转 Word 智能体"]
     return {
         "role": role,
         "purpose": purpose,
@@ -259,28 +331,19 @@ def _diagram_profile(agent_name: str, role: str, intent: str, purpose: str, exam
     output_type = {
         "diagram_mind_map_agent": "mermaid_mindmap",
         "diagram_flowchart_agent": "mermaid_flowchart",
-        "diagram_activity_agent": "mermaid_activity_flowchart",
         "diagram_architecture_agent": "mermaid_architecture",
-        "diagram_flowchart_prompt_agent": "flowchart_prompt_text",
-        "diagram_activity_prompt_agent": "activity_prompt_text",
-        "knowledge_graph_prompt_agent": "knowledge_graph_prompt_text",
     }[agent_name]
     alias_map = {
-        "diagram_mind_map_agent": ["mind_map", "mindmap", "思维导图", "脑图", "思维导图智能体", "mind_map_agent"],
+        "diagram_mind_map_agent": ["mind_map", "mindmap", "思维导图", "脑图", "思维导图智能体"],
         "diagram_flowchart_agent": ["flowchart", "流程图", "流程图智能体", "流程"],
-        "diagram_activity_agent": ["activity_diagram", "活动图", "活动图智能体", "泳道图", "任务活动图"],
         "diagram_architecture_agent": ["architecture_diagram", "架构图", "系统架构图", "架构图智能体", "系统架构"],
-        "diagram_flowchart_prompt_agent": ["flowchart_prompt", "流程图提示词", "流程图提示词智能体"],
-        "diagram_activity_prompt_agent": ["activity_prompt", "活动图提示词", "活动图提示词智能体"],
-        "knowledge_graph_prompt_agent": ["knowledge_graph_prompt", "知识图谱提示词", "知识图谱提示词智能体", "概念图提示词"],
     }
-    is_prompt_agent = agent_name.endswith("_prompt_agent")
     return {
         "role": role,
         "purpose": purpose,
         "inputs": ["diagram_material", "evidence"],
         "outputs": [output_type],
-        "skills": ["prompt generation", "visual description", intent] if is_prompt_agent else ["diagram generation", "mermaid", intent],
+        "skills": ["diagram generation", "mermaid", intent],
         "intent": intent,
         "needRetrieval": False,
         "executionMode": "direct_agent",
@@ -306,7 +369,7 @@ AGENT_PROFILES: Dict[str, Dict[str, Any]] = {
         "executionModeLabel": "Leader 意图识别与自动分发",
         "defaultRagStrategy": "",
         "supportedRagStrategies": [],
-        "aliases": ["leader", "leader_agent", "总控智能体", "leader智能体"],
+        "aliases": ["leader", "leader_agent", "总控智能体", "leader 智能体"],
         "exampleInput": "帮我把数据结构中的栈与队列整理成 PPT 大纲",
         "requiredModelModalities": TEXT_MODEL_MODALITY,
     },
@@ -338,7 +401,7 @@ AGENT_PROFILES: Dict[str, Dict[str, Any]] = {
         "executionModeLabel": "仅由文件导出工具内部调用",
         "defaultRagStrategy": "",
         "supportedRagStrategies": [],
-        "aliases": ["file_content_planner_agent", "文件内容编排智能体", "Word知识转换智能体", "文件知识转换智能体"],
+        "aliases": ["file_content_planner_agent", "文件内容编排智能体", "Word 知识转换智能体", "文件知识转换智能体"],
         "exampleInput": "把刚才关于 Python 发展历史的内容整理成 Word 文档",
         "requiredModelModalities": TEXT_MODEL_MODALITY,
     },
@@ -380,38 +443,6 @@ AGENT_PROFILES: Dict[str, Dict[str, Any]] = {
     **{
         agent_name: _diagram_profile(agent_name, *spec)
         for agent_name, spec in DIAGRAM_AGENT_SPECS.items()
-    },
-    "architecture_prompt_agent": {
-        "role": "图表架构图提示词智能体",
-        "purpose": "把系统说明、模块依赖和输入上下文整理为纯文本提示词，供图表架构图智能体继续生成 Mermaid 架构图。",
-        "inputs": ["topic", "evidence"],
-        "outputs": ["architecture_prompt_text"],
-        "skills": ["prompt generation", "architecture visualization planning", "visual description"],
-        "intent": "architecture_diagram_prompt",
-        "needRetrieval": False,
-        "executionMode": "direct_agent",
-        "executionModeLabel": "直接生成架构图提示词",
-        "defaultRagStrategy": "",
-        "supportedRagStrategies": [],
-        "aliases": ["architecture_diagram_prompt", "架构图提示词", "架构图提示词智能体", "图表架构图提示词", "architecture_prompt_agent"],
-        "exampleInput": "为智慧校园 AI 智能体系统生成一段可交给图表架构图智能体使用的提示词",
-        "requiredModelModalities": TEXT_MODEL_MODALITY,
-    },
-    "mind_map_agent": {
-        "role": "思维导图图片提示词智能体",
-        "purpose": "把教材知识点或用户主题转化为用于生成思维导图图片的文生图提示词（纯文本）。",
-        "inputs": ["topic", "evidence"],
-        "outputs": ["image_prompt_text"],
-        "skills": ["image prompt generation", "mind map visualization design", "visual description"],
-        "intent": "mind_map_image_prompt",
-        "needRetrieval": False,
-        "executionMode": "direct_agent",
-        "executionModeLabel": "直接生成思维导图图片的文字提示词",
-        "defaultRagStrategy": "",
-        "supportedRagStrategies": [],
-        "aliases": ["mind_map_image_prompt", "思维导图图片提示词", "思维导图图片提示词智能体"],
-        "exampleInput": "为操作系统进程调度知识点生成思维导图图片的提示词",
-        "requiredModelModalities": TEXT_MODEL_MODALITY,
     },
     "textbook_knowledge_agent": {
         "role": "教材知识点智能体",
@@ -482,6 +513,61 @@ AGENT_PROFILES: Dict[str, Dict[str, Any]] = {
         "exampleInput": "为操作系统进程调度知识点生成 4 张课堂教学配图，风格为扁平教学插画，尺寸 1024x1024",
         "requiredModelModalities": IMAGE_MODEL_MODALITY,
     },
+    **{
+        agent_name: _resume_agent_profile(agent_name, *spec)
+        for agent_name, spec in RESUME_AGENT_SPECS.items()
+    },
+    **{
+        agent_name: _job_radar_agent_profile(agent_name, *spec)
+        for agent_name, spec in JOB_RADAR_AGENT_SPECS.items()
+    },
+    "python_coding_tutor_agent": {
+        "role": "Python 编程辅导智能体",
+        "purpose": "参照 LeetCode AI 助手，为在线刷题用户提供分级提示、思路讲解、代码解释与报错分析；辅助而非代劳。",
+        "inputs": ["questionType", "problem", "userCode", "judgeResult", "followUp", "history"],
+        "outputs": ["markdown"],
+        "skills": ["code tutoring", "progressive hints", "debug guidance", "code explanation", "anti-cheating guidance"],
+        "intent": "python_coding_tutor",
+        "needRetrieval": False,
+        "executionMode": "direct_agent",
+        "executionModeLabel": "直接生成编程辅导回答",
+        "defaultRagStrategy": "",
+        "supportedRagStrategies": [],
+        "aliases": [
+            "python_coding_tutor",
+            "python_coding_tutor_agent",
+            "编程辅导",
+            "编程辅导智能体",
+            "AI 编程助手",
+            "代码解释",
+            "给我提示",
+            "报错分析",
+        ],
+        "exampleInput": "帮我分析这段两数之和的代码为什么超时",
+        "requiredModelModalities": TEXT_MODEL_MODALITY,
+    },
+    "python_problem_generator_agent": {
+        "role": "Python 刷题题目生成器",
+        "purpose": "按主题/难度/数量生成可直接入库的 Python 刷题题目（对齐 python_problem 表结构，含判题用例与多解标准答案）。",
+        "inputs": ["topic", "difficulty", "count"],
+        "outputs": ["python_problem_set_json"],
+        "skills": ["problem generation", "testcase authoring", "python", "multi-solution authoring"],
+        "intent": "python_problem_generation",
+        "needRetrieval": False,
+        "executionMode": "direct_agent",
+        "executionModeLabel": "直接生成 Python 刷题题目",
+        "defaultRagStrategy": "",
+        "supportedRagStrategies": [],
+        "aliases": [
+            "python_problem_generator",
+            "python_problem_generator_agent",
+            "生成 Python 题目",
+            "AI 生成题目",
+            "刷题题目生成",
+        ],
+        "exampleInput": "数组 + 双指针，中等难度，生成 2 道",
+        "requiredModelModalities": TEXT_MODEL_MODALITY,
+    },
 }
 
 AGENT_ALIASES = {
@@ -490,11 +576,6 @@ AGENT_ALIASES = {
     for alias in [agent_name, *profile.get("aliases", [])]
 }
 AGENT_ALIASES.update({
-    "architecture_diagram_prompt": "architecture_prompt_agent",
-    "架构图提示词": "architecture_prompt_agent",
-    "架构图提示词智能体": "architecture_prompt_agent",
-    "图表架构图提示词": "architecture_prompt_agent",
-    "architecture_prompt_agent": "architecture_prompt_agent",
     "mind_map": "diagram_mind_map_agent",
     "mindmap": "diagram_mind_map_agent",
     "mind map": "diagram_mind_map_agent",
@@ -502,13 +583,9 @@ AGENT_ALIASES.update({
     "思维导图智能体": "diagram_mind_map_agent",
     "脑图": "diagram_mind_map_agent",
     "脑图智能体": "diagram_mind_map_agent",
-    "mind_map_image_prompt": "mind_map_agent",
-    "思维导图图片提示词": "mind_map_agent",
-    "思维导图图片提示词智能体": "mind_map_agent",
     "diagram_mind_map_image": "image_agent",
     "思维导图图片生成": "image_agent",
     "思维导图图片生成智能体": "image_agent",
-    "mind_map_agent": "mind_map_agent",
     "图片智能体": "image_agent",
     "配图智能体": "image_agent",
     "image": "image_agent",
@@ -544,28 +621,20 @@ def get_agent_catalog() -> Dict[str, Any]:
             "profileSummary": ["profile_summary_agent"],
             "imageUnderstanding": ["leader_agent", "recognize_image_tool", "vision_agent"],
             "mindMap": ["leader_agent", "textbook_knowledge_agent", "diagram_mind_map_agent"],
-            "mindMapImage": ["leader_agent", "textbook_knowledge_agent", "mind_map_agent"],
-            "architecturePrompt": ["leader_agent", "textbook_knowledge_agent", "architecture_prompt_agent", "diagram_architecture_agent"],
             "diagram": ["leader_agent", "textbook_knowledge_agent", *DIAGRAM_AGENT_SPECS.keys()],
             "flowchart": ["leader_agent", "textbook_knowledge_agent", "diagram_flowchart_agent"],
-            "activityDiagram": ["leader_agent", "textbook_knowledge_agent", "diagram_activity_agent"],
             "architectureDiagram": ["leader_agent", "textbook_knowledge_agent", "diagram_architecture_agent"],
             "markdownKnowledge": ["leader_agent", "textbook_knowledge_agent"],
             "textbookKnowledge": ["leader_agent", "textbook_knowledge_agent"],
             "questionBank": ["leader_agent", "textbook_knowledge_agent", *QUESTION_AGENT_SPECS.keys()],
             "meeting": ["leader_agent", *MEETING_AGENT_SPECS.keys()],
             "ppt": ["leader_agent", "textbook_knowledge_agent", *PPT_AGENT_SPECS.keys()],
+            "resume": ["leader_agent", *RESUME_AGENT_SPECS.keys()],
             "image": ["leader_agent", "textbook_knowledge_agent", *DIAGRAM_AGENT_SPECS.keys()],
             "pythonLearningResources": [
-                "learning_path_agent",
-                "textbook_knowledge_agent",
-                "diagram_mind_map_agent",
-                "python_practice_set_agent",
-                "python_code_lab_agent",
-                "ppt_outline_agent",
-                "extension_reading_agent",
-                "resource_review_agent",
-                "resource_package_agent",
+                "learning_path_agent", "textbook_knowledge_agent", "diagram_mind_map_agent",
+                "python_practice_set_agent", "python_code_lab_agent", "ppt_outline_agent",
+                "extension_reading_agent", "resource_review_agent", "resource_package_agent",
             ],
         },
         "agents": agents,
@@ -573,10 +642,10 @@ def get_agent_catalog() -> Dict[str, Any]:
 
 
 def get_agent_detail(agent_name: str) -> Optional[Dict[str, Any]]:
-    agent_name = normalize_agent_name(agent_name) or ""
-    if agent_name not in AGENT_PROFILES:
+    normalized = normalize_agent_name(agent_name) or ""
+    if normalized not in AGENT_PROFILES:
         return None
-    return _build_agent(agent_name, include_documents=True)
+    return _build_agent(normalized, include_documents=True)
 
 
 def update_agent_example_input(agent_name: str, content: str) -> Dict[str, Any]:
@@ -606,6 +675,7 @@ def normalize_leader_request_agent(agent_name: Optional[str]) -> Optional[str]:
         normalized == "leader_agent"
         or normalized in LEADER_CALLABLE_AGENT_ORDER
         or normalized in INTERNAL_ONLY_AGENT_NAMES
+        or normalized in RESUME_INTERNAL_AGENTS
     ):
         return normalized
     return None
@@ -644,15 +714,7 @@ def _build_agent(agent_name: str, include_documents: bool) -> Dict[str, Any]:
         "invokeExample": {
             "input": example_input,
             "agentName": agent_name,
-            **(
-                {"executionMode": "leader_orchestration"}
-                if agent_name == "leader_agent"
-                else (
-                    {"ragStrategy": profile["defaultRagStrategy"]}
-                    if profile["needRetrieval"]
-                    else {"executionMode": profile["executionMode"]}
-                )
-            ),
+            **({"executionMode": "leader_orchestration"} if agent_name == "leader_agent" else {"executionMode": profile["executionMode"]}),
         },
         "runtime": f"app.multi_agents.{agent_name}.agent",
         "directory": str(agent_dir),

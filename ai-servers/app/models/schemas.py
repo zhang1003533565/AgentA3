@@ -9,10 +9,20 @@ class ChatRequest(BaseModel):
     ragStrategy: Optional[str] = Field(default=None, max_length=64)
     agentName: Optional[str] = Field(default=None, max_length=64)
     input: str = Field(min_length=0, max_length=4000)
-    imageUrls: List[str] = Field(default_factory=list, max_length=8)
-    images: List[str] = Field(default_factory=list, max_length=8)
-    imageDataUrls: List[str] = Field(default_factory=list, max_length=8)
-    attachments: List[Dict[str, Any]] = Field(default_factory=list, max_length=8)
+    imageUrls: List[str] = Field(default_factory=list)
+    images: List[str] = Field(default_factory=list)
+    imageDataUrls: List[str] = Field(default_factory=list)
+    attachments: List[Dict[str, Any]] = Field(default_factory=list)
+
+
+class CodingAssistRequest(BaseModel):
+    sessionId: Optional[str] = Field(default=None, max_length=64)
+    questionType: str = Field(pattern="^(hint|solution|explain|debug|optimize|free)$")
+    problem: Dict[str, Any] = Field(default_factory=dict)
+    userCode: Optional[str] = Field(default=None, max_length=30000)
+    judgeResult: Optional[Dict[str, Any]] = Field(default=None)
+    followUp: Optional[str] = Field(default=None, max_length=2000)
+    history: List[Dict[str, Any]] = Field(default_factory=list, max_length=10)
 
 
 class ChatResponse(BaseModel):
@@ -40,10 +50,10 @@ class RagQueryRequest(BaseModel):
     intent: str = Field(default="campus_search", max_length=64)
     ragStrategy: Optional[str] = Field(default=None, max_length=64)
     agentName: Optional[str] = Field(default=None, max_length=64)
-    imageUrls: List[str] = Field(default_factory=list, max_length=8)
-    images: List[str] = Field(default_factory=list, max_length=8)
-    imageDataUrls: List[str] = Field(default_factory=list, max_length=8)
-    attachments: List[Dict[str, Any]] = Field(default_factory=list, max_length=8)
+    imageUrls: List[str] = Field(default_factory=list)
+    images: List[str] = Field(default_factory=list)
+    imageDataUrls: List[str] = Field(default_factory=list)
+    attachments: List[Dict[str, Any]] = Field(default_factory=list)
     metadata: Dict[str, Any] = Field(default_factory=dict)
 
 
