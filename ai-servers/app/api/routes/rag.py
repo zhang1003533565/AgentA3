@@ -1233,12 +1233,16 @@ async def run_rag_query_stream(
                         ) from exc
                     plan_ms = _elapsed_ms(planning_started_at)
                     if getattr(plan, "action", "") == "call_tool" and getattr(plan, "answer", ""):
+                        tool_params = getattr(plan, "tool_params", None) or {}
+                        if not isinstance(tool_params, dict):
+                            tool_params = {}
                         yield build_sse("tool_start", {
                             "stage": "tool_start",
                             "message": plan.answer,
                             "intent": plan.intent,
                             "toolName": plan.tool_name,
                             "toolDisplayName": _tool_display_name(plan.tool_name),
+                            "toolParams": tool_params,
                             "routeReason": plan.route_reason,
                             "triggerType": "leader",
                         })
@@ -5126,6 +5130,7 @@ def _run_service_tool(request: RagQueryRequest, authorization: str, leader_plan)
             RagTraceResponse(stage="tool_call", detail={
                 "toolName": tool_name,
                 "toolDisplayName": tool_display_name,
+                "toolParams": tool_params,
                 "planningAnswer": planning_answer,
                 "toolMs": tool_ms,
                 **retrieval_meta,
@@ -5136,6 +5141,7 @@ def _run_service_tool(request: RagQueryRequest, authorization: str, leader_plan)
                 "agentName": "leader_agent",
                 "toolName": tool_name,
                 "toolDisplayName": tool_display_name,
+                "toolParams": tool_params,
                 "summarizedByModel": summarized_by_model,
                 "summaryMode": summary_mode,
                 "summaryMs": summary_ms,
@@ -5517,8 +5523,12 @@ def _tool_result_to_document(item: Dict[str, Any], index: int) -> RagDocumentRes
 
 
 def _leader_plan_detail(plan) -> Dict[str, Any]:
+    tool_params = getattr(plan, "tool_params", None) or {}
+    if not isinstance(tool_params, dict):
+        tool_params = {}
     return {
         **plan.to_dict(),
+        "toolParams": tool_params,
         "leaderActionLabel": _leader_action_label(plan.action),
         "toolDisplayName": _tool_display_name(plan.tool_name) if getattr(plan, "tool_name", "") else "",
         "strategyLabel": _strategy_label(plan.rag_strategy) if plan.rag_strategy else "直接处理",

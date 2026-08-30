@@ -140,6 +140,56 @@ const workflowFailureLocationLabels = {
   python_runtime: 'Python 执行层',
 }
 
+const workflowToolParamLabels = {
+  mode: '模式',
+  keyword: '关键词',
+  status: '状态',
+  timePhase: '时间阶段',
+  scope: '范围',
+  week: '周次',
+  weekday: '星期',
+  date: '日期',
+  month: '月份',
+  courseKeyword: '课程',
+  sessionStart: '节次起',
+  sessionEnd: '节次止',
+  page: '页码',
+  size: '条数',
+  pageNum: '页码',
+  pageSize: '每页',
+  navigationIntent: '导航查询',
+  sort: '排序',
+  current: '页码',
+}
+
+const workflowToolParamValueLabels = {
+  mode: { list: '列表', search: '搜索', browse: '浏览' },
+  scope: { current_week: '本周', week: '指定周', semester: '本学期', all_semesters: '全部学期' },
+  status: { PUBLISHED: '已发布' },
+  timePhase: { upcoming: '即将开始/可报名', ongoing: '进行中', ended: '已结束' },
+  navigationIntent: { true: '是', false: '否' },
+  sort: { latest: '最新' },
+}
+
+function formatWorkflowToolParamValue(key, value) {
+  if (value === null || value === undefined || value === '') return ''
+  if (Array.isArray(value)) return value.filter(Boolean).join('-') || ''
+  const mapped = workflowToolParamValueLabels[key]?.[value]
+  if (mapped) return mapped
+  if (typeof value === 'boolean') return value ? '是' : '否'
+  return String(value)
+}
+
+function formatWorkflowToolParams(toolName, params) {
+  if (!params || typeof params !== 'object') return []
+  return Object.entries(params)
+    .filter(([key, value]) => formatWorkflowToolParamValue(key, value))
+    .map(([key, value]) => {
+      const label = workflowToolParamLabels[key] || key
+      return `查询·${label}：${formatWorkflowToolParamValue(key, value)}`
+    })
+}
+
 function workflowDetailText(detail, fallback = '') {
   if (typeof detail === 'string') return detail
   if (!detail || typeof detail !== 'object') return fallback
@@ -181,13 +231,15 @@ function normalizeWorkflowStep(entry, index, status = 'completed') {
   const agentName = detail?.agentDisplayName || detail?.agentName || detail?.targetAgent || detail?.executedAgent || detail?.failedAgent || entry?.agentName || ''
   const intent = detail?.intent || entry?.intent || ''
   const failurePhase = detail?.failurePhase || entry?.failurePhase || detail?.failureStage || entry?.failureStage || ''
+  const toolParams = detail?.toolParams || detail?.tool_params || entry?.toolParams || entry?.tool_params || {}
+  const queryParamLines = formatWorkflowToolParams(toolName, toolParams)
   const isFailed = resolvedStatus === 'failed' || stage === 'failed'
   const title = isFailed
     ? `执行失败${failurePhase ? ` · ${failurePhase}` : ''}`
     : (workflowStageLabels[stage] || toolName || agentName || '执行处理')
   const description = isFailed
     ? buildWorkflowFailureDescription(entry, detail, entry?.message || '')
-    : workflowDetailText(detail, entry?.message || '')
+    : [workflowDetailText(detail, entry?.message || ''), queryParamLines.length ? `查询参数：${queryParamLines.join('；')}` : ''].filter(Boolean).join('\n')
   return {
     id: `${stage}-${index}-${toolName || agentName}`,
     stage,
@@ -200,6 +252,7 @@ function normalizeWorkflowStep(entry, index, status = 'completed') {
       agentName && `智能体：${agentName}`,
       intent && `意图：${intent}`,
       detail?.routeReason || entry?.routeReason,
+      ...queryParamLines,
     ].filter(Boolean),
     status: isFailed ? 'failed' : resolvedStatus,
   }
