@@ -4,4 +4,4 @@
 
 # Output
 
-长度为 5 的 JSON 数组，每项包含 `jobTitle`、`salary`、`skills`。
+由 `weekly_job_recommendation_tool` 调用本智能体，返回长度为 5 的 JSON 数组，每项包含 `jobTitle`、`skills`；不输出薪资。

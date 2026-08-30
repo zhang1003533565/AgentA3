@@ -2,7 +2,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import AppTabBar from '../components/AppTabBar.vue'
-import { getLatestJobRecommendations } from '../api/jobRecommendations'
+import { getLatestJobRecommendations, JOB_SALARY_HINT } from '../api/jobRecommendations'
 
 const router = useRouter()
 const searchKeyword = ref('')
@@ -503,7 +503,7 @@ function releasePreview() {
     <section class="container section-block">
       <div class="section-header">
         <h2>热门岗位</h2>
-        <p v-if="hotJobsWeekLabel" class="section-meta">{{ hotJobsWeekLabel }} · AI 生成</p>
+        <p v-if="hotJobsWeekLabel" class="section-meta">{{ hotJobsWeekLabel }} · 岗位方向由 AI 整理，薪资以 BOSS 直聘为准</p>
       </div>
       <div v-if="hotJobsLoading" class="section-empty">正在加载热门岗位…</div>
       <div v-else-if="!displayHotJobs.length" class="section-empty">
@@ -514,16 +514,16 @@ function releasePreview() {
         <article v-for="job in displayHotJobs" :key="job.id || job.jobTitle" class="info-card">
           <div class="card-header-simple">
             <div class="title">{{ job.jobTitle }}</div>
-            <div class="salary">{{ job.salary || '薪资面议' }}</div>
+            <div class="salary-hint">{{ JOB_SALARY_HINT }}</div>
           </div>
-          <div class="card-desc">技能要求：{{ job.skills || '详见 BOSS 直聘' }}</div>
+          <div class="card-desc">技能方向：{{ job.skills || '详见 BOSS 直聘' }}</div>
           <div class="card-tags">
             <span v-for="item in parseJobSkills(job.skills)" :key="item">{{ item }}</span>
           </div>
           <div class="card-actions">
             <a :href="resolveJobSearchLink(job)" target="_blank" rel="noreferrer" class="more-btn">在 BOSS 查看</a>
           </div>
-          <div class="card-benefits">内容由 AI 生成，薪资与要求以 BOSS 直聘为准</div>
+          <div class="card-benefits">岗位名称与技能方向仅供参考，具体薪资与 JD 以 BOSS 直聘为准</div>
         </article>
       </div>
       <div class="view-more-wrap">
@@ -728,6 +728,15 @@ function releasePreview() {
   margin: 8px 0 0;
   color: #667085;
   font-size: 13px;
+}
+
+.salary-hint {
+  flex-shrink: 0;
+  max-width: 42%;
+  color: #667085;
+  font-size: 12px;
+  line-height: 1.4;
+  text-align: right;
 }
 
 .section-empty {

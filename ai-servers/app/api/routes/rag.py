@@ -183,6 +183,33 @@ STRUCTURED_DIAGRAM_TOOLS = [
     for tool_name, config in STRUCTURED_DIAGRAM_TOOL_CONFIG.items()
 ]
 STRUCTURED_DIAGRAM_TOOL_NAMES = frozenset(STRUCTURED_DIAGRAM_TOOL_CONFIG)
+WEEKLY_JOB_RECOMMENDATION_AGENT_NAME = "weekly_job_recommendation_agent"
+JOB_RADAR_TOOL_CONFIG = {
+    "weekly_job_recommendation_tool": {
+        "zhName": "岗位雷达工具",
+        "purpose": "整理近一周软件工程方向热门岗位名称与技能方向 JSON；不生成薪资，薪资以 BOSS 直聘为准。",
+        "trigger": "用户询问热门岗位、岗位推荐、就业方向、本周热招、软件工程招聘趋势或岗位雷达。",
+        "answerType": "weekly_job_json",
+        "output": "strict_weekly_job_json",
+        "boundAgent": WEEKLY_JOB_RECOMMENDATION_AGENT_NAME,
+    },
+}
+JOB_RADAR_TOOLS = [
+    {
+        "name": tool_name,
+        "zhName": config["zhName"],
+        "displayName": f"{config['zhName']}（{tool_name}）",
+        "category": "career_service",
+        "purpose": config["purpose"],
+        "trigger": config["trigger"],
+        "outputs": [config["output"]],
+        "status": "implemented",
+        "configurable": True,
+        "boundAgent": config.get("boundAgent", ""),
+    }
+    for tool_name, config in JOB_RADAR_TOOL_CONFIG.items()
+]
+JOB_RADAR_TOOL_NAMES = frozenset(JOB_RADAR_TOOL_CONFIG)
 AI_PPT_GENERATION_TOOL_CONFIG = {
     "ai_ppt_generation_tool": {
         "zhName": "AI PPT 生成工具",
@@ -579,6 +606,7 @@ LEADER_CALLABLE_TOOLS = [
     *VISUAL_GENERATION_TOOLS,
     *STRUCTURED_DIAGRAM_TOOLS,
     *PPT_GENERATION_TOOLS,
+    *JOB_RADAR_TOOLS,
     # 个人任务管理工具（MEETING_TASK_TOOL）已登记在 CAMPUS_SERVICE_TOOLS 中，
     # 由下方 *CAMPUS_SERVICE_TOOLS 展开进入本列表；此处不再显式添加，
     # 否则后台工具列表会出现两条"个人任务管理工具"。Leader 仍可发现并调用它。
@@ -1691,6 +1719,8 @@ def _run_rag_query_core(request: RagQueryRequest, authorization: str) -> RagQuer
     direct_tool_response = _run_admin_direct_tool_test(request, authorization)
     if direct_tool_response is not None:
         return direct_tool_response
+    if _is_internal_job_radar_request(request):
+        return _run_internal_job_radar_request(request, authorization)
     requested_agent = _normalize_requested_agent(request)
     if request.agentName and not requested_agent:
         raise HTTPException(status_code=400, detail="智能体不存在")
@@ -1825,6 +1855,28 @@ def _run_admin_direct_tool_test(
         return _run_content_export_tool(request, plan, direct_tool_test=True)
     response = _execute_leader_plan(request, authorization, None, plan, callable_catalog=None)
     return _normalize_direct_tool_test_response(response, requested_tool)
+
+
+def _is_internal_job_radar_request(request: RagQueryRequest) -> bool:
+    metadata = request.metadata if isinstance(request.metadata, dict) else {}
+    return metadata.get("requestPurpose") == "weekly_job_recommendation"
+
+
+def _run_internal_job_radar_request(
+    request: RagQueryRequest,
+    authorization: str,
+) -> RagQueryResponse:
+    plan = LeaderPlan(
+        intent="weekly_job_recommendation",
+        target_agent="leader_agent",
+        need_retrieval=False,
+        rag_strategy="",
+        action="call_tool",
+        tool_name="weekly_job_recommendation_tool",
+        route_reason="Java 后端岗位雷达 API 或定时任务直接调用岗位雷达工具。",
+        route_mode="internal_job_radar",
+    )
+    return _run_weekly_job_recommendation_tool(request, authorization, plan)
 
 
 def _normalize_requested_agent(request: RagQueryRequest) -> Optional[str]:
@@ -2875,6 +2927,8 @@ def _execute_leader_plan(
             response = _run_structured_diagram_tool(request, authorization, plan)
         elif plan.tool_name in AI_PPT_GENERATION_TOOL_NAMES:
             response = _run_ai_ppt_generation_tool(request, plan)
+        elif plan.tool_name in JOB_RADAR_TOOL_NAMES:
+            response = _run_weekly_job_recommendation_tool(request, authorization, plan)
         elif plan.tool_name == MEETING_TASK_TOOL_NAME:
             response = _run_meeting_task_tool(request, authorization, plan)
         else:
@@ -3829,6 +3883,69 @@ def _run_structured_diagram_tool(
             "message": "已生成结构化图表 JSON",
         }),
     ]
+    return _decorate_output_response(RagQueryResponse(
+        strategy=tool_name,
+        answer=answer,
+        answerType=answer_type,
+        documents=[],
+        trace=trace,
+        metadata=metadata,
+    ))
+
+
+def _run_weekly_job_recommendation_tool(
+    request: RagQueryRequest,
+    authorization: str,
+    leader_plan,
+) -> RagQueryResponse:
+    tool_name = str(getattr(leader_plan, "tool_name", "") or "").strip()
+    config = JOB_RADAR_TOOL_CONFIG.get(tool_name)
+    if not config:
+        raise HTTPException(status_code=502, detail=f"未注册的岗位雷达工具：{tool_name or '空'}")
+    bound_agent = str(config.get("boundAgent") or WEEKLY_JOB_RECOMMENDATION_AGENT_NAME).strip()
+    input_text = str(request.input or "").strip() or "请输出近一周国内软件工程方向热度前五的具体岗位推荐。"
+    answer, model_metadata = _run_specialist_agent_with_bound_model(
+        request,
+        bound_agent,
+        input_text,
+        [],
+        leader_plan=leader_plan,
+    )
+    answer_type = str(config.get("answerType") or "weekly_job_json")
+    metadata = {
+        "agentName": "leader_agent",
+        "targetAgent": tool_name,
+        "executedAgent": tool_name,
+        "toolName": tool_name,
+        "boundAgent": bound_agent,
+        "boundAgentLabel": _tool_display_name(bound_agent),
+        "intent": getattr(leader_plan, "intent", "") or "weekly_job_recommendation",
+        "needRetrieval": False,
+        "retrievalSkipped": True,
+        "strategyLabel": config.get("purpose") or _tool_display_name(tool_name),
+        "executionMode": "leader_call_tool",
+        "executionModeLabel": "Leader 调用岗位雷达工具",
+        "answerType": answer_type,
+        "outputType": answer_type,
+        **model_metadata,
+    }
+    if getattr(leader_plan, "action", None):
+        metadata.update({
+            "leaderAction": leader_plan.action,
+            "leaderActionLabel": _leader_action_label(leader_plan.action),
+            "routeReason": leader_plan.route_reason,
+        })
+    metadata.update(_context_metadata_from_request(request))
+    trace = []
+    if getattr(leader_plan, "route_reason", None):
+        trace.append(RagTraceResponse(stage="leader_route", detail=_leader_plan_detail(leader_plan)))
+    trace.append(RagTraceResponse(stage="weekly_job_recommendation_tool", detail={
+        "toolName": tool_name,
+        "toolDisplayName": _tool_display_name(tool_name),
+        "boundAgent": bound_agent,
+        "answerLength": len(answer or ""),
+        **model_metadata,
+    }))
     return _decorate_output_response(RagQueryResponse(
         strategy=tool_name,
         answer=answer,

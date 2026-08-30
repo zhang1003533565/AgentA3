@@ -6,6 +6,7 @@ import {
   addJobFavorite,
   getJobFavoriteIds,
   getLatestJobRecommendations,
+  JOB_SALARY_HINT,
   listJobFavorites,
   refreshJobRecommendations,
   removeJobFavorite,
@@ -210,7 +211,7 @@ onMounted(async () => {
                 {{ favoritedIds.has(job.id) ? '★' : '☆' }}
               </button>
             </div>
-            <p class="hotjobs-salary">{{ job.salary || '薪资面议' }}</p>
+            <p class="hotjobs-salary-hint">{{ JOB_SALARY_HINT }}</p>
             <div v-if="parseSkills(job.skills).length" class="hotjobs-skills">
               <span v-for="skill in parseSkills(job.skills)" :key="skill">{{ skill }}</span>
             </div>
@@ -413,11 +414,10 @@ onMounted(async () => {
   background: #fff8eb;
 }
 
-.hotjobs-salary {
+.hotjobs-salary-hint {
   margin: 0 0 12px;
-  color: #344054;
-  font-size: 15px;
-  font-weight: 600;
+  color: #667085;
+  font-size: 13px;
 }
 
 .hotjobs-skills {

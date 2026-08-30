@@ -33,6 +33,7 @@ class WeeklyJobRecommendationServiceTest {
         assertTrue(result.get(0).getRecruitmentLink().contains("query="));
         assertTrue(result.get(0).getRecruitmentLink().contains("zhipin.com"));
         assertEquals("Java 微服务后端工程师", result.get(0).getJobTitle());
+        assertEquals(WeeklyJobRecommendationService.SALARY_ON_BOSS_HINT, result.get(0).getSalary());
     }
 
     @Test
@@ -59,6 +60,7 @@ class WeeklyJobRecommendationServiceTest {
 
         assertEquals(1, result.size());
         assertEquals("测试开发工程师", result.get(0).getJobTitle());
+        assertEquals(WeeklyJobRecommendationService.SALARY_ON_BOSS_HINT, result.get(0).getSalary());
     }
 
     private WeeklyJobRecommendationClient.GeneratedJobRecommendation item(

@@ -463,6 +463,12 @@ class LeaderFastRouteTest(unittest.TestCase):
         self.assertEqual("llm", available_plan.route_mode)
         self.assertEqual(2, self.provider.calls)
 
+    def test_job_radar_intent_routes_to_weekly_job_recommendation_tool(self):
+        plan = self.agent._plan_with_rules("帮我看看本周热门软件工程岗位推荐")
+        self.assertEqual("weekly_job_recommendation", plan.intent)
+        self.assertEqual("call_tool", plan.action)
+        self.assertEqual("weekly_job_recommendation_tool", plan.tool_name)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -21,6 +21,8 @@ public class WeeklyJobRecommendationService {
     private static final int MAX_RECOMMENDATION_COUNT = 5;
     private static final String BOSS_JOB_SEARCH_URL = "https://www.zhipin.com/web/geek/job?query=";
     private static final String SOURCE = "weekly-job-radar-agent";
+    /** AI 不产出可信薪资，统一引导用户到 BOSS 直聘查看。 */
+    public static final String SALARY_ON_BOSS_HINT = "请前往 BOSS 直聘查看";
 
     private final WeeklyJobRecommendationRepository repository;
     private final WeeklyJobRecommendationClient client;
@@ -90,7 +92,7 @@ public class WeeklyJobRecommendationService {
             if (rows.size() >= MAX_RECOMMENDATION_COUNT) {
                 break;
             }
-            if (item == null || isBlank(item.jobTitle()) || isBlank(item.salary()) || isBlank(item.skills())) {
+            if (item == null || isBlank(item.jobTitle()) || isBlank(item.skills())) {
                 continue;
             }
             String jobTitle = item.jobTitle().trim();
@@ -99,7 +101,7 @@ public class WeeklyJobRecommendationService {
             row.setWeekEndDate(weekEnd);
             row.setSortOrder(rows.size() + 1);
             row.setJobTitle(jobTitle);
-            row.setSalary(item.salary().trim());
+            row.setSalary(SALARY_ON_BOSS_HINT);
             row.setSkills(item.skills().trim());
             row.setRecruitmentLink(buildRecruitmentSearchLink(jobTitle));
             row.setSource(SOURCE);
@@ -117,7 +119,7 @@ public class WeeklyJobRecommendationService {
         dto.setWeekEndDate(row.getWeekEndDate());
         dto.setSortOrder(row.getSortOrder());
         dto.setJobTitle(row.getJobTitle());
-        dto.setSalary(row.getSalary());
+        dto.setSalary(SALARY_ON_BOSS_HINT);
         dto.setSkills(row.getSkills());
         dto.setRecruitmentLink(buildRecruitmentSearchLink(row.getJobTitle()));
         dto.setSource(row.getSource());

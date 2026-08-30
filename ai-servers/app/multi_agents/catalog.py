@@ -86,7 +86,7 @@ JOB_RADAR_AGENT_SPECS = {
     "weekly_job_recommendation_agent": (
         "岗位雷达智能体",
         "weekly_job_recommendation",
-        "整理近一周软件工程方向热门岗位，输出岗位名称、薪资区间与技能要求 JSON。",
+        "整理近一周软件工程方向热门岗位名称与技能方向，输出 JSON；不生成薪资。",
         "请输出近一周国内软件工程方向热度前五的具体岗位推荐",
         ["strict_weekly_job_json"],
     ),
@@ -260,6 +260,7 @@ def _job_radar_agent_profile(agent_name: str, role: str, intent: str, purpose: s
         "exampleInput": example_input,
         "requiredModelModalities": TEXT_MODEL_MODALITY,
         "internalOnly": True,
+        "toolName": "weekly_job_recommendation_tool",
     }
 
 

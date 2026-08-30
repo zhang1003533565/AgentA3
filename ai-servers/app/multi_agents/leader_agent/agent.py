@@ -667,6 +667,19 @@ class LeaderAgent:
             return LeaderPlan("image_generation", "leader_agent", False, "", action="call_tool", tool_name="generate_image_tool", route_reason="命中图片生成/配图意图，调用通用图片生成工具。")
         if any(token in normalized for token in ("个人画像汇总", "画像汇总", "画像总结", "画像分析", "画像雷达总结", "profile summary")):
             return LeaderPlan("profile_summary", "profile_summary_agent", False, "", route_reason="命中个人画像汇总意图，分发给个人画像汇总智能体。")
+        if any(token in normalized for token in (
+            "热门岗位", "岗位推荐", "岗位雷达", "就业方向", "本周热招", "招聘趋势",
+            "软件工程岗位", "hot job", "job recommendation", "weekly job",
+        )):
+            return LeaderPlan(
+                "weekly_job_recommendation",
+                "leader_agent",
+                False,
+                "",
+                action="call_tool",
+                tool_name="weekly_job_recommendation_tool",
+                route_reason="命中热门岗位/岗位雷达意图，调用岗位雷达工具。",
+            )
         if any(token in normalized for token in ("多选题", "多项选择")):
             return LeaderPlan("multiple_choice", "textbook_question_multiple_choice_agent", False, "", route_reason="命中多选题生成意图，分发给多选题智能体。")
         if any(token in normalized for token in ("选择题", "单选题", "单项选择")):
