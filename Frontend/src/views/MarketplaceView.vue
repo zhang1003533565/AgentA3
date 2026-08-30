@@ -2,6 +2,7 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import AppTabBar from '../components/AppTabBar.vue'
+import SecondhandProductCard from '../components/marketplace/SecondhandProductCard.vue'
 import {
   createOrGetChatSession, createSecondhandItem, favoriteSecondhandItem,
   getChatSessions, getMySecondhandFavorites, getMySecondhandItems,
@@ -264,35 +265,12 @@ onMounted(async () => {
           </div>
 
           <div v-else class="market-grid">
-            <article
+            <SecondhandProductCard
               v-for="item in listItems"
               :key="item.id || item.title + item.viewedAt"
-              class="feature-card product-card"
+              :item="item"
               @click="openItem(item.id)"
-            >
-              <div class="product-image">
-                <img v-if="parseImages(item.images)[0]" :src="parseImages(item.images)[0]" alt="" loading="lazy" />
-                <div v-else class="product-image__placeholder">
-                  <span class="product-image__icon" v-html="categoryIconByName(categoryNameOf(item))" />
-                  <span>暂无图片</span>
-                </div>
-                <em :class="'product-status product-status--' + statusTone(item)">{{ statusLabel(item) }}</em>
-              </div>
-              <div class="product-copy">
-                <div class="product-copy__top">
-                  <strong>{{ item.title }}</strong>
-                  <span v-if="categoryNameOf(item)" class="product-category">{{ categoryNameOf(item) }}</span>
-                </div>
-                <p>{{ item.description || '卖家暂未填写描述' }}</p>
-                <div class="product-copy__foot">
-                  <div>
-                    <b>{{ price(item.price) }}</b>
-                    <small v-if="item.originalPrice">原价 {{ price(item.originalPrice) }}</small>
-                  </div>
-                  <span>{{ item.campusName || item.tradeLocation || item.location || '校内交易' }}</span>
-                </div>
-              </div>
-            </article>
+            />
           </div>
         </section>
 

@@ -1,11 +1,15 @@
 <script setup>
-import { computed } from 'vue'
+import { ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
+import ActivityCard from '../campus/ActivityCard.vue'
+import SecondhandProductCard from '../marketplace/SecondhandProductCard.vue'
+import { getActivityDetail } from '../../api/activity'
+import { getSecondhandItemDetail } from '../../api/secondhand'
 import {
-  businessCardDetailRows,
   businessCardKindLabel,
   businessCardResources,
 } from '../../utils/assistantBusinessResources'
+import { payloadToActivityItem } from '../../utils/activityCard'
 
 const props = defineProps({
   resources: {
@@ -15,217 +19,173 @@ const props = defineProps({
 })
 
 const router = useRouter()
-const cards = computed(() => businessCardResources(props.resources))
+const loading = ref(false)
+const activityItems = ref([])
+const secondhandItems = ref([])
 
-const groupedLabel = computed(() => {
-  const kinds = [...new Set(cards.value.map((item) => item.kind).filter(Boolean))]
-  if (kinds.length === 1) return businessCardKindLabel(kinds[0])
-  return '查询结果'
-})
+const groupedLabel = ref('查询结果')
 
-function imageUrl(resource) {
-  const url = resource?.payload?.imageUrl
-  return typeof url === 'string' && url.trim() ? url.trim() : ''
+function unwrapRecord(response) {
+  return response?.data ?? response ?? null
 }
 
-function openResource(resource) {
-  const payload = resource?.payload && typeof resource.payload === 'object' ? resource.payload : {}
-  const businessId = payload.businessId || payload.id
-  if (!businessId) return
-  const id = String(businessId)
-  switch (String(resource?.kind || '').trim()) {
-    case 'activity':
-      router.push({ name: 'activity-detail', params: { activityId: id } })
-      return
-    case 'secondhand':
-      router.push({ path: '/marketplace', query: { itemId: id } })
-      return
-    case 'course':
-      router.push({ name: 'campus-course', params: { courseId: id } })
-      return
-    case 'meeting':
-      router.push({ path: '/meetings', query: { meetingId: id } })
-      return
-    case 'dining':
-      router.push({ path: '/discount' })
-      return
-    case 'facility':
-      router.push({ path: '/map' })
-      return
-    default:
-      break
+async function hydrateResources(resources) {
+  const cards = businessCardResources(resources)
+  if (!cards.length) {
+    activityItems.value = []
+    secondhandItems.value = []
+    return
   }
+
+  loading.value = true
+  const kinds = [...new Set(cards.map((item) => item.kind).filter(Boolean))]
+  groupedLabel.value = kinds.length === 1 ? businessCardKindLabel(kinds[0]) : '查询结果'
+
+  const nextActivities = []
+  const nextSecondhand = []
+
+  await Promise.all(cards.map(async (resource) => {
+    const payload = resource?.payload && typeof resource.payload === 'object' ? resource.payload : {}
+    const businessId = payload.businessId || payload.id
+    if (!businessId) return
+
+    try {
+      if (resource.kind === 'activity') {
+        const detail = unwrapRecord(await getActivityDetail(businessId))
+        nextActivities.push(detail || payloadToActivityItem(payload))
+        return
+      }
+      if (resource.kind === 'secondhand') {
+        const detail = unwrapRecord(await getSecondhandItemDetail(businessId))
+        nextSecondhand.push(detail || {
+          id: businessId,
+          title: resource.title || payload.title || payload.name,
+          price: payload.price,
+          condition: payload.condition,
+          categoryName: payload.category,
+          images: payload.imageUrl ? [payload.imageUrl] : [],
+          description: resource.summary || '',
+          location: payload.location || '',
+        })
+      }
+    } catch {
+      if (resource.kind === 'activity') {
+        const fallback = payloadToActivityItem(payload)
+        if (fallback) nextActivities.push(fallback)
+      }
+      if (resource.kind === 'secondhand') {
+        nextSecondhand.push({
+          id: businessId,
+          title: resource.title || payload.title || payload.name || '二手物品',
+          price: payload.price,
+          condition: payload.condition,
+          categoryName: payload.category,
+          images: payload.imageUrl ? [payload.imageUrl] : [],
+          description: resource.summary || '',
+          location: payload.location || '',
+        })
+      }
+    }
+  }))
+
+  activityItems.value = nextActivities
+  secondhandItems.value = nextSecondhand
+  loading.value = false
+}
+
+watch(() => props.resources, (value) => {
+  void hydrateResources(value)
+}, { immediate: true, deep: true })
+
+function openActivity(item) {
+  if (!item?.id) return
+  router.push({ name: 'activity-detail', params: { activityId: String(item.id) } })
+}
+
+function openSecondhand(item) {
+  if (!item?.id) return
+  router.push({ path: '/marketplace', query: { itemId: String(item.id) } })
 }
 </script>
 
 <template>
-  <section v-if="cards.length" class="assistant-result-panel">
-    <header class="assistant-result-head">
+  <section v-if="activityItems.length || secondhandItems.length || loading" class="assistant-native-results">
+    <header v-if="activityItems.length || secondhandItems.length" class="assistant-native-results__head">
       <strong>{{ groupedLabel }}</strong>
-      <span>共 {{ cards.length }} 条 · 点击卡片查看详情</span>
+      <span>共 {{ activityItems.length + secondhandItems.length }} 条 · 与业务页面同款卡片</span>
     </header>
-    <div class="assistant-result-grid">
-      <button
-        v-for="(resource, index) in cards"
-        :key="resource.id || `${resource.kind}-${resource.title}`"
-        type="button"
-        class="assistant-result-card"
-        @click="openResource(resource)"
-      >
-        <div v-if="imageUrl(resource)" class="assistant-result-card-cover">
-          <img :src="imageUrl(resource)" :alt="resource.title" />
-        </div>
-        <div class="assistant-result-card-body">
-          <span class="assistant-result-card-index">#{{ index + 1 }}</span>
-          <strong class="assistant-result-card-title">{{ resource.title }}</strong>
-          <p v-if="resource.summary" class="assistant-result-card-summary">{{ resource.summary }}</p>
-          <dl class="assistant-result-card-fields">
-            <div
-              v-for="row in businessCardDetailRows(resource)"
-              :key="`${resource.id}-${row.key}`"
-              class="assistant-result-card-field"
-            >
-              <dt>{{ row.label }}</dt>
-              <dd>{{ row.value }}</dd>
-            </div>
-          </dl>
-        </div>
-        <span class="assistant-result-card-action">查看详情</span>
-      </button>
+
+    <p v-if="loading" class="assistant-native-results__loading">正在加载卡片详情…</p>
+
+    <div v-if="activityItems.length" class="ca-grid assistant-native-results__grid">
+      <ActivityCard
+        v-for="(item, index) in activityItems"
+        :key="item.id || `activity-${index}`"
+        :item="item"
+        :show-favorite="false"
+        :animation-delay="index * 50"
+        @click="openActivity(item)"
+      />
+    </div>
+
+    <div v-if="secondhandItems.length" class="market-grid assistant-native-results__grid">
+      <SecondhandProductCard
+        v-for="(item, index) in secondhandItems"
+        :key="item.id || `secondhand-${index}`"
+        :item="item"
+        @click="openSecondhand(item)"
+      />
     </div>
   </section>
 </template>
 
 <style scoped>
-.assistant-result-panel {
+.assistant-native-results {
   margin-top: 10px;
-  border: 1px solid var(--line-strong);
-  border-radius: 12px;
-  overflow: hidden;
-  background: var(--surface);
 }
 
-.assistant-result-head {
+.assistant-native-results__head {
   display: flex;
   justify-content: space-between;
   gap: 10px;
-  padding: 10px 12px;
-  border-bottom: 1px solid var(--line-strong);
-  background: var(--surface-soft);
+  margin-bottom: 10px;
+  padding: 0 2px;
 }
 
-.assistant-result-head strong {
+.assistant-native-results__head strong {
   font-size: 12px;
 }
 
-.assistant-result-head span {
+.assistant-native-results__head span {
   color: var(--muted);
   font-size: 10px;
 }
 
-.assistant-result-grid {
+.assistant-native-results__loading {
+  margin: 0 0 10px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.ca-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 16px;
+}
+
+.market-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-  gap: 10px;
-  padding: 10px;
+  gap: 16px;
 }
 
-.assistant-result-card {
-  display: flex;
-  flex-direction: column;
-  min-height: 100%;
-  padding: 0;
-  overflow: hidden;
-  border: 1px solid var(--line-strong);
-  border-radius: 10px;
-  background: var(--surface);
-  text-align: left;
-  cursor: pointer;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
-}
-
-.assistant-result-card:hover {
-  border-color: color-mix(in srgb, var(--accent) 35%, var(--line-strong));
-  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.06);
-  transform: translateY(-1px);
-}
-
-.assistant-result-card-cover {
-  aspect-ratio: 16 / 9;
-  background: var(--surface-soft);
-}
-
-.assistant-result-card-cover img {
-  display: block;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-.assistant-result-card-body {
-  display: flex;
-  flex: 1;
-  flex-direction: column;
-  gap: 6px;
-  padding: 10px 10px 8px;
-}
-
-.assistant-result-card-index {
-  color: var(--muted);
-  font-size: 9px;
-  letter-spacing: 0.04em;
-}
-
-.assistant-result-card-title {
-  font-size: 12px;
-  line-height: 1.4;
-}
-
-.assistant-result-card-summary {
-  margin: 0;
-  color: var(--muted);
-  font-size: 10px;
-  line-height: 1.45;
-}
-
-.assistant-result-card-fields {
-  display: grid;
-  gap: 4px;
-  margin: 2px 0 0;
-}
-
-.assistant-result-card-field {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  gap: 6px;
-  align-items: start;
-}
-
-.assistant-result-card-field dt {
-  color: var(--muted);
-  font-size: 9px;
-  white-space: nowrap;
-}
-
-.assistant-result-card-field dd {
-  margin: 0;
-  color: var(--text);
-  font-size: 10px;
-  line-height: 1.35;
-  overflow-wrap: anywhere;
-}
-
-.assistant-result-card-action {
-  padding: 8px 10px;
-  border-top: 1px solid var(--line-strong);
-  color: var(--accent);
-  background: var(--surface-soft);
-  font-size: 10px;
-  text-align: center;
+.assistant-native-results__grid + .assistant-native-results__grid {
+  margin-top: 16px;
 }
 
 @media (max-width: 720px) {
-  .assistant-result-grid {
+  .ca-grid,
+  .market-grid {
     grid-template-columns: 1fr;
   }
 }

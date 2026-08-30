@@ -2,7 +2,13 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import AppTabBar from '../components/AppTabBar.vue'
+import ActivityCard from '../components/campus/ActivityCard.vue'
 import { getActivityList, getCategoryList, getMyFavorites, getMyRegistrations, addFavorite, removeFavorite } from '../api/activity'
+import {
+  formatActivityDate as formatDate,
+  parseActivityDate as parseDate,
+  getActivityStatus,
+} from '../utils/activityCard'
 
 const router = useRouter()
 
@@ -77,14 +83,6 @@ async function loadFavoritesFromBackend() {
   } catch (err) {
     console.error('加载收藏状态失败:', err)
   }
-}
-
-const failedCovers = ref(new Set())
-
-function onCoverError(id) {
-  if (failedCovers.value.has(id)) return
-  failedCovers.value.add(id)
-  failedCovers.value = new Set(failedCovers.value)
 }
 
 const now = new Date()
@@ -191,13 +189,6 @@ const TIME_FILTERS = [
   { key: 'ended', label: '已结束' },
 ]
 
-const STATUS_MAP = {
-  upcoming: { text: '即将开始', class: 'status-upcoming' },
-  ongoing: { text: '进行中', class: 'status-ongoing' },
-  ended: { text: '已结束', class: 'status-ended' },
-  full: { text: '报名已满', class: 'status-full' },
-}
-
 onMounted(() => {
   loadFavoritesFromStorage()
   loadFavoritesFromBackend()
@@ -251,69 +242,6 @@ async function loadActivities() {
   } finally {
     loading.value = false
   }
-}
-
-function getActivityPhase(item) {
-  const now = new Date()
-  const startTime = parseDate(item.startTime)
-  const endTime = parseDate(item.endTime)
-  
-  if (isNaN(startTime.getTime()) || isNaN(endTime.getTime())) return 'signup'
-  if (now < startTime) return 'signup'
-  if (now > endTime) return 'ended'
-  return 'ongoing'
-}
-
-function getDateBlock(item) {
-  const d = parseDate(item.startTime)
-  if (isNaN(d.getTime())) return null
-  const days = ['周日', '周一', '周二', '周三', '周四', '周五', '周六']
-  return {
-    month: `${d.getMonth() + 1}月`,
-    day: String(d.getDate()).padStart(2, '0'),
-    weekday: days[d.getDay()],
-  }
-}
-
-function getActivityStatus(item) {
-  const phase = getActivityPhase(item)
-  const isFull = (item.currentPeople || 0) >= (item.maxPeople || 0)
-  
-  if (phase === 'ended') return STATUS_MAP.ended
-  if (phase === 'ongoing') return STATUS_MAP.ongoing
-  if (isFull) return STATUS_MAP.full
-  return STATUS_MAP.upcoming
-}
-
-function getRemainingSeats(item) {
-  return Math.max(0, (item.maxPeople || 0) - (item.currentPeople || 0))
-}
-
-function getSeatEmClass(item) {
-  const left = getRemainingSeats(item)
-  return { 'seat-low': left > 0 && left <= 10 }
-}
-
-function formatDate(dateStr) {
-  if (!dateStr) return '待定'
-  const date = parseDate(dateStr)
-  if (isNaN(date.getTime())) return dateStr
-  const month = date.getMonth() + 1
-  const day = date.getDate()
-  const hour = String(date.getHours()).padStart(2, '0')
-  const minute = String(date.getMinutes()).padStart(2, '0')
-  return `${month}月${day}日 ${hour}:${minute}`
-}
-
-function parseDate(str) {
-  if (!str) return new Date(NaN)
-  const s = String(str).trim()
-  const normalized = s.includes('T') ? s : s.replace(' ', 'T')
-  let d = new Date(normalized)
-  if (isNaN(d.getTime())) {
-    d = new Date(s.replace(' ', 'T').replace(/:00$/, ''))
-  }
-  return d
 }
 
 function getHour(dateStr) {
@@ -673,71 +601,15 @@ function getActivitiesForDay(day) {
 
           <!-- Card grid view -->
           <div v-else class="ca-grid">
-            <article
+            <ActivityCard
               v-for="(item, index) in activities"
               :key="item.id"
-              class="ca-card"
-              :style="{ animationDelay: `${index * 50}ms` }"
+              :item="item"
+              :favorited="favorites.has(item.id)"
+              :animation-delay="index * 50"
               @click="handleCardClick(item.id)"
-            >
-              <div class="ca-card__cover">
-                <img v-if="item.coverImage && !failedCovers.has(item.id)" :src="item.coverImage" :alt="item.title" loading="lazy" @error="onCoverError(item.id)" />
-                <div v-else class="ca-card__placeholder">
-                  <svg class="ca-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
-                </div>
-                <div v-if="item.coverImage && !failedCovers.has(item.id)" class="ca-card__shade"></div>
-                <div v-if="getDateBlock(item)" class="ca-card__date">
-                  <svg class="ca-card__date-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
-                  <span class="ca-card__date-main">{{ getDateBlock(item).month }}{{ getDateBlock(item).day }}日</span>
-                  <span class="ca-card__date-dot">·</span>
-                  <span class="ca-card__date-week">{{ getDateBlock(item).weekday }}</span>
-                </div>
-                <span :class="['ca-badge', getActivityStatus(item).class]">
-                  {{ getActivityStatus(item).text }}
-                </span>
-                <button
-                  :class="['ca-fav', { active: favorites.has(item.id) }]"
-                  :aria-label="favorites.has(item.id) ? '取消收藏' : '收藏'"
-                  @click="handleToggleFav(item.id, $event)"
-                >
-                  <svg v-if="favorites.has(item.id)" class="ca-icon ca-fav__icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>
-                  <svg v-else class="ca-icon ca-fav__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
-                </button>
-              </div>
-
-              <div class="ca-card__body">
-                <div class="ca-card__tags">
-                  <span v-if="item.category?.categoryName" class="ca-chip">{{ item.category.categoryName }}</span>
-                  <span class="ca-card__org">{{ item.organizerName || item.organizer?.realName || '未知主办方' }}</span>
-                </div>
-
-                <h3 class="ca-card__title">{{ item.title }}</h3>
-
-                <ul class="ca-card__meta">
-                  <li>
-                    <svg class="ca-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-                    <span>{{ formatDate(item.startTime) }}</span>
-                  </li>
-                  <li>
-                    <svg class="ca-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
-                    <span>{{ item.location || '线上活动' }}</span>
-                  </li>
-                  <li>
-                    <svg class="ca-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
-                    <span>{{ item.currentPeople || 0 }}/{{ item.maxPeople || 0 }} 人</span>
-                    <em v-if="getRemainingSeats(item) > 0" :class="getSeatEmClass(item)">剩 {{ getRemainingSeats(item) }} 位</em>
-                  </li>
-                </ul>
-
-                <div class="ca-card__foot">
-                  <span class="ca-card__deadline">报名截止 {{ formatDate(item.signupEndTime) }}</span>
-                  <span class="ca-link">
-                    查看详情
-                    <svg class="ca-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
-                  </span>
-                </div>
-              </div>
-            </article>
+              @toggle-favorite="(_, event) => handleToggleFav(item.id, event)"
+            />
           </div>
 
           <!-- 列表分页：每页 9 个活动（3 行 x 3 列），页数按活动总数计算 -->
