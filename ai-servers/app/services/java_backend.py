@@ -380,6 +380,8 @@ class JavaBackendRetriever:
         status: str,
     ) -> Dict[str, Any]:
         context = self._current_cache_context()
+        query_text = urlencode(params) if params else ""
+        request_url = f"{self.java_base_url}{path}{('?' + query_text) if query_text else ''}"
         return {
             "time": self._now_iso(),
             "status": status,
@@ -387,7 +389,8 @@ class JavaBackendRetriever:
             "cacheKey": cache_key[:12],
             "path": path,
             "params": copy.deepcopy(params),
-            "query": urlencode(params) if params else "",
+            "query": query_text,
+            "requestUrl": request_url,
             "toolName": context.get("toolName") or "",
             "inputPreview": context.get("inputPreview") or "",
             "inputHash": context.get("inputHash") or "",
@@ -398,14 +401,18 @@ class JavaBackendRetriever:
         }
 
     def _event_from_entry(self, entry: Dict[str, Any], cache_hit: bool, elapsed_ms: int, saved_ms: int, status: str) -> Dict[str, Any]:
+        path = entry.get("path") or ""
+        params = entry.get("params") or {}
+        query_text = urlencode(params) if params else ""
         return {
             "time": self._now_iso(),
             "status": status,
             "cacheHit": cache_hit,
             "cacheKey": entry.get("cacheKey") or str(entry.get("cache_key") or "")[:12],
-            "path": entry.get("path") or "",
-            "params": copy.deepcopy(entry.get("params") or {}),
-            "query": urlencode(entry.get("params") or {}) if entry.get("params") else "",
+            "path": path,
+            "params": copy.deepcopy(params),
+            "query": query_text,
+            "requestUrl": f"{self.java_base_url}{path}{('?' + query_text) if query_text else ''}",
             "toolName": entry.get("toolName") or "",
             "inputPreview": entry.get("inputPreview") or "",
             "inputHash": entry.get("inputHash") or "",
@@ -840,7 +847,9 @@ class JavaBackendRetriever:
             "estimatedSavedMillis": sum(int(event.get("savedMillis") or 0) for event in events),
             "events": events[:20],
         }
-        return results, {"toolCache": tool_cache}
+        from app.services.campus_tool_params import request_urls_from_cache_events
+        request_urls = request_urls_from_cache_events(events, self.java_base_url)
+        return results, {"toolCache": tool_cache, "requestUrls": request_urls}
 
     def search_keyword(self, authorization: str, keyword: str) -> List[Dict[str, Any]]:
         if not self.enabled or not keyword:

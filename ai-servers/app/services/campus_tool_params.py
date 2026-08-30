@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import re
 from datetime import date
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Dict, List, Optional
+from urllib.parse import urlencode
 
 from app.utils.text_utils import (
     is_all_semester_schedule_query,
@@ -267,3 +268,112 @@ def params_from_schedule_dict(params: Dict[str, Any]) -> Dict[str, Any]:
 
     normalized["courseKeyword"] = str(normalized.get("courseKeyword") or "").strip()
     return normalized
+
+
+def _url(base_url: str, path: str, params: Optional[Dict[str, Any]] = None) -> str:
+    base = str(base_url or "http://localhost:8080").rstrip("/")
+    normalized = {k: v for k, v in (params or {}).items() if v is not None and v != ""}
+    query = f"?{urlencode(normalized)}" if normalized else ""
+    return f"{base}{path}{query}"
+
+
+def build_service_tool_request_urls(
+    tool_name: str,
+    tool_params: Optional[Dict[str, Any]] = None,
+    *,
+    base_url: str = "http://localhost:8080",
+) -> List[str]:
+    name = str(tool_name or "").strip()
+    params = tool_params if isinstance(tool_params, dict) else {}
+    if name == "java_activity_api":
+        mode = str(params.get("mode") or "list").strip()
+        keyword = str(params.get("keyword") or "").strip()
+        page = int(params.get("page") or 1)
+        size = int(params.get("size") or 10)
+        if mode == "search" and keyword:
+            return [_url(base_url, "/api/activities/search", {"page": page, "size": size, "keyword": keyword})]
+        list_params: Dict[str, Any] = {"page": page, "size": size, "status": params.get("status") or "PUBLISHED"}
+        if params.get("timePhase"):
+            list_params["timePhase"] = params["timePhase"]
+        return [_url(base_url, "/api/activities", list_params)]
+
+    if name == "java_schedule_api":
+        schedule = params_from_schedule_dict(params)
+        scope = schedule.get("scope") or "current_week"
+        if scope == "all_semesters":
+            return [_url(base_url, "/api/schedule", {"allSemesters": "true"})]
+        if scope == "week" and schedule.get("week") is not None:
+            return [_url(base_url, f"/api/schedule/week/{schedule['week']}")]
+        if scope == "semester":
+            return [_url(base_url, "/api/schedule")]
+        return [_url(base_url, "/api/schedule/current-week")]
+
+    if name == "java_meeting_api":
+        api_params: Dict[str, Any] = {
+            "pageNum": int(params.get("pageNum") or 1),
+            "pageSize": int(params.get("pageSize") or 10),
+        }
+        keyword = str(params.get("keyword") or "").strip()
+        if keyword:
+            api_params["keyword"] = keyword
+        return [_url(base_url, "/api/meetings", api_params)]
+
+    if name == "java_canteen_api":
+        keyword = str(params.get("keyword") or "").strip()
+        if keyword and str(params.get("mode") or "search") == "search":
+            return [
+                _url(base_url, "/api/v1/facility/list", {"type": 1, "name": keyword, "pageNum": 1, "pageSize": 20}),
+                _url(base_url, "/api/v1/canteen-stall/list"),
+            ]
+        return [
+            _url(base_url, "/api/v1/facility/list", {"type": 1, "status": 1, "pageNum": 1, "pageSize": 5}),
+            _url(base_url, "/api/v1/canteen-stall/list"),
+        ]
+
+    if name == "java_facility_api":
+        keyword = str(params.get("keyword") or "").strip()
+        urls: List[str] = []
+        if keyword and params.get("navigationIntent"):
+            urls.append(_url(base_url, "/api/v1/map/search", {"keyword": keyword, "limit": 10}))
+            urls.append(_url(base_url, "/api/v1/map/locate", {"keyword": keyword}))
+        list_params: Dict[str, Any] = {"pageNum": 1, "pageSize": 10}
+        if keyword:
+            list_params["name"] = keyword
+        urls.append(_url(base_url, "/api/v1/facility/list", list_params))
+        return urls
+
+    if name == "java_secondhand_api":
+        api_params: Dict[str, Any] = {
+            "current": int(params.get("current") or 1),
+            "size": int(params.get("size") or 10),
+            "sort": params.get("sort") or "latest",
+        }
+        keyword = str(params.get("keyword") or "").strip()
+        if keyword:
+            api_params["keyword"] = keyword
+        return [_url(base_url, "/api/secondhand/item/list", api_params)]
+
+    return []
+
+
+def request_urls_from_cache_events(events: Any, base_url: str = "http://localhost:8080") -> List[str]:
+    if not isinstance(events, list):
+        return []
+    base = str(base_url or "http://localhost:8080").rstrip("/")
+    urls: List[str] = []
+    for event in events:
+        if not isinstance(event, dict):
+            continue
+        request_url = str(event.get("requestUrl") or "").strip()
+        if request_url:
+            if request_url not in urls:
+                urls.append(request_url)
+            continue
+        path = str(event.get("path") or "").strip()
+        if not path:
+            continue
+        query = str(event.get("query") or "").strip()
+        url = f"{base}{path}{('?' + query) if query else ''}"
+        if url not in urls:
+            urls.append(url)
+    return urls

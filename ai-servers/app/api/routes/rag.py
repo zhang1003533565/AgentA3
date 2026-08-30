@@ -63,6 +63,10 @@ from app.services.assistant_resource_builder import (
     finalize_assistant_response,
 )
 from app.services.data_store import data_store
+from app.services.campus_tool_params import (
+    CAMPUS_SERVICE_TOOL_NAMES,
+    build_service_tool_request_urls,
+)
 from app.services.ai_ppt_generation_tool_service import (
     PPT_OUTLINE_AGENT_NAME,
     start_leader_ppt_generation,
@@ -5041,10 +5045,18 @@ def _run_service_tool(request: RagQueryRequest, authorization: str, leader_plan)
     results = results or []
     tool_ms = _elapsed_ms(tool_started_at)
     tool_cache = cache_meta.get("toolCache", {}) if isinstance(cache_meta, dict) else {}
+    request_urls = cache_meta.get("requestUrls") if isinstance(cache_meta, dict) else []
+    if not isinstance(request_urls, list) or not request_urls:
+        request_urls = build_service_tool_request_urls(
+            tool_name,
+            tool_params,
+            base_url=data_store.java_base_url,
+        )
     retrieval_meta = {
         "javaBackendCount": len(results),
         "documentCount": len(results),
         "toolCache": tool_cache,
+        "requestUrls": request_urls,
         "toolCacheHit": bool(tool_cache.get("cacheHit")),
         "toolCachePartialHit": bool(tool_cache.get("partialHit")),
         "toolCacheRequestCount": int(tool_cache.get("requestCount") or 0),
@@ -5103,6 +5115,7 @@ def _run_service_tool(request: RagQueryRequest, authorization: str, leader_plan)
         "toolName": tool_name,
         "toolDisplayName": tool_display_name,
         "toolParams": tool_params,
+        "requestUrls": request_urls,
         "planningAnswer": planning_answer,
         "routeReason": leader_plan.route_reason,
         "strategyLabel": _strategy_label(tool_name),
@@ -5126,11 +5139,26 @@ def _run_service_tool(request: RagQueryRequest, authorization: str, leader_plan)
         answerType=answer_type,
         documents=documents,
         trace=[
+            RagTraceResponse(stage="tool_start", detail={
+                "message": planning_answer,
+                "intent": leader_plan.intent,
+                "toolName": tool_name,
+                "toolDisplayName": tool_display_name,
+                "toolParams": tool_params,
+                "plannedRequestUrls": build_service_tool_request_urls(
+                    tool_name,
+                    tool_params,
+                    base_url=data_store.java_base_url,
+                ),
+                "routeReason": leader_plan.route_reason,
+                "triggerType": "leader",
+            }),
             RagTraceResponse(stage="leader_route", detail=_leader_plan_detail(leader_plan)),
             RagTraceResponse(stage="tool_call", detail={
                 "toolName": tool_name,
                 "toolDisplayName": tool_display_name,
                 "toolParams": tool_params,
+                "requestUrls": request_urls,
                 "planningAnswer": planning_answer,
                 "toolMs": tool_ms,
                 **retrieval_meta,
@@ -5142,6 +5170,7 @@ def _run_service_tool(request: RagQueryRequest, authorization: str, leader_plan)
                 "toolName": tool_name,
                 "toolDisplayName": tool_display_name,
                 "toolParams": tool_params,
+                "requestUrls": request_urls,
                 "summarizedByModel": summarized_by_model,
                 "summaryMode": summary_mode,
                 "summaryMs": summary_ms,
@@ -5526,13 +5555,21 @@ def _leader_plan_detail(plan) -> Dict[str, Any]:
     tool_params = getattr(plan, "tool_params", None) or {}
     if not isinstance(tool_params, dict):
         tool_params = {}
-    return {
+    detail = {
         **plan.to_dict(),
         "toolParams": tool_params,
         "leaderActionLabel": _leader_action_label(plan.action),
         "toolDisplayName": _tool_display_name(plan.tool_name) if getattr(plan, "tool_name", "") else "",
         "strategyLabel": _strategy_label(plan.rag_strategy) if plan.rag_strategy else "直接处理",
     }
+    tool_name = str(getattr(plan, "tool_name", "") or "").strip()
+    if plan.action == "call_tool" and tool_name in CAMPUS_SERVICE_TOOL_NAMES:
+        detail["plannedRequestUrls"] = build_service_tool_request_urls(
+            tool_name,
+            tool_params,
+            base_url=data_store.java_base_url,
+        )
+    return detail
 
 
 def _leader_action_label(action: str) -> str:

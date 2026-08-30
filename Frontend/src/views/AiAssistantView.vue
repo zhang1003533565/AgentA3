@@ -190,6 +190,15 @@ function formatWorkflowToolParams(toolName, params) {
     })
 }
 
+function formatWorkflowRequestUrls(detail) {
+  const actual = detail?.requestUrls || detail?.request_urls
+  const planned = detail?.plannedRequestUrls || detail?.planned_request_urls
+  const urls = Array.isArray(actual) && actual.length
+    ? actual
+    : (Array.isArray(planned) ? planned : [])
+  return [...new Set(urls.filter(Boolean))].map((url) => `请求URL：${url}`)
+}
+
 function workflowDetailText(detail, fallback = '') {
   if (typeof detail === 'string') return detail
   if (!detail || typeof detail !== 'object') return fallback
@@ -233,13 +242,18 @@ function normalizeWorkflowStep(entry, index, status = 'completed') {
   const failurePhase = detail?.failurePhase || entry?.failurePhase || detail?.failureStage || entry?.failureStage || ''
   const toolParams = detail?.toolParams || detail?.tool_params || entry?.toolParams || entry?.tool_params || {}
   const queryParamLines = formatWorkflowToolParams(toolName, toolParams)
+  const requestUrlLines = formatWorkflowRequestUrls(detail)
   const isFailed = resolvedStatus === 'failed' || stage === 'failed'
   const title = isFailed
     ? `执行失败${failurePhase ? ` · ${failurePhase}` : ''}`
     : (workflowStageLabels[stage] || toolName || agentName || '执行处理')
   const description = isFailed
     ? buildWorkflowFailureDescription(entry, detail, entry?.message || '')
-    : [workflowDetailText(detail, entry?.message || ''), queryParamLines.length ? `查询参数：${queryParamLines.join('；')}` : ''].filter(Boolean).join('\n')
+    : [
+      workflowDetailText(detail, entry?.message || ''),
+      queryParamLines.length ? `查询参数：${queryParamLines.join('；')}` : '',
+      requestUrlLines.length ? requestUrlLines.join('\n') : '',
+    ].filter(Boolean).join('\n')
   return {
     id: `${stage}-${index}-${toolName || agentName}`,
     stage,
@@ -253,6 +267,7 @@ function normalizeWorkflowStep(entry, index, status = 'completed') {
       intent && `意图：${intent}`,
       detail?.routeReason || entry?.routeReason,
       ...queryParamLines,
+      ...requestUrlLines,
     ].filter(Boolean),
     status: isFailed ? 'failed' : resolvedStatus,
   }
@@ -260,6 +275,73 @@ function normalizeWorkflowStep(entry, index, status = 'completed') {
 
 function traceWorkflowSteps(trace) {
   return (Array.isArray(trace) ? trace : []).map((entry, index) => normalizeWorkflowStep(entry, index))
+}
+
+const WORKFLOW_STAGE_ORDER = [
+  'request_submitted',
+  'tool_start',
+  'leader_route',
+  'tool_call',
+  'tool_result_summary',
+  'session_ready',
+  'retrieval',
+  'generation_start',
+  'completed',
+]
+
+function mergeWorkflowWithTrace(clientSteps = [], backendTrace = []) {
+  const backendSteps = traceWorkflowSteps(backendTrace)
+  if (!backendSteps.length) {
+    return markWorkflowStepsCompleted(clientSteps)
+  }
+  if (!clientSteps.length) {
+    return backendSteps
+  }
+  const backendByStage = new Map(backendSteps.map((step) => [step.stage, step]))
+  const merged = clientSteps.map((step) => {
+    const backend = backendByStage.get(step.stage)
+    if (!backend) {
+      return { ...step, status: 'completed' }
+    }
+    return {
+      ...step,
+      ...backend,
+      title: backend.title || step.title,
+      description: backend.description || step.description,
+      meta: [...new Set([...(step.meta || []), ...(backend.meta || [])])],
+      status: 'completed',
+    }
+  })
+  for (const stage of WORKFLOW_STAGE_ORDER) {
+    const backend = backendByStage.get(stage)
+    if (backend && !merged.some((step) => step.stage === stage)) {
+      merged.push({ ...backend, status: 'completed' })
+    }
+  }
+  return merged
+}
+
+function enrichHistoryTrace(trace = [], retrievalMeta = {}) {
+  const toolParams = retrievalMeta?.toolParams || retrievalMeta?.tool_params
+  const requestUrls = retrievalMeta?.requestUrls || retrievalMeta?.request_urls
+  if (!Array.isArray(trace) || (!toolParams && !requestUrls)) {
+    return trace
+  }
+  const enrichStages = new Set(['tool_start', 'leader_route', 'tool_call', 'tool_result_summary'])
+  return trace.map((entry) => {
+    const stage = String(entry?.stage || '').trim()
+    if (!enrichStages.has(stage)) {
+      return entry
+    }
+    const detail = entry?.detail && typeof entry.detail === 'object' ? { ...entry.detail } : { ...entry }
+    if (toolParams && !detail.toolParams && !detail.tool_params) {
+      detail.toolParams = toolParams
+    }
+    if (requestUrls && !detail.requestUrls && !detail.request_urls) {
+      detail.requestUrls = requestUrls
+    }
+    return { stage, detail }
+  })
 }
 
 function appendWorkflowStep(messageId, entry, status = 'running') {
@@ -318,8 +400,8 @@ function normalizeConversation(item) {
 
 function normalizeHistoryMessage(item, index) {
   const role = item?.role === 'user' ? 'user' : 'assistant'
-  const trace = Array.isArray(item?.trace) ? item.trace : []
   const retrievalMeta = item?.retrievalMeta && typeof item.retrievalMeta === 'object' ? item.retrievalMeta : {}
+  const trace = enrichHistoryTrace(Array.isArray(item?.trace) ? item.trace : [], retrievalMeta)
   return {
     id: item?.id || `${role}-${index}`,
     role,
@@ -989,12 +1071,7 @@ async function sendMessage(text, options = {}) {
         syncConversationSession(requestConversationId, payload?.sessionId)
         const current = messages.value.find((item) => item.id === assistantMessageId)
         const finalContent = String(payload?.answer || current?.content || '').trim()
-        const finalWorkflow = traceWorkflowSteps(payload?.trace)
-        const workflowSteps = current?.workflowSteps?.length
-          ? markWorkflowStepsCompleted(current.workflowSteps)
-          : finalWorkflow.length
-            ? finalWorkflow
-            : [...markWorkflowStepsCompleted(current?.workflowSteps || []), normalizeWorkflowStep({ stage: 'completed', message: '所有处理步骤已完成' }, (current?.workflowSteps || []).length)]
+        const workflowSteps = mergeWorkflowWithTrace(current?.workflowSteps || [], payload?.trace)
         const retrievalMeta = payload?.retrievalMeta || payload?.metadata || {}
         updateChatMessage(assistantMessageId, {
           content: finalContent || 'AI 已完成本次资源分析。',

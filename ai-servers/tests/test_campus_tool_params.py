@@ -3,6 +3,7 @@ import unittest
 from app.services.campus_tool_params import (
     build_activity_params,
     build_schedule_params,
+    build_service_tool_request_urls,
     extract_activity_keyword,
     resolve_campus_tool_params,
 )
@@ -55,6 +56,17 @@ class CampusToolParamsTest(unittest.TestCase):
         )
 
         self.assertEqual("all_semesters", params["scope"])
+
+    def test_activity_list_builds_request_url(self):
+        urls = build_service_tool_request_urls(
+            "java_activity_api",
+            {"mode": "list", "status": "PUBLISHED", "page": 1, "size": 10},
+            base_url="http://localhost:8080",
+        )
+
+        self.assertEqual(1, len(urls))
+        self.assertIn("/api/activities", urls[0])
+        self.assertIn("status=PUBLISHED", urls[0])
 
 
 if __name__ == "__main__":

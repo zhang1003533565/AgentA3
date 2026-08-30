@@ -99,7 +99,9 @@ public class AssistantEnvelopeService {
             "resourceKind", "resourceType", "reviewStatus");
     private static final Set<String> SAFE_STEP_DETAIL_KEYS = Set.of(
             "agentName", "targetAgent", "toolName", "toolDisplayName", "routeReason", "intent",
-            "resultCount", "documentCount", "strategy", "summarizedByModel", "message", "promptPreview");
+            "resultCount", "documentCount", "strategy", "summarizedByModel", "message", "promptPreview",
+            "toolParams", "requestUrls", "plannedRequestUrls", "leaderActionLabel", "planningAnswer",
+            "triggerType", "resultStatus", "toolMs", "summaryMs", "serviceToolBackendStatus", "strategyLabel");
     private static final Set<String> DEFAULT_SSE_FIELDS = Set.of(
             "message", "status", "stage", "progress");
     private static final Set<String> LEARNING_SSE_EVENTS = Set.of(
@@ -305,19 +307,7 @@ public class AssistantEnvelopeService {
         Map<String, Object> safe = new LinkedHashMap<>();
         for (String key : allowed) {
             if ("detail".equals(key) && "workflow_step".equals(eventName) && source.get(key) instanceof Map<?, ?> detailSource) {
-                Map<String, Object> detail = new LinkedHashMap<>();
-                for (String detailKey : SAFE_STEP_DETAIL_KEYS) {
-                    Object value = detailSource.get(detailKey);
-                    if (value instanceof Number number && finite(number)) {
-                        detail.put(detailKey, value);
-                    } else if (value instanceof Boolean) {
-                        detail.put(detailKey, value);
-                    } else if (value instanceof String text
-                            && text.length() <= 1_000
-                            && !unsafePublicText(text, internalCapabilities)) {
-                        detail.put(detailKey, text);
-                    }
-                }
+                Map<String, Object> detail = sanitizeWorkflowStepDetail(detailSource);
                 if (!detail.isEmpty()) {
                     safe.put(key, detail);
                 }
@@ -1608,14 +1598,62 @@ public class AssistantEnvelopeService {
                 break;
             }
             Map<String, Object> safe = new LinkedHashMap<>();
-            for (String key : Set.of("stage", "agentName", "targetAgent", "toolName", "toolDisplayName", "routeReason", "intent", "strategy")) {
-                putText(safe, key, raw.get(key), 300);
+            putText(safe, "stage", raw.get("stage"), 80);
+            Map<String, Object> detail = sanitizeWorkflowStepDetail(raw.get("detail"));
+            if (detail.isEmpty()) {
+                detail = sanitizeWorkflowStepDetail(raw);
+            }
+            if (!detail.isEmpty()) {
+                safe.put("detail", detail);
             }
             if (!safe.isEmpty()) {
                 result.add(safe);
             }
         }
         return result;
+    }
+
+    private Map<String, Object> sanitizeWorkflowStepDetail(Object detailRaw) {
+        if (!(detailRaw instanceof Map<?, ?>)) {
+            return Map.of();
+        }
+        Map<String, Object> sourceMap = mapValue(detailRaw);
+        Map<String, Object> detail = new LinkedHashMap<>();
+        for (String detailKey : SAFE_STEP_DETAIL_KEYS) {
+            Object value = sourceMap.get(detailKey);
+            if (value == null) {
+                continue;
+            }
+            if ("toolParams".equals(detailKey) && value instanceof Map<?, ?>) {
+                Map<String, Object> params = sanitizeGenericMap(mapValue(value), 0);
+                if (!params.isEmpty()) {
+                    detail.put(detailKey, params);
+                }
+                continue;
+            }
+            if (("requestUrls".equals(detailKey) || "plannedRequestUrls".equals(detailKey)) && value instanceof List<?> list) {
+                List<String> urls = list.stream()
+                        .map(item -> item == null ? "" : String.valueOf(item))
+                        .filter(StringUtils::hasText)
+                        .map(item -> text(item, 500))
+                        .limit(10)
+                        .toList();
+                if (!urls.isEmpty()) {
+                    detail.put(detailKey, urls);
+                }
+                continue;
+            }
+            if (value instanceof Number number && finite(number)) {
+                detail.put(detailKey, value);
+            } else if (value instanceof Boolean) {
+                detail.put(detailKey, value);
+            } else if (value instanceof String text
+                    && text.length() <= 1_000
+                    && !unsafePublicText(text, Set.of())) {
+                detail.put(detailKey, text);
+            }
+        }
+        return detail;
     }
 
     private Map<String, Object> safeMetadata(Map<String, Object> raw) {
