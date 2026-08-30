@@ -865,7 +865,6 @@ async function sendMessage(text, options = {}) {
               ? '正在整理生图提示词…'
               : '正在生成更详细的图片，请稍等。',
             answerType: 'image_generation',
-            workflowExpanded: true,
           })
         } else if (eventName === 'generation_start') {
           upsertWorkflowStep(assistantMessageId, { stage: 'generation_start', message: '开始生成内容' }, 'completed')
@@ -877,14 +876,12 @@ async function sendMessage(text, options = {}) {
             streaming: true,
             imageGenerating: false,
             answerType: payload?.answerType || current?.answerType || 'text',
-            workflowExpanded: true,
           })
         } else if (eventName === 'tool_start') {
           appendWorkflowStep(assistantMessageId, { stage: 'tool_start', ...payload })
           updateChatMessage(assistantMessageId, {
             content: current?.receivedDelta ? current.content : (payload?.message || current?.content || ''),
             streaming: true,
-            workflowExpanded: true,
           })
         } else if (eventName === 'error') {
           const failureContent = buildWorkflowFailureDescription(payload, payload, payload?.message || '执行失败')
@@ -892,7 +889,6 @@ async function sendMessage(text, options = {}) {
           updateChatMessage(assistantMessageId, {
             content: failureContent,
             streaming: false,
-            workflowExpanded: true,
             workflowStatus: 'failed',
           })
         }
@@ -901,12 +897,10 @@ async function sendMessage(text, options = {}) {
       onSession(payload) {
         streamTouched = true
         syncConversationSession(requestConversationId, payload?.sessionId)
-        const current = messages.value.find((item) => item.id === assistantMessageId)
         appendWorkflowStep(assistantMessageId, {
           stage: 'session_ready',
           message: `会话已建立${payload?.agentName ? `，由 ${payload.agentName} 处理` : ''}${payload?.model ? `，模型 ${payload.model}` : ''}`,
         })
-        updateChatMessage(assistantMessageId, { workflowExpanded: current?.workflowExpanded || false })
       },
       onSearch(payload) {
         streamTouched = true
@@ -973,7 +967,6 @@ async function sendMessage(text, options = {}) {
         updateChatMessage(assistantMessageId, {
           content: failureContent,
           streaming: false,
-          workflowExpanded: true,
           workflowStatus: 'failed',
         })
         const error = new Error(payload?.message || '流式请求失败')
@@ -1043,7 +1036,6 @@ async function sendMessage(text, options = {}) {
       updateChatMessage(assistantMessageId, {
         content: failureContent,
         streaming: false,
-        workflowExpanded: true,
         workflowStatus: 'failed',
       })
     }
@@ -1697,7 +1689,8 @@ function handleUpload(event) {
                         @select="(templateId) => confirmPptTemplate(templateId, message)"
                       />
                     </div>
-                    <p v-else-if="message.content && !displayAssistantContent(message)">{{ message.content }}</p>
+                    <p v-if="message.role === 'user' && message.content">{{ message.content }}</p>
+                    <p v-else-if="message.role === 'assistant' && message.content && !displayAssistantContent(message)">{{ message.content }}</p>
                     <ImageGenerationCanvas
                       v-if="message.role === 'assistant' && message.imageGenerating && !message.attachments?.length"
                       :label="message.imageGeneratingLabel || '正在生成更详细的图片，请稍等。'"
