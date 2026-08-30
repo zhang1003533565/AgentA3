@@ -7,6 +7,7 @@ import { getUploadUrl } from '../../../api/upload'
 import { getCategoryList } from '../../../api/category'
 import '../ActivityManage/ActivityManage.css'
 import { toBackendDateTime, toDateTimeInput } from '../activityHelpers'
+import ActivityAiDrawer from './ActivityAiDrawer'
 
 const { TextArea } = Input
 const MAX_UPLOAD_BYTES = 4.5 * 1024 * 1024
@@ -122,6 +123,7 @@ function ActivityEditor() {
   const [loading, setLoading] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [uploading, setUploading] = useState(false)
+  const [aiDrawerOpen, setAiDrawerOpen] = useState(false)
   const coverImageValue = Form.useWatch('coverImage', form)
   const originalRef = useRef(null)
 
@@ -227,11 +229,32 @@ function ActivityEditor() {
     }
   }
 
+  const handleAiFill = (activity) => {
+    if (!activity || typeof activity !== 'object') return
+    const timeFields = ['startTime', 'endTime', 'signupEndTime']
+    const values = {}
+    Object.entries(activity).forEach(([key, value]) => {
+      if (value === null || value === undefined || value === '') return
+      values[key] = timeFields.includes(key) ? toDateTimeInput(value) : value
+    })
+    if (Object.keys(values).length > 0) {
+      form.setFieldsValue(values)
+      message.success('AI 数据已填入，请确认后保存')
+    } else {
+      message.warning('暂无可填入的活动字段')
+    }
+  }
+
   return (
     <div className="activity-manage-container">
       <main className="manage-main">
-        <div className="page-header">
+        <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <h2>{isEdit ? '编辑活动' : '创建活动'}</h2>
+          {!isEdit && (
+            <Button type="primary" onClick={() => setAiDrawerOpen(true)}>
+              🤖 AI 辅助创建活动
+            </Button>
+          )}
         </div>
 
         <div className="search-bar" style={{ display: 'block' }}>
@@ -315,6 +338,11 @@ function ActivityEditor() {
           </Form>
         </div>
       </main>
+      <ActivityAiDrawer
+        open={aiDrawerOpen}
+        onClose={() => setAiDrawerOpen(false)}
+        onFill={handleAiFill}
+      />
     </div>
   )
 }

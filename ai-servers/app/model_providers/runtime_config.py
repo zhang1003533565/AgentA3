@@ -25,7 +25,7 @@ class LlmRuntimeConfig:
 
 
 _active_llm_config: ContextVar[Optional[LlmRuntimeConfig]] = ContextVar("active_llm_config", default=None)
-_active_llm_timeout_seconds: ContextVar[int] = ContextVar("active_llm_timeout_seconds", default=60)
+_active_llm_timeout_seconds: ContextVar[int] = ContextVar("active_llm_timeout_seconds", default=120)
 
 
 def build_llm_runtime_config(

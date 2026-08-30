@@ -108,6 +108,7 @@ AGENT_ORDER = [
     *MEETING_AGENT_SPECS.keys(),
     *PPT_AGENT_SPECS.keys(),
     *LEARNING_WORKFLOW_AGENT_SPECS.keys(),
+    "activity_publish_agent",
 ]
 
 LEARNING_WORKFLOW_INTERNAL_AGENTS = frozenset(LEARNING_WORKFLOW_AGENT_SPECS)
@@ -448,6 +449,22 @@ AGENT_PROFILES: Dict[str, Dict[str, Any]] = {
     **{
         agent_name: _learning_workflow_agent_profile(agent_name, *spec)
         for agent_name, spec in LEARNING_WORKFLOW_AGENT_SPECS.items()
+    },
+    "activity_publish_agent": {
+        "role": "活动发布智能体",
+        "purpose": "在后台活动发布场景，根据管理员自然语言和现有 Activity 表单字段（title/organizerName/coverImage/categoryId/maxPeople/location/startTime/endTime/signupEndTime/content）提取、补全活动草稿，识别缺失字段并追问管理员；不落库、不发布活动。",
+        "inputs": ["user_input", "activity_draft", "category_options", "conversation_context"],
+        "outputs": ["strict_activity_draft_json"],
+        "skills": ["activity drafting", "field extraction", "clarification"],
+        "intent": "activity_publish",
+        "needRetrieval": False,
+        "executionMode": "direct_agent",
+        "executionModeLabel": "直接处理活动发布草稿生成",
+        "defaultRagStrategy": "",
+        "supportedRagStrategies": [],
+        "aliases": ["活动发布", "活动发布智能体", "发布活动智能体", "activity_publish"],
+        "exampleInput": "我要举办一个校园歌手大赛，9月10日下午2点在大学生活动中心，面向全校学生报名",
+        "requiredModelModalities": TEXT_MODEL_MODALITY,
     },
     "image_agent": {
         "role": "图片智能体",
