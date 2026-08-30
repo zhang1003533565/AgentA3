@@ -13,18 +13,15 @@ from urllib.error import HTTPError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
+from app.services.campus_tool_params import (
+    CAMPUS_SERVICE_TOOL_NAMES,
+    params_from_schedule_dict,
+    resolve_campus_tool_params,
+)
 from app.utils.logger import get_logger
 from app.utils.text_utils import (
     format_weekday,
-    is_all_semester_schedule_query,
-    is_semester_schedule_query,
     normalize_text,
-    parse_requested_date,
-    parse_requested_month,
-    parse_requested_session,
-    parse_requested_week,
-    parse_requested_weekday,
-    parse_schedule_course_keyword,
     parse_session_start,
     week_in_range,
 )
@@ -531,28 +528,46 @@ class JavaBackendRetriever:
             return None
         return payload.get("data")
 
-    def search_schedule(self, authorization: str, input_text: str) -> List[Dict[str, Any]]:
+    def search_schedule(
+        self,
+        authorization: str,
+        input_text: str = "",
+        tool_params: Optional[Dict[str, Any]] = None,
+    ) -> List[Dict[str, Any]]:
         if not self.enabled:
             return []
 
-        requested_week = parse_requested_week(input_text)
-        requested_date = parse_requested_date(input_text)
-        requested_month = parse_requested_month(input_text)
-        requested_weekday = parse_requested_weekday(input_text)
-        requested_session = parse_requested_session(input_text)
-        course_keyword = parse_schedule_course_keyword(input_text)
-        all_semester_scope = is_all_semester_schedule_query(input_text)
-        semester_scope = all_semester_scope or is_semester_schedule_query(input_text)
+        params = params_from_schedule_dict(
+            tool_params if isinstance(tool_params, dict) and tool_params
+            else resolve_campus_tool_params("java_schedule_api", input_text)
+        )
+        scope = params.get("scope") or "current_week"
+        requested_week = params.get("week")
+        requested_weekday = params.get("weekday")
+        requested_session = None
+        if params.get("sessionStart") is not None:
+            requested_session = (
+                int(params["sessionStart"]),
+                int(params.get("sessionEnd") or params["sessionStart"]),
+            )
+        course_keyword = str(params.get("courseKeyword") or "").strip() or None
+        requested_month = tuple(params["month"]) if isinstance(params.get("month"), list) and len(params["month"]) == 2 else None
         month_scope = requested_month is not None
-        # Explicit dates are schedule lookups even when the natural-language
-        # course-keyword parser sees the trailing “有什么课”. Do not widen such
-        # requests to all semesters or collapse them into course summaries.
-        course_lookup_scope = bool(course_keyword) and requested_date is None
+        all_semester_scope = scope == "all_semesters"
+        semester_scope = scope == "semester"
+        course_lookup_scope = bool(course_keyword) and not params.get("date")
+
+        requested_date = None
+        if params.get("date"):
+            try:
+                requested_date = date.fromisoformat(str(params["date"]))
+            except ValueError:
+                requested_date = None
 
         if requested_date is not None:
             requested_weekday = requested_date.isoweekday()
             requested_week = self._week_for_date(authorization, requested_date)
-            if requested_week is None and not semester_scope:
+            if requested_week is None and not semester_scope and not all_semester_scope:
                 return []
 
         if all_semester_scope:
@@ -762,10 +777,19 @@ class JavaBackendRetriever:
             return f"{academic_year} 第 {semester_term} 学期"
         return academic_year or f"第 {semester_term} 学期"
 
-    def search_service_tool(self, authorization: str, tool_name: str, input_text: str) -> List[Dict[str, Any]]:
+    def search_service_tool(
+        self,
+        authorization: str,
+        tool_name: str,
+        input_text: str = "",
+        tool_params: Optional[Dict[str, Any]] = None,
+    ) -> List[Dict[str, Any]]:
         name = str(tool_name or "").strip()
+        params = tool_params if isinstance(tool_params, dict) else {}
+        if name in CAMPUS_SERVICE_TOOL_NAMES and not params:
+            params = resolve_campus_tool_params(name, input_text)
         if name == "java_schedule_api":
-            return self.search_schedule(authorization, input_text)
+            return self.search_schedule(authorization, input_text, params)
         if not self.enabled:
             return []
         handlers = {
@@ -778,20 +802,27 @@ class JavaBackendRetriever:
         handler = handlers.get(name)
         if handler is None:
             return []
-        return handler(authorization, input_text)
+        return handler(authorization, input_text, params)
 
-    def search_service_tool_with_meta(self, authorization: str, tool_name: str, input_text: str) -> tuple[List[Dict[str, Any]], Dict[str, Any]]:
+    def search_service_tool_with_meta(
+        self,
+        authorization: str,
+        tool_name: str,
+        input_text: str = "",
+        tool_params: Optional[Dict[str, Any]] = None,
+    ) -> tuple[List[Dict[str, Any]], Dict[str, Any]]:
         events: List[Dict[str, Any]] = []
         input_preview = re.sub(r"\s+", " ", str(input_text or "")).strip()[:120]
         context = {
             "toolName": str(tool_name or "").strip(),
             "inputPreview": input_preview,
             "inputHash": hashlib.sha256(str(input_text or "").encode("utf-8")).hexdigest()[:12] if input_text else "",
+            "toolParams": tool_params if isinstance(tool_params, dict) else {},
         }
         event_token = _tool_cache_events_var.set(events)
         context_token = _tool_cache_context_var.set(context)
         try:
-            results = self.search_service_tool(authorization, tool_name, input_text)
+            results = self.search_service_tool(authorization, tool_name, input_text, tool_params)
         finally:
             _tool_cache_context_var.reset(context_token)
             _tool_cache_events_var.reset(event_token)
@@ -933,24 +964,60 @@ class JavaBackendRetriever:
 
         return results[:10]
 
-    def _search_activities(self, authorization: str, input_text: str) -> List[Dict[str, Any]]:
-        keyword = self._keyword_from_input(input_text, {"活动", "讲座", "比赛", "报名", "校园活动"})
-        if keyword:
-            payload = self._get_json("/api/activities/search", authorization, params={"page": 1, "size": 10, "keyword": keyword})
+    def _search_activities(
+        self,
+        authorization: str,
+        input_text: str,
+        tool_params: Optional[Dict[str, Any]] = None,
+    ) -> List[Dict[str, Any]]:
+        params = tool_params if isinstance(tool_params, dict) and tool_params else resolve_campus_tool_params("java_activity_api", input_text)
+        mode = str(params.get("mode") or "list").strip()
+        keyword = str(params.get("keyword") or "").strip()
+        page = int(params.get("page") or 1)
+        size = int(params.get("size") or 10)
+        if mode == "search" and keyword:
+            payload = self._get_json(
+                "/api/activities/search",
+                authorization,
+                params={"page": page, "size": size, "keyword": keyword},
+            )
         else:
-            payload = self._get_json("/api/activities", authorization, params={"page": 1, "size": 10, "status": "PUBLISHED"})
+            list_params: Dict[str, Any] = {"page": page, "size": size, "status": params.get("status") or "PUBLISHED"}
+            time_phase = params.get("timePhase")
+            if time_phase:
+                list_params["timePhase"] = time_phase
+            payload = self._get_json("/api/activities", authorization, params=list_params)
         records = self._page_records(self._extract_result_data(payload))
         return [self._activity_result(row) for row in records[:10]]
 
-    def _search_meetings(self, authorization: str, input_text: str) -> List[Dict[str, Any]]:
-        keyword = self._keyword_from_input(input_text, {"会议", "会议室", "预约", "开会", "日程"})
-        payload = self._get_json("/api/meetings", authorization, params={"pageNum": 1, "pageSize": 10, "keyword": keyword})
+    def _search_meetings(
+        self,
+        authorization: str,
+        input_text: str,
+        tool_params: Optional[Dict[str, Any]] = None,
+    ) -> List[Dict[str, Any]]:
+        params = tool_params if isinstance(tool_params, dict) and tool_params else resolve_campus_tool_params("java_meeting_api", input_text)
+        api_params: Dict[str, Any] = {
+            "pageNum": int(params.get("pageNum") or 1),
+            "pageSize": int(params.get("pageSize") or 10),
+        }
+        keyword = str(params.get("keyword") or "").strip()
+        if keyword:
+            api_params["keyword"] = keyword
+        payload = self._get_json("/api/meetings", authorization, params=api_params)
         records = self._page_records(self._extract_result_data(payload))
         return [self._meeting_result(row) for row in records[:10]]
 
-    def _search_canteen(self, authorization: str, input_text: str) -> List[Dict[str, Any]]:
-        keyword = self._keyword_from_input(input_text, {"食堂", "餐厅", "档口", "菜品", "吃饭", "推荐", "窗口"})
-        results = self.search_keyword(authorization, keyword) if keyword else []
+    def _search_canteen(
+        self,
+        authorization: str,
+        input_text: str,
+        tool_params: Optional[Dict[str, Any]] = None,
+    ) -> List[Dict[str, Any]]:
+        params = tool_params if isinstance(tool_params, dict) and tool_params else resolve_campus_tool_params("java_canteen_api", input_text)
+        keyword = str(params.get("keyword") or "").strip()
+        mode = str(params.get("mode") or ("search" if keyword else "browse")).strip()
+        results = self.search_keyword(authorization, keyword) if mode == "search" and keyword else []
         if results:
             return results[:10]
 
@@ -986,11 +1053,15 @@ class JavaBackendRetriever:
                 })
         return results[:10]
 
-    def _search_facilities(self, authorization: str, input_text: str) -> List[Dict[str, Any]]:
-        domain_tokens = {"设施", "位置", "在哪", "哪里", "地图", "导航", "定位", "怎么走", "路线"}
-        keyword = self._keyword_from_input(input_text, domain_tokens)
-        text = str(input_text or "")
-        navigation_intent = any(token in text for token in ("在哪", "哪里", "导航", "定位", "怎么走", "路线"))
+    def _search_facilities(
+        self,
+        authorization: str,
+        input_text: str,
+        tool_params: Optional[Dict[str, Any]] = None,
+    ) -> List[Dict[str, Any]]:
+        params = tool_params if isinstance(tool_params, dict) and tool_params else resolve_campus_tool_params("java_facility_api", input_text)
+        keyword = str(params.get("keyword") or "").strip()
+        navigation_intent = bool(params.get("navigationIntent"))
         results: List[Dict[str, Any]] = []
 
         def append_facilities(name: Optional[str] = None) -> None:
@@ -1018,12 +1089,25 @@ class JavaBackendRetriever:
 
         return self._dedupe_results(results)[:10]
 
-    def _search_secondhand(self, authorization: str, input_text: str) -> List[Dict[str, Any]]:
-        keyword = self._keyword_from_input(input_text, {"旧物", "二手", "闲置", "物品", "卖", "买", "转让"})
+    def _search_secondhand(
+        self,
+        authorization: str,
+        input_text: str,
+        tool_params: Optional[Dict[str, Any]] = None,
+    ) -> List[Dict[str, Any]]:
+        params = tool_params if isinstance(tool_params, dict) and tool_params else resolve_campus_tool_params("java_secondhand_api", input_text)
+        api_params: Dict[str, Any] = {
+            "current": int(params.get("current") or 1),
+            "size": int(params.get("size") or 10),
+            "sort": params.get("sort") or "latest",
+        }
+        keyword = str(params.get("keyword") or "").strip()
+        if keyword:
+            api_params["keyword"] = keyword
         payload = self._get_json(
             "/api/secondhand/item/list",
             authorization,
-            params={"current": 1, "size": 10, "keyword": keyword, "sort": "latest"},
+            params=api_params,
         )
         records = self._page_records(self._extract_result_data(payload))
         return [self._secondhand_result(row) for row in records[:10]]

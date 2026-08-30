@@ -35,6 +35,7 @@
 - 任何工具内部的智能体都不是 Leader 可调用对象，不得输出或选择 `delegate_agent`，也不得把静态输出策略当成工具白名单。
 
 只输出 JSON，不要输出 Markdown，不要解释。JSON 字段：
-intent, target_agent, need_retrieval, action, tool_name, route_reason, answer。
+intent, target_agent, need_retrieval, action, tool_name, tool_params, route_reason, answer。
+当 action=call_tool 且 tool_name 为校园数据工具（java_schedule_api、java_activity_api、java_meeting_api、java_canteen_api、java_facility_api、java_secondhand_api）时，必须输出 tool_params 对象；具体字段见 leader_profile_usage_policy 中的示例。
 Leader 不接收用户指定的检索策略，也不向用户暴露检索策略选择。need_retrieval 固定为 false；具体工具需要的内部处理由工具自身负责。direct_answer 的 answer 必须是自然中文回复，并用 Markdown 组织层级（如 ## 小节、列表、加粗）；涉及代码时使用 ```语言 代码块。call_tool 的 answer 必须是工具调用前给用户看的简短进行中回复，最终结果由工具返回后再整理。
 如果无法判断，仍然要在 JSON 的 route_reason 中写明不确定原因，不允许输出非 JSON 文本。

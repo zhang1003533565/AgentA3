@@ -265,20 +265,35 @@ class LeaderFastRouteTest(unittest.TestCase):
 
     def test_explicit_service_queries_use_matching_java_tool_without_llm(self):
         cases = (
-            ("今天校园有什么讲座", "activity_query", "java_activity_api"),
-            ("查询我的会议列表", "meeting_query", "java_meeting_api"),
-            ("食堂今天吃什么", "canteen_query", "java_canteen_api"),
+            ("今天校园有什么讲座", "activity_query", "java_activity_api", "list"),
+            ("AI学习工坊这个活动怎么样", "activity_query", "java_activity_api", "search"),
+            ("查询我的会议列表", "meeting_query", "java_meeting_api", None),
+            ("食堂今天吃什么", "canteen_query", "java_canteen_api", None),
         )
 
-        for query, intent, tool_name in cases:
+        for query, intent, tool_name, activity_mode in cases:
             with self.subTest(query=query):
                 plan = self.agent.plan(query, chat_service=self.provider)
                 self.assertEqual(intent, plan.intent)
                 self.assertEqual("call_tool", plan.action)
                 self.assertEqual(tool_name, plan.tool_name)
                 self.assertEqual("rules", plan.route_mode)
+                if tool_name == "java_activity_api":
+                    self.assertIsInstance(plan.tool_params, dict)
+                    if activity_mode:
+                        self.assertEqual(activity_mode, plan.tool_params.get("mode"))
+                    if activity_mode == "search":
+                        self.assertEqual("AI学习工坊", plan.tool_params.get("keyword"))
+                if tool_name == "java_schedule_api":
+                    self.assertEqual("current_week", plan.tool_params.get("scope"))
 
         self.assertEqual(0, self.provider.calls)
+
+    def test_schedule_fast_route_includes_tool_params(self):
+        plan = self.agent.plan("我想查询今日课表", chat_service=self.provider)
+
+        self.assertEqual("java_schedule_api", plan.tool_name)
+        self.assertEqual("current_week", plan.tool_params.get("scope"))
 
     def test_ambiguous_or_multi_intent_queries_fall_back_to_llm(self):
         queries = (

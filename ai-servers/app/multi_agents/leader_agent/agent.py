@@ -1,7 +1,7 @@
 import json
 import os
 import re
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from typing import Any, Dict, List, Optional
 
 from fastapi import HTTPException
@@ -10,9 +10,10 @@ from app.model_providers.multimodal import extract_image_references
 from app.model_providers.factory import get_chat_model_provider
 from app.multi_agents.catalog import LEADER_CALLABLE_AGENT_ORDER, get_agent_profile, normalize_agent_name
 from app.multi_agents.runtime import load_agent_prompt
+from app.services.campus_tool_params import CAMPUS_SERVICE_TOOL_NAMES, resolve_campus_tool_params
 from app.services.memory_store import memory_store
 from app.utils.logger import get_logger
-from app.utils.text_utils import is_all_semester_schedule_query, is_course_count_query, is_course_teacher_query, is_course_time_query, is_schedule_intent, is_semester_schedule_query
+from app.utils.text_utils import is_all_semester_schedule_query, is_course_count_query, is_course_teacher_query, is_course_time_query, is_schedule_intent, is_semester_schedule_query, normalize_text
 
 logger = get_logger("multi_agents.leader")
 
@@ -42,15 +43,6 @@ LEADER_OUTPUT_PUSH_STRATEGIES = [
         "display_policy": "默认以文本或 Markdown 展示。",
     },
 ]
-
-CAMPUS_SERVICE_TOOL_NAMES = {
-    "java_schedule_api",
-    "java_activity_api",
-    "java_meeting_api",
-    "java_canteen_api",
-    "java_facility_api",
-    "java_secondhand_api",
-}
 
 VISUAL_GENERATION_TOOL_NAMES = {
     "generate_image_tool",
@@ -297,6 +289,22 @@ _ACTIVITY_NON_QUERY_TOKENS = (
     "创建活动",
     "发布活动",
 )
+_ACTIVITY_DETAIL_QUERY_TOKENS = (
+    "怎么样",
+    "详情",
+    "介绍",
+    "值得",
+    "评价",
+    "好不好",
+    "咋样",
+)
+_PENDING_TOOL_ANSWER_MARKERS = (
+    "正在为你查询",
+    "正在查询",
+    "稍等片刻",
+    "请稍候",
+    "请等待",
+)
 _SCHEDULE_NON_QUERY_TOKENS = (
     "生成课表",
     "制作课表",
@@ -328,6 +336,7 @@ class LeaderPlan:
     route_reason: str = ""
     answer: str = ""
     route_mode: str = ""
+    tool_params: Dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -444,21 +453,21 @@ class LeaderAgent:
         learning_context: Optional[Dict[str, Any]] = None,
         routing_input_text: Optional[str] = None,
     ) -> LeaderPlan:
+        route_text = str(routing_input_text or input_text or "")
         forced_plan = self._plan_for_requested_agent(requested_agent, rag_strategy)
         if forced_plan:
-            return forced_plan
+            return self._finalize_campus_tool_plan(forced_plan, route_text)
 
-        route_text = str(routing_input_text or input_text or "")
         file_export_plan = self._plan_explicit_file_export_request(route_text, callable_catalog)
         if file_export_plan:
-            return file_export_plan
+            return self._finalize_campus_tool_plan(file_export_plan, route_text)
 
         tool_selection = callable_catalog.get("toolSelection") if isinstance(callable_catalog, dict) else {}
         if (
             isinstance(tool_selection, dict)
             and tool_selection.get("intent") == "capability_inquiry"
         ):
-            return LeaderPlan(
+            return self._finalize_campus_tool_plan(LeaderPlan(
                 intent="capability_inquiry",
                 target_agent="leader_agent",
                 need_retrieval=False,
@@ -468,12 +477,12 @@ class LeaderAgent:
                 route_reason="用户询问系统能力，调用能力查询工具读取当前已启用工具。",
                 answer="正在查询当前已启用的工具能力。",
                 route_mode="rules",
-            )
+            ), route_text)
 
         if self._is_explicit_visual_generation_request(input_text):
             visual_plan = self._plan_with_rules(input_text, rag_strategy)
             if visual_plan.action == "call_tool" and visual_plan.tool_name in VISUAL_GENERATION_TOOL_NAMES:
-                return visual_plan
+                return self._finalize_campus_tool_plan(visual_plan, route_text)
 
         fast_plan = self._plan_high_confidence_service_query(
             input_text,
@@ -487,15 +496,18 @@ class LeaderAgent:
                 fast_plan.intent,
                 fast_plan.tool_name,
             )
-            return fast_plan
+            return self._finalize_campus_tool_plan(fast_plan, route_text)
 
-        return self._plan_with_llm(
-            input_text,
-            rag_strategy,
-            chat_service,
-            profile_context=profile_context,
-            callable_catalog=callable_catalog,
-            conversation_context=conversation_context,
+        return self._finalize_campus_tool_plan(
+            self._plan_with_llm(
+                input_text,
+                rag_strategy,
+                chat_service,
+                profile_context=profile_context,
+                callable_catalog=callable_catalog,
+                conversation_context=conversation_context,
+            ),
+            route_text,
         )
 
     def _plan_learning_workflow(
@@ -848,9 +860,96 @@ class LeaderAgent:
             token in normalized for token in _FAST_ROUTE_QUERY_SCOPE_TOKENS
         ) or any(token in normalized for token in _FAST_ROUTE_QUESTION_TOKENS)
 
+    def _is_named_activity_query(self, normalized: str) -> bool:
+        if any(token in normalized for token in _ACTIVITY_NON_QUERY_TOKENS):
+            return False
+        if self._is_service_meta_question(normalized):
+            return False
+        if "活动" not in normalized:
+            return False
+        if any(token in normalized for token in ("有什么", "有哪些", "有没有")):
+            return False
+        if any(token in normalized for token in _ACTIVITY_DETAIL_QUERY_TOKENS):
+            return True
+        return bool(re.search(r"活动.{0,6}(吗|呢|不)$", normalized))
+
+    def _answer_looks_like_pending_tool_reply(self, answer: str) -> bool:
+        text = str(answer or "").strip()
+        return any(marker in text for marker in _PENDING_TOOL_ANSWER_MARKERS)
+
+    def _enforce_campus_service_tool_for_data_query(
+        self,
+        plan: LeaderPlan,
+        input_text: str,
+        callable_catalog: Optional[Dict[str, Any]],
+    ) -> LeaderPlan:
+        if plan.action == "call_tool":
+            return plan
+        normalized = self._normalize_fast_route_text(input_text)
+        tool_name = ""
+        intent = ""
+        label = ""
+        route_reason = ""
+        domain = ""
+        if self._is_named_activity_query(normalized) and self._catalog_tool_enabled(callable_catalog, "java_activity_api"):
+            domain = "activity"
+            tool_name = "java_activity_api"
+            intent = "activity_query"
+            label = "校园活动"
+            route_reason = "用户询问具体活动详情或评价，必须先调用活动查询工具获取数据，不能由 Leader 直接回答。"
+        elif self._answer_looks_like_pending_tool_reply(plan.answer):
+            domains = self._fast_route_domains(normalized)
+            if len(domains) == 1:
+                domain = domains[0]
+                tool_map = {
+                    "schedule": "java_schedule_api",
+                    "activity": "java_activity_api",
+                    "meeting": "java_meeting_api",
+                    "canteen": "java_canteen_api",
+                }
+                tool_name = tool_map.get(domain, "")
+                if tool_name and self._catalog_tool_enabled(callable_catalog, tool_name):
+                    intent = {
+                        "schedule": "schedule",
+                        "activity": "activity_query",
+                        "meeting": "meeting_query",
+                        "canteen": "canteen_query",
+                    }[domain]
+                    label = {
+                        "schedule": "课表",
+                        "activity": "校园活动",
+                        "meeting": "会议安排",
+                        "canteen": "食堂餐饮",
+                    }[domain]
+                    route_reason = (
+                        f"Leader 路由返回了“进行中”式 direct_answer，但用户是在查询{label}数据，"
+                        f"已强制改为调用 {tool_name}。"
+                    )
+                else:
+                    tool_name = ""
+        if not tool_name:
+            return plan
+        if domain == "schedule" and tool_name == "java_schedule_api":
+            intent, answer = self._schedule_fast_route_response(input_text)
+        else:
+            answer = f"正在为你查询{label}。"
+        return LeaderPlan(
+            intent=intent,
+            target_agent="leader_agent",
+            need_retrieval=False,
+            rag_strategy="",
+            action="call_tool",
+            tool_name=tool_name,
+            route_reason=route_reason,
+            answer=answer,
+            route_mode="rules",
+        )
+
     def _is_high_confidence_activity_query(self, normalized: str) -> bool:
         if any(token in normalized for token in _ACTIVITY_NON_QUERY_TOKENS):
             return False
+        if self._is_named_activity_query(normalized):
+            return True
         if not any(token in normalized for token in _FAST_ROUTE_ACTIVITY_TOKENS):
             return False
         if normalized in {
@@ -1100,6 +1199,7 @@ class LeaderAgent:
             raise HTTPException(status_code=502, detail=f"Leader LLM 路由结果字段不合法：{plan}")
         parsed = self._enforce_current_input_output_intent(parsed, input_text, callable_catalog)
         parsed = self._sanitize_planned_tool(parsed, callable_catalog)
+        parsed = self._enforce_campus_service_tool_for_data_query(parsed, input_text, callable_catalog)
         logger.info(
             "leader llm plan intent=%s action=%s target=%s retrieval=%s",
             parsed.intent,
@@ -1137,6 +1237,12 @@ class LeaderAgent:
             detail="Leader 模型选择了与当前输入不符的图片能力，已拒绝生成系统纠偏回复。",
         )
 
+    def _finalize_campus_tool_plan(self, plan: LeaderPlan, input_text: str) -> LeaderPlan:
+        if plan.action != "call_tool" or plan.tool_name not in CAMPUS_SERVICE_TOOL_NAMES:
+            return plan
+        plan.tool_params = resolve_campus_tool_params(plan.tool_name, input_text, plan.tool_params)
+        return plan
+
     def _parse_llm_plan(self, plan: Dict[str, Any], requested_rag_strategy: str) -> Optional[LeaderPlan]:
         if not isinstance(plan, dict):
             return None
@@ -1149,6 +1255,9 @@ class LeaderAgent:
         rag_strategy = self._normalize_rag_strategy(plan.get("rag_strategy") or plan.get("ragStrategy"))
         if action != "call_tool":
             rag_strategy = ""
+        tool_params = plan.get("tool_params") or plan.get("toolParams") or {}
+        if not isinstance(tool_params, dict):
+            tool_params = {}
         return LeaderPlan(
             intent=str(plan.get("intent") or "campus_search").strip() or "campus_search",
             target_agent=target_agent,
@@ -1159,6 +1268,7 @@ class LeaderAgent:
             route_reason=str(plan.get("route_reason") or plan.get("routeReason") or "Leader LLM 完成意图识别。").strip(),
             answer=str(plan.get("answer") or "").strip(),
             route_mode="llm",
+            tool_params=tool_params if action == "call_tool" else {},
         )
 
     def _plan_for_requested_agent(self, requested_agent: Optional[str], rag_strategy: str) -> Optional[LeaderPlan]:
@@ -1368,6 +1478,18 @@ class LeaderAgent:
                 ],
             }
         if plan.tool_name == "java_activity_api":
+            normalized = normalize_text(input_text)
+            if any(token in normalized for token in _ACTIVITY_DETAIL_QUERY_TOKENS):
+                return {
+                    "mode": "activity_detail",
+                    "format": "activity_detail_answer",
+                    "requirements": [
+                        "用户是在问某个具体活动怎么样、是否值得参加或活动详情，只基于 tool_results 中匹配到的活动数据回答。",
+                        "优先给出活动名、时间、地点、报名/状态，并基于已有字段做简短客观评价；没有的数据不要编造。",
+                        "若 tool_results 为空或未匹配到该活动，明确说明未查到该活动，不要伪造评价。",
+                        "不要输出 Markdown 的 **、###、---；不要最后反问用户。",
+                    ],
+                }
             return {
                 "mode": "activity_query",
                 "format": "activity_list_answer",
@@ -1546,6 +1668,11 @@ def _leader_profile_usage_policy(callable_catalog: Optional[Dict[str, Any]]) -> 
         "用户问某门课的老师是谁、任课老师、授课教师、谁教某门课时，这是课程信息查询，必须优先选择 java_schedule_api，不要路由到教材知识点智能体。",
         "用户问某门课什么时候学、什么时候上课、周几几点上时，也是课程信息查询，必须优先选择 java_schedule_api；但“什么时候开始没有课/哪天没课/今天有课吗”属于课表状态查询，不要套用最近课程。",
         "用户问某门课本学期有几节课、几次课、多少课时或上课次数时，也是课程信息查询，必须优先选择 java_schedule_api。",
+        "用户问某个具体活动怎么样、是否值得参加、活动详情或介绍时，必须 action=call_tool 且 tool_name=java_activity_api；禁止 direct_answer，也禁止只回复“正在查询”。",
+        "action=call_tool 且 tool_name 为 java_schedule_api、java_activity_api、java_meeting_api、java_canteen_api、java_facility_api、java_secondhand_api 时，必须同时输出 tool_params 结构化查询参数；系统会合并 tool_params 与规则解析，优先使用 tool_params。",
+        "java_schedule_api 的 tool_params 示例：{\"scope\":\"current_week|week|semester|all_semesters\",\"week\":null,\"weekday\":null,\"date\":null,\"month\":null,\"courseKeyword\":\"\",\"sessionStart\":null,\"sessionEnd\":null}。",
+        "java_activity_api 的 tool_params 示例：{\"mode\":\"list|search\",\"keyword\":\"\",\"status\":\"PUBLISHED\",\"timePhase\":null,\"page\":1,\"size\":10}；具体活动名查询时 mode=search 且 keyword 填活动名。",
+        "java_meeting_api 的 tool_params 示例：{\"keyword\":\"\",\"pageNum\":1,\"pageSize\":10}；java_canteen_api：{\"mode\":\"search|browse\",\"keyword\":\"\"}。",
         "会议纪要/总结/转写/成员分析以及活动图/流程图等能力，统一通过已启用的系统工具处理，不要单独委派专业智能体。",
         "路由只有两种：普通问题使用 direct_answer；确实需要系统能力时使用 call_tool。只能选择 leader_callable_catalog.tools 中的工具；该列表已经过滤掉后台关闭项，禁止选择或提及未出现在清单中的工具。",
         "用户询问你有什么功能、是否支持生图/PPT/题库/文档/图表等能力时，必须 action=call_tool，tool_name=tool_capability_query；能力清单由该工具读取当前后台开关后返回，不能由 Leader 根据静态目录直接回答。",

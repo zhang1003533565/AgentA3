@@ -1768,7 +1768,7 @@ def _is_admin_tool_console_request(request: RagQueryRequest) -> bool:
     return metadata.get("testFrom") == "admin_agent_console"
 
 
-def _build_direct_tool_test_plan(tool_name: str) -> LeaderPlan:
+def _build_direct_tool_test_plan(tool_name: str, input_text: str = "") -> LeaderPlan:
     intent = "tool_test"
     if tool_name == IMAGE_STITCHING_TOOL["name"]:
         intent = "image_stitching"
@@ -1784,7 +1784,7 @@ def _build_direct_tool_test_plan(tool_name: str) -> LeaderPlan:
         intent = "capability_inquiry"
     elif tool_name in AI_PPT_GENERATION_TOOL_NAMES:
         intent = "ppt_generation"
-    return LeaderPlan(
+    plan = LeaderPlan(
         intent=intent,
         target_agent=tool_name,
         need_retrieval=False,
@@ -1794,6 +1794,10 @@ def _build_direct_tool_test_plan(tool_name: str) -> LeaderPlan:
         route_reason="管理台直接运行指定工具。",
         route_mode="direct_tool_test",
     )
+    if tool_name in SERVICE_TOOL_NAMES and input_text:
+        from app.services.campus_tool_params import resolve_campus_tool_params
+        plan.tool_params = resolve_campus_tool_params(tool_name, input_text)
+    return plan
 
 
 def _resolve_admin_direct_tool_test(request: RagQueryRequest, tool_name: str) -> Tuple[str, RagQueryRequest]:
@@ -1850,7 +1854,7 @@ def _run_admin_direct_tool_test(
             detail=f"工具 {_tool_display_name(requested_tool)} 已在后台关闭，无法运行测试。",
         )
     executable_tool, request = _resolve_admin_direct_tool_test(request, requested_tool)
-    plan = _build_direct_tool_test_plan(executable_tool)
+    plan = _build_direct_tool_test_plan(executable_tool, request.input or "")
     if executable_tool in CONTENT_EXPORT_TOOL_NAMES:
         return _run_content_export_tool(request, plan, direct_tool_test=True)
     response = _execute_leader_plan(request, authorization, None, plan, callable_catalog=None)
@@ -5021,7 +5025,15 @@ def _run_service_tool(request: RagQueryRequest, authorization: str, leader_plan)
     planning_answer = str(getattr(leader_plan, "answer", "") or "").strip()
     answer_type = "service_tool_result"
     tool_started_at = time.perf_counter()
-    results, cache_meta = data_store.search_service_tool_with_meta(authorization, tool_name, request.input)
+    tool_params = getattr(leader_plan, "tool_params", None) or {}
+    if not isinstance(tool_params, dict):
+        tool_params = {}
+    results, cache_meta = data_store.search_service_tool_with_meta(
+        authorization,
+        tool_name,
+        request.input,
+        tool_params,
+    )
     results = results or []
     tool_ms = _elapsed_ms(tool_started_at)
     tool_cache = cache_meta.get("toolCache", {}) if isinstance(cache_meta, dict) else {}
@@ -5086,6 +5098,7 @@ def _run_service_tool(request: RagQueryRequest, authorization: str, leader_plan)
         "leaderActionLabel": _leader_action_label(leader_plan.action),
         "toolName": tool_name,
         "toolDisplayName": tool_display_name,
+        "toolParams": tool_params,
         "planningAnswer": planning_answer,
         "routeReason": leader_plan.route_reason,
         "strategyLabel": _strategy_label(tool_name),
