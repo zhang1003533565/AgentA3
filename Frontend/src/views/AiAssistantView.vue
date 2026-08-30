@@ -3,6 +3,7 @@ import { computed, h, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 
 import AppTabBar from '../components/AppTabBar.vue'
+import AssistantBusinessCards from '../components/assistant/AssistantBusinessCards.vue'
 import ChatImageAttachment from '../components/ChatImageAttachment.vue'
 import ChatMarkdown from '../components/ChatMarkdown.vue'
 import ImageGenerationCanvas from '../components/ImageGenerationCanvas.vue'
@@ -11,7 +12,7 @@ import PptTemplatePicker from '../components/PptTemplatePicker.vue'
 import { deleteLeaderSession, getLeaderSessionDetail, getLeaderSessions, queryLeaderAgent, streamLeaderAgent } from '../api/aiGeneration'
 import { API_BASE_URL } from '../api/request'
 import { AI_RESOURCE_ACCEPT, uploadAiResource } from '../api/upload'
-import { getToken } from '../utils/auth'
+import { businessCardResources } from '../utils/assistantBusinessResources'
 import pdfIcon from '../assets/file-icons/pdf.png'
 import pptIcon from '../assets/file-icons/ppt.png'
 import excelIcon from '../assets/file-icons/excel.png'
@@ -984,6 +985,23 @@ function autoFenceCodeBlocks(content) {
   return text
 }
 
+function trimDuplicateListForCards(content, cards) {
+  const lines = String(content || '').split('\n')
+  const listLineCount = lines.filter((line) => /^\s*(\d+[\.、)]\s|[-*]\s|•\s)/.test(line)).length
+  if (listLineCount < 2) return content
+  const count = cards.length
+  const kind = cards[0]?.kind
+  const labels = {
+    activity: '活动',
+    secondhand: '二手物品',
+    course: '课程',
+    meeting: '会议',
+    dining: '餐饮',
+    facility: '设施',
+  }
+  return `共为你找到 ${count} 条${labels[kind] || '结果'}，详情已展示在上方卡片中。点击对应卡片即可查看完整信息。`
+}
+
 function displayAssistantContent(message) {
   let content = String(message?.content || '').trim()
   if (!content) return ''
@@ -992,6 +1010,10 @@ function displayAssistantContent(message) {
   }
   content = unwrapJsonAnswer(content)
   content = autoFenceCodeBlocks(content)
+  const cards = businessCardResources(message?.resources)
+  if (cards.length && !message?.streaming) {
+    content = trimDuplicateListForCards(content, cards)
+  }
   return content
 }
 
@@ -2015,6 +2037,10 @@ function handleUpload(event) {
                         </div>
                       </div>
                     </div>
+                    <AssistantBusinessCards
+                      v-if="message.role === 'assistant' && message.resources?.length"
+                      :resources="message.resources"
+                    />
                     <ChatMarkdown
                       v-if="message.role === 'assistant' && displayAssistantContent(message)"
                       :content="displayAssistantContent(message)"

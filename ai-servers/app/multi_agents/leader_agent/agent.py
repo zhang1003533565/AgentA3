@@ -17,6 +17,32 @@ from app.utils.text_utils import is_all_semester_schedule_query, is_course_count
 
 logger = get_logger("multi_agents.leader")
 
+_CARD_COMPANION_REQUIREMENTS = [
+    "前端会在你的文字回答上方展示结构化结果卡片，用户点击卡片即可查看详情。",
+    "因此正文不要逐条重复卡片里已有的名称、时间、地点、价格、状态等明细。",
+    "正文只做 companion 说明：共查到几条、请查看上方卡片、必要时一句整体建议或筛选说明。",
+    "若需点名某条，只提名称并说明可在对应卡片查看，不要重新展开完整字段。",
+    "控制在 2-4 句；不要编号列表，不要用 Markdown 三级标题或分隔线。",
+]
+
+_CARD_COMPANION_MODES = {
+    "activity_query",
+    "secondhand_query",
+    "meeting_query",
+    "canteen_query",
+    "facility_location",
+    "course_list",
+}
+
+_TOOL_CARD_LABELS = {
+    "java_activity_api": "活动",
+    "java_secondhand_api": "二手物品",
+    "java_meeting_api": "会议",
+    "java_canteen_api": "餐饮结果",
+    "java_facility_api": "设施",
+    "java_schedule_api": "课程",
+}
+
 LEADER_OUTPUT_PUSH_STRATEGIES = [
     {
         "push_type": "image",
@@ -1359,7 +1385,8 @@ class LeaderAgent:
             system_prompt=(
                 "你负责把智慧校园系统接口返回的数据整理成给用户看的最终回答。"
                 "你不是路由器，不要重新选择工具或智能体；不要输出 JSON 或内部字段名。"
-                "默认用清晰的 Markdown 层级组织答案；若 answer_policy 指定纯文本或固定格式，则严格遵守。"
+                "当 answer_policy 要求 card_companion 时，明细已在上方结果卡片展示，正文只做简短 companion 说明。"
+                "默认用清晰的 Markdown 层级组织答案；若 answer_policy 指定纯文本、固定格式或 card_companion，则严格遵守。"
                 "必须遵守用户意图对应的 answer_policy，答案短而准。"
             ),
             user_prompt=json.dumps(payload, ensure_ascii=False),
@@ -1368,12 +1395,45 @@ class LeaderAgent:
         parsed = parse_json_object(answer)
         if parsed and parsed.get("action") and parsed.get("intent"):
             return ""
-        return self._clean_tool_answer(answer, plan)
+        return self._clean_tool_answer(answer, plan, tool_results)
 
-    def _clean_tool_answer(self, answer: str, plan: LeaderPlan) -> str:
+    def _should_use_card_companion(self, plan: LeaderPlan, tool_results: List[Dict[str, Any]]) -> bool:
+        if plan.tool_name not in CAMPUS_SERVICE_TOOL_NAMES:
+            return False
+        real_results = [
+            item for item in (tool_results or [])
+            if isinstance(item, dict) and str(item.get("type") or "") not in {"tool_empty_result", "tool_execution_error"}
+        ]
+        if not real_results:
+            return False
+        policy = self._tool_result_answer_policy("", plan, tool_results)
+        return bool(policy.get("card_companion")) or str(policy.get("mode") or "") in _CARD_COMPANION_MODES
+
+    def _card_companion_fallback(self, plan: LeaderPlan, tool_results: List[Dict[str, Any]]) -> str:
+        real_results = [
+            item for item in (tool_results or [])
+            if isinstance(item, dict) and str(item.get("type") or "") not in {"tool_empty_result", "tool_execution_error"}
+        ]
+        count = len(real_results)
+        label = _TOOL_CARD_LABELS.get(str(plan.tool_name or ""), "结果")
+        if count <= 0:
+            return "暂未查到可展示的数据，你可以调整筛选条件后重试。"
+        return (
+            f"共为你找到 {count} 条{label}，详情已展示在上方卡片中。"
+            "点击对应卡片即可查看完整信息；如需某一条的进一步说明，可以直接告诉我名称。"
+        )
+
+    def _clean_tool_answer(self, answer: str, plan: LeaderPlan, tool_results: Optional[List[Dict[str, Any]]] = None) -> str:
         text = str(answer or "").strip()
         if plan.tool_name not in CAMPUS_SERVICE_TOOL_NAMES:
             return text
+        if tool_results is not None and self._should_use_card_companion(plan, tool_results):
+            list_lines = [
+                line for line in text.splitlines()
+                if re.match(r"^\s*(\d+[\.、)]\s|[-*]\s)", line)
+            ]
+            if len(list_lines) >= 2:
+                return self._card_companion_fallback(plan, tool_results)
         text = re.sub(r"^#{1,6}\s*", "", text, flags=re.MULTILINE)
         text = re.sub(r"\*\*(.*?)\*\*", r"\1", text)
         text = re.sub(r"`([^`]+)`", r"\1", text)
@@ -1451,12 +1511,12 @@ class LeaderAgent:
                 return {
                     "mode": mode,
                     "format": "short_course_list",
+                    "card_companion": True,
                     "requirements": [
-                        "用户是在问本学期/全部学期有哪些课，只列课程清单，不展开每次上课时间、周次、地点或教室。",
+                        "用户是在问本学期/全部学期有哪些课。",
+                        *_CARD_COMPANION_REQUIREMENTS,
                         "把同一门课的多条上课安排合并成一门课；课程数量按去重后的课程数，不按上课安排条数。",
-                        "可以保留学期、课程名、教师、学分、考核方式；没有字段就不要提。",
                         "不要输出“具体如下”“完整课表”“上课安排”“第几周”“第几节”等多余说明。",
-                        "不要使用三级标题、分隔线或文档式 Markdown；最多用一句引导语加简短项目符号。",
                     ],
                 }
             if mode == "session_lookup":
@@ -1493,11 +1553,11 @@ class LeaderAgent:
             return {
                 "mode": "activity_query",
                 "format": "activity_list_answer",
+                "card_companion": True,
                 "requirements": [
-                    "用户是在问校园活动、讲座、比赛或报名信息，只回答匹配到的活动内容。",
-                    "每条活动优先包含活动名、时间、地点、报名/状态；字段不存在就不要提。",
-                    "用户问最近/可报名/某类活动时，只筛选并展示相关活动，不要把所有接口字段铺开。",
-                    "结果较多时最多先展示 5 条，并说明还查到多少条。",
+                    "用户是在问校园活动、讲座、比赛或报名信息。",
+                    *_CARD_COMPANION_REQUIREMENTS,
+                    "若结果超过卡片展示数量，说明总共查到多少条。",
                     "不要编造报名链接、名额、主办方或地点。",
                 ],
             }
@@ -1505,11 +1565,11 @@ class LeaderAgent:
             return {
                 "mode": "meeting_query",
                 "format": "meeting_list_answer",
+                "card_companion": True,
                 "requirements": [
-                    "用户是在问会议列表、我的会议、预约会议或会议状态，只回答会议安排信息。",
-                    "每条会议优先包含会议名、时间、地点/会议室、状态；字段不存在就不要提。",
+                    "用户是在问会议列表、我的会议、预约会议或会议状态。",
+                    *_CARD_COMPANION_REQUIREMENTS,
                     "会议纪要、总结、转写和成员分析不是这个工具的输出，不要把查询结果写成会议纪要。",
-                    "结果较多时最多先展示 5 条，并说明还查到多少条。",
                     "不要编造参会人、会议链接或审批状态。",
                 ],
             }
@@ -1517,11 +1577,11 @@ class LeaderAgent:
             return {
                 "mode": "canteen_query",
                 "format": "canteen_answer",
+                "card_companion": True,
                 "requirements": [
-                    "用户是在问食堂、餐厅、档口、菜品、吃什么或餐饮优惠，只回答餐饮相关结果。",
-                    "每条结果优先包含名称、食堂/档口、价格/优惠、位置；字段不存在就不要提。",
+                    "用户是在问食堂、餐厅、档口、菜品、吃什么或餐饮优惠。",
+                    *_CARD_COMPANION_REQUIREMENTS,
                     "用户问某个菜品或吃什么时，由你在 tool_results 中匹配菜品、档口或优惠，不要要求完全同名。",
-                    "结果较多时最多先展示 5 条，并说明还查到多少条。",
                     "不要编造价格、库存、营业时间或优惠规则。",
                 ],
             }
@@ -1529,11 +1589,11 @@ class LeaderAgent:
             return {
                 "mode": "facility_location",
                 "format": "facility_location_answer",
+                "card_companion": True,
                 "requirements": [
-                    "用户是在问教学楼、宿舍、操场、食堂等设施位置，只回答匹配设施的位置和必要定位信息。",
-                    "每条结果优先包含设施名、位置、楼宇/校区、类型；字段不存在就不要提。",
+                    "用户是在问教学楼、宿舍、操场、食堂等设施位置。",
+                    *_CARD_COMPANION_REQUIREMENTS,
                     "用户问路线或导航时，只能基于 tool_results 已有位置提示，不能编造路线。",
-                    "结果较多时最多先展示 5 条，并说明还查到多少条。",
                     "不要输出经纬度以外的内部字段名。",
                 ],
             }
@@ -1541,11 +1601,11 @@ class LeaderAgent:
             return {
                 "mode": "secondhand_query",
                 "format": "secondhand_answer",
+                "card_companion": True,
                 "requirements": [
-                    "用户是在问旧物、二手、闲置或转让物品，只回答匹配物品信息。",
-                    "每条结果优先包含物品名、价格、成色/状态、发布位置或时间；字段不存在就不要提。",
+                    "用户是在问旧物、二手、闲置或转让物品。",
+                    *_CARD_COMPANION_REQUIREMENTS,
                     "不要展示手机号、微信号、精确个人联系信息等敏感信息；如接口返回联系人，只提示在系统内查看。",
-                    "结果较多时最多先展示 5 条，并说明还查到多少条。",
                     "不要编造砍价建议、交易状态或联系方式。",
                 ],
             }

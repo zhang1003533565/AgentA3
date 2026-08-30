@@ -1225,6 +1225,17 @@ class JavaBackendRetriever:
         }
 
     def _secondhand_result(self, row: Dict[str, Any]) -> Dict[str, Any]:
+        images = row.get("images")
+        image_url = row.get("imageUrl") or row.get("coverImage")
+        if not image_url and isinstance(images, list) and images:
+            image_url = images[0]
+        elif not image_url and isinstance(images, str) and images.strip():
+            try:
+                parsed = json.loads(images)
+                if isinstance(parsed, list) and parsed:
+                    image_url = parsed[0]
+            except json.JSONDecodeError:
+                image_url = images.split(",")[0].strip() if "," in images else images.strip()
         return {
             "type": "secondhand_item",
             "id": row.get("id"),
@@ -1237,6 +1248,7 @@ class JavaBackendRetriever:
             "location": row.get("location"),
             "description": row.get("description"),
             "viewCount": row.get("viewCount"),
+            "imageUrl": image_url,
         }
 
     def _dedupe_results(self, rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:

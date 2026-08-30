@@ -1,6 +1,6 @@
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import AppTabBar from '../components/AppTabBar.vue'
 import {
   createOrGetChatSession, createSecondhandItem, favoriteSecondhandItem,
@@ -19,6 +19,7 @@ import {
 } from '../utils/marketplaceCategories'
 
 const router = useRouter()
+const route = useRoute()
 const tab = ref('market')
 const loading = ref(true)
 const error = ref('')
@@ -179,6 +180,9 @@ async function tradeAction(record, action) {
 }
 
 watch([tab, selectedCategory], load)
+watch(() => route.query.itemId, (itemId) => {
+  if (itemId) void openItem(itemId)
+})
 onMounted(async () => {
   try {
     categories.value = content(await getSecondhandCategories())
@@ -186,6 +190,9 @@ onMounted(async () => {
     categories.value = []
   }
   await load()
+  if (route.query.itemId) {
+    await openItem(route.query.itemId)
+  }
 })
 </script>
 
