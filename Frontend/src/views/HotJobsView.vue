@@ -6,10 +6,12 @@ import {
   addJobFavorite,
   getJobFavoriteIds,
   getLatestJobRecommendations,
+  JOB_BOSS_CTA,
   JOB_SALARY_HINT,
   listJobFavorites,
   refreshJobRecommendations,
   removeJobFavorite,
+  resolveBossJobSearchLinkFromJob,
 } from '../api/jobRecommendations'
 
 const router = useRouter()
@@ -38,8 +40,7 @@ function parseSkills(skillsText) {
 }
 
 function resolveJobSearchLink(job) {
-  const keyword = String(job?.jobTitle || '软件工程师').trim() || '软件工程师'
-  return `https://www.zhipin.com/web/geek/job?query=${encodeURIComponent(keyword)}`
+  return resolveBossJobSearchLinkFromJob(job)
 }
 
 async function loadFavoriteIds() {
@@ -211,12 +212,17 @@ onMounted(async () => {
                 {{ favoritedIds.has(job.id) ? '★' : '☆' }}
               </button>
             </div>
-            <p class="hotjobs-salary-hint">{{ JOB_SALARY_HINT }}</p>
+            <a
+              :href="resolveJobSearchLink(job)"
+              target="_blank"
+              rel="noreferrer"
+              class="hotjobs-salary-hint hotjobs-salary-hint--link"
+            >{{ JOB_SALARY_HINT }}</a>
             <div v-if="parseSkills(job.skills).length" class="hotjobs-skills">
               <span v-for="skill in parseSkills(job.skills)" :key="skill">{{ skill }}</span>
             </div>
             <footer class="hotjobs-card__footer">
-              <a :href="resolveJobSearchLink(job)" target="_blank" rel="noreferrer">在 BOSS 直聘查看</a>
+              <a :href="resolveJobSearchLink(job)" target="_blank" rel="noreferrer">{{ JOB_BOSS_CTA }}</a>
               <span>AI 生成</span>
             </footer>
           </div>
@@ -415,9 +421,19 @@ onMounted(async () => {
 }
 
 .hotjobs-salary-hint {
+  display: inline-block;
   margin: 0 0 12px;
   color: #667085;
   font-size: 13px;
+}
+
+.hotjobs-salary-hint--link {
+  color: #2f76bd;
+  text-decoration: none;
+}
+
+.hotjobs-salary-hint--link:hover {
+  text-decoration: underline;
 }
 
 .hotjobs-skills {
