@@ -34,7 +34,11 @@ function Import-DotEnv {
             $value = $value.Substring(1, $value.Length - 2)
         }
 
-        if (-not [Environment]::GetEnvironmentVariable($name, "Process")) {
+        # LLM_* must follow the repository .env so a stale shell variable
+        # cannot silently route requests to an old provider/model. Other
+        # variables keep the existing shell-first behavior.
+        $existing = [Environment]::GetEnvironmentVariable($name, "Process")
+        if ($name.StartsWith("LLM_", [StringComparison]::OrdinalIgnoreCase) -or -not $existing) {
             Set-Item -Path "Env:$name" -Value $value
             $loadedKeys.Add($name) | Out-Null
         }

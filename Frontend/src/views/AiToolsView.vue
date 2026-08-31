@@ -30,7 +30,7 @@ const heroSlides = [
     features: ['多学科支持', '题型智能匹配', '一键导出打印'],
     color: '#ff3943',
     image: examHero,
-    route: 'exam',
+    route: '/paper',
   },
   {
     key: 'mind',
@@ -108,14 +108,16 @@ const baseTools = [
   { name: '智能写作', desc: '生成校园常用文稿并支持润色', category: ['hot', 'creation'], artSet: 'core', art: 0, route: '/ai-studio/writing', accent: '#4077de' },
   { name: 'AI 文生图', desc: '根据文字描述生成图片', category: ['hot', 'creation'], artSet: 'core', art: 1, route: '/ai-studio/image', accent: '#7546d9' },
   { name: 'AI伪原创', desc: '图片内容创作与水印处理', category: ['hot', 'creation'], artSet: 'core', art: 5, route: '/ai-original', accent: '#8b63e8' },
-  { name: '试卷生成', desc: '生成结构化练习与标准试卷', category: ['hot', 'learning'], artSet: 'core', art: 2, route: '/ai-studio/exam', accent: '#ff3943' },
+  { name: '试卷生成', desc: '生成结构化练习与标准试卷', category: ['hot', 'learning'], artSet: 'core', art: 2, route: '/paper', accent: '#ff3943' },
   { name: 'PPT 生成', desc: '生成演示大纲与文稿资源', category: ['hot', 'creation', 'learning'], artSet: 'core', art: 3, route: '/ai-studio/presentation', accent: '#ff9900' },
   { name: '思维导图', desc: '梳理主题与课程知识结构', category: ['hot', 'diagram', 'learning'], artSet: 'core', art: 4, route: '/ai-studio/mind_map', accent: '#7546d9' },
   { name: '架构图', desc: '生成系统架构可视化资源', category: ['diagram'], artSet: 'core', art: 5, route: '/ai-studio/architecture', accent: '#3b82f6' },
   { name: '流程图', desc: '生成清晰的业务与逻辑流程', category: ['diagram'], artSet: 'core', art: 6, route: '/ai-studio/flowchart', accent: '#ee5eaa' },
+  { name: 'Python 在线编程', desc: '在线刷题编程练习', category: ['hot', 'learning'], artSet: 'core', art: 7, route: '/learning', accent: '#10B981' },
   { name: '知识图谱', desc: '查看课程知识关系与学习路径', category: ['diagram', 'learning'], artSet: 'core', art: 4, route: '/learning/knowledge-graph', accent: '#18a37d' },
   { name: '校园地图', desc: '查询校园地点、设施和导航', category: ['campus'], artSet: 'service', art: 1, route: '/map', accent: '#56aa1b' },
   { name: 'AI 简历', desc: '智能创建、解析与优化简历', category: ['hot', 'campus'], artSet: 'service', art: 2, route: '/resume', accent: '#1768e6' },
+  { name: '岗位雷达', desc: 'AI 整理近一周软件工程热门岗位', category: ['hot', 'campus'], artSet: 'service', art: 3, route: '/jobs/hot', accent: '#527797' },
   { name: 'PDF → Word', desc: 'PDF 转 Word 文档', category: ['convert'], artSet: 'core', art: 0, route: '/convert?type=pdf_to_docx', accent: '#5C7A99' },
   { name: 'PPT → Word', desc: 'PPT 转 Word 文档', category: ['convert'], artSet: 'core', art: 1, route: '/convert?type=ppt_to_docx', accent: '#6B9B7A' },
   { name: 'Word → PDF', desc: 'Word 转 PDF 文档', category: ['convert'], artSet: 'core', art: 2, route: '/convert?type=docx_to_pdf', accent: '#B89B7A' },
@@ -231,6 +233,10 @@ function openTool(tool) {
 }
 
 function openHero(slide) {
+  if (slide.route?.startsWith('/')) {
+    router.push(slide.route)
+    return
+  }
   router.push(`/ai-studio/${slide.route}`)
 }
 
@@ -373,7 +379,7 @@ onBeforeUnmount(() => {
             <p>{{ categories.find((item) => item.key === activeCategory)?.label }}</p>
             <h2>找到适合你的智能工具</h2>
           </div>
-          <button type="button" @click="router.push('/ai-studio')">
+          <button type="button" @click="router.push('/ai-tools')">
             查看全部
             <svg viewBox="0 0 24 24"><path d="m9 5 7 7-7 7" /></svg>
           </button>

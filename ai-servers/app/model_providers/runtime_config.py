@@ -42,6 +42,7 @@ def reset_active_reasoning_effort(token: Token) -> None:
 
 def get_active_reasoning_effort() -> Optional[str]:
     return _active_reasoning_effort.get()
+_active_llm_timeout_seconds: ContextVar[int] = ContextVar("active_llm_timeout_seconds", default=120)
 
 
 def build_llm_runtime_config(

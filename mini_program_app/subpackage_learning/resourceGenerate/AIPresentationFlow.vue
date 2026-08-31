@@ -5,7 +5,7 @@
         <text class="flow-heading__title">{{ stepMeta[currentStep - 1].title }}</text>
       </view>
       <view v-if="canRestartFlow" class="flow-heading__actions">
-        <view class="restart-input-button" @tap="requestRestartFlow">重新输入</view>
+        <view class="restart-generation-button" @tap="requestRestartFlow">重新生成</view>
       </view>
     </view>
 
@@ -405,6 +405,7 @@
           >
             <text>{{ index + 1 }}</text>
             <text>{{ slide.title || '未命名页面' }}</text>
+            <text v-if="slide.layoutLocked" class="slide-tab__lock">已锁定</text>
           </view>
         </view>
       </scroll-view>
@@ -427,29 +428,34 @@
             @tap="openEditorPreview"
           />
           <image
-            v-else-if="editorPreviewLayoutImage"
-            class="slide-editor__preview-image slide-editor__preview-image--layout"
-            :src="editorPreviewLayoutImage"
+            v-else
+            class="slide-editor__preview-image slide-editor__preview-image--empty"
+            src="/static/images/ppt-preview-empty.svg"
             mode="aspectFit"
-            @tap="openEditorPreview"
           />
-          <view v-else class="slide-editor__preview-fallback">
-            <text class="slide-editor__preview-index">{{ String(activeSlideIndex + 1).padStart(2, '0') }}</text>
-            <text class="slide-editor__preview-title">{{ activeSlide.title || '未命名页面' }}</text>
-            <text class="slide-editor__preview-content">{{ activeSlide.content || '暂未填写页面内容' }}</text>
-            <view class="slide-editor__preview-decor"></view>
-          </view>
           <view v-if="editorPreviewError" class="slide-editor__preview-status">
             <text>{{ editorPreviewError }}</text>
           </view>
+          <view v-if="editorPreviewLoading" class="slide-editor__preview-status slide-editor__preview-status--loading">
+            <view class="slide-editor__preview-spinner"></view>
+            <text>正在渲染中</text>
+          </view>
         </view>
 
-        <view class="slide-layout-lock-row">
-          <view>
-            <text>当前版式</text>
-            <text>{{ selectedTemplateName }} / {{ activeSlideLayoutLabel }}</text>
+        <view class="slide-layout-lock-card" :class="{ 'slide-layout-lock-card--locked': activeSlide.layoutLocked }">
+          <view class="slide-layout-lock-card__icon" :class="{ 'slide-layout-lock-card__icon--locked': activeSlide.layoutLocked }">
+            <text>{{ activeSlide.layoutLocked ? '✓' : '锁' }}</text>
           </view>
-          <text>锁定</text>
+          <view class="slide-layout-lock-card__copy">
+            <text class="slide-layout-lock-card__title">{{ activeSlide.layoutLocked ? '当前页面已锁定' : '锁定当前页面' }}</text>
+            <text class="slide-layout-lock-card__desc">
+              {{ activeSlide.layoutLocked ? '生成时保留当前预览版式，仍可修改下方文字' : '生成时保留当前预览版式，不自动更换布局' }}
+            </text>
+            <text class="slide-layout-lock-card__layout">{{ selectedTemplateName }} · {{ activeSlideLayoutLabel }}</text>
+          </view>
+          <button class="slide-layout-lock-card__action" :class="{ 'slide-layout-lock-card__action--locked': activeSlide.layoutLocked }" @tap="toggleActiveSlideLock">
+            {{ activeSlide.layoutLocked ? '解除锁定' : '锁定页面' }}
+          </button>
         </view>
 
         <view class="edit-field">
@@ -543,13 +549,6 @@
           <view><text>{{ resultName }}</text><text>演示文稿 · {{ pageCount }} 页</text></view>
         </view>
         <view class="result-summary__meta"><text>生成完成</text><text>刚刚</text></view>
-      </view>
-
-      <view v-if="generationWarnings.length" class="generation-warning">
-        <text>{{ generationWarnings.join('；') }}</text>
-      </view>
-      <view v-if="formatErrorList.length" class="generation-warning generation-warning--error">
-        <text>{{ formatErrorList[0].label }}：{{ formatErrorList[0].message }}</text>
       </view>
 
       <view class="format-status-panel">
@@ -838,6 +837,12 @@ export default {
       editorPreviewTimer: null,
       editorPreviewRequestId: 0,
       editorPreviewQueued: false,
+      editorPreviewInFlight: {},
+      editorPreviewRevisions: {},
+      editorPreviewSession: 0,
+      editorPreviewBatchRunId: 0,
+      editorPreviewBatchPromise: null,
+      editorPreviewRenderTail: Promise.resolve(),
       sharedPrompt: '保持资料内容准确，版面简洁清晰，突出核心知识点，使用清晰易读的视觉层级。',
       settings: {
         includeCover: true,
@@ -989,12 +994,6 @@ export default {
     activeSlideLayoutLabel() {
       const layouts = this.selectedTemplateLayouts
       return layouts[this.activeSlideIndex % Math.max(1, layouts.length)]?.name || '图文内容'
-    },
-    editorPreviewLayoutImage() {
-      const templateId = this.selectedTemplate?.id || this.pptStyle
-      const layoutIndex = this.editorLayoutIndex(this.activeSlideIndex)
-      if (!templateId || layoutIndex < 0) return ''
-      return this.layoutPreviewCache[templateId]?.[layoutIndex] || ''
     },
     editorPreviewFrameStyle() {
       const background = this.activeSlide?.ui?.background
@@ -1424,7 +1423,7 @@ export default {
       this.templateReturnContext = null
       this.currentStep = target
       if (target === 5) {
-        this.$nextTick(() => this.scheduleEditorPreview(true))
+        this.enterEditorPreview()
       } else if (target === 7) {
         this.loadPreviewImages()
       }
@@ -1890,7 +1889,7 @@ export default {
       this.generationWarnings = []
       this.contentQuality = null
       this.previewImages = {}
-      this.editorPreviewCache = {}
+      this.resetEditorPreviewSession()
       this.editorPreviewImage = ''
       this.editorPreviewSlideIndex = -1
       this.lastPptError = ''
@@ -2035,14 +2034,21 @@ export default {
         const created = this.responseData(response)
         this.outlineGenerationTaskId = String(created.taskId || '')
         if (!this.outlineGenerationTaskId) throw new Error('服务端未返回大纲生成任务编号')
-        this.persistActiveTask('outline', this.outlineGenerationTaskId)
+        this.applyOutlineGenerationSnapshot({
+          ...created,
+          taskId: this.outlineGenerationTaskId,
+          status: created.status || 'queued',
+          progress: Number.isFinite(Number(created.progress)) ? Number(created.progress) : 0,
+          stage: created.stage || 'queued',
+          message: created.message || '大纲生成已进入队列'
+        }, runId)
         await this.followOutlineGenerationTask(runId)
         if (runId !== this.outlineGenerationRunId) return
         const task = this.responseData(await getPptTask(this.outlineGenerationTaskId))
         const extracted = this.extractOutlineItems(task)
         const items = extracted.items
         const outline = extracted.outline
-        this.updateOperationFeedback(92, '正在校验并转换大纲格式', '即将进入可编辑大纲')
+        this.updateOperationFeedback(100, '正在整理可编辑大纲', '大纲生成已完成，正在转换为可编辑内容')
         if (!items.length) {
           console.error('[PPT outline] completed task has no editable items', {
             taskId: this.outlineGenerationTaskId,
@@ -2070,7 +2076,7 @@ export default {
     async followOutlineGenerationTask(runId) {
       try {
         this.outlineGenerationStream = streamPptTask(this.outlineGenerationTaskId, {
-          onEvent: payload => this.applyOutlineGenerationSnapshot(payload, runId),
+          onEvent: (eventName, payload) => this.applyOutlineGenerationSnapshot(payload, runId),
           onDone: payload => this.applyOutlineGenerationSnapshot(payload, runId),
           onError: payload => this.applyOutlineGenerationSnapshot(payload, runId)
         })
@@ -2265,7 +2271,7 @@ export default {
     handleSettingsNext() {
       if (this.canReturnToEditor) {
         this.currentStep = 5
-        this.$nextTick(() => this.scheduleEditorPreview(true))
+        this.enterEditorPreview()
         return
       }
       return this.prepareSlides()
@@ -2337,25 +2343,16 @@ export default {
           }
         }
         if (slides.length < 2) throw new Error('生成的页面数量不足，请调整大纲后重试')
-        this.slides = slides.map((slide, index) => ({
-          ...slide,
-          id: slide.id || `slide-${Date.now()}-${index}`,
-          title: String(slide.title || `第 ${index + 1} 页`),
-          content: Array.isArray(slide.content) ? slide.content.join('\n') : String(slide.content || ''),
-          privatePrompt: String(slide.privatePrompt || '')
-        }))
+        this.slides = this.normalizeEditorSlides(slides)
         this.layoutMarkdown = String(result.layoutMarkdown || '')
         if (result.sharedPrompt) this.sharedPrompt = String(result.sharedPrompt)
         this.pageCount = this.slides.length
         this.activeSlideIndex = 0
         this.slidesDirty = false
         this.clearActiveTaskStorage()
-        this.editorPreviewCache = {}
+        this.resetEditorPreviewSession()
         this.currentStep = 5
-        this.$nextTick(() => {
-          this.ensureEditorLayoutPreview(0)
-          this.scheduleEditorPreview(true)
-        })
+        this.enterEditorPreview(0)
       } catch (error) {
         this.handlePptError(error, '页面内容生成失败')
       } finally {
@@ -2416,6 +2413,7 @@ export default {
         },
         slides: this.slides.map(slide => ({
           ...slide,
+          layoutLocked: Boolean(slide.layoutLocked),
           content: String(slide.content || '').split(/\r?\n/).map(line => line.trim()).filter(Boolean)
         })),
         sharedPrompt: this.sharedPrompt,
@@ -2424,6 +2422,22 @@ export default {
         generationWarnings: [...this.generationWarnings],
         contentQuality: this.slidesDirty ? null : this.clonePptValue(this.contentQuality)
       }
+    },
+    normalizeEditorSlides(slides) {
+      if (!Array.isArray(slides)) return []
+      return slides.map((slide, index) => {
+        const source = slide && typeof slide === 'object' ? slide : {}
+        return {
+          ...source,
+          id: source.id || `slide-${index + 1}`,
+          title: String(source.title || `第 ${index + 1} 页`),
+          layoutLocked: Boolean(source.layoutLocked),
+          content: Array.isArray(source.content)
+            ? source.content.map(item => String(item || '').trim()).filter(Boolean).join('\n')
+            : String(source.content || ''),
+          privatePrompt: String(source.privatePrompt || '')
+        }
+      })
     },
     clonePptValue(value) {
       if (value == null) return value
@@ -2463,7 +2477,7 @@ export default {
       if (!saved?.taskId || !saved.taskResult) return false
       this.taskId = String(saved.taskId)
       this.taskResult = this.clonePptValue(saved.taskResult)
-      this.slides = this.clonePptValue(saved.slides || [])
+      this.slides = this.normalizeEditorSlides(this.clonePptValue(saved.slides || []))
       this.pageCount = Number(saved.pageCount || this.slides.length || this.pageCount)
       this.pptStyle = saved.pptStyle || this.pptStyle
       this.settings = { ...this.settings, ...(saved.settings || {}) }
@@ -2726,17 +2740,19 @@ export default {
     },
     goToSettingsForRegeneration() {
       // 将编辑页里的单页提示词带回大纲，下一次页面内容生成时由后端明确传给模型。
-      if (this.slides.length) {
-        this.outlineItems = this.outlineItems.map((item, index) => ({
-          ...item,
-          privatePrompt: String(this.slides[index]?.privatePrompt || item.privatePrompt || '')
-        }))
-      }
+      this.copyEditorPromptsToOutline()
       this.markEditorDirty()
       this.slidesDirty = true
       this.progress = 0
       this.exportReady = false
       this.currentStep = 4
+    },
+    copyEditorPromptsToOutline() {
+      if (!this.slides.length) return
+      this.outlineItems = this.outlineItems.map((item, index) => ({
+        ...item,
+        privatePrompt: String(this.slides[index]?.privatePrompt || item.privatePrompt || '')
+      }))
     },
     slideTitle(slide) {
       return this.slides[slide - 1]?.title || `第 ${slide} 页`
@@ -2760,12 +2776,110 @@ export default {
     openEditorPreview() {
       const path = this.editorPreviewImage && this.editorPreviewSlideIndex === this.activeSlideIndex
         ? this.editorPreviewImage
-        : this.editorPreviewLayoutImage
+        : ''
       if (!path) {
         uni.showToast({ title: '当前页面还没有可放大的预览图', icon: 'none' })
         return
       }
       uni.previewImage({ urls: [path], current: path })
+    },
+    resetEditorPreviewState() {
+      if (this.editorPreviewTimer) {
+        clearTimeout(this.editorPreviewTimer)
+        this.editorPreviewTimer = null
+      }
+      this.editorPreviewImage = ''
+      this.editorPreviewSlideIndex = -1
+      this.editorPreviewLoading = false
+      this.editorPreviewQueued = false
+      this.editorPreviewError = ''
+      this.editorPreviewRequestId += 1
+    },
+    resetEditorPreviewSession() {
+      this.editorPreviewSession += 1
+      this.editorPreviewBatchRunId += 1
+      this.editorPreviewCache = {}
+      this.editorPreviewInFlight = {}
+      this.editorPreviewRevisions = {}
+    },
+    refreshEditorPreview(index = this.activeSlideIndex) {
+      const cachedPreview = this.editorPreviewCache[this.editorPreviewCacheKey(index)] || ''
+      if (cachedPreview) {
+        this.editorPreviewImage = cachedPreview
+        this.editorPreviewSlideIndex = index
+        this.editorPreviewLoading = false
+        this.editorPreviewQueued = false
+        this.editorPreviewError = ''
+        this.editorPreviewRequestId += 1
+        return
+      }
+      this.resetEditorPreviewState()
+      this.$nextTick(() => this.scheduleEditorPreview(true))
+    },
+    enterEditorPreview(index = this.activeSlideIndex) {
+      const nextIndex = Number(index)
+      if (Number.isInteger(nextIndex) && nextIndex >= 0 && nextIndex < this.slides.length) {
+        this.activeSlideIndex = nextIndex
+      }
+      this.startEditorPreviewBatch(0)
+      this.refreshEditorPreview(this.activeSlideIndex)
+    },
+    startEditorPreviewBatch(startIndex = 0) {
+      const runId = ++this.editorPreviewBatchRunId
+      const firstIndex = Math.max(0, Number(startIndex) || 0)
+      const render = async () => {
+        for (let index = firstIndex; index < this.slides.length; index += 1) {
+          if (runId !== this.editorPreviewBatchRunId) return
+          const slide = this.slides[index]
+          if (!slide || !slide.ui || typeof slide.ui !== 'object') continue
+          const cacheKey = this.editorPreviewCacheKey(index)
+          if (this.editorPreviewCache[cacheKey]) continue
+          try {
+            await this.renderEditorPreviewSlide(index)
+          } catch (error) {
+            // A failed page must not block the following independent pages.
+          }
+        }
+      }
+      this.editorPreviewBatchPromise = render()
+      return this.editorPreviewBatchPromise
+    },
+    renderEditorPreviewSlide(index) {
+      const slide = this.slides[index]
+      if (!slide || !slide.ui || typeof slide.ui !== 'object') return Promise.resolve('')
+      const cacheKey = this.editorPreviewCacheKey(index)
+      const cachedPreview = this.editorPreviewCache[cacheKey] || ''
+      if (cachedPreview) return Promise.resolve(cachedPreview)
+      if (this.editorPreviewInFlight[cacheKey]) return this.editorPreviewInFlight[cacheKey]
+
+      const session = this.editorPreviewSession
+      const revision = this.editorPreviewRevisions[cacheKey] || 0
+      const previous = this.editorPreviewRenderTail || Promise.resolve()
+      const request = previous.then(async () => {
+        if (session !== this.editorPreviewSession || revision !== (this.editorPreviewRevisions[cacheKey] || 0)) return ''
+        const currentSlide = this.slides[index]
+        if (!currentSlide || !currentSlide.ui || typeof currentSlide.ui !== 'object') return ''
+        const snapshot = JSON.parse(JSON.stringify(currentSlide))
+        snapshot.index = index + 1
+        const response = await renderPptPreview({
+          templateId: this.pptStyle || 'general',
+          title: this.outlineName || this.resultName || '演示文稿',
+          settings: this.buildSettings(),
+          slide: snapshot
+        })
+        const result = this.responseData(response)
+        if (!result.imageBase64) throw new Error('服务端未返回预览图')
+        const image = `data:${result.mimeType || 'image/png'};base64,${result.imageBase64}`
+        if (session === this.editorPreviewSession && revision === (this.editorPreviewRevisions[cacheKey] || 0)) {
+          this.editorPreviewCache[cacheKey] = image
+        }
+        return image
+      }).finally(() => {
+        if (this.editorPreviewInFlight[cacheKey] === request) delete this.editorPreviewInFlight[cacheKey]
+      })
+      this.editorPreviewInFlight[cacheKey] = request
+      this.editorPreviewRenderTail = request.catch(() => {})
+      return request
     },
     async loadPreviewImages() {
       if (!this.taskId || !Array.isArray(this.taskResult?.previews)) return
@@ -2850,7 +2964,7 @@ export default {
       }
       this.currentStep = 5
       this.exportReady = false
-      this.$nextTick(() => this.scheduleEditorPreview(true))
+      this.enterEditorPreview()
     },
     returnToLastSuccessfulResult() {
       if (!this.hasLastSuccessfulResult) return
@@ -2872,17 +2986,27 @@ export default {
       const nextIndex = Number(index)
       if (!Number.isInteger(nextIndex) || nextIndex < 0 || nextIndex >= this.slides.length) return
       this.activeSlideIndex = nextIndex
-      const cachedPreview = this.editorPreviewCache[this.editorPreviewCacheKey(nextIndex)] || ''
-      this.editorPreviewImage = cachedPreview
-      this.editorPreviewSlideIndex = cachedPreview ? nextIndex : -1
-      this.editorPreviewError = ''
-      this.ensureEditorLayoutPreview(nextIndex)
-      this.$nextTick(() => this.scheduleEditorPreview(true))
+      this.refreshEditorPreview(nextIndex)
+    },
+    toggleActiveSlideLock() {
+      const slide = this.activeSlide
+      if (!slide) return
+      slide.layoutLocked = !slide.layoutLocked
+      this.markEditorDirty()
+      this.persistDraft()
+      uni.showToast({
+        title: slide.layoutLocked ? '已锁定当前页面版式' : '已解除当前页面锁定',
+        icon: 'none'
+      })
     },
     onEditorContentInput() {
       this.markEditorDirty()
       this.applyManualTextOverride()
-      delete this.editorPreviewCache[this.editorPreviewCacheKey()]
+      const cacheKey = this.editorPreviewCacheKey()
+      this.editorPreviewRevisions[cacheKey] = (this.editorPreviewRevisions[cacheKey] || 0) + 1
+      delete this.editorPreviewCache[cacheKey]
+      delete this.editorPreviewInFlight[cacheKey]
+      this.editorPreviewRequestId += 1
       this.editorPreviewImage = ''
       this.editorPreviewSlideIndex = -1
       this.editorPreviewError = ''
@@ -2906,24 +3030,15 @@ export default {
           this.editorPreviewError = '当前页面暂无可视化预览'
           return
         }
-        const snapshot = JSON.parse(JSON.stringify(slide))
         const previewSlideIndex = this.activeSlideIndex
-        snapshot.index = previewSlideIndex + 1
         this.editorPreviewLoading = true
         this.editorPreviewError = ''
         try {
-          const response = await renderPptPreview({
-            templateId: this.pptStyle || 'general',
-            title: this.outlineName || this.resultName || '演示文稿',
-            settings: this.buildSettings(),
-            slide: snapshot
-          })
+          const image = await this.renderEditorPreviewSlide(previewSlideIndex)
           if (requestId !== this.editorPreviewRequestId) return
-          const result = this.responseData(response)
-           if (!result.imageBase64) throw new Error('服务端未返回预览图')
-           this.editorPreviewImage = `data:${result.mimeType || 'image/png'};base64,${result.imageBase64}`
-           this.editorPreviewSlideIndex = previewSlideIndex
-           this.editorPreviewCache[this.editorPreviewCacheKey(previewSlideIndex)] = this.editorPreviewImage
+          if (!image) throw new Error('服务端未返回预览图')
+          this.editorPreviewImage = image
+          this.editorPreviewSlideIndex = previewSlideIndex
         } catch (error) {
           if (requestId !== this.editorPreviewRequestId) return
           this.editorPreviewError = this.errorMessage(error, '最终预览暂不可用')
@@ -2938,6 +3053,7 @@ export default {
         }
       }
       if (immediate) return render()
+      this.editorPreviewLoading = true
       this.editorPreviewTimer = setTimeout(render, 500)
     },
     async prepareExport() {
@@ -2968,7 +3084,9 @@ export default {
     },
     applyManualTextOverride() {
       // Manual editing updates only existing text runs; the Presenton tree,
-      // geometry, styles, SVGs and assets remain untouched.
+      // geometry, styles, SVGs and assets remain untouched. The preview and
+      // final export both consume this same UI tree, so the lower fields are
+      // the single editing source of truth.
       const slide = this.activeSlide
       const ui = slide?.ui
       if (!ui || typeof ui !== 'object') return
@@ -2999,19 +3117,52 @@ export default {
       const titleNode = textNodes.find(node => {
         const name = String(node.name || '').toLowerCase()
         return /(headline|heading|title|main_title|main_heading|slide_headline|primary_heading)/.test(name)
-          && !/(item|card|feature|metric|label|number|page|footer|badge|caption)/.test(name)
+          && !/(subtitle|section|item|card|feature|milestone|step|metric|label|number|page|footer|badge|caption)/.test(name)
       })
       if (titleNode) setText(titleNode, slide.title)
 
       const bodyNodes = textNodes.filter(node => {
         const name = String(node.name || '').toLowerCase()
-        return /(body|paragraph|description|supporting|summary|copy|intro|detail)/.test(name)
-          && !/(footer|page|label|number|caption)/.test(name)
+        return /(body|paragraph|description|supporting|summary|copy|intro|detail|content)/.test(name)
+          && !/(subtitle|footer|page|label|number|caption|badge|author|date)/.test(name)
       })
+      const headingNodes = textNodes.filter(node => {
+        const name = String(node.name || '').toLowerCase()
+        return /(section_heading|card_title|milestone_title|feature_title|step_title|item_title)/.test(name)
+          && !/(subtitle|footer|page|label|number|caption|badge)/.test(name)
+      })
+      const lines = String(slide.content || '')
+        .split(/\r?\n/)
+        .map(line => line.replace(/^\s*[-*•]\s*/, '').trim())
+        .filter(Boolean)
+
+      const contentChunks = (count) => {
+        if (!count) return []
+        if (count === 1) return [lines.join('\n')]
+        const chunks = Array.from({ length: count }, () => [])
+        lines.forEach((line, index) => chunks[Math.min(index, count - 1)].push(line))
+        return chunks.map(chunk => chunk.join('\n'))
+      }
+      const compactLabel = value => {
+        const text = String(value || '').trim()
+        const delimiter = text.search(/[：:]/)
+        const label = delimiter > 0 && delimiter <= 32 ? text.slice(0, delimiter).trim() : text
+        return label.length > 28 ? `${label.slice(0, 28)}…` : label
+      }
+
       if (bodyNodes.length) {
-        const lines = String(slide.content || '').split(/\r?\n/).map(line => line.trim()).filter(Boolean)
-        if (bodyNodes.length === 1) setText(bodyNodes[0], lines.join('\n'))
-        else bodyNodes.forEach((node, index) => setText(node, lines[index] || ''))
+        contentChunks(bodyNodes.length).forEach((value, index) => setText(bodyNodes[index], value))
+      }
+      if (headingNodes.length) {
+        lines.forEach((line, index) => {
+          if (headingNodes[index]) setText(headingNodes[index], compactLabel(line))
+        })
+        headingNodes.slice(lines.length).forEach(node => setText(node, ''))
+      } else if (!bodyNodes.length && textNodes.length) {
+        // Older/fallback layouts may expose only generic text slots. Keep the
+        // edit contract useful without touching structural labels.
+        const fallbackNodes = textNodes.filter(node => node !== titleNode && !/(footer|page|label|number|caption|badge|author|date)/.test(String(node.name || '').toLowerCase()))
+        contentChunks(fallbackNodes.length).forEach((value, index) => setText(fallbackNodes[index], value))
       }
     },
     persistActiveTask(kind, taskId) {
@@ -3160,7 +3311,7 @@ export default {
       this.contentLevel = snapshot.contentLevel || this.contentLevel
       this.settings = { ...this.settings, ...(snapshot.settings || {}) }
       this.sharedPrompt = snapshot.sharedPrompt || this.sharedPrompt
-      this.slides = Array.isArray(snapshot.slides) ? snapshot.slides : []
+      this.slides = this.normalizeEditorSlides(snapshot.slides)
       this.activeSlideIndex = Math.min(Math.max(0, Number(snapshot.activeSlideIndex || 0)), Math.max(0, this.slides.length - 1))
       this.slidesDirty = Boolean(snapshot.slidesDirty)
       this.outlineSourceDirty = Boolean(snapshot.outlineSourceDirty)
@@ -3207,15 +3358,95 @@ export default {
       }
     },
     requestRestartFlow() {
+      const step = this.currentStep
+      const messages = {
+        1: {
+          title: '确认重新生成',
+          content: '将清空当前资料、本次大纲和页面内容，返回输入页面。历史记录不会删除，是否继续？',
+          confirmText: '清空并重来'
+        },
+        2: {
+          title: '确认重新生成',
+          content: '将清空当前资料、本次大纲和页面内容，返回输入页面。历史记录不会删除，是否继续？',
+          confirmText: '清空并重来'
+        },
+        3: {
+          title: '确认重新生成大纲',
+          content: '将根据当前资料重新生成一份大纲，当前未保存的大纲修改会被覆盖。是否继续？',
+          confirmText: '重新生成大纲'
+        },
+        4: {
+          title: '确认重新生成页面',
+          content: '将根据当前大纲和设置重新生成页面内容，当前页面内容会被覆盖。是否继续？',
+          confirmText: '重新生成页面'
+        },
+        5: {
+          title: '确认重新生成页面',
+          content: '将根据当前大纲和设置重新生成全部页面，当前逐页编辑内容会被覆盖。是否继续？',
+          confirmText: '覆盖并重新生成'
+        },
+        6: {
+          title: '确认重新生成',
+          content: '当前 PPT 正在生成，继续操作会取消当前任务并重新开始。是否继续？',
+          confirmText: '取消并重新生成'
+        },
+        7: {
+          title: '确认重新生成',
+          content: '将返回设置页重新生成页面内容，当前成品会保留在历史记录中。是否继续？',
+          confirmText: '返回设置'
+        },
+        8: {
+          title: '确认重新生成',
+          content: '将返回设置页重新生成页面内容，当前成品会保留在历史记录中。是否继续？',
+          confirmText: '返回设置'
+        }
+      }
+      const message = messages[step] || messages[1]
       uni.showModal({
-        title: '重新输入资料',
-        content: '重新输入会清空当前资料、大纲和页面设置，但不会删除历史记录。',
-        confirmText: '重新输入',
-        cancelText: '继续编辑',
+        title: message.title,
+        content: message.content,
+        confirmText: message.confirmText,
+        cancelText: '取消',
         success: result => {
-          if (result?.confirm) this.resetFlowState()
+          if (result?.confirm) this.executeRestartFlow(step)
         }
       })
+    },
+    async executeRestartFlow(step) {
+      if (step === 1 || step === 2) {
+        await this.resetFlowState()
+        return
+      }
+      if (step === 3) {
+        if (this.hasActivePptTask()) await this.cancelGeneration({ silent: true })
+        await this.prepareOutline()
+        return
+      }
+      if (step === 4) {
+        if (this.hasActivePptTask()) await this.cancelGeneration({ silent: true })
+        await this.prepareSlides()
+        return
+      }
+      if (step === 5) {
+        this.copyEditorPromptsToOutline()
+        this.markEditorDirty()
+        this.slidesDirty = true
+        this.progress = 0
+        this.exportReady = false
+        await this.prepareSlides()
+        return
+      }
+      if (step === 6) {
+        if (this.hasActivePptTask()) await this.cancelGeneration({ silent: true })
+        if (this.slides.length >= 2) await this.runGeneration()
+        else this.returnToEditor()
+        return
+      }
+      if (step === 7 || step === 8) {
+        this.goToSettingsForRegeneration()
+        return
+      }
+      await this.resetFlowState()
     },
     async resetFlowState(silent = false) {
       const savedActiveTask = this.readSavedWork().activeTask
@@ -3306,7 +3537,7 @@ export default {
       if (saved.templateCategory) this.templateCategory = saved.templateCategory
       this.settings = { ...this.settings, ...(saved.settings || {}) }
       this.sharedPrompt = saved.sharedPrompt || this.sharedPrompt
-      this.slides = Array.isArray(saved.slides) ? saved.slides : this.slides
+      this.slides = Array.isArray(saved.slides) ? this.normalizeEditorSlides(saved.slides) : this.slides
       this.activeSlideIndex = Math.min(Math.max(0, Number(saved.activeSlideIndex || 0)), Math.max(0, this.slides.length - 1))
       this.slidesDirty = Boolean(saved.slidesDirty)
       this.outlineSourceDirty = Boolean(saved.outlineSourceDirty)
@@ -3344,9 +3575,14 @@ export default {
           this.slideGenerationSnapshot = task
           const restoredSlides = Array.isArray(task.slides) && task.slides.length ? task.slides : saved.slides
           if (status === 'completed' && Array.isArray(restoredSlides) && restoredSlides.length >= 2) {
-            this.slides = restoredSlides
+            this.slides = this.normalizeEditorSlides(restoredSlides)
             this.pageCount = this.slides.length
+            this.activeSlideIndex = Math.min(this.activeSlideIndex, Math.max(0, this.slides.length - 1))
+            this.resetEditorPreviewSession()
             this.currentStep = hasSavedStep ? savedStep : 5
+            if (this.currentStep === 5) {
+              this.enterEditorPreview()
+            }
             this.generationWarnings = Array.isArray(task.warnings) ? task.warnings : []
             this.contentQuality = task.contentQuality && typeof task.contentQuality === 'object'
               ? this.clonePptValue(task.contentQuality)
@@ -3368,7 +3604,7 @@ export default {
           : null
         this.progress = Number(task?.progress || 0)
         if (status === 'completed') {
-          if (Array.isArray(task.slides) && task.slides.length) this.slides = task.slides
+          if (Array.isArray(task.slides) && task.slides.length) this.slides = this.normalizeEditorSlides(task.slides)
           this.progress = 100
           this.currentStep = hasSavedStep ? savedStep : 7
           this.saveSuccessfulResult()
@@ -3493,20 +3729,6 @@ export default {
       const slide = this.slides[index]
       return `${this.pptStyle}:${slide?.id || index}`
     },
-    editorLayoutIndex(index = this.activeSlideIndex) {
-      const layouts = this.selectedTemplateLayouts
-      if (!layouts.length) return -1
-      const slide = this.slides[index]
-      const slideLayoutId = String(slide?.templateLayoutId || slide?.layout || '')
-      const matchedIndex = layouts.findIndex(layout => String(layout?.id || '') === slideLayoutId)
-      return matchedIndex >= 0 ? matchedIndex : index % layouts.length
-    },
-    ensureEditorLayoutPreview(index = this.activeSlideIndex) {
-      const templateId = this.selectedTemplate?.id || this.pptStyle
-      const layoutIndex = this.editorLayoutIndex(index)
-      if (!templateId || layoutIndex < 0) return
-      this.ensureLayoutPreview(templateId, layoutIndex)
-    },
     responseData(response) {
       let value = response || {}
       for (let depth = 0; depth < 4; depth += 1) {
@@ -3542,26 +3764,43 @@ export default {
     startOperationFeedback() {
       this.stopOperationFeedback()
       const phases = [
-        { progress: 10, message: '正在读取学习资料', detail: '准备文本与生成参数' },
-        { progress: 30, message: 'AI 正在解析文本结构', detail: '识别主题、章节和核心知识点' },
-        { progress: 56, message: '正在整理复习大纲', detail: '重新组织适合 PPT 的知识结构' },
-        { progress: 78, message: '正在等待大纲生成结果', detail: '资料较长时可能需要一些时间' }
+        { until: 12, message: '正在读取学习资料', detail: '准备文本与生成参数' },
+        { until: 30, message: '正在拆解文本结构', detail: '识别主题、章节和核心知识点' },
+        { until: 54, message: '正在组织复习大纲', detail: '重新整理适合 PPT 的知识结构' },
+        { until: 76, message: 'AI 正在生成页面计划', detail: '为每一页安排标题、要点和讲解重点' },
+        { until: 91, message: '正在检查大纲完整性', detail: '检查页数、内容覆盖和页面层级' },
+        { until: 92, message: '正在等待大纲生成结果', detail: '资料较长时会在此阶段等待模型完成' }
       ]
-      let phaseIndex = 0
-      this.operationFeedback = { active: true, ...phases[phaseIndex] }
-      this.operationFeedbackTimer = setInterval(() => {
-        if (phaseIndex < phases.length - 1) {
-          phaseIndex += 1
-          this.operationFeedback = { active: true, ...phases[phaseIndex] }
-        } else if (this.operationFeedback.progress < 88) {
-          this.operationFeedback = { ...this.operationFeedback, progress: this.operationFeedback.progress + 1 }
+      let simulatedProgress = 3
+      const applySimulatedProgress = () => {
+        const phase = phases.find(item => simulatedProgress <= item.until) || phases[phases.length - 1]
+        this.operationFeedback = {
+          active: true,
+          progress: simulatedProgress,
+          message: phase.message,
+          detail: phase.detail
         }
+      }
+      applySimulatedProgress()
+      this.operationFeedbackTimer = setInterval(() => {
+        if (simulatedProgress >= 92) return
+        const phase = phases.find(item => simulatedProgress <= item.until) || phases[phases.length - 1]
+        const remaining = phase.until - simulatedProgress
+        const step = remaining > 10 ? 2 : 1
+        simulatedProgress = Math.min(92, simulatedProgress + step)
+        applySimulatedProgress()
       }, 900)
     },
     updateOperationFeedback(progress, message, detail) {
       if (this.operationFeedbackTimer) clearInterval(this.operationFeedbackTimer)
       this.operationFeedbackTimer = null
-      this.operationFeedback = { active: true, progress, message, detail }
+      const numericProgress = Number(progress)
+      this.operationFeedback = {
+        active: true,
+        progress: Number.isFinite(numericProgress) ? Math.max(0, Math.min(100, numericProgress)) : 0,
+        message: String(message || '正在处理'),
+        detail: String(detail || '')
+      }
     },
     stopOperationFeedback() {
       if (this.operationFeedbackTimer) clearInterval(this.operationFeedbackTimer)
@@ -3603,6 +3842,10 @@ export default {
         this.editorPreviewTimer = null
       }
       this.editorPreviewRequestId += 1
+      this.editorPreviewSession += 1
+      this.editorPreviewBatchRunId += 1
+      this.editorPreviewLoading = false
+      this.editorPreviewQueued = false
     }
   }
 }
@@ -3632,13 +3875,18 @@ export default {
 .visual-mode-row .switch-row__title{color:#343d4f;font-size:23rpx}
 .visual-mode-segmented{margin-top:14rpx}
 .visual-mode-row .switch-row__desc{margin-top:10rpx;color:#939bad;font-size:18rpx;line-height:1.5}
-.slide-layout-lock-row{margin-top:20rpx;padding:18rpx;border:1px solid #dfe7ef;border-radius:16rpx;background:#fff}
-.slide-layout-lock-row{display:flex;align-items:center;justify-content:space-between;gap:18rpx}
-.slide-layout-lock-row text{display:block}
-.slide-layout-lock-row view text:last-child{margin-top:5rpx;color:#718094;font-size:18rpx}
-.slide-layout-lock-row>text{flex:none;color:#314b63;font-size:22rpx;font-weight:800}
-.slide-layout-lock-row{margin-top:18rpx;background:#f8fafc}
-.slide-layout-lock-row view text:first-child{color:#26384a;font-size:22rpx;font-weight:700}
+.slide-layout-lock-card{display:flex;align-items:center;gap:16rpx;margin-top:18rpx;padding:18rpx;border:1px solid #e0e7ef;border-radius:18rpx;background:linear-gradient(135deg,#f8fafc,#fff);box-shadow:0 8rpx 20rpx rgba(44,67,91,.05)}
+.slide-layout-lock-card--locked{border-color:#b8cde0;background:linear-gradient(135deg,#f1f7fb,#fff)}
+.slide-layout-lock-card__icon{display:flex;width:52rpx;height:52rpx;flex:none;align-items:center;justify-content:center;border-radius:15rpx;background:#e8eef4;color:#58718a;font-size:22rpx;font-weight:800}
+.slide-layout-lock-card__icon--locked{background:#5c7b98;color:#fff}
+.slide-layout-lock-card__copy{min-width:0;flex:1}
+.slide-layout-lock-card__title,.slide-layout-lock-card__desc,.slide-layout-lock-card__layout{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.slide-layout-lock-card__title{color:#263c51;font-size:22rpx;font-weight:800}
+.slide-layout-lock-card__desc{margin-top:5rpx;color:#77889a;font-size:18rpx}
+.slide-layout-lock-card__layout{margin-top:6rpx;color:#9aa8b5;font-size:17rpx}
+.slide-layout-lock-card__action{height:58rpx;flex:none;margin:0;padding:0 17rpx;border:1px solid #9fb6ca;border-radius:12rpx;background:#fff;color:#4e718f;font-size:19rpx;font-weight:700;line-height:56rpx}
+.slide-layout-lock-card__action--locked{border-color:#5c7b98;background:#5c7b98;color:#fff}
+.slide-layout-lock-card__action::after{border:0}
 .flow-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:22rpx}
 .flow-heading{padding:18rpx 4rpx 10rpx}
 .flow-heading__copy{min-width:0;flex:1}
@@ -3682,13 +3930,17 @@ export default {
 .slide-tab{display:flex;width:128rpx;height:76rpx;padding:10rpx 12rpx;justify-content:center;flex-direction:column;border:1px solid #e0e4ed;border-radius:12rpx;background:#fafbfe;box-sizing:border-box}
 .slide-tab text{display:block;overflow:hidden;color:#929bad;font-size:16rpx;text-overflow:ellipsis;white-space:nowrap}
 .slide-tab text:last-child{margin-top:5rpx;color:#4c5669;font-size:18rpx}
+.slide-tab__lock{margin-top:4rpx;color:#557793!important;font-size:15rpx!important;font-weight:700}
 .slide-tab--active{border-color:#586af3;background:#f2f3ff}
 .slide-tab--active text{color:#5263eb}
 .slide-editor__preview{position:relative;display:flex;min-height:270rpx;overflow:hidden;padding:32rpx;justify-content:center;flex-direction:column;border-left:7rpx solid #5265f5;border-radius:16rpx;background:#f6f8ff;box-sizing:border-box}
 .slide-editor__preview{aspect-ratio:16 / 9;min-height:0;padding:0;border-left:0;background:#eef1f7}
 .slide-editor__preview-image{display:block;width:100%;height:100%;background:#fff}
+.slide-editor__preview-image--empty{padding:54rpx;box-sizing:border-box;opacity:.92}
 .slide-editor__preview-fallback{position:relative;display:flex;width:100%;height:100%;padding:32rpx;justify-content:center;flex-direction:column;box-sizing:border-box}
 .slide-editor__preview-status{position:absolute;z-index:3;right:12rpx;bottom:12rpx;max-width:76%;padding:8rpx 13rpx;border-radius:99rpx;background:rgba(24,32,51,.76);color:#fff;font-size:17rpx;line-height:1.35}
+.slide-editor__preview-status--loading{top:50%;right:auto;bottom:auto;left:50%;display:flex;align-items:center;gap:10rpx;max-width:none;padding:13rpx 18rpx;border-radius:14rpx;background:rgba(24,32,51,.84);font-size:20rpx;transform:translate(-50%,-50%)}
+.slide-editor__preview-spinner{width:22rpx;height:22rpx;border:3rpx solid rgba(255,255,255,.42);border-top-color:#fff;border-radius:50%;box-sizing:border-box;animation:ppt-preview-spin .8s linear infinite}
 .slide-editor__preview--campus{border-left-color:#f1a653;background:#fff6e8}
 .slide-editor__preview--focus{border-left-color:#3eabbc;background:#172034;color:#fff}
 .slide-editor__preview-index,.slide-editor__preview-title,.slide-editor__preview-content{position:relative;z-index:1;display:block}
@@ -3753,8 +4005,6 @@ export default {
 .template-empty{display:flex;min-height:130rpx;align-items:center;justify-content:center;gap:12rpx;flex-direction:column;border:1px dashed #d9deea;border-radius:12rpx;background:#fafbfe;color:#8b94a5;font-size:20rpx}
 .template-empty__retry{color:#5265f5;font-weight:600}
 .slide-thumb__image{position:absolute;inset:0;z-index:0;width:100%;height:100%}
-.generation-warning{margin-top:16rpx;padding:14rpx 18rpx;border:1px solid #f1d9a6;border-radius:12rpx;background:#fff9eb;color:#9a6a18;font-size:19rpx;line-height:1.5}
-.generation-warning--error{border-color:#efc7c2;background:#fff5f4;color:#9d4f49}
 .export-choice--disabled{opacity:.52}
 .product-hero{position:relative;margin-bottom:28rpx;padding:28rpx 28rpx 30rpx;overflow:hidden;border:1px solid #dfe7ef;border-radius:20rpx;background:#f6f8fb}
 .product-hero__copy{position:relative;z-index:1;max-width:470rpx}
@@ -3977,6 +4227,7 @@ export default {
 .retry-render-card__button{flex:none;height:58rpx;margin:0;padding:0 18rpx;border:1px solid #d8b06f;border-radius:12rpx;background:#fff;color:#8b5f23;font-size:20rpx;line-height:58rpx}
 .retry-render-card__button::after{border:0}
 .retry-render-card__button[disabled]{opacity:.5}
+@keyframes ppt-preview-spin{to{transform:rotate(360deg)}}
 .stepper-card{margin-bottom:18rpx;padding:14rpx 18rpx 10rpx;border:1px solid #e2e8f0;border-radius:16rpx;background:#fff;box-shadow:0 8rpx 24rpx rgba(30,50,90,.04)}
 .stepper-card__head{display:flex;min-height:34rpx;align-items:center;justify-content:flex-end;margin-bottom:2rpx}
 .stepper-card__head>text{color:#5265f5;font-size:20rpx;font-weight:700}
@@ -4059,5 +4310,5 @@ export default {
 .slide-preview-feed__fallback{width:100%;aspect-ratio:16/9}
 .slide-preview-feed__meta{display:flex;align-items:center;justify-content:space-between;margin-top:8rpx;color:#7b8798;font-size:18rpx}
 .slide-preview-feed__meta text:last-child{min-width:0;margin-left:16rpx;overflow:hidden;color:#5265f5;font-weight:600;text-overflow:ellipsis;white-space:nowrap}
-.flow-heading{display:flex;align-items:center;justify-content:space-between}.flow-heading__copy{min-width:0}.flow-heading__actions{flex:none;margin-left:18rpx}.restart-input-button{display:flex;height:58rpx;align-items:center;padding:0 20rpx;border:1px solid #d7def4;border-radius:999rpx;background:#fff;color:#5265f5;font-size:21rpx;font-weight:700;line-height:1;box-shadow:0 5rpx 14rpx rgba(43,60,120,.06)}.restart-input-button:active{background:#f6f7ff;transform:scale(.97)}
+.flow-heading{display:flex;align-items:center;justify-content:space-between}.flow-heading__copy{min-width:0}.flow-heading__actions{flex:none;margin-left:18rpx}.restart-generation-button{display:flex;height:56rpx;align-items:center;padding:0 22rpx;border:1px solid #cbd6e3;border-radius:16rpx;background:#fff;color:#5c7a99;font-size:21rpx;font-weight:600;line-height:1;box-shadow:none}.restart-generation-button:active{background:#f3f6f8;color:#4f6b84;transform:scale(.98)}
 </style>

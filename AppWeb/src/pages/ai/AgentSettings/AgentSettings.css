@@ -138,6 +138,23 @@
   gap: 12px;
 }
 
+.agent-settings-table-tools-stacked {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.agent-settings-tool-tabs {
+  flex-wrap: wrap;
+}
+
+.agent-settings-table-tools-filters {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
 .agent-settings-title-tags .ant-tag {
   margin-inline-end: 0;
 }
@@ -177,6 +194,22 @@
 .agent-settings-model .ant-select {
   min-width: 240px;
   width: 100%;
+}
+
+.agent-settings-model-group {
+  width: 100%;
+}
+
+.agent-settings-model-tag {
+  margin-inline-start: 6px;
+  font-weight: 500;
+}
+
+.agent-settings-model-hint {
+  display: block;
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 1.5;
 }
 
 .agent-settings-question-select {
@@ -262,6 +295,56 @@
   white-space: pre-wrap;
 }
 
+.agent-settings-tool-test-diagram {
+  gap: 0;
+  padding: 0;
+  overflow: hidden;
+  background: #fff;
+  white-space: normal;
+}
+
+.agent-settings-tool-test-diagram > .ant-typography {
+  padding: 12px 12px 0;
+}
+
+.agent-settings-tool-test-extracted-text {
+  max-height: 360px;
+  overflow: auto;
+  line-height: 1.7;
+  word-break: break-word;
+}
+
+.agent-settings-tool-test-image-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 10px;
+}
+
+.agent-settings-tool-test-image-grid figure {
+  margin: 0;
+  overflow: hidden;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.agent-settings-tool-test-image-grid img {
+  display: block;
+  width: 100%;
+  height: 130px;
+  object-fit: contain;
+  background: #f8fafc;
+}
+
+.agent-settings-tool-test-image-grid figcaption {
+  overflow: hidden;
+  padding: 7px 9px;
+  color: #64748b;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .agent-settings-tool-test-details {
   border: 1px solid #e5e7eb;
   border-radius: 8px;
@@ -336,4 +419,20 @@
   font-size: 12px;
   line-height: 1.4;
   color: #8c8c8c;
+}
+
+.agent-settings-tool-purpose {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-settings-tool-test-download {
+  color: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.agent-settings-tool-test-download:hover {
+  color: #1677ff;
 }

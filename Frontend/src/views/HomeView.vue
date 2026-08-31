@@ -1,8 +1,13 @@
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import AppTabBar from '../components/AppTabBar.vue'
+import { getLatestJobRecommendations, JOB_BOSS_CTA, JOB_SALARY_HINT, resolveBossJobSearchLink, resolveBossJobSearchLinkFromJob } from '../api/jobRecommendations'
 
-const logoColors = ['#ff6b6b', '#4ecdc4', '#45b7d1', '#96ceb4', '#ff9f43', '#a29bfe']
+const router = useRouter()
+const searchKeyword = ref('')
+const hotJobsLoading = ref(true)
+const hotJobs = ref([])
 
 const hotSearches = ['AI算法', 'Java开发', '前端架构', '云原生', '产品经理', '数据分析']
 
@@ -309,68 +314,69 @@ const categoryDetails = {
   },
 }
 
-const hotJobs = [
-  {
-    title: '大模型算法工程师',
-    salary: '30K-50K',
-    desc: '负责模型训练、微调、RAG 方案和多模态能力建设。',
-    requirements: ['Python', 'PyTorch', 'Transformer'],
-    benefits: '年终奖、餐补、股票期权',
-  },
-  {
-    title: 'AI 应用工程师',
-    salary: '25K-40K',
-    desc: '负责 Agent 工作流、工具调用和知识库应用落地。',
-    requirements: ['Java', 'RAG', '向量数据库'],
-    benefits: '项目奖、弹性办公、培训',
-  },
-  {
-    title: 'AI Infra 工程师',
-    salary: '35K-50K',
-    desc: '负责 GPU 调度、模型部署和推理优化。',
-    requirements: ['C++', 'CUDA', 'Kubernetes'],
-    benefits: '设备补贴、期权、年度体检',
-  },
-  {
-    title: '数据分析师',
-    salary: '18K-30K',
-    desc: '支持业务指标分析、实验评估和数据看板建设。',
-    requirements: ['SQL', 'Python', 'BI'],
-    benefits: '双休、餐补、绩效奖',
-  },
-  {
-    title: 'AI 产品经理',
-    salary: '20K-35K',
-    desc: '负责 AI 产品规划、需求分析和效果评估。',
-    requirements: ['产品经验', '数据分析', 'AI理解'],
-    benefits: '年终奖、培训、补充保险',
-  },
-  {
-    title: '解决方案架构师',
-    salary: '30K-45K',
-    desc: '面向行业客户设计 AI 落地方案并推进交付。',
-    requirements: ['架构设计', '售前沟通', '行业经验'],
-    benefits: '差旅补贴、提成、项目奖金',
-  },
-]
+const logoColors = ['#ff6b6b', '#4ecdc4', '#45b7d1', '#96ceb4', '#ff9f43', '#a29bfe']
 
-const hotCompanies = [
-  { name: '字节跳动', focus: ['大模型算法', '推荐算法', 'AI Infra'], salary: '30K-50K', benefits: '股票、餐补、补充保险' },
-  { name: '阿里云', focus: ['通义大模型', '云计算', 'AI 方案'], salary: '25K-40K', benefits: '绩效奖、培训、健康保障' },
-  { name: '腾讯', focus: ['混元大模型', '游戏 AI', '云架构'], salary: '25K-40K', benefits: '年终奖、餐补、员工活动' },
-  { name: '百度', focus: ['文心大模型', '自动驾驶', '多模态'], salary: '25K-40K', benefits: '奖金、股票、学习资源' },
-  { name: '华为', focus: ['盘古大模型', '算力平台', '芯片'], salary: '25K-45K', benefits: '分红激励、餐补、培训' },
-  { name: '美团', focus: ['具身智能', '配送算法', '后端开发'], salary: '25K-40K', benefits: '股票、补充医疗、带薪假期' },
-]
+const displayHotJobs = computed(() => hotJobs.value.slice(0, 3))
+const displayLatestJobs = computed(() => hotJobs.value.slice(0, 6))
 
-const latestJobs = [
-  { company: '百度', title: '大模型应用策略工程师', location: '北京', salary: '30K-50K', desc: '负责 LLM、RAG 与 Agent 方向的算法策略落地。' },
-  { company: '美团', title: '具身智能数据算法工程师', location: '北京', salary: '30K-50K', desc: '负责真机数据采集、清洗与模型训练支持。' },
-  { company: '华为', title: '多模态算法工程师', location: '上海', salary: '25K-40K', desc: '负责视觉与语言模型在场景中的融合应用。' },
-  { company: '阿里云', title: 'AI 产品经理', location: '杭州', salary: '20K-35K', desc: '负责产品规划、需求拆解与商业化落地。' },
-  { company: '腾讯', title: '推荐算法工程师', location: '深圳', salary: '25K-40K', desc: '负责推荐系统优化、召回排序与实验评估。' },
-  { company: '字节跳动', title: 'AI 应用开发工程师', location: '北京', salary: '25K-40K', desc: '负责智能体应用、插件编排与业务接入。' },
-]
+const hotDirections = computed(() => {
+  const directions = []
+  const seen = new Set()
+  for (const job of hotJobs.value) {
+    const query = String(job?.jobTitle || '').trim()
+    if (!query || seen.has(query)) continue
+    seen.add(query)
+    directions.push({
+      label: query,
+      query,
+      skills: parseJobSkills(job.skills),
+    })
+  }
+  if (directions.length) {
+    return directions.slice(0, 6)
+  }
+  return hotSearches.map((item) => ({
+    label: item,
+    query: item,
+    skills: [item],
+  }))
+})
+
+const hotJobsWeekLabel = computed(() => {
+  const first = hotJobs.value[0]
+  if (!first?.weekStartDate || !first?.weekEndDate) return ''
+  return `${String(first.weekStartDate).slice(0, 10)} — ${String(first.weekEndDate).slice(0, 10)}`
+})
+
+function parseJobSkills(skillsText) {
+  return String(skillsText || '')
+    .split(/[,，、]/)
+    .map((item) => item.trim())
+    .filter(Boolean)
+}
+
+function resolveJobSearchLink(job) {
+  return resolveBossJobSearchLinkFromJob(job)
+}
+
+function openBossSearch(keyword) {
+  const query = String(keyword || '').trim() || '软件工程师'
+  window.open(resolveBossJobSearchLink(query), '_blank', 'noopener,noreferrer')
+}
+
+async function loadHotJobs() {
+  hotJobsLoading.value = true
+  try {
+    const result = await getLatestJobRecommendations()
+    hotJobs.value = Array.isArray(result?.data) ? result.data : []
+  } catch {
+    hotJobs.value = []
+  } finally {
+    hotJobsLoading.value = false
+  }
+}
+
+onMounted(loadHotJobs)
 
 const currentPage = ref(0)
 const activeCategoryId = ref('')
@@ -419,12 +425,22 @@ function releasePreview() {
     <section class="search-area">
       <div class="container">
         <div class="search-box-wrap">
-          <input type="text" placeholder="搜索职位、公司，例如：AI 大模型工程师" />
-          <button type="button">搜索</button>
+          <input
+            v-model="searchKeyword"
+            type="text"
+            placeholder="搜索职位、公司，例如：AI 大模型工程师"
+            @keyup.enter="openBossSearch(searchKeyword)"
+          />
+          <button type="button" @click="openBossSearch(searchKeyword)">搜索</button>
         </div>
         <div class="hot-searches">
           <span>热门搜索：</span>
-          <span v-for="item in hotSearches" :key="item">{{ item }}</span>
+          <span
+            v-for="item in hotSearches"
+            :key="item"
+            class="hot-search-tag"
+            @click="openBossSearch(item)"
+          >{{ item }}</span>
         </div>
       </div>
     </section>
@@ -470,7 +486,10 @@ function releasePreview() {
               <br />
               一键生成专属学习路径与高薪岗位适配报告。
             </p>
-            <button type="button" class="diagnosis-btn">上传简历，开启诊断</button>
+            <button type="button" class="diagnosis-btn" @click="router.push('/resume')">上传简历，开启诊断</button>
+            <button type="button" class="diagnosis-btn diagnosis-btn--ghost" @click="router.push('/jobs/hot')">
+              查看岗位雷达
+            </button>
           </div>
         </div>
 
@@ -489,83 +508,111 @@ function releasePreview() {
     <section class="container section-block">
       <div class="section-header">
         <h2>热门岗位</h2>
+        <p v-if="hotJobsWeekLabel" class="section-meta">{{ hotJobsWeekLabel }} · 岗位方向由 AI 整理，薪资以 BOSS 直聘为准</p>
       </div>
-      <div class="grid-3">
-        <article v-for="job in hotJobs" :key="job.title" class="info-card">
+      <div v-if="hotJobsLoading" class="section-empty">正在加载热门岗位…</div>
+      <div v-else-if="!displayHotJobs.length" class="section-empty">
+        <p>暂无岗位推荐</p>
+        <button type="button" class="section-link-btn" @click="router.push('/jobs/hot')">前往岗位雷达</button>
+      </div>
+      <div v-else class="grid-3">
+        <article v-for="job in displayHotJobs" :key="job.id || job.jobTitle" class="info-card">
           <div class="card-header-simple">
-            <div class="title">{{ job.title }}</div>
-            <div class="salary">{{ job.salary }}</div>
+            <div class="title">{{ job.jobTitle }}</div>
+            <a
+              :href="resolveJobSearchLink(job)"
+              target="_blank"
+              rel="noreferrer"
+              class="salary-hint salary-hint--link"
+            >{{ JOB_SALARY_HINT }}</a>
           </div>
-          <div class="card-desc">{{ job.desc }}</div>
+          <div class="card-desc">技能方向：{{ job.skills || '详见 BOSS 直聘' }}</div>
           <div class="card-tags">
-            <span v-for="item in job.requirements" :key="item">{{ item }}</span>
+            <span v-for="item in parseJobSkills(job.skills)" :key="item">{{ item }}</span>
           </div>
-          <div class="card-benefits">福利参考：{{ job.benefits }}</div>
+          <div class="card-actions">
+            <a :href="resolveJobSearchLink(job)" target="_blank" rel="noreferrer" class="more-btn">{{ JOB_BOSS_CTA }}</a>
+          </div>
+          <div class="card-benefits">岗位名称与技能方向仅供参考，具体薪资与 JD 以 BOSS 直聘为准</div>
         </article>
       </div>
       <div class="view-more-wrap">
-        <a href="javascript:void(0)" class="view-more-btn">查看更多</a>
+        <button type="button" class="view-more-btn" @click="router.push('/jobs/hot')">查看更多</button>
       </div>
     </section>
 
     <section class="container section-block">
       <div class="section-header">
-        <h2>热门企业</h2>
+        <h2>热门招聘方向</h2>
+        <p class="section-meta">由本周岗位雷达整理，点击可前往 BOSS 直聘查看真实公司与薪资</p>
       </div>
-      <div class="grid-3">
-        <article v-for="(company, index) in hotCompanies" :key="company.name" class="info-card">
+      <div v-if="hotJobsLoading" class="section-empty">正在加载招聘方向…</div>
+      <div v-else class="grid-3">
+        <article v-for="(direction, index) in hotDirections" :key="direction.query" class="info-card">
           <div class="company-header">
             <div class="company-logo" :style="{ background: logoColors[index % logoColors.length] }">
-              {{ company.name.charAt(0) }}
+              {{ direction.label.charAt(0) }}
             </div>
             <div class="company-info">
-              <div class="company-name">{{ company.name }}</div>
-              <div class="company-meta">互联网 · 10000 人以上</div>
+              <div class="company-name">{{ direction.label }}</div>
+              <a
+                :href="resolveBossJobSearchLink(direction.query)"
+                target="_blank"
+                rel="noreferrer"
+                class="salary-hint salary-hint--link company-meta-link"
+              >{{ JOB_SALARY_HINT }}</a>
             </div>
           </div>
-          <div class="card-desc"><strong>重点招聘方向：</strong></div>
+          <div class="card-desc"><strong>相关技能方向：</strong></div>
           <div class="card-tags">
-            <span v-for="item in company.focus" :key="item">{{ item }}</span>
+            <span v-for="item in direction.skills" :key="item">{{ item }}</span>
           </div>
-          <div class="card-desc company-salary">
-            <strong>市场参考月薪：</strong>
-            <span class="salary">{{ company.salary }}</span>
+          <div class="card-actions">
+            <a
+              :href="resolveBossJobSearchLink(direction.query)"
+              target="_blank"
+              rel="noreferrer"
+              class="more-btn"
+            >{{ JOB_BOSS_CTA }}</a>
           </div>
-          <div class="card-benefits no-border">常见福利参考：{{ company.benefits }}</div>
+          <div class="card-benefits no-border">不含具体公司与薪资，请在 BOSS 直聘搜索结果中查看</div>
         </article>
       </div>
       <div class="view-more-wrap">
-        <a href="javascript:void(0)" class="view-more-btn">查看更多</a>
+        <button type="button" class="view-more-btn" @click="router.push('/jobs/hot')">前往岗位雷达</button>
       </div>
     </section>
 
     <section class="container section-block">
       <div class="section-header">
-        <h2><span>最新</span>职位</h2>
+        <h2>最新职位</h2>
+        <p v-if="hotJobsWeekLabel" class="section-meta">{{ hotJobsWeekLabel }} · 岗位来自本周雷达，不含公司与薪资</p>
+        <p v-else class="section-meta">岗位来自本周雷达，公司与薪资请前往 BOSS 直聘查看</p>
       </div>
-      <div class="grid-3">
-        <article v-for="(job, index) in latestJobs" :key="`${job.company}-${job.title}`" class="info-card">
-          <div class="company-header">
-            <div class="company-logo" :style="{ background: logoColors[index % logoColors.length] }">
-              {{ job.company.charAt(0) }}
+      <div v-if="hotJobsLoading" class="section-empty">正在加载最新职位…</div>
+      <div v-else-if="!displayLatestJobs.length" class="section-empty">
+        <p>暂无职位推荐</p>
+        <button type="button" class="section-link-btn" @click="router.push('/jobs/hot')">前往岗位雷达</button>
+      </div>
+      <div v-else class="job-list">
+        <article v-for="(job, index) in displayLatestJobs" :key="job.id || `latest-${job.jobTitle}`" class="job-list-item">
+          <div class="job-list-main">
+            <div class="job-list-logo" :style="{ background: logoColors[index % logoColors.length] }">
+              {{ String(job.jobTitle || '岗').charAt(0) }}
             </div>
-            <div class="company-info">
-              <div class="company-name">{{ job.company }}</div>
-              <div class="company-meta">{{ job.location }}</div>
+            <div class="job-list-info">
+              <div class="job-list-title">{{ job.jobTitle }}</div>
+              <div class="job-list-meta">{{ JOB_SALARY_HINT }}</div>
+              <div class="card-tags job-list-tags">
+                <span v-for="item in parseJobSkills(job.skills)" :key="item">{{ item }}</span>
+              </div>
             </div>
           </div>
-          <div class="card-header-simple compact">
-            <div class="title small">{{ job.title }}</div>
-            <div class="salary">{{ job.salary }}</div>
-          </div>
-          <div class="card-desc">{{ job.desc }}</div>
-          <div class="more-btn-wrap">
-            <a href="javascript:void(0)" class="more-btn">查看职位详情</a>
-          </div>
+          <a :href="resolveJobSearchLink(job)" target="_blank" rel="noreferrer" class="job-list-btn">{{ JOB_BOSS_CTA }}</a>
         </article>
       </div>
       <div class="view-more-wrap">
-        <a href="javascript:void(0)" class="view-more-btn">查看更多</a>
+        <button type="button" class="view-more-btn" @click="router.push('/jobs/hot')">查看更多</button>
       </div>
     </section>
 
@@ -582,8 +629,8 @@ function releasePreview() {
         <div>
           <h4>产品与服务</h4>
           <ul>
-            <li><a href="javascript:void(0)">岗位能力图谱</a></li>
-            <li><a href="javascript:void(0)">人岗匹配诊断</a></li>
+            <li><a href="javascript:void(0)" @click="router.push('/jobs/hot')">岗位雷达</a></li>
+            <li><a href="javascript:void(0)" @click="router.push('/resume')">人岗匹配诊断</a></li>
             <li><a href="javascript:void(0)">学习路径推荐</a></li>
           </ul>
         </div>
@@ -691,6 +738,66 @@ function releasePreview() {
   background: #fff;
   font-size: 14px;
   color: #444;
+}
+
+.hot-search-tag {
+  cursor: pointer;
+}
+
+.hot-search-tag:hover {
+  color: #0066ff;
+}
+
+.section-meta {
+  margin: 8px 0 0;
+  color: #667085;
+  font-size: 13px;
+}
+
+.salary-hint {
+  flex-shrink: 0;
+  max-width: 42%;
+  color: #667085;
+  font-size: 12px;
+  line-height: 1.4;
+  text-align: right;
+}
+
+.salary-hint--link {
+  color: #2f76bd;
+  text-decoration: none;
+}
+
+.salary-hint--link:hover {
+  text-decoration: underline;
+}
+
+.company-meta-link {
+  display: inline-block;
+  margin-top: 4px;
+  text-align: left;
+}
+
+.section-empty {
+  padding: 36px 20px;
+  text-align: center;
+  color: #667085;
+}
+
+.section-link-btn,
+.view-more-btn {
+  cursor: pointer;
+}
+
+.card-actions {
+  margin-top: auto;
+  padding-top: 12px;
+}
+
+.diagnosis-btn--ghost {
+  margin-left: 12px;
+  color: #0066ff;
+  background: rgba(255, 255, 255, 0.92);
 }
 
 .cat-diagnosis-area {
@@ -1044,6 +1151,88 @@ function releasePreview() {
   border-radius: 6px;
 }
 
+.job-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.job-list-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 20px;
+  border: 1px solid #dae5f0;
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.02);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.job-list-item:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06);
+}
+
+.job-list-main {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  flex: 1;
+  min-width: 0;
+}
+
+.job-list-logo {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
+  border-radius: 8px;
+  color: #fff;
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.job-list-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.job-list-title {
+  color: #222;
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.job-list-meta {
+  margin-top: 4px;
+  color: #667085;
+  font-size: 12px;
+}
+
+.job-list-tags {
+  margin-top: 8px;
+}
+
+.job-list-btn {
+  flex-shrink: 0;
+  padding: 8px 18px;
+  border: 1px solid #0066ff;
+  border-radius: 4px;
+  color: #0066ff;
+  font-size: 14px;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.job-list-btn:hover {
+  background: #f0f7ff;
+}
+
 .footer {
   margin-top: 20px;
   padding: 40px 0 20px;
@@ -1115,6 +1304,16 @@ function releasePreview() {
   .grid-3,
   .footer-grid {
     grid-template-columns: 1fr;
+  }
+
+  .job-list-item {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .job-list-btn {
+    width: 100%;
+    text-align: center;
   }
 
   .text-box {

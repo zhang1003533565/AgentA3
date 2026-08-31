@@ -20,9 +20,12 @@ import com.example.appbackend.repository.MeetingCommentRepository;
 import com.example.appbackend.repository.MeetingParticipantRepository;
 import com.example.appbackend.repository.MeetingRecordRepository;
 import com.example.appbackend.repository.MeetingSessionRepository;
+import com.example.appbackend.repository.MeetingTaskRepository;
 import com.example.appbackend.repository.SystemConfigRepository;
 import com.example.appbackend.repository.SystemConfigTestLogRepository;
 import com.example.appbackend.repository.UserRepository;
+import com.example.appbackend.entity.MeetingTask;
+import com.example.appbackend.entity.TaskStatus;
 import com.example.appbackend.service.LlmService;
 import com.example.appbackend.service.MeetingService;
 import com.example.appbackend.service.UserProfileService;
@@ -96,6 +99,7 @@ public class MeetingServiceImpl implements MeetingService {
     private final LlmService llmService;
     private final UserProfileService userProfileService;
     private final ObjectMapper objectMapper;
+    private final MeetingTaskRepository meetingTaskRepository;
 
     public MeetingServiceImpl(MeetingSessionRepository sessionRepository,
                               MeetingCommentRepository commentRepository,
@@ -107,7 +111,8 @@ public class MeetingServiceImpl implements MeetingService {
                               SystemConfigTestLogRepository systemConfigTestLogRepository,
                               LlmService llmService,
                               UserProfileService userProfileService,
-                              ObjectMapper objectMapper) {
+                              ObjectMapper objectMapper,
+                              MeetingTaskRepository meetingTaskRepository) {
         this.sessionRepository = sessionRepository;
         this.commentRepository = commentRepository;
         this.participantRepository = participantRepository;
@@ -119,6 +124,7 @@ public class MeetingServiceImpl implements MeetingService {
         this.llmService = llmService;
         this.userProfileService = userProfileService;
         this.objectMapper = objectMapper;
+        this.meetingTaskRepository = meetingTaskRepository;
     }
 
     @Override
@@ -271,7 +277,7 @@ public class MeetingServiceImpl implements MeetingService {
             displayName = request.getDisplayName();
         }
         if (StringUtils.hasText(displayName)) {
-            addParticipantIfMissing(session.getId(), displayName);
+            addParticipantIfMissing(session.getId(), displayName, userId);
         }
         refreshCounters(session);
         return buildDetail(session);
@@ -613,7 +619,7 @@ public class MeetingServiceImpl implements MeetingService {
             }
             try {
                 LlmChatRequest chatRequest = new LlmChatRequest();
-                chatRequest.setSessionId(session.getSessionId() + "-post-" + agentName);
+                chatRequest.setSessionId(buildAgentChatSessionId(session.getSessionId(), "post", agentName));
                 chatRequest.setAgentName(agentName);
                 chatRequest.setLlmModel(resolveMeetingLlmModel(null));
                 chatRequest.setInput(truncate(buildPostMeetingAgentInput(session, content, agentName), LLM_INPUT_LIMIT));
@@ -881,7 +887,7 @@ public class MeetingServiceImpl implements MeetingService {
         return "";
     }
 
-    private void addParticipantIfMissing(Long meetingSessionId, String displayName) {
+    private void addParticipantIfMissing(Long meetingSessionId, String displayName, Long userId) {
         String name = truncate(displayName.trim(), 80);
         if (!StringUtils.hasText(name)) {
             return;
@@ -897,6 +903,11 @@ public class MeetingServiceImpl implements MeetingService {
                 participant.setLeaveTime(null);
                 participantRepository.save(participant);
             }
+            // 身份回填（第五步）：已存在的参会人缺失 userId 时补写，用于说话人身份识别
+            if (participant.getUserId() == null && userId != null) {
+                participant.setUserId(userId);
+                participantRepository.save(participant);
+            }
             return;
         }
         if (participants.size() >= 20) {
@@ -907,6 +918,9 @@ public class MeetingServiceImpl implements MeetingService {
         participant.setName(name);
         participant.setSortOrder(participants.size());
         participant.setOnline(true);
+        if (userId != null) {
+            participant.setUserId(userId);
+        }
         participantRepository.save(participant);
     }
 
@@ -1185,9 +1199,37 @@ public class MeetingServiceImpl implements MeetingService {
         return normalized;
     }
 
-    private String resolveMeetingLlmModel(String requestedModel) {
+    /**
+     * 会后纪要（Agent 2）专属模型绑定键。
+     *
+     * <p>刻意与 {@code ai.agent-bindings.meeting_summary_agent.model} 区分：Agent 1（会中实时总结）
+     * 与 Agent 2 共用同一个 agentName，读的是通用 {@code .model} 键；实时总结对延迟敏感，
+     * 因此升级会后纪要模型时必须用独立键，避免连带改变 Agent 1 的行为。
+     */
+    static final String AI_MINUTES_MODEL_BINDING_KEY = "ai.agent-bindings.meeting_summary_agent.minutes-model";
+
+    String resolveMeetingLlmModel(String requestedModel) {
+        return resolveMeetingLlmModel(requestedModel, null);
+    }
+
+    /**
+     * 会议链路文本模型选择优先级：
+     * <ol>
+     *   <li>请求显式指定的模型（保持既有行为）；</li>
+     *   <li>该会议流程的专属模型绑定（如会后纪要的 {@link #AI_MINUTES_MODEL_BINDING_KEY}）；</li>
+     *   <li>最近一次测试成功的文本模型；</li>
+     *   <li>确定性的首个完整文本模型配置。</li>
+     * </ol>
+     * 专属绑定指向的配置若不完整、或模型不在可用免费清单内，则视为该绑定不可用并继续向下兜底，
+     * 不会因为绑定写错而让整条会议链路失败。
+     */
+    String resolveMeetingLlmModel(String requestedModel, String bindingKey) {
         if (StringUtils.hasText(requestedModel)) {
             return requestedModel.trim();
+        }
+        String boundPrefix = boundTextModelPrefix(bindingKey);
+        if (StringUtils.hasText(boundPrefix)) {
+            return boundPrefix;
         }
         String testedPrefix = latestTestedTextModelPrefix();
         if (StringUtils.hasText(testedPrefix)) {
@@ -1203,6 +1245,39 @@ public class MeetingServiceImpl implements MeetingService {
         );
     }
 
+    /**
+     * 读取并校验一个模型绑定配置键：只有指向完整、且运行期不会被改写的文本模型配置时才返回该前缀。
+     *
+     * <p>判定口径与 {@code PythonAiProxyService.applyPythonHeaders} 对齐：配置模型经
+     * {@link AiModelPolicy#effectiveFreeTextModel} 处理后必须仍是它自己。否则绑定虽然写了、
+     * 实际发出去的却是别的模型（例如不在免费清单内的模型会被统一改写成默认免费模型），
+     * 这种"名义生效、实际失效"的绑定不如不用，直接判定不可用并继续向下兜底。
+     */
+    String boundTextModelPrefix(String bindingKey) {
+        if (!StringUtils.hasText(bindingKey)) {
+            return "";
+        }
+        String prefix = systemConfigValue(bindingKey);
+        if (!StringUtils.hasText(prefix) || !prefix.startsWith("ai.service.text.") || !isCompleteAiModelConfig(prefix)) {
+            return "";
+        }
+        String configuredModel = systemConfigValue(prefix + ".model");
+        String effectiveModel = AiModelPolicy.effectiveFreeTextModel(
+                systemConfigValue(prefix + ".provider"), configuredModel);
+        boolean honoredAsConfigured = StringUtils.hasText(effectiveModel)
+                && effectiveModel.trim().equalsIgnoreCase(configuredModel.trim());
+        return honoredAsConfigured ? prefix : "";
+    }
+
+    /** 读取启用状态的系统配置值，缺失或空白时返回空串。 */
+    private String systemConfigValue(String configKey) {
+        return systemConfigRepository.findByConfigKeyAndStatus(configKey, 1)
+                .map(SystemConfig::getConfigValue)
+                .map(String::trim)
+                .filter(StringUtils::hasText)
+                .orElse("");
+    }
+
     private String latestTestedTextModelPrefix() {
         List<SystemConfigTestLog> logs = systemConfigTestLogRepository
                 .findByConfigKeyStartingWithAndSuccessOrderByCreateTimeDescIdDesc("ai.service.text.", true, Pageable.ofSize(50));
@@ -1214,7 +1289,15 @@ public class MeetingServiceImpl implements MeetingService {
                 .orElse("");
     }
 
-    private String firstCompleteTextModelPrefix() {
+    /**
+     * 兜底默认文本模型：收集所有字段完整的 {@code ai.service.text.*} 配置后，
+     * 按项目既有的免费模型优先级（{@link AiModelPolicy#priority}）排序，优先级相同再按配置前缀字典序。
+     *
+     * <p>原实现直接 {@code HashMap.entrySet().stream().findFirst()}，存在多个完整配置时
+     * 选中哪个模型取决于哈希遍历顺序，会让会议智能体的模型无声漂移；这里改为确定性排序，
+     * 同样配置 + 同样输入必定得到同一个结果，且不硬编码任何具体模型。
+     */
+    String firstCompleteTextModelPrefix() {
         Map<String, Set<String>> fieldsByPrefix = new HashMap<>();
         systemConfigRepository.findByConfigKeyStartingWithAndStatus("ai.service.text.", 1).forEach(config -> {
             String prefix = extractAiModelConfigPrefix(config.getConfigKey());
@@ -1226,6 +1309,9 @@ public class MeetingServiceImpl implements MeetingService {
         return fieldsByPrefix.entrySet().stream()
                 .filter(entry -> entry.getValue().containsAll(AI_MODEL_CONFIG_FIELDS))
                 .map(Map.Entry::getKey)
+                .sorted(java.util.Comparator
+                        .comparingInt((String prefix) -> AiModelPolicy.priority(systemConfigValue(prefix + ".model")))
+                        .thenComparing(java.util.Comparator.naturalOrder()))
                 .findFirst()
                 .orElse("");
     }
@@ -1273,6 +1359,52 @@ public class MeetingServiceImpl implements MeetingService {
         };
     }
 
+    /**
+     * Python 侧 ChatRequest.sessionId / CodingAssistRequest.sessionId 的 Pydantic 上限。
+     * 超过该长度会被 FastAPI 直接以 422 拒绝（string_too_long）。
+     */
+    static final int CHAT_SESSION_ID_MAX = 64;
+
+    /**
+     * 生成不超过 {@link #CHAT_SESSION_ID_MAX} 的会话 ID。
+     *
+     * <p>未超限时返回值与原先的 {@code base + "-" + purpose + "-" + agentName} 拼接完全一致，
+     * 因此不改变既有会话（含会议记忆）的键；仅在超限时压缩：
+     * <ol>
+     *   <li>会议标识 base 优先完整保留（它是跨会议的唯一性来源）；</li>
+     *   <li>压缩智能体名，并附加其 MD5 前 8 位十六进制摘要，
+     *       保证不同智能体即便前缀被截断成同样的字符串也不会互相碰撞；</li>
+     *   <li>极端情况下 base 本身超长时，保留 base 末尾（UUID 尾部才含熵），
+     *       确保总长度仍然不超限。</li>
+     * </ol>
+     */
+    static String buildAgentChatSessionId(String baseSessionId, String purpose, String agentName) {
+        String base = baseSessionId == null ? "" : baseSessionId.trim();
+        String normalizedPurpose = purpose == null ? "" : purpose.trim();
+        String agent = agentName == null ? "" : agentName.trim();
+        String infix = normalizedPurpose.isEmpty() ? "" : "-" + normalizedPurpose;
+        String raw = base + infix + (agent.isEmpty() ? "" : "-" + agent);
+        if (raw.length() <= CHAT_SESSION_ID_MAX) {
+            return raw;
+        }
+
+        // 摘要取智能体名（无智能体时取用途），保证被截断的部分仍以稳定方式参与唯一性
+        String digestSource = agent.isEmpty() ? normalizedPurpose : agent;
+        String digest = org.springframework.util.DigestUtils
+                .md5DigestAsHex(digestSource.getBytes(java.nio.charset.StandardCharsets.UTF_8))
+                .substring(0, 8);
+
+        String fixed = base + infix;
+        if (fixed.length() + 1 + digest.length() > CHAT_SESSION_ID_MAX) {
+            // 极端情况：会议标识本身就超长。保留其尾部（UUID 尾部才含熵），保证跨会议仍可区分。
+            int keep = Math.max(0, CHAT_SESSION_ID_MAX - infix.length() - 1 - digest.length());
+            fixed = base.substring(Math.max(0, base.length() - keep)) + infix;
+        }
+        int agentBudget = CHAT_SESSION_ID_MAX - fixed.length() - 1 - digest.length();
+        String agentHead = agentBudget > 0 ? agent.substring(0, Math.min(agentBudget, agent.length())) : "";
+        return fixed + "-" + agentHead + digest;
+    }
+
     @Override
     public MeetingDTO.AIMinutesResult aiMinutesAnalysis(Long userId, String sessionId, String authorization) {
         // 验证会议可访问性
@@ -1286,9 +1418,9 @@ public class MeetingServiceImpl implements MeetingService {
         
         // 调用 Agent 2 (meeting_summary_agent)
         LlmChatRequest chatRequest = new LlmChatRequest();
-        chatRequest.setSessionId(session.getSessionId() + "-ai-minutes");
+        chatRequest.setSessionId(buildAgentChatSessionId(session.getSessionId(), "ai-minutes", ""));
         chatRequest.setAgentName("meeting_summary_agent");
-        chatRequest.setLlmModel(resolveMeetingLlmModel(null));
+        chatRequest.setLlmModel(resolveMeetingLlmModel(null, AI_MINUTES_MODEL_BINDING_KEY));
         chatRequest.setInput(truncate(meetingContent, LLM_INPUT_LIMIT));
         chatRequest.setAttachments(new ArrayList<>());
         
@@ -1324,12 +1456,58 @@ public class MeetingServiceImpl implements MeetingService {
         // 1. 会议基本信息
         input.append("会议主题：").append(session.getTitle()).append("\n");
         input.append("会议状态：").append(statusLabel(session.getStatus())).append("\n");
+        input.append("会议数字 ID：").append(session.getId()).append("\n");
         
-        // 2. 参会人信息
-        List<String> participantNames = participantRepository.findByMeetingSessionIdOrderBySortOrderAscIdAsc(session.getId()).stream()
-                .map(MeetingParticipant::getName)
-                .toList();
-        input.append("参会成员：").append(participantNames.isEmpty() ? "未填写" : String.join("、", participantNames)).append("\n\n");
+        // 2. 参会人信息（包含 userId 映射）
+        List<MeetingParticipant> participants = participantRepository.findByMeetingSessionIdOrderBySortOrderAscIdAsc(session.getId());
+        if (!participants.isEmpty()) {
+            input.append("参会成员及用户 ID 映射:\n");
+            List<Long> participantUserIds = new ArrayList<>();
+            for (MeetingParticipant p : participants) {
+                // 身份回填（第五步）：缺失 userId 时按真实姓名唯一匹配回填；多人同名则不回填，保持未登录
+                if (p.getUserId() == null) {
+                    List<com.example.appbackend.entity.User> matched = userRepository.findByRealName(p.getName());
+                    if (matched.size() == 1) {
+                        p.setUserId(matched.get(0).getId());
+                        participantRepository.save(p);
+                    }
+                }
+                if (p.getUserId() != null) {
+                    participantUserIds.add(p.getUserId());
+                }
+                String userIdStr = p.getUserId() != null ? String.valueOf(p.getUserId()) : "(未登录/未注册)";
+                input.append("- ").append(p.getName()).append(" [userId=").append(userIdStr).append("]\n");
+            }
+            input.append("\n重要说明:\n");
+            input.append("当会议中出现‘张三负责 XXX’时，如果‘张三’在参会成员列表中有真实 userId，");
+            input.append("则创建个人任务时必须使用该 userId 作为 assigneeId。\n");
+            input.append("如果没有对应的真实 userId（标注为未登录/未注册），则不要创建任务。\n\n");
+
+            // 3. 历史待完成任务（第五步）：供 AI 识别"负责人本人确认完成"
+            if (!participantUserIds.isEmpty()) {
+                List<MeetingTask> pendingTasks = meetingTaskRepository.findByStatusAndAssigneeIdIn(TaskStatus.PENDING, participantUserIds);
+                if (!pendingTasks.isEmpty()) {
+                    input.append("=== 历史待完成任务（来自之前会议）===\n");
+                    for (MeetingTask task : pendingTasks) {
+                        String deadlineStr = task.getDeadline() != null ? task.getDeadline().toLocalDate().toString() : "未明确";
+                        input.append("- taskId=").append(task.getId())
+                                .append(" | 负责人：").append(task.getAssigneeName())
+                                .append(" [userId=").append(task.getAssigneeId()).append("]")
+                                .append(" | 任务：").append(task.getTitle())
+                                .append(" | 截止：").append(deadlineStr)
+                                .append("\n");
+                        if (StringUtils.hasText(task.getEvidence())) {
+                            input.append("  依据：").append(task.getEvidence()).append("\n");
+                        }
+                    }
+                    input.append("\n历史任务说明:\n");
+                    input.append("仅当某历史任务的负责人本人在本次会议中明确表达“该任务已经完成”时，才允许确认完成。\n");
+                    input.append("非负责人、部分完成、刚开始做、模糊表述均不得确认完成。\n\n");
+                }
+            }
+        } else {
+            input.append("参会成员：未填写\n\n");
+        }
         
         // 3. 会议记录（实时转写优先）
         List<MeetingRecord> records = recordRepository.findByMeetingSessionIdOrderByCreateTimeAscIdAsc(session.getId());

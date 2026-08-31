@@ -21,6 +21,7 @@ def run_specialist_agent(
     input_text: str,
     evidence: List[Dict[str, Any]],
     chat_service=None,
+    authorization: Optional[str] = None,
 ) -> str:
     normalized = normalize_agent_name(agent_name)
     if not normalized or normalized == "leader_agent":
@@ -37,8 +38,26 @@ def run_specialist_agent(
     if normalized == "image_agent" and hasattr(agent, "generate_images_json"):
         return agent.generate_images_json(input_text, evidence, chat_service=chat_service)
     if hasattr(agent, "process"):
-        return agent.process(input_text, evidence, chat_service=chat_service)
+        process_kwargs = {"chat_service": chat_service}
+        # 仅当智能体声明支持 authorization（如 meeting_summary_agent 的工具绑定）时传递
+        if authorization and _process_accepts_authorization(agent.process):
+            process_kwargs["authorization"] = authorization
+        return agent.process(input_text, evidence, **process_kwargs)
     raise HTTPException(status_code=400, detail=f"不支持的智能体：{normalized}")
+
+
+def _process_accepts_authorization(process_method: Callable) -> bool:
+    import inspect
+
+    try:
+        parameters = inspect.signature(process_method).parameters.values()
+    except (TypeError, ValueError):
+        return False
+    return any(
+        parameter.name == "authorization"
+        or parameter.kind == inspect.Parameter.VAR_KEYWORD
+        for parameter in parameters
+    )
 
 
 class LearningWorkflowRunner:

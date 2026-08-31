@@ -76,12 +76,20 @@ watch(messages, () => nextTick(() => scrollToBottom()), { deep: true })
 
         <div class="chat-area" ref="chatContainer">
           <div v-for="(msg, i) in messages" :key="i" :class="['chat-bubble', msg.role === 'user' ? 'chat-user' : 'chat-ai']">
-            <div v-if="msg.role === 'ai'" class="chat-avatar">AI</div>
-            <div class="chat-content">
-              <p class="chat-text">{{ msg.text }}</p>
-              <span class="chat-time">{{ msg.time }}</span>
-            </div>
-            <div v-if="msg.role === 'user'" class="chat-avatar user-avatar">我</div>
+            <template v-if="msg.role === 'ai'">
+              <div class="chat-avatar">AI</div>
+              <div class="chat-content">
+                <p class="chat-text">{{ msg.text }}</p>
+                <span class="chat-time">{{ msg.time }}</span>
+              </div>
+            </template>
+            <template v-else>
+              <div class="chat-content">
+                <p class="chat-text">{{ msg.text }}</p>
+                <span class="chat-time">{{ msg.time }}</span>
+              </div>
+              <div class="chat-avatar user-avatar">我</div>
+            </template>
           </div>
 
           <div v-if="isThinking" class="chat-bubble chat-ai">
@@ -222,7 +230,6 @@ watch(messages, () => nextTick(() => scrollToBottom()), { deep: true })
 
 .chat-user {
   align-self: flex-end;
-  flex-direction: row-reverse;
 }
 
 .chat-avatar {

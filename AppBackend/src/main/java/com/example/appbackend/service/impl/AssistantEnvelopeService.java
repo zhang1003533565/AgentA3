@@ -99,7 +99,10 @@ public class AssistantEnvelopeService {
             "resourceKind", "resourceType", "reviewStatus");
     private static final Set<String> SAFE_STEP_DETAIL_KEYS = Set.of(
             "agentName", "targetAgent", "toolName", "toolDisplayName", "routeReason", "intent",
-            "resultCount", "documentCount", "strategy", "summarizedByModel");
+            "resultCount", "documentCount", "strategy", "summarizedByModel", "message", "promptPreview",
+            "toolParams", "requestUrls", "plannedRequestUrls", "leaderActionLabel", "planningAnswer",
+            "triggerType", "resultStatus", "resultPreview", "resultMessage", "toolMs", "summaryMs",
+            "serviceToolBackendStatus", "strategyLabel", "javaBackendCount", "backendFailure");
     private static final Set<String> DEFAULT_SSE_FIELDS = Set.of(
             "message", "status", "stage", "progress");
     private static final Set<String> LEARNING_SSE_EVENTS = Set.of(
@@ -111,7 +114,13 @@ public class AssistantEnvelopeService {
             "message", "retryable", "status");
     private static final Map<String, Set<String>> SSE_EVENT_FIELDS = Map.of(
             "status", Set.of("message", "status", "stage", "progress", "agentName"),
-            "tool_start", Set.of("message", "status", "stage", "agentName", "toolName", "toolDisplayName"),
+            "tool_start", Set.of("message", "status", "stage", "agentName", "toolName", "toolDisplayName", "routeReason", "intent", "triggerType"),
+            "workflow_step", Set.of("stage", "detail", "message", "status"),
+            "generation_progress", Set.of("phase", "status", "imageGenerating", "content"),
+            "error", Set.of(
+                    "message", "status", "stage", "agentName", "failedAgent", "toolName", "toolDisplayName",
+                    "failurePhase", "failureStage", "failureLocation", "statusCode", "intent", "routeReason"
+            ),
             "session", Set.of("message", "status", "sessionId"),
             "search", Set.of("message", "status", "query", "keyword", "resultCount", "documentCount"),
             "delta", Set.of("content", "delta", "answer", "index", "status"));
@@ -298,6 +307,13 @@ public class AssistantEnvelopeService {
         Set<String> allowed = SSE_EVENT_FIELDS.getOrDefault(eventName, DEFAULT_SSE_FIELDS);
         Map<String, Object> safe = new LinkedHashMap<>();
         for (String key : allowed) {
+            if ("detail".equals(key) && "workflow_step".equals(eventName) && source.get(key) instanceof Map<?, ?> detailSource) {
+                Map<String, Object> detail = sanitizeWorkflowStepDetail(detailSource);
+                if (!detail.isEmpty()) {
+                    safe.put(key, detail);
+                }
+                continue;
+            }
             Object value = source.get(key);
             if (value instanceof Number number && finite(number)) {
                 safe.put(key, value);
@@ -1583,14 +1599,62 @@ public class AssistantEnvelopeService {
                 break;
             }
             Map<String, Object> safe = new LinkedHashMap<>();
-            for (String key : Set.of("stage", "agentName", "targetAgent", "toolName", "toolDisplayName", "routeReason", "intent", "strategy")) {
-                putText(safe, key, raw.get(key), 300);
+            putText(safe, "stage", raw.get("stage"), 80);
+            Map<String, Object> detail = sanitizeWorkflowStepDetail(raw.get("detail"));
+            if (detail.isEmpty()) {
+                detail = sanitizeWorkflowStepDetail(raw);
+            }
+            if (!detail.isEmpty()) {
+                safe.put("detail", detail);
             }
             if (!safe.isEmpty()) {
                 result.add(safe);
             }
         }
         return result;
+    }
+
+    private Map<String, Object> sanitizeWorkflowStepDetail(Object detailRaw) {
+        if (!(detailRaw instanceof Map<?, ?>)) {
+            return Map.of();
+        }
+        Map<String, Object> sourceMap = mapValue(detailRaw);
+        Map<String, Object> detail = new LinkedHashMap<>();
+        for (String detailKey : SAFE_STEP_DETAIL_KEYS) {
+            Object value = sourceMap.get(detailKey);
+            if (value == null) {
+                continue;
+            }
+            if ("toolParams".equals(detailKey) && value instanceof Map<?, ?>) {
+                Map<String, Object> params = sanitizeGenericMap(mapValue(value), 0);
+                if (!params.isEmpty()) {
+                    detail.put(detailKey, params);
+                }
+                continue;
+            }
+            if (("requestUrls".equals(detailKey) || "plannedRequestUrls".equals(detailKey)) && value instanceof List<?> list) {
+                List<String> urls = list.stream()
+                        .map(item -> item == null ? "" : String.valueOf(item))
+                        .filter(StringUtils::hasText)
+                        .map(item -> text(item, 500))
+                        .limit(10)
+                        .toList();
+                if (!urls.isEmpty()) {
+                    detail.put(detailKey, urls);
+                }
+                continue;
+            }
+            if (value instanceof Number number && finite(number)) {
+                detail.put(detailKey, value);
+            } else if (value instanceof Boolean) {
+                detail.put(detailKey, value);
+            } else if (value instanceof String text
+                    && text.length() <= 1_000
+                    && !unsafePublicText(text, Set.of())) {
+                detail.put(detailKey, text);
+            }
+        }
+        return detail;
     }
 
     private Map<String, Object> safeMetadata(Map<String, Object> raw) {

@@ -62,19 +62,8 @@ public class MindMapAIServiceImpl implements MindMapAIService {
                 detail,
                 inputText
         );
-        AiRuntimeConfig aiConfig = resolveRuntimeConfig();
-        if (aiConfig == null) {
-            return generateLocalMindMap(inputText, constraints);
-        }
+        AiRuntimeConfig aiConfig = requireRuntimeConfig();
         String prompt = buildPrompt(inputText, constraints);
-
-        Map<String, Object> systemMessage = new HashMap<>();
-        systemMessage.put("role", "system");
-        systemMessage.put("content", "你是一个专业知识结构化助手。你必须只返回严格 JSON，不要输出 Markdown、解释、代码块或多余文本。");
-
-        Map<String, Object> userMessage = new HashMap<>();
-        userMessage.put("role", "user");
-        userMessage.put("content", prompt);
 
         Map<String, Object> payload = new HashMap<>();
         payload.put("model", aiConfig.model());
@@ -112,11 +101,7 @@ public class MindMapAIServiceImpl implements MindMapAIService {
 
     @Override
     public MindMapDTO.MindMapData optimize(MindMapDTO.MindMapData currentMindMap, String userInstruction, String authorization) {
-        AiRuntimeConfig aiConfig = resolveRuntimeConfig();
-        if (aiConfig == null) {
-            return optimizeLocal(currentMindMap, userInstruction);
-        }
-
+        AiRuntimeConfig aiConfig = requireRuntimeConfig();
         String currentJson;
         try {
             currentJson = objectMapper.writeValueAsString(currentMindMap);
@@ -556,16 +541,21 @@ public class MindMapAIServiceImpl implements MindMapAIService {
         return text.substring(start, end + 1);
     }
 
-    private AiRuntimeConfig resolveRuntimeConfig() {
-        String configPrefix = firstText(
-                resolveAgentBoundTextModel(MIND_MAP_AGENT_NAME),
-                resolveAgentBoundTextModel(DEFAULT_AGENT_NAME),
-                firstTestedTextConfigPrefix(),
-                firstCompleteTextConfigPrefix(),
-                hasCompleteConfig(LEGACY_TEXT_CONFIG_PREFIX) ? LEGACY_TEXT_CONFIG_PREFIX : ""
-        );
+    private AiRuntimeConfig requireRuntimeConfig() {
+        String configPrefix = resolveAgentBoundTextModel(MIND_MAP_AGENT_NAME);
         if (!StringUtils.hasText(configPrefix)) {
-            return null;
+            throw new BusinessException(
+                    400,
+                    "思维导图智能体未绑定文本模型，请在系统配置中维护 ai.agent-bindings."
+                            + MIND_MAP_AGENT_NAME + ".model"
+            );
+        }
+        if (!hasCompleteConfig(configPrefix)) {
+            throw new BusinessException(
+                    400,
+                    "思维导图智能体绑定的文本模型配置不完整，请检查 "
+                            + configPrefix + ".provider/base-url/api-key/model"
+            );
         }
 
         return new AiRuntimeConfig(

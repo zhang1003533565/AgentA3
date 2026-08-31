@@ -28,6 +28,7 @@ from app.ppt_generation.service import (
     _rebalance_layout_choices,
     _visuals_enabled,
     _fill_layout_with_slide_text,
+    _run_export_quality_check,
     _set_text_node_content,
     _sanitize_content_payload,
 )
@@ -69,6 +70,32 @@ def test_presenton_renderer_normalizes_external_slide_indexes_without_mutating_i
 
     assert [slide["index"] for slide in normalized] == [1, 2, 3]
     assert [slide.get("index") for slide in slides] == [0, None, 18]
+
+
+def test_export_quality_findings_are_non_blocking(monkeypatch, tmp_path):
+    export_path = tmp_path / "finished.pptx"
+    export_path.write_bytes(b"pptx")
+    monkeypatch.setattr(
+        generated_exporter,
+        "_current_export_root",
+        lambda: tmp_path,
+    )
+    monkeypatch.setattr(
+        "app.ppt_generation.service.validate_exported_pptx",
+        lambda _path: {
+            "passed": False,
+            "slides": 2,
+            "errors": [{"slide": 1, "kind": "TEXT_OVERLAP"}],
+            "warnings": [],
+        },
+    )
+
+    report = _run_export_quality_check({"ext": "pptx", "storageKey": "finished.pptx"})
+
+    assert report["status"] == "warning"
+    assert report["passed"] is False
+    assert report["errors"]
+    assert report["messages"] == ["第1页检测到文本区域重叠"]
 
 
 def test_fallback_preserves_template_badges_and_fills_card_copy():
@@ -503,43 +530,73 @@ def test_task_deadline_transitions_to_terminal_timeout(monkeypatch):
 def test_outline_task_returns_before_model_work_and_reaches_terminal_state(monkeypatch):
     markdown = """## PPT 大纲
 ### 第1页
-- 页标题：概念
+- 页标题：资料内容
+- 大纲层级：章节
 - 页面类型：内容页
-- 本页目标：理解概念
+- 本页目标：建立资料主题的整体认识
 - 核心内容：
-  - 定义
+-  - 定义
+-  - 范围
+-  - 学习目标
+- 页面节点：
+  - 节点1：定义｜说明核心定义
+  - 节点2：范围｜说明内容边界
 - 展示建议：列表
 - 素材建议：无
 ### 第2页
 - 页标题：总结
+- 大纲层级：小节
 - 页面类型：总结页
 - 本页目标：回顾重点
 - 核心内容：
-  - 要点
+  - 要点一
+  - 要点二
+  - 要点三
+- 页面节点：
+  - 节点1：要点一｜说明第一个重点
+  - 节点2：要点二｜说明第二个重点
 - 展示建议：列表
 - 素材建议：无
 ### 第3页
 - 页标题：练习
-- 页面类型：练习页
+- 大纲层级：小节
+- 页面类型：内容页
 - 本页目标：巩固知识
 - 核心内容：
   - 题目
+  - 方法
+  - 判断
+- 页面节点：
+  - 节点1：题目｜说明练习任务
+  - 节点2：方法｜说明解题方法
 - 展示建议：列表
 - 素材建议：无
 ### 第4页
 - 页标题：应用
+- 大纲层级：小节
 - 页面类型：案例页
 - 本页目标：联系实际
 - 核心内容：
   - 案例
+  - 场景
+  - 结果
+- 页面节点：
+  - 节点1：案例｜说明案例背景
+  - 节点2：场景｜说明应用场景
 - 展示建议：列表
 - 素材建议：无
 ### 第5页
 - 页标题：结语
+- 大纲层级：章节
 - 页面类型：总结页
 - 本页目标：结束课程
 - 核心内容：
   - 结论
+  - 行动
+  - 回顾
+- 页面节点：
+  - 节点1：结论｜说明最终结论
+  - 节点2：行动｜说明下一步行动
 - 展示建议：列表
 - 素材建议：无
 """

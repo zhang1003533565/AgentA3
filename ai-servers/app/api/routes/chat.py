@@ -7,6 +7,13 @@ from fastapi.responses import StreamingResponse
 from app.models.schemas import ChatRequest, ChatResponse
 from app.model_providers.runtime_config import build_llm_runtime_config, reset_active_llm_config, set_active_llm_config
 from app.multi_agents.runtime import stream_agent
+from app.multi_agents.meeting_summary_agent.tool_binding import (
+    format_block_report_for_log,
+    has_task_signals,
+    inspect_task_blocks,
+    process_task_calls_async,
+    safe_visible_length,
+)
 from app.observability.langfuse import observe_request, settings_from_headers, use_settings
 from app.services.chat_orchestrator import resolve_user_id, run_chat_core
 from app.security.internal_auth import require_internal_token
@@ -114,6 +121,7 @@ async def internal_chat_stream(
                 if request.agentName == "meeting_summary_agent":
                     session_id = request.sessionId or ""
                     answer_parts = []
+                    emitted_length = 0
                     yield build_sse("session", {
                         "sessionId": session_id,
                         "sessionToken": "",
@@ -128,9 +136,35 @@ async def internal_chat_stream(
                     })
                     for chunk in stream_agent(request.agentName, request.input, []):
                         answer_parts.append(chunk)
-                        yield build_sse("delta", {"content": chunk})
+                        # 抑制内部 meeting_tasks 任务块，避免工具 JSON 外泄给用户
+                        visible = safe_visible_length("".join(answer_parts))
+                        if visible > emitted_length:
+                            yield build_sse("delta", {"content": "".join(answer_parts)[emitted_length:visible]})
+                            emitted_length = visible
                         await asyncio.sleep(0)
                     answer = "".join(answer_parts).strip()
+                    # 第八步可观测性：流式路径已边生成边推送，不做 retry，仅记录任务块诊断
+                    report = inspect_task_blocks(answer)
+                    logger.info(
+                        "Agent2 run: stage=stream served=%s/%s fallback=false retryCount=0 %s",
+                        llm_config.provider,
+                        llm_config.model,
+                        format_block_report_for_log(report),
+                    )
+                    if not (report["has_tasks_block"] or report["has_completions_block"]) and has_task_signals(request.input or ""):
+                        logger.warning(
+                            "Agent2 task block missing: model=%s, provider=%s, retry=false",
+                            llm_config.model,
+                            llm_config.provider,
+                        )
+                    # 第四步：会后纪要中的明确个人任务经工具落库，并向用户返回剥离后的干净纪要
+                    answer, task_results = await process_task_calls_async(answer, authorization, request.input or "")
+                    logger.info(
+                        "Agent2 task tool executed: calls=%s ok=%s fail=%s",
+                        len(task_results),
+                        sum(1 for item in task_results if item.get("success")),
+                        sum(1 for item in task_results if not item.get("success")),
+                    )
                     yield build_sse("done", {
                         "answer": answer,
                         "answerType": "markdown",

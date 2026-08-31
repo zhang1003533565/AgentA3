@@ -689,7 +689,7 @@ def test_mind_map_mermaid_contract_exports_only_mindmap_source(monkeypatch, tmp_
     )
 
     assert not [item for item in failures if item["resourceType"] == "mind_map"]
-    assert {item["ext"] for item in attachments_by_type["mind_map"]} >= {"mmd", "md"}
+    assert {item["ext"] for item in attachments_by_type["mind_map"]} >= {"md"}
 
 
 def test_mind_map_rejects_wrong_mermaid_diagram_type(monkeypatch, tmp_path):

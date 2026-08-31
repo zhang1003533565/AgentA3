@@ -1,5 +1,26 @@
 export const AI_MODEL_CONFIG_PATTERN = /^ai\.service\.(text|vision|image|video|audio)(?:\.([A-Za-z0-9_-]+))?\.(provider|base-url|api-key|model)$/
 export const AGENT_MODEL_BINDING_PATTERN = /^ai\.agent-bindings\.([A-Za-z0-9_-]+)\.model$/
+/**
+ * 智能体子用途模型绑定：ai.agent-bindings.{agent}.{purpose}-model
+ * 例如 meeting_summary_agent.minutes-model 只作用于"会后会议纪要"，
+ * 与通用 .model（会中实时总结等默认链路）相互独立，互不影响。
+ */
+export const AGENT_SUB_MODEL_BINDING_PATTERN = /^ai\.agent-bindings\.([A-Za-z0-9_-]+)\.([a-z]+-model)$/
+export const AGENT_SUB_MODEL_BINDING_LABELS = {
+  'minutes-model': '会后会议纪要模型',
+}
+export const AGENT_SUB_MODEL_BINDING_HINTS = {
+  'minutes-model': '仅作用于会后纪要（Agent 2），不会修改默认模型（会中实时总结）',
+}
+/**
+ * 声明各智能体暴露哪些子用途模型绑定，与"是否已配置"无关。
+ * 这样管理员取消专属绑定（配置行被删除）后，后台仍显示该行并标注"跟随系统默认"，
+ * 而不是整行消失导致无法重新绑定。
+ */
+export const AGENT_SUB_MODEL_BINDINGS = {
+  meeting_summary_agent: ['minutes-model'],
+}
+export const AGENT_SUB_MODEL_UNBOUND_TEXT = '跟随系统默认'
 export const AGENT_ENABLED_CONFIG_PREFIX = 'ai.agent-enabled.'
 export const TOOL_ENABLED_CONFIG_PREFIX = 'ai.tool-enabled.'
 export const TOOL_BOUND_CONFIG_PREFIX = 'ai.tool-bound.'
@@ -116,6 +137,62 @@ export const buildAgentModelBindings = (configRows = []) => {
     }
   })
   return bindings
+}
+
+/**
+ * 解析智能体子用途模型绑定，返回 { [agentName]: { [purposeModel]: configPrefix } }。
+ * 例如 meeting_summary_agent 的 minutes-model 指向 ai.service.text.qwen3-8-max。
+ */
+export const buildAgentSubModelBindings = (configRows = []) => {
+  const bindings = {}
+  configRows.forEach((item) => {
+    const match = String(item.configKey || '').match(AGENT_SUB_MODEL_BINDING_PATTERN)
+    if (!match) return
+    if (Number(item.status) === 0) return
+    const [, agentName, purposeModel] = match
+    const configPrefix = String(item.configValue || '').trim()
+    if (!configPrefix) return
+    bindings[agentName] = { ...(bindings[agentName] || {}), [purposeModel]: configPrefix }
+  })
+  return bindings
+}
+
+/**
+ * 解析子用途模型绑定对应的系统配置行 id：{ [agentName]: { [purposeModel]: id } }。
+ * 「取消专属绑定」需要按 id 调用现有 DELETE /api/system-config/{id} 真删除该行，
+ * 而不是写入空值（空值会让后端 upsert 出一条语义不明的配置）。
+ */
+export const buildAgentSubModelBindingIds = (configRows = []) => {
+  const ids = {}
+  configRows.forEach((item) => {
+    const match = String(item.configKey || '').match(AGENT_SUB_MODEL_BINDING_PATTERN)
+    if (!match) return
+    const [, agentName, purposeModel] = match
+    const id = item.id ?? item.configId
+    if (id === undefined || id === null) return
+    ids[agentName] = { ...(ids[agentName] || {}), [purposeModel]: id }
+  })
+  return ids
+}
+
+/**
+ * 解析「模型配置前缀 → 模型 ID」映射，用于把绑定的配置前缀还原成可读模型名。
+ * 前端不硬编码任何模型名，一律取后端真实配置值。
+ */
+export const buildAiModelLabelByPrefix = (configRows = []) => {
+  const labels = {}
+  configRows.forEach((item) => {
+    const match = String(item.configKey || '').match(AI_MODEL_CONFIG_PATTERN)
+    if (!match) return
+    const [, modality, configName, field] = match
+    if (field !== 'model') return
+    const value = String(item.configValue || '').trim()
+    if (!value) return
+    labels[configName === undefined || !configName
+      ? `ai.service.${modality}`
+      : `ai.service.${modality}.${configName}`] = value
+  })
+  return labels
 }
 
 const parseEnabledConfigValue = (value) => {

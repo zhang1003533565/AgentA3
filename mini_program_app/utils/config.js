@@ -34,7 +34,9 @@ export function getApiBaseUrl() {
   // #ifndef H5
   // App/小程序真机不能用 localhost，需指向电脑局域网地址。
   // 正式环境请用 VITE_API_BASE_URL 覆盖。
-  return 'http://192.168.31.122:8080'
+  // 当前本地联调机局域网地址；正式环境和其他电脑请使用
+  // VITE_API_BASE_URL（例如 mini_program_app/.env.development.local）覆盖。
+  return 'http://192.168.5.2:8080'
   // #endif
 }
 

@@ -6,22 +6,22 @@ from pathlib import Path
 from typing import Any, Dict, List, Tuple
 from xml.etree import ElementTree
 
+from app.ppt_generation.template_placeholder_lexicon import find_template_marker
+
 
 _NS = {
     "p": "http://schemas.openxmlformats.org/presentationml/2006/main",
     "a": "http://schemas.openxmlformats.org/drawingml/2006/main",
 }
-_PLACEHOLDER_MARKERS = (
-    "www.yourwebsite.com",
-    "our team",
-    "timeline",
-    "recommendations",
-    "business model",
-    "concise supporting text under the",
-    "high-level execution plan and milestones",
-)
 _ELLIPSIS = re.compile(r"(?:…|\.\.\.)")
+_INCOMPLETE_EXPRESSION = re.compile(r"(?:[\^=+\-/*(（\[【]|\b(?:O|o)\([^)]*)$")
 _CJK = re.compile(r"[\u2e80-\u9fff\uf900-\ufaff]")
+
+# Presenton's embedded templates use a 16:9 canvas.  These bounds are only
+# used to recognize likely footer page numbers; they never participate in the
+# export success decision.
+_SLIDE_WIDTH = 12_192_000
+_SLIDE_HEIGHT = 6_858_000
 
 
 def validate_exported_pptx(path: Path) -> Dict[str, Any]:
@@ -34,6 +34,7 @@ def validate_exported_pptx(path: Path) -> Dict[str, Any]:
     errors: List[Dict[str, Any]] = []
     warnings: List[Dict[str, Any]] = []
     slides_checked = 0
+    footer_page_numbers: Dict[int, int] = {}
     with zipfile.ZipFile(path) as archive:
         slide_names = sorted(
             (
@@ -51,8 +52,7 @@ def validate_exported_pptx(path: Path) -> Dict[str, Any]:
                 text = "".join(texts).strip()
                 if not text:
                     continue
-                lowered = text.casefold()
-                marker = next((value for value in _PLACEHOLDER_MARKERS if value in lowered), None)
+                marker = find_template_marker(text)
                 if marker:
                     errors.append({
                         "slide": slide_number,
@@ -64,6 +64,12 @@ def validate_exported_pptx(path: Path) -> Dict[str, Any]:
                     warnings.append({
                         "slide": slide_number,
                         "kind": "TEXT_ELLIPSIS",
+                        "text": text[:160],
+                    })
+                if _INCOMPLETE_EXPRESSION.search(text):
+                    warnings.append({
+                        "slide": slide_number,
+                        "kind": "INCOMPLETE_EXPRESSION",
                         "text": text[:160],
                     })
                 xfrm = shape.find("p:spPr/a:xfrm", _NS)
@@ -79,6 +85,11 @@ def validate_exported_pptx(path: Path) -> Dict[str, Any]:
                 except (TypeError, ValueError):
                     continue
                 if width > 0 and height > 0:
+                    if _is_footer_page_number(text, left, top, width, height):
+                        try:
+                            footer_page_numbers[slide_number] = int(text)
+                        except ValueError:
+                            pass
                     text_boxes.append(
                         {
                             "text": text,
@@ -108,12 +119,42 @@ def validate_exported_pptx(path: Path) -> Dict[str, Any]:
                         "second": str(second["text"])[:100],
                         "overlapRatio": round(overlap / smaller, 3),
                     })
+    if len(footer_page_numbers) >= max(3, slides_checked // 2):
+        for slide_number, actual in sorted(footer_page_numbers.items()):
+            if actual == slide_number:
+                continue
+            warnings.append({
+                "slide": slide_number,
+                "kind": "PAGE_NUMBER_MISMATCH",
+                "expected": slide_number,
+                "actual": actual,
+            })
     return {
         "passed": not errors,
         "slides": slides_checked,
         "errors": errors,
         "warnings": warnings,
     }
+
+
+def _is_footer_page_number(
+    text: str,
+    left: float,
+    top: float,
+    width: float,
+    height: float,
+) -> bool:
+    """Recognize a numeric footer without treating card badges as page numbers."""
+    if not re.fullmatch(r"\d{1,3}", str(text or "").strip()):
+        return False
+    right = left + width
+    bottom = top + height
+    return (
+        left >= _SLIDE_WIDTH * 0.84
+        and right <= _SLIDE_WIDTH * 1.02
+        and top >= _SLIDE_HEIGHT * 0.86
+        and bottom <= _SLIDE_HEIGHT * 1.02
+    )
 
 
 def _slide_sort_key(name: str) -> int:

@@ -5,7 +5,7 @@ from typing import Any, Dict, Iterator, List, Optional
 from fastapi import HTTPException
 
 from app.model_providers.base import ChatModelProvider, extract_response_text
-from app.model_providers.multimodal import build_multimodal_human_content, extract_image_references
+from app.model_providers.multimodal import build_explicit_multimodal_content, build_multimodal_human_content, extract_image_references, extract_image_references
 from app.model_providers.runtime_config import (
     LlmRuntimeConfig,
     get_active_llm_timeout_seconds,
@@ -34,16 +34,16 @@ QWEN_PROVIDER_ALIASES = {
 }
 
 QWEN_MODEL_FALLBACKS = (
-    "qwen3.7-max-2026-06-08",
-    "qwen3.7-max-2026-05-17",
-    "qwen3.7-max-preview",
-    "kimi-k3",
     "deepseek-v4-flash-0731",
     "glm-5.2",
     "kimi-k2.7-code",
     "deepseek-v4-pro-0813",
     "qwen3.5-ocr",
     "qwen3.7-plus-2026-05-26",
+    "qwen3.8-2.4t-a95b",
+    "qwen3.8-max",
+    # Kimi K3 仅作为最后一道兜底，避免其 max 推理延迟拖慢主链路。
+    "kimi-k3",
 )
 
 _FALLBACK_STATUS_CODES = {400, 401, 403, 404, 408, 409, 429, 500, 502, 503, 504}
@@ -91,15 +91,31 @@ class QwenProvider(ChatModelProvider):
         self.llm = self._build_llm(model)
 
     def _build_llm(self, model: str):
-        return self._chat_openai(
-            api_key=self._api_key,
-            base_url=self._base_url,
-            model=model,
-            temperature=0.2,
-            timeout=get_active_llm_timeout_seconds(),
-            max_retries=0,
+        kwargs = {
+            "api_key": self._api_key,
+            "base_url": self._base_url,
+            "model": model,
+            "timeout": get_active_llm_timeout_seconds(),
+            "max_retries": 0,
             **({"max_tokens": self._max_output_tokens} if self._max_output_tokens else {}),
-            callbacks=langchain_callbacks(),
+            "callbacks": langchain_callbacks(),
+        }
+        # Bailian models do not share one OpenAI-parameter contract. Kimi
+        # models accept only their fixed temperature, while Kimi K3 also
+        # accepts only reasoning_effort=max. Qwen3.8 uses a safer temperature
+        # floor in thinking mode. Keep these profiles local to the provider
+        # so switching models does not reuse another model's parameters.
+        normalized_model = str(model or "").strip().lower()
+        if normalized_model.startswith(("kimi-k3", "kimi-k2.7-code")):
+            kwargs["temperature"] = 1.0
+        elif normalized_model.startswith("qwen3.8"):
+            kwargs["temperature"] = 1.0
+        else:
+            kwargs["temperature"] = 0.2
+        if normalized_model.startswith("kimi-k3"):
+            kwargs["reasoning_effort"] = "max"
+        return self._chat_openai(
+            **kwargs,
         )
 
     def _thinking_extra_body(
@@ -123,6 +139,10 @@ class QwenProvider(ChatModelProvider):
             # and the current DashScope API also documents that qwen3.8-max
             # should not combine explicit thinking_budget with model reasoning
             # controls. Let the server choose its supported default.
+            return {"extra_body": {"enable_thinking": effort != "none"}}
+        if model.startswith(("deepseek-v4", "glm-5.2")):
+            # These Bailian hybrid-thinking models expose the switch through
+            # enable_thinking rather than the Qwen-specific controls below.
             return {"extra_body": {"enable_thinking": effort != "none"}}
         supported = (
             model.startswith("qwen3.7")
@@ -223,14 +243,47 @@ class QwenProvider(ChatModelProvider):
     def complete(self, system_prompt: str, user_prompt: str, reasoning_effort: Optional[str] = None) -> str:
         from langchain_core.messages import HumanMessage, SystemMessage
 
+        cleaned_prompt, image_urls = extract_image_references(user_prompt)
+        if image_urls:
+            logger.warning(
+                "complete() stripped %s embedded image reference(s); use complete_vision() for image input",
+                len(image_urls),
+            )
         response = self._invoke_with_fallback([
             SystemMessage(content=system_prompt),
-            HumanMessage(content=build_multimodal_human_content(user_prompt)),
+            HumanMessage(content=cleaned_prompt or user_prompt),
         ], reasoning_effort)
         content = extract_response_text(response)
         if not content and isinstance(getattr(response, "additional_kwargs", None), dict):
             content = str(response.additional_kwargs.get("reasoning_content") or "").strip()
         return content
+
+    def complete_vision(
+        self,
+        system_prompt: str,
+        user_text: str,
+        image_urls: List[str],
+        reasoning_effort: Optional[str] = None,
+    ) -> str:
+        from langchain_core.messages import HumanMessage, SystemMessage
+
+        content = build_explicit_multimodal_content(user_text, image_urls)
+        if len(content) < 2:
+            raise HTTPException(status_code=400, detail="视觉模型调用缺少有效图片输入")
+        logger.info(
+            "vision complete start model=%s images=%s text_len=%s",
+            self.model,
+            len(image_urls),
+            len(user_text or ""),
+        )
+        response = self._invoke_with_fallback([
+            SystemMessage(content=system_prompt),
+            HumanMessage(content=content),
+        ], reasoning_effort, use_thinking=False)
+        result = extract_response_text(response)
+        if not result and isinstance(getattr(response, "additional_kwargs", None), dict):
+            result = str(response.additional_kwargs.get("reasoning_content") or "").strip()
+        return result
 
     def stream_complete(self, system_prompt: str, user_prompt: str, reasoning_effort: Optional[str] = None) -> Iterator[str]:
         from langchain_core.messages import HumanMessage, SystemMessage

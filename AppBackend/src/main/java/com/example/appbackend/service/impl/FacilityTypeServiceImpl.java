@@ -24,14 +24,18 @@ import java.util.stream.Collectors;
 public class FacilityTypeServiceImpl implements FacilityTypeService {
 
     public static final String CONFIG_KEY = "facility_types";
-    public static final int OTHER = 99;
+    public static final int OTHER = 5;
 
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
     private static final TypeReference<List<FacilityTypeItem>> TYPE_LIST = new TypeReference<>() {};
     private static final String DEFAULT_COLOR = "#3b82f6";
 
     private static final List<FacilityTypeItem> DEFAULT_TYPES = List.of(
-            new FacilityTypeItem(5, "其他", DEFAULT_COLOR)
+            new FacilityTypeItem(1, "食堂", "#ff6b6b"),
+            new FacilityTypeItem(2, "运动场", "#1dd1a1"),
+            new FacilityTypeItem(5, "其他", "#feca57"),
+            new FacilityTypeItem(6, "教学楼", "#3b82f6"),
+            new FacilityTypeItem(7, "宿舍", "#a55eea")
     );
 
     @Autowired
@@ -72,12 +76,17 @@ public class FacilityTypeServiceImpl implements FacilityTypeService {
         if (type == null) {
             return getType(OTHER).getLabel();
         }
-        return getType(type).getLabel();
+        int normalizedType = type >= 2 && type <= 4 ? 2 : type == 99 ? OTHER : type;
+        return getType(normalizedType).getLabel();
     }
 
     @Override
     public boolean isKnown(Integer type) {
-        return type != null && typeCache.containsKey(type);
+        if (type == null) {
+            return false;
+        }
+        int normalizedType = type >= 2 && type <= 4 ? 2 : type == 99 ? OTHER : type;
+        return typeCache.containsKey(normalizedType);
     }
 
     private List<FacilityTypeItem> loadTypesFromConfig() {
@@ -133,7 +142,20 @@ public class FacilityTypeServiceImpl implements FacilityTypeService {
             if (item.getValue() <= 0) {
                 throw new BusinessException(400, "设施类型编码必须大于 0");
             }
-            unique.put(item.getValue(), new FacilityTypeItem(item.getValue(), item.getLabel().trim(), normalizeColor(item.getColor())));
+            int normalizedValue = item.getValue() >= 2 && item.getValue() <= 4
+                    ? 2
+                    : item.getValue() == 99 ? OTHER : item.getValue();
+            String normalizedLabel = normalizedValue == 2
+                    ? "运动场"
+                    : normalizedValue == OTHER ? "其他" : item.getLabel().trim();
+            if (unique.containsKey(normalizedValue) && normalizedValue != item.getValue()) {
+                continue;
+            }
+            unique.put(normalizedValue, new FacilityTypeItem(
+                    normalizedValue,
+                    normalizedLabel,
+                    normalizeColor(item.getColor())
+            ));
         }
         if (!unique.containsKey(OTHER)) {
             unique.put(OTHER, new FacilityTypeItem(OTHER, "其他", DEFAULT_COLOR));

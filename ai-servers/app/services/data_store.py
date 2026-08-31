@@ -1,4 +1,4 @@
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from app.services.java_backend import JavaBackendRetriever, java_backend_retriever
 
@@ -39,11 +39,23 @@ class DataStore:
     def search_schedule(self, authorization: str, input_text: str) -> List[Dict[str, Any]]:
         return self._retriever.search_schedule(authorization, input_text)
 
-    def search_service_tool(self, authorization: str, tool_name: str, input_text: str) -> List[Dict[str, Any]]:
-        return self._retriever.search_service_tool(authorization, tool_name, input_text)
+    def search_service_tool(
+        self,
+        authorization: str,
+        tool_name: str,
+        input_text: str = "",
+        tool_params: Optional[Dict[str, Any]] = None,
+    ) -> List[Dict[str, Any]]:
+        return self._retriever.search_service_tool(authorization, tool_name, input_text, tool_params)
 
-    def search_service_tool_with_meta(self, authorization: str, tool_name: str, input_text: str) -> tuple[List[Dict[str, Any]], Dict[str, Any]]:
-        return self._retriever.search_service_tool_with_meta(authorization, tool_name, input_text)
+    def search_service_tool_with_meta(
+        self,
+        authorization: str,
+        tool_name: str,
+        input_text: str = "",
+        tool_params: Optional[Dict[str, Any]] = None,
+    ) -> tuple[List[Dict[str, Any]], Dict[str, Any]]:
+        return self._retriever.search_service_tool_with_meta(authorization, tool_name, input_text, tool_params)
 
     def search_keyword(self, authorization: str, keyword: str) -> List[Dict[str, Any]]:
         return self._retriever.search_keyword(authorization, keyword)

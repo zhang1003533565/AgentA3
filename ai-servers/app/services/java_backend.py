@@ -6,23 +6,22 @@ import os
 import re
 import time
 from collections import OrderedDict, deque
-from datetime import date
+from datetime import date, timedelta
 from threading import RLock
 from typing import Any, Dict, List, Optional
+from urllib.error import HTTPError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
+from app.services.campus_tool_params import (
+    CAMPUS_SERVICE_TOOL_NAMES,
+    params_from_schedule_dict,
+    resolve_campus_tool_params,
+)
 from app.utils.logger import get_logger
 from app.utils.text_utils import (
     format_weekday,
-    is_all_semester_schedule_query,
-    is_semester_schedule_query,
     normalize_text,
-    parse_requested_date,
-    parse_requested_session,
-    parse_requested_week,
-    parse_requested_weekday,
-    parse_schedule_course_keyword,
     parse_session_start,
     week_in_range,
 )
@@ -96,12 +95,76 @@ class JavaBackendRetriever:
                 self._record_cache_miss(path, elapsed_ms, cache_key, normalized, user_key, payload)
                 self._write_cache(path, cache_key, payload, elapsed_ms, normalized, user_key)
                 return payload
+        except HTTPError as exc:
+            elapsed_ms = int((time.perf_counter() - started) * 1000)
+            body = exc.read().decode("utf-8", errors="replace")
+            payload: Dict[str, Any] = {}
+            try:
+                parsed = json.loads(body)
+                if isinstance(parsed, dict):
+                    payload = parsed
+            except json.JSONDecodeError:
+                payload = {}
+            status = "error" if exc.code >= 500 else "miss"
+            self._record_cache_miss(path, elapsed_ms, cache_key, normalized, user_key, payload or None, status=status)
+            if exc.code >= 500:
+                self._record_failure()
+            else:
+                self._record_success()
+            if exc.code >= 400:
+                logger.info(
+                    "java api business response path=%s http_status=%s elapsed_ms=%s",
+                    path,
+                    exc.code,
+                    elapsed_ms,
+                )
+            return payload
         except Exception:
             elapsed_ms = int((time.perf_counter() - started) * 1000)
             self._record_cache_miss(path, elapsed_ms, cache_key, normalized, user_key, None, status="error")
             self._record_failure()
             logger.exception(
                 "java api failed path=%s elapsed_ms=%s circuit_open_seconds=%s",
+                path,
+                elapsed_ms,
+                self.circuit_open_seconds,
+            )
+            return {}
+
+    def post_json(
+        self,
+        path: str,
+        authorization: str,
+        body: Optional[Dict[str, Any]] = None,
+        *,
+        timeout_seconds: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        if not self._can_call():
+            return {}
+
+        payload = body or {}
+        url = f"{self.java_base_url}{path}"
+        data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        req = Request(url, data=data, method="POST")
+        req.add_header("Authorization", authorization)
+        req.add_header("Content-Type", "application/json; charset=utf-8")
+        req.add_header("Accept", "application/json")
+
+        started = time.perf_counter()
+        timeout = timeout_seconds or max(self.timeout_seconds, 65)
+        try:
+            with urlopen(req, timeout=timeout) as resp:
+                body_text = resp.read().decode("utf-8")
+                elapsed_ms = int((time.perf_counter() - started) * 1000)
+                logger.info("java api ok path=%s method=POST elapsed_ms=%s", path, elapsed_ms)
+                parsed = json.loads(body_text)
+                self._record_success()
+                return parsed if isinstance(parsed, dict) else {}
+        except Exception:
+            elapsed_ms = int((time.perf_counter() - started) * 1000)
+            self._record_failure()
+            logger.exception(
+                "java api failed path=%s method=POST elapsed_ms=%s circuit_open_seconds=%s",
                 path,
                 elapsed_ms,
                 self.circuit_open_seconds,
@@ -317,6 +380,8 @@ class JavaBackendRetriever:
         status: str,
     ) -> Dict[str, Any]:
         context = self._current_cache_context()
+        query_text = urlencode(params) if params else ""
+        request_url = f"{self.java_base_url}{path}{('?' + query_text) if query_text else ''}"
         return {
             "time": self._now_iso(),
             "status": status,
@@ -324,7 +389,8 @@ class JavaBackendRetriever:
             "cacheKey": cache_key[:12],
             "path": path,
             "params": copy.deepcopy(params),
-            "query": urlencode(params) if params else "",
+            "query": query_text,
+            "requestUrl": request_url,
             "toolName": context.get("toolName") or "",
             "inputPreview": context.get("inputPreview") or "",
             "inputHash": context.get("inputHash") or "",
@@ -335,14 +401,18 @@ class JavaBackendRetriever:
         }
 
     def _event_from_entry(self, entry: Dict[str, Any], cache_hit: bool, elapsed_ms: int, saved_ms: int, status: str) -> Dict[str, Any]:
+        path = entry.get("path") or ""
+        params = entry.get("params") or {}
+        query_text = urlencode(params) if params else ""
         return {
             "time": self._now_iso(),
             "status": status,
             "cacheHit": cache_hit,
             "cacheKey": entry.get("cacheKey") or str(entry.get("cache_key") or "")[:12],
-            "path": entry.get("path") or "",
-            "params": copy.deepcopy(entry.get("params") or {}),
-            "query": urlencode(entry.get("params") or {}) if entry.get("params") else "",
+            "path": path,
+            "params": copy.deepcopy(params),
+            "query": query_text,
+            "requestUrl": f"{self.java_base_url}{path}{('?' + query_text) if query_text else ''}",
             "toolName": entry.get("toolName") or "",
             "inputPreview": entry.get("inputPreview") or "",
             "inputHash": entry.get("inputHash") or "",
@@ -465,33 +535,53 @@ class JavaBackendRetriever:
             return None
         return payload.get("data")
 
-    def search_schedule(self, authorization: str, input_text: str) -> List[Dict[str, Any]]:
+    def search_schedule(
+        self,
+        authorization: str,
+        input_text: str = "",
+        tool_params: Optional[Dict[str, Any]] = None,
+    ) -> List[Dict[str, Any]]:
         if not self.enabled:
             return []
 
-        requested_week = parse_requested_week(input_text)
-        requested_date = parse_requested_date(input_text)
-        requested_weekday = parse_requested_weekday(input_text)
-        requested_session = parse_requested_session(input_text)
-        course_keyword = parse_schedule_course_keyword(input_text)
-        all_semester_scope = is_all_semester_schedule_query(input_text)
-        semester_scope = all_semester_scope or is_semester_schedule_query(input_text)
-        # Explicit dates are schedule lookups even when the natural-language
-        # course-keyword parser sees the trailing “有什么课”. Do not widen such
-        # requests to all semesters or collapse them into course summaries.
-        course_lookup_scope = bool(course_keyword) and requested_date is None
+        params = params_from_schedule_dict(
+            tool_params if isinstance(tool_params, dict) and tool_params
+            else resolve_campus_tool_params("java_schedule_api", input_text)
+        )
+        scope = params.get("scope") or "current_week"
+        requested_week = params.get("week")
+        requested_weekday = params.get("weekday")
+        requested_session = None
+        if params.get("sessionStart") is not None:
+            requested_session = (
+                int(params["sessionStart"]),
+                int(params.get("sessionEnd") or params["sessionStart"]),
+            )
+        course_keyword = str(params.get("courseKeyword") or "").strip() or None
+        requested_month = tuple(params["month"]) if isinstance(params.get("month"), list) and len(params["month"]) == 2 else None
+        month_scope = requested_month is not None
+        all_semester_scope = scope == "all_semesters"
+        semester_scope = scope == "semester"
+        course_lookup_scope = bool(course_keyword) and not params.get("date")
+
+        requested_date = None
+        if params.get("date"):
+            try:
+                requested_date = date.fromisoformat(str(params["date"]))
+            except ValueError:
+                requested_date = None
 
         if requested_date is not None:
             requested_weekday = requested_date.isoweekday()
             requested_week = self._week_for_date(authorization, requested_date)
-            if requested_week is None and not semester_scope:
+            if requested_week is None and not semester_scope and not all_semester_scope:
                 return []
 
         if all_semester_scope:
             payload = self._get_json("/api/schedule", authorization, params={"allSemesters": "true"})
         elif requested_week is not None:
             payload = self._get_json(f"/api/schedule/week/{requested_week}", authorization)
-        elif semester_scope or course_lookup_scope:
+        elif semester_scope or course_lookup_scope or month_scope:
             payload = self._get_json("/api/schedule", authorization)
         else:
             payload = self._get_json("/api/schedule/current-week", authorization)
@@ -516,9 +606,18 @@ class JavaBackendRetriever:
             schedules = [item for item in schedules if week_in_range(item.get("weekRange"), requested_week)]
         if requested_session is not None:
             schedules = [item for item in schedules if self._session_matches(item.get("classSessions"), requested_session)]
+        if month_scope:
+            month_week_range = self._month_week_range(authorization, requested_month)
+            if month_week_range is None:
+                return []
+            month_start, month_end = month_week_range
+            schedules = [
+                item for item in schedules
+                if any(week_in_range(item.get("weekRange"), w) for w in range(month_start, month_end + 1))
+            ]
 
         schedules.sort(key=lambda item: ((item.get("weekday") or 99), parse_session_start(item.get("classSessions"))))
-        if semester_scope or course_lookup_scope:
+        if semester_scope or course_lookup_scope or month_scope:
             results = self._semester_course_results(
                 schedules,
                 include_semester=all_semester_scope or query_scope == "all_semesters_fallback",
@@ -574,6 +673,34 @@ class JavaBackendRetriever:
         if target_date < semester_start:
             return None
         return (target_date - semester_start).days // 7 + 1
+
+    def _month_week_range(self, authorization: str, requested_month: tuple[int, int]) -> Optional[tuple[int, int]]:
+        """把"X月"换算成该月覆盖的周次范围 (start_week, end_week);整月都在开学前返回 None。"""
+        payload = self._get_json("/api/schedule/settings", authorization)
+        settings = self._extract_result_data(payload)
+        if not isinstance(settings, dict):
+            return None
+        semester_start_text = str(settings.get("semesterStart") or "").strip()
+        if not semester_start_text:
+            return None
+        try:
+            semester_start = date.fromisoformat(semester_start_text)
+        except ValueError:
+            return None
+        year, month = requested_month
+        try:
+            first_day = date(year, month, 1)
+        except ValueError:
+            return None
+        if month == 12:
+            last_day = date(year, 12, 31)
+        else:
+            last_day = date(year, month + 1, 1) - timedelta(days=1)
+        start_week = (first_day - semester_start).days // 7 + 1
+        end_week = (last_day - semester_start).days // 7 + 1
+        if end_week < 1:
+            return None
+        return (max(1, start_week), end_week)
 
     def _session_matches(self, class_sessions: Any, requested_session: tuple[int, int]) -> bool:
         text = str(class_sessions or "")
@@ -657,10 +784,19 @@ class JavaBackendRetriever:
             return f"{academic_year} 第 {semester_term} 学期"
         return academic_year or f"第 {semester_term} 学期"
 
-    def search_service_tool(self, authorization: str, tool_name: str, input_text: str) -> List[Dict[str, Any]]:
+    def search_service_tool(
+        self,
+        authorization: str,
+        tool_name: str,
+        input_text: str = "",
+        tool_params: Optional[Dict[str, Any]] = None,
+    ) -> List[Dict[str, Any]]:
         name = str(tool_name or "").strip()
+        params = tool_params if isinstance(tool_params, dict) else {}
+        if name in CAMPUS_SERVICE_TOOL_NAMES and not params:
+            params = resolve_campus_tool_params(name, input_text)
         if name == "java_schedule_api":
-            return self.search_schedule(authorization, input_text)
+            return self.search_schedule(authorization, input_text, params)
         if not self.enabled:
             return []
         handlers = {
@@ -673,20 +809,27 @@ class JavaBackendRetriever:
         handler = handlers.get(name)
         if handler is None:
             return []
-        return handler(authorization, input_text)
+        return handler(authorization, input_text, params)
 
-    def search_service_tool_with_meta(self, authorization: str, tool_name: str, input_text: str) -> tuple[List[Dict[str, Any]], Dict[str, Any]]:
+    def search_service_tool_with_meta(
+        self,
+        authorization: str,
+        tool_name: str,
+        input_text: str = "",
+        tool_params: Optional[Dict[str, Any]] = None,
+    ) -> tuple[List[Dict[str, Any]], Dict[str, Any]]:
         events: List[Dict[str, Any]] = []
         input_preview = re.sub(r"\s+", " ", str(input_text or "")).strip()[:120]
         context = {
             "toolName": str(tool_name or "").strip(),
             "inputPreview": input_preview,
             "inputHash": hashlib.sha256(str(input_text or "").encode("utf-8")).hexdigest()[:12] if input_text else "",
+            "toolParams": tool_params if isinstance(tool_params, dict) else {},
         }
         event_token = _tool_cache_events_var.set(events)
         context_token = _tool_cache_context_var.set(context)
         try:
-            results = self.search_service_tool(authorization, tool_name, input_text)
+            results = self.search_service_tool(authorization, tool_name, input_text, tool_params)
         finally:
             _tool_cache_context_var.reset(context_token)
             _tool_cache_events_var.reset(event_token)
@@ -704,7 +847,9 @@ class JavaBackendRetriever:
             "estimatedSavedMillis": sum(int(event.get("savedMillis") or 0) for event in events),
             "events": events[:20],
         }
-        return results, {"toolCache": tool_cache}
+        from app.services.campus_tool_params import request_urls_from_cache_events
+        request_urls = request_urls_from_cache_events(events, self.java_base_url)
+        return results, {"toolCache": tool_cache, "requestUrls": request_urls}
 
     def search_keyword(self, authorization: str, keyword: str) -> List[Dict[str, Any]]:
         if not self.enabled or not keyword:
@@ -828,24 +973,60 @@ class JavaBackendRetriever:
 
         return results[:10]
 
-    def _search_activities(self, authorization: str, input_text: str) -> List[Dict[str, Any]]:
-        keyword = self._keyword_from_input(input_text, {"活动", "讲座", "比赛", "报名", "校园活动"})
-        if keyword:
-            payload = self._get_json("/api/activities/search", authorization, params={"page": 1, "size": 10, "keyword": keyword})
+    def _search_activities(
+        self,
+        authorization: str,
+        input_text: str,
+        tool_params: Optional[Dict[str, Any]] = None,
+    ) -> List[Dict[str, Any]]:
+        params = tool_params if isinstance(tool_params, dict) and tool_params else resolve_campus_tool_params("java_activity_api", input_text)
+        mode = str(params.get("mode") or "list").strip()
+        keyword = str(params.get("keyword") or "").strip()
+        page = int(params.get("page") or 1)
+        size = int(params.get("size") or 10)
+        if mode == "search" and keyword:
+            payload = self._get_json(
+                "/api/activities/search",
+                authorization,
+                params={"page": page, "size": size, "keyword": keyword},
+            )
         else:
-            payload = self._get_json("/api/activities", authorization, params={"page": 1, "size": 10, "status": "PUBLISHED"})
+            list_params: Dict[str, Any] = {"page": page, "size": size, "status": params.get("status") or "PUBLISHED"}
+            time_phase = params.get("timePhase")
+            if time_phase:
+                list_params["timePhase"] = time_phase
+            payload = self._get_json("/api/activities", authorization, params=list_params)
         records = self._page_records(self._extract_result_data(payload))
         return [self._activity_result(row) for row in records[:10]]
 
-    def _search_meetings(self, authorization: str, input_text: str) -> List[Dict[str, Any]]:
-        keyword = self._keyword_from_input(input_text, {"会议", "会议室", "预约", "开会", "日程"})
-        payload = self._get_json("/api/meetings", authorization, params={"pageNum": 1, "pageSize": 10, "keyword": keyword})
+    def _search_meetings(
+        self,
+        authorization: str,
+        input_text: str,
+        tool_params: Optional[Dict[str, Any]] = None,
+    ) -> List[Dict[str, Any]]:
+        params = tool_params if isinstance(tool_params, dict) and tool_params else resolve_campus_tool_params("java_meeting_api", input_text)
+        api_params: Dict[str, Any] = {
+            "pageNum": int(params.get("pageNum") or 1),
+            "pageSize": int(params.get("pageSize") or 10),
+        }
+        keyword = str(params.get("keyword") or "").strip()
+        if keyword:
+            api_params["keyword"] = keyword
+        payload = self._get_json("/api/meetings", authorization, params=api_params)
         records = self._page_records(self._extract_result_data(payload))
         return [self._meeting_result(row) for row in records[:10]]
 
-    def _search_canteen(self, authorization: str, input_text: str) -> List[Dict[str, Any]]:
-        keyword = self._keyword_from_input(input_text, {"食堂", "餐厅", "档口", "菜品", "吃饭", "推荐", "窗口"})
-        results = self.search_keyword(authorization, keyword) if keyword else []
+    def _search_canteen(
+        self,
+        authorization: str,
+        input_text: str,
+        tool_params: Optional[Dict[str, Any]] = None,
+    ) -> List[Dict[str, Any]]:
+        params = tool_params if isinstance(tool_params, dict) and tool_params else resolve_campus_tool_params("java_canteen_api", input_text)
+        keyword = str(params.get("keyword") or "").strip()
+        mode = str(params.get("mode") or ("search" if keyword else "browse")).strip()
+        results = self.search_keyword(authorization, keyword) if mode == "search" and keyword else []
         if results:
             return results[:10]
 
@@ -881,10 +1062,26 @@ class JavaBackendRetriever:
                 })
         return results[:10]
 
-    def _search_facilities(self, authorization: str, input_text: str) -> List[Dict[str, Any]]:
-        keyword = self._keyword_from_input(input_text, {"设施", "位置", "在哪", "哪里", "地图", "导航", "定位", "怎么走", "路线"})
+    def _search_facilities(
+        self,
+        authorization: str,
+        input_text: str,
+        tool_params: Optional[Dict[str, Any]] = None,
+    ) -> List[Dict[str, Any]]:
+        params = tool_params if isinstance(tool_params, dict) and tool_params else resolve_campus_tool_params("java_facility_api", input_text)
+        keyword = str(params.get("keyword") or "").strip()
+        navigation_intent = bool(params.get("navigationIntent"))
         results: List[Dict[str, Any]] = []
-        if keyword:
+
+        def append_facilities(name: Optional[str] = None) -> None:
+            params: Dict[str, Any] = {"pageNum": 1, "pageSize": 10}
+            if name:
+                params["name"] = name
+            facility_payload = self._get_json("/api/v1/facility/list", authorization, params=params)
+            facilities = self._page_records(self._extract_result_data(facility_payload))
+            results.extend(self._facility_result(row) for row in facilities[:10])
+
+        if keyword and navigation_intent:
             search_payload = self._get_json("/api/v1/map/search", authorization, params={"keyword": keyword, "limit": 10})
             markers = self._extract_result_data(search_payload)
             if isinstance(markers, list):
@@ -895,18 +1092,31 @@ class JavaBackendRetriever:
                 located_result = self._locate_result(located)
                 if located_result:
                     results.insert(0, located_result)
-        else:
-            facility_payload = self._get_json("/api/v1/facility/list", authorization, params={"pageNum": 1, "pageSize": 10})
-            facilities = self._page_records(self._extract_result_data(facility_payload))
-            results.extend(self._facility_result(row) for row in facilities[:10])
+
+        if not results:
+            append_facilities(keyword if keyword else None)
+
         return self._dedupe_results(results)[:10]
 
-    def _search_secondhand(self, authorization: str, input_text: str) -> List[Dict[str, Any]]:
-        keyword = self._keyword_from_input(input_text, {"旧物", "二手", "闲置", "物品", "卖", "买", "转让"})
+    def _search_secondhand(
+        self,
+        authorization: str,
+        input_text: str,
+        tool_params: Optional[Dict[str, Any]] = None,
+    ) -> List[Dict[str, Any]]:
+        params = tool_params if isinstance(tool_params, dict) and tool_params else resolve_campus_tool_params("java_secondhand_api", input_text)
+        api_params: Dict[str, Any] = {
+            "current": int(params.get("current") or 1),
+            "size": int(params.get("size") or 10),
+            "sort": params.get("sort") or "latest",
+        }
+        keyword = str(params.get("keyword") or "").strip()
+        if keyword:
+            api_params["keyword"] = keyword
         payload = self._get_json(
             "/api/secondhand/item/list",
             authorization,
-            params={"current": 1, "size": 10, "keyword": keyword, "sort": "latest"},
+            params=api_params,
         )
         records = self._page_records(self._extract_result_data(payload))
         return [self._secondhand_result(row) for row in records[:10]]
@@ -930,7 +1140,7 @@ class JavaBackendRetriever:
             "帮我", "请", "一下", "查一下", "查询", "查找", "查", "找", "看看", "看下",
             "有哪些", "有什么", "有没有", "多少", "列表", "推荐", "最近", "今天", "明天",
             "本周", "这周", "我的", "我", "想", "要", "可以", "吗", "呢", "的", "安排",
-            "信息", "详情", "状态", "当前", "在",
+            "信息", "详情", "状态", "当前", "在", "及其", "以及", "和", "校园",
         } | set(domain_tokens)
         candidate = text
         for token in sorted(remove_tokens, key=len, reverse=True):
@@ -1015,6 +1225,17 @@ class JavaBackendRetriever:
         }
 
     def _secondhand_result(self, row: Dict[str, Any]) -> Dict[str, Any]:
+        images = row.get("images")
+        image_url = row.get("imageUrl") or row.get("coverImage")
+        if not image_url and isinstance(images, list) and images:
+            image_url = images[0]
+        elif not image_url and isinstance(images, str) and images.strip():
+            try:
+                parsed = json.loads(images)
+                if isinstance(parsed, list) and parsed:
+                    image_url = parsed[0]
+            except json.JSONDecodeError:
+                image_url = images.split(",")[0].strip() if "," in images else images.strip()
         return {
             "type": "secondhand_item",
             "id": row.get("id"),
@@ -1027,6 +1248,7 @@ class JavaBackendRetriever:
             "location": row.get("location"),
             "description": row.get("description"),
             "viewCount": row.get("viewCount"),
+            "imageUrl": image_url,
         }
 
     def _dedupe_results(self, rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:

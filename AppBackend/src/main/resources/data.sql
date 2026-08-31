@@ -281,8 +281,10 @@ INSERT INTO sys_role (id, name) VALUES
 -- 2. 用户数据 (密码都是 admin123)
 -- =============================================
 INSERT INTO sys_user (id, username, password, real_name, phone, email, role_id, status, create_time, update_time,jwx_password,jwx_student_id,semester_start,share_code) VALUES
--- 管理员 (用户名: admin, 密码: admin123)
+-- 管理员 (用户名：admin, 密码：admin123)
 (1, 'admin', 'admin123', '系统管理员', '13800000001', 'admin@campus.edu.cn', 1, 1, NOW(), NOW(),'313','32132313','2026-02-24','SCH000001'),
+-- 新增测试管理员 (用户名：test_admin_20260821, 密码：admin123)
+(14, 'test_admin_20260821', 'admin123', '测试管理员', '13900000098', 'test_admin@campus.edu.cn', 1, 1, NOW(), NOW(),'313','32132313','2026-02-24','SCH000014'),
 -- 教师 (用户名: fjj, 密码: admin123)
 (2, 'fjj', 'admin123', '张老师', '13800000002', 'zhanglaoshi@campus.edu.cn', 2, 1, NOW(), NOW(),'313','32132313','2026-02-24','SCH000002'),
 -- 教师 (用户名: fjj2, 密码: admin123)
@@ -1663,6 +1665,99 @@ CREATE TABLE IF NOT EXISTS forum_favorite (
     FOREIGN KEY (post_id) REFERENCES forum_post(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='论坛帖子收藏表';
 
+-- 试卷生成：题库、题目、收藏和试卷持久化结构
+CREATE TABLE IF NOT EXISTS question_bank (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(120) NOT NULL,
+    subject_id BIGINT,
+    visibility VARCHAR(30) NOT NULL DEFAULT 'public',
+    owner_id BIGINT,
+    description TEXT,
+    bank_type VARCHAR(40),
+    create_time DATETIME,
+    update_time DATETIME,
+    INDEX idx_question_bank_visibility (visibility),
+    INDEX idx_question_bank_owner (owner_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='试题库';
+
+CREATE TABLE IF NOT EXISTS question (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    bank_id BIGINT NOT NULL,
+    subject_id BIGINT,
+    subject VARCHAR(80),
+    chapter VARCHAR(80),
+    knowledge_point VARCHAR(120),
+    question_type VARCHAR(30) NOT NULL,
+    difficulty VARCHAR(20),
+    content TEXT NOT NULL,
+    options TEXT,
+    answer TEXT,
+    analysis TEXT,
+    creator_id BIGINT,
+    create_time DATETIME,
+    update_time DATETIME,
+    INDEX idx_question_bank (bank_id),
+    INDEX idx_question_filter (subject, question_type, difficulty)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='试题';
+
+CREATE TABLE IF NOT EXISTS question_favorite (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    user_id BIGINT NOT NULL,
+    question_id BIGINT NOT NULL,
+    create_time DATETIME,
+    UNIQUE KEY uk_question_favorite (user_id, question_id),
+    INDEX idx_question_favorite_user (user_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='试题收藏';
+
+CREATE TABLE IF NOT EXISTS question_bank_item (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    bank_id BIGINT NOT NULL,
+    question_id BIGINT NOT NULL,
+    added_by BIGINT NOT NULL,
+    create_time DATETIME,
+    UNIQUE KEY uk_question_bank_item (bank_id, question_id),
+    INDEX idx_question_bank_item_bank (bank_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='私有题库组题目关系';
+
+CREATE TABLE IF NOT EXISTS paper (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(160) NOT NULL,
+    subject_id BIGINT,
+    subject VARCHAR(100),
+    category VARCHAR(40) NOT NULL,
+    remark TEXT,
+    duration INT,
+    total_score INT DEFAULT 0,
+    status VARCHAR(20) NOT NULL DEFAULT 'draft',
+    creator_id BIGINT NOT NULL,
+    create_time DATETIME,
+    update_time DATETIME,
+    INDEX idx_paper_creator (creator_id, update_time)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='试卷';
+
+CREATE TABLE IF NOT EXISTS paper_question (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    paper_id BIGINT NOT NULL,
+    question_id BIGINT NOT NULL,
+    question_order INT NOT NULL,
+    score INT NOT NULL DEFAULT 5,
+    source_type VARCHAR(30),
+    source_id BIGINT,
+    create_time DATETIME,
+    UNIQUE KEY uk_paper_question (paper_id, question_id),
+    UNIQUE KEY uk_paper_question_order (paper_id, question_order),
+    INDEX idx_paper_question_paper (paper_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='试卷试题关系';
+
+INSERT INTO question_bank (id, name, visibility, description, bank_type, create_time, update_time)
+SELECT 9001, 'Python程序设计公共题库', 'public', '系统示例公共题库，可用于试卷组卷演示', '章节练习', NOW(), NOW()
+WHERE NOT EXISTS (SELECT 1 FROM question_bank WHERE id = 9001);
+INSERT INTO question (id, bank_id, subject, chapter, knowledge_point, question_type, difficulty, content, options, answer, analysis, create_time, update_time)
+SELECT 9001, 9001, 'Python程序设计', '基础语法', '变量与数据类型', '单选题', '简单', 'Python中用于定义函数的关键字是？', '["function","def","func","lambda"]', 'B', 'def用于定义普通函数，lambda用于定义匿名函数。', NOW(), NOW()
+WHERE NOT EXISTS (SELECT 1 FROM question WHERE id = 9001);
+INSERT INTO question (id, bank_id, subject, chapter, knowledge_point, question_type, difficulty, content, options, answer, analysis, create_time, update_time)
+SELECT 9002, 9001, 'Python程序设计', '面向对象', '继承', '判断题', '中等', 'Python类可以通过继承复用父类的属性和方法。', NULL, '正确', 'Python支持单继承和多继承。', NOW(), NOW()
+WHERE NOT EXISTS (SELECT 1 FROM question WHERE id = 9002);
 -- ============================================================
 -- 公共设施表
 -- ============================================================

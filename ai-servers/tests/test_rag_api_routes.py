@@ -3,6 +3,7 @@ import importlib
 import json
 import os
 import unittest
+from unittest import mock
 from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
@@ -74,6 +75,14 @@ class RagApiRoutesTest(unittest.TestCase):
                 "tested": True,
             }
             for item in ({"name": name} for name in AGENT_ORDER)
+        }
+        self.agent_model_configs["vision_agent"] = {
+            "configPrefix": "ai.agent.vision_agent",
+            "provider": "qwen",
+            "baseUrl": "https://llm.test/v1",
+            "apiKey": "test-key",
+            "model": "qwen3-vl-plus",
+            "tested": True,
         }
         self._patched_modules = []
         self._patched_image_modules = []
@@ -164,33 +173,134 @@ class RagApiRoutesTest(unittest.TestCase):
         self.assertNotIn("image_agent", {item["name"] for item in catalog["agents"]})
 
     def test_file_export_tool_can_reuse_leader_model_when_planner_has_no_separate_binding(self):
-        request = SimpleNamespace(metadata={
-            "agentToggles": {"file_content_planner_agent": True},
-            "agentModelConfigs": {},
-            "toolToggles": {"generated_export_tools": True},
-        })
-
-        catalog = self._rag_routes._build_leader_callable_catalog(request)
-        export_tool = next(item for item in catalog["tools"] if item["name"] == "generated_export_tools")
-
-        self.assertTrue(export_tool["enabled"])
-
-    def test_ai_ppt_tool_is_configurable_but_not_leader_callable_before_wiring(self):
-        request = SimpleNamespace(metadata={
-            "toolToggles": {"ai_ppt_generation_tool": False},
-        })
-
-        catalog = self._rag_routes._build_leader_callable_catalog(request)
-        content_tool = next(
-            item
-            for item in catalog["tools"]
-            if item["name"] == "ai_ppt_generation_tool"
+        request = SimpleNamespace(
+            input="导出word",
+            metadata={
+                "agentToggles": {"file_content_planner_agent": True},
+                "agentModelConfigs": {},
+                "toolToggles": {"text_to_docx_tool": True},
+            },
         )
 
-        self.assertFalse(content_tool["enabled"])
-        self.assertEqual("unwired", content_tool["invocation"])
-        self.assertEqual("registered", content_tool["status"])
-        self.assertIn("ai_ppt_generation_tool", {item["name"] for item in catalog["tools"]})
+        catalog = self._rag_routes._build_leader_callable_catalog(request)
+        export_tool = next(item for item in catalog["tools"] if item["name"] == "text_to_docx_tool")
+
+        self.assertEqual("text_to_docx_tool", export_tool["name"])
+
+    def test_ai_ppt_tool_is_leader_callable(self):
+        response = self.client.get("/internal/rag/agents", headers=self.headers)
+        self.assertEqual(200, response.status_code)
+        leader_tool_names = {item["name"] for item in response.json()["leaderTools"]}
+        self.assertIn("ai_ppt_generation_tool", leader_tool_names)
+        ppt_tool = next(item for item in response.json()["generatedTools"] if item["name"] == "ai_ppt_generation_tool")
+        self.assertEqual("implemented", ppt_tool["status"])
+        self.assertEqual("ppt_outline_agent", ppt_tool.get("boundAgent"))
+
+    def test_admin_ai_ppt_generation_tool_passes_runtime_config_not_tuple(self):
+        captured = {}
+
+        def _create_leader_pipeline_task(user_id, request, llm_config):
+            captured["llm_config"] = llm_config
+            captured["request"] = request
+            return {
+                "taskId": "ppt_task_test1234567890abcdef1234567890ab",
+                "status": "queued",
+                "kind": "leader_ppt_pipeline",
+                "message": "queued",
+                "pollPath": "/api/app/ai/ppt/tasks/ppt_task_test1234567890abcdef1234567890ab",
+                "streamPath": "/api/app/ai/ppt/tasks/ppt_task_test1234567890abcdef1234567890ab/stream",
+            }
+
+        with mock.patch(
+            "app.services.ai_ppt_generation_tool_service.ppt_generation_service.create_leader_pipeline_task",
+            side_effect=_create_leader_pipeline_task,
+        ):
+            response = self.client.post(
+                "/internal/rag/query",
+                headers=self.headers,
+                json={
+                    "input": "请生成一份 8 页 PPT，主题是校园二手交易平台介绍。",
+                    "agentName": "leader_agent",
+                    "metadata": {
+                        "testFrom": "admin_tool_console",
+                        "directToolTest": True,
+                        "expectedToolName": "ai_ppt_generation_tool",
+                        "userId": "1001",
+                        "toolToggles": {"ai_ppt_generation_tool": True},
+                        "pptTemplateConfirmed": True,
+                        "pptSettings": {"templateId": "general"},
+                    },
+                },
+            )
+
+        self.assertEqual(200, response.status_code)
+        payload = response.json()
+        self.assertEqual("ppt_generation_task", payload["answerType"])
+        self.assertIn("pptTask", payload["metadata"])
+        self.assertTrue(hasattr(captured.get("llm_config"), "normalized_provider"))
+        self.assertNotIsInstance(captured.get("llm_config"), tuple)
+        self.assertEqual("general", captured["request"]["settings"]["templateId"])
+
+    def test_admin_ai_ppt_generation_tool_returns_template_selection_without_template(self):
+        response = self.client.post(
+            "/internal/rag/query",
+            headers=self.headers,
+            json={
+                "input": "请生成一份 8 页 PPT，主题是校园二手交易平台介绍。",
+                "agentName": "leader_agent",
+                "metadata": {
+                    "testFrom": "admin_tool_console",
+                    "directToolTest": True,
+                    "expectedToolName": "ai_ppt_generation_tool",
+                    "userId": "1001",
+                    "toolToggles": {"ai_ppt_generation_tool": True},
+                },
+            },
+        )
+        self.assertEqual(200, response.status_code)
+        payload = response.json()
+        self.assertEqual("ppt_template_selection", payload["answerType"])
+        self.assertGreaterEqual(len(payload["metadata"].get("pptTemplateCatalog") or []), 1)
+        self.assertIn("校园二手交易平台介绍", payload["metadata"]["pptGenerationDraft"]["topic"])
+
+    def test_file_content_extraction_tools_are_exposed_for_admin_toggles(self):
+        response = self.client.get("/internal/rag/agents", headers=self.headers)
+
+        self.assertEqual(200, response.status_code)
+        leader_tool_names = {item["name"] for item in response.json()["leaderTools"]}
+        for removed_tool in (
+            "generate_ppt_image_tool",
+            "generate_activity_image_tool",
+            "generate_knowledge_graph_image_tool",
+            "generate_mind_map_image_tool",
+            "generate_flowchart_image_tool",
+            "generate_architecture_image_tool",
+        ):
+            self.assertNotIn(removed_tool, leader_tool_names)
+        for tool_name in (
+            "generate_mind_map_tool",
+            "generate_flowchart_tool",
+            "generate_architecture_tool",
+        ):
+            self.assertIn(tool_name, leader_tool_names)
+        generated_tools = response.json()["generatedTools"]
+        tools_by_name = {item["name"]: item for item in generated_tools}
+        expected_formats = {
+            "markdown_to_text_tool": ["md", "markdown"],
+            "txt_to_text_tool": ["txt"],
+            "word_to_text_tool": ["doc", "docx"],
+            "ppt_to_text_tool": ["ppt", "pptx"],
+            "pdf_to_text_tool": ["pdf"],
+        }
+
+        for tool_name, input_formats in expected_formats.items():
+            with self.subTest(tool_name=tool_name):
+                tool = tools_by_name[tool_name]
+                self.assertEqual("file_content_extraction", tool["category"])
+                self.assertEqual(input_formats, tool["inputFormats"])
+                self.assertEqual(["text", "image"], tool["outputs"])
+                self.assertEqual("implemented", tool["status"])
+                self.assertTrue(tool["configurable"])
 
     def test_file_transform_action_forces_real_export_tool(self):
         request = SimpleNamespace(metadata={
@@ -204,7 +314,7 @@ class RagApiRoutesTest(unittest.TestCase):
 
         self.assertIsNotNone(plan)
         self.assertEqual("call_tool", plan.action)
-        self.assertEqual("generated_export_tools", plan.tool_name)
+        self.assertEqual("text_to_docx_tool", plan.tool_name)
         self.assertEqual("rules", plan.route_mode)
 
     def test_second_source_option_is_expanded_to_explicit_model_authorization(self):
@@ -245,6 +355,29 @@ class RagApiRoutesTest(unittest.TestCase):
     def test_plain_number_is_not_rewritten_without_source_selection_context(self):
         self.assertEqual("3", self._rag_routes._contextualize_followup_input("3", {"turns": []}))
 
+    def test_contextualize_image_generation_followup_uses_previous_assistant_answer(self):
+        context = {
+            "summary": "用户上传了排球队招新海报",
+            "turns": [
+                {
+                    "user": "这个图片有什么",
+                    "assistant": "这是广东财经大学财税学院排球队招新海报，口号是扣响青春，税月同行。",
+                    "metadata": {},
+                },
+            ],
+        }
+        expanded = self._rag_routes._contextualize_followup_input("给我生成一个这样的海报可以吗", context)
+        self.assertIn("排球队", expanded)
+        self.assertIn("这样的海报", expanded)
+
+    def test_visual_generation_answer_text_prefers_friendly_message(self):
+        answer = self._rag_routes._visual_generation_answer_text(
+            "广东财经大学排球队招新海报，蓝白配色，口号扣响青春",
+            [{"fileName": "通用图片生成.png"}],
+        )
+        self.assertIn("已根据你的需求生成图片", answer)
+        self.assertIn("生成要点", answer)
+
     def test_confirmed_model_source_is_reused_for_short_continuation(self):
         context = {
             "turns": [{
@@ -271,7 +404,11 @@ class RagApiRoutesTest(unittest.TestCase):
                 "executedAgent": "textbook_knowledge_agent",
                 "intent": "knowledge_source_clarification",
                 "knowledgeSourceMode": "source_selection_required",
-                "toolToggles": {"generated_export_tools": True},
+                "toolToggles": {
+                    "text_to_markdown_tool": True,
+                    "text_to_txt_tool": True,
+                    "text_to_docx_tool": True,
+                },
             },
         )
 
@@ -316,10 +453,62 @@ class RagApiRoutesTest(unittest.TestCase):
 
         self.assertEqual(200, response.status_code)
         payload = response.json()
-        self.assertEqual("generated_export_tools", payload["metadata"]["executedAgent"])
+        self.assertEqual("text_to_docx_tool", payload["metadata"]["executedAgent"])
         self.assertEqual("file_content_planner_agent", payload["metadata"]["promptAgent"])
         self.assertEqual(["docx"], [item["ext"] for item in payload["attachments"]])
         self.assertEqual(["leader_route", "agent_answer", "tool_call"], [item["stage"] for item in payload["trace"]])
+
+    def test_admin_text_to_file_tool_runs_directly_without_leader_route(self):
+        response = self.client.post(
+            "/internal/rag/query",
+            headers=self.headers,
+            json={
+                "input": "请把以下内容按原文转成纯文本文件：校园二手交易应当当面验货。",
+                "agentName": "leader_agent",
+                "metadata": {
+                    "testFrom": "admin_tool_console",
+                    "directToolTest": True,
+                    "expectedToolName": "text_to_txt_tool",
+                    "requestedOutputType": "txt",
+                },
+            },
+        )
+
+        self.assertEqual(200, response.status_code)
+        payload = response.json()
+        self.assertEqual(["txt"], [item["ext"] for item in payload["attachments"]])
+        self.assertEqual(["tool_call"], [item["stage"] for item in payload["trace"]])
+        self.assertEqual("direct_tool_test", payload["metadata"]["executionMode"])
+        self.assertEqual("text_to_txt_tool", payload["metadata"]["executedAgent"])
+
+    def test_admin_image_stitching_tool_runs_directly_without_leader_route(self):
+        tiny_png = (
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+        )
+        response = self.client.post(
+            "/internal/rag/query",
+            headers=self.headers,
+            json={
+                "input": "请将我上传的图片按照上传顺序拼接成一张图片。",
+                "agentName": "leader_agent",
+                "imageDataUrls": [
+                    f"data:image/png;base64,{tiny_png}",
+                    f"data:image/png;base64,{tiny_png}",
+                ],
+                "metadata": {
+                    "testFrom": "admin_tool_console",
+                    "directToolTest": True,
+                    "expectedToolName": "image_stitching_tool",
+                },
+            },
+        )
+
+        self.assertEqual(200, response.status_code)
+        payload = response.json()
+        self.assertEqual("direct_tool_test", payload["metadata"]["executionMode"])
+        self.assertEqual("image_stitching_tool", payload["metadata"]["executedAgent"])
+        self.assertNotIn("leader_route", [item["stage"] for item in payload["trace"]])
+        self.assertEqual(1, len(payload["attachments"]))
 
     def test_free_text_word_export_skips_clarification_message_and_uses_previous_substantive_candidate(self):
         response = self.client.post(
@@ -342,24 +531,22 @@ class RagApiRoutesTest(unittest.TestCase):
         payload = response.json()
         self.assertEqual(["docx"], [item["ext"] for item in payload["attachments"]])
         self.assertEqual(87, payload["metadata"]["selectedSourceMessageId"])
-        self.assertEqual("generated_export_tools", payload["metadata"]["executedAgent"])
+        self.assertEqual("text_to_docx_tool", payload["metadata"]["executedAgent"])
 
     def test_file_format_actions_only_include_enabled_real_tools(self):
         actions = self._rag_routes._file_format_follow_up_actions(
             "question_bank",
             {
                 "toolToggles": {
-                    "generated_export_tools": True,
-                    "excel_export_tool": True,
-                    "docx_export_tool": False,
-                    "markdown_export_tool": True,
+                    "text_to_markdown_tool": True,
+                    "text_to_docx_tool": False,
                 },
             },
             "textbook_question_single_choice_agent",
         )
 
-        self.assertEqual(["Excel 题库", "Markdown 题库"], [item["label"] for item in actions])
-        self.assertEqual(["xlsx", "md"], [item["outputType"] for item in actions])
+        self.assertEqual(["Markdown 题库"], [item["label"] for item in actions])
+        self.assertEqual(["md"], [item["outputType"] for item in actions])
 
     def test_agent_answer_does_not_auto_export_every_file_format_before_user_selects_one(self):
         response = self._rag_routes.RagQueryResponse(
@@ -368,7 +555,11 @@ class RagApiRoutesTest(unittest.TestCase):
             answerType="markdown",
             metadata={
                 "executedAgent": "textbook_knowledge_agent",
-                "toolToggles": {"generated_export_tools": True},
+                "toolToggles": {
+                    "text_to_markdown_tool": True,
+                    "text_to_txt_tool": True,
+                    "text_to_docx_tool": True,
+                },
             },
         )
 
@@ -377,7 +568,7 @@ class RagApiRoutesTest(unittest.TestCase):
         self.assertEqual([], decorated.attachments)
         self.assertEqual("output_format_not_selected", decorated.outputMeta["generatedExports"]["reason"])
         self.assertEqual(
-            ["docx", "xlsx", "md", "pptx"],
+            ["md", "txt", "docx"],
             [item["outputType"] for item in decorated.outputMeta["followUpActions"]],
         )
 
@@ -386,22 +577,20 @@ class RagApiRoutesTest(unittest.TestCase):
 
         self.assertEqual(404, response.status_code)
 
-    def test_query_endpoint_runs_strategy(self):
+    def test_query_endpoint_runs_campus_service_tool(self):
         response = self.client.post(
             "/internal/rag/query",
             headers=self.headers,
             json={
-                "input": "统计食堂优惠券数量",
-                "keyword": "优惠券",
-                "ragStrategy": "text_to_sql",
+                "input": "食堂有什么优惠",
+                "keyword": "食堂",
             },
         )
 
         self.assertEqual(200, response.status_code)
         payload = response.json()
-        self.assertEqual("text_to_sql", payload["strategy"])
-        self.assertTrue(payload["metadata"]["readonly"])
-        self.assertIn("SELECT", payload["metadata"]["sql"])
+        self.assertEqual("java_canteen_api", payload["metadata"]["toolName"])
+        self.assertTrue(payload["answer"])
 
     def test_rag_routes_require_authorization(self):
         response = self.client.get(
@@ -461,7 +650,7 @@ class RagApiRoutesTest(unittest.TestCase):
         self.assertGreaterEqual(
             set(coverage),
             {
-                "generated_export_tools",
+                "text_to_markdown_tool",
                 "question_bank_validation",
                 "agent_enabled_gate",
                 "campus_service_tools",
@@ -616,7 +805,7 @@ class RagApiRoutesTest(unittest.TestCase):
         self.assertIn("ppt_outline_agent", names)
         self.assertIn("ppt_structure_agent", names)
         self.assertIn("ppt_review_agent", names)
-        self.assertIn("ppt_image_agent", names)
+        self.assertNotIn("ppt_image_agent", names)
         self.assertNotIn("textbook_question_bank_agent", names)
         self.assertNotIn("md_knowledge_agent", names)
         self.assertNotIn("answer_agent", names)
@@ -642,12 +831,6 @@ class RagApiRoutesTest(unittest.TestCase):
         )
         self.assertTrue({
             "image_agent",
-            "mind_map_agent",
-            "architecture_prompt_agent",
-            "diagram_flowchart_prompt_agent",
-            "diagram_activity_prompt_agent",
-            "knowledge_graph_prompt_agent",
-            "ppt_image_agent",
         }.isdisjoint(leader_callable_names))
         leader_tool_names = {item["name"] for item in payload["leaderCallableCatalog"]["tools"]}
         self.assertGreaterEqual(leader_tool_names, set(self._rag_routes.VISUAL_GENERATION_TOOL_NAMES))
@@ -793,7 +976,7 @@ class RagApiRoutesTest(unittest.TestCase):
                                 "need_retrieval": False,
                                 "rag_strategy": "",
                                 "action": "call_tool",
-                                "tool_name": "generate_flowchart_image_tool",
+                                "tool_name": "generate_flowchart_tool",
                                 "route_reason": "LLM 根据 Leader 可调用清单选择流程图图片生成工具。",
                                 "answer": "",
                             },
@@ -806,8 +989,22 @@ class RagApiRoutesTest(unittest.TestCase):
         provider = RecordingLeaderProvider()
         old_get_chat_model_provider = leader_module.get_chat_model_provider
         old_search_service_tool = rag_routes.data_store.search_service_tool_with_meta
+        old_generate_flowchart = rag_routes.generate_structured_flowchart
         try:
             leader_module.get_chat_model_provider = lambda: provider
+            rag_routes.generate_structured_flowchart = lambda authorization, input_text: {
+                "title": "Python 循环流程图",
+                "type": "FLOWCHART",
+                "nodes": [
+                    {"id": "start", "label": "开始", "type": "start"},
+                    {"id": "loop", "label": "循环体", "type": "process"},
+                    {"id": "end", "label": "结束", "type": "end"},
+                ],
+                "edges": [
+                    {"source": "start", "target": "loop"},
+                    {"source": "loop", "target": "end"},
+                ],
+            }
             rag_routes.data_store.search_service_tool_with_meta = lambda *_args: ([
                     {
                         "type": "course_schedule_summary",
@@ -835,7 +1032,6 @@ class RagApiRoutesTest(unittest.TestCase):
                 for agent_name in (
                     "ppt_outline_agent",
                     "diagram_flowchart_agent",
-                    "diagram_flowchart_prompt_agent",
                     "image_agent",
                 )
             }
@@ -860,24 +1056,22 @@ class RagApiRoutesTest(unittest.TestCase):
         finally:
             leader_module.get_chat_model_provider = old_get_chat_model_provider
             rag_routes.data_store.search_service_tool_with_meta = old_search_service_tool
+            rag_routes.generate_structured_flowchart = old_generate_flowchart
 
         self.assertEqual(200, schedule_response.status_code)
         self.assertEqual("java_schedule_api", schedule_response.json()["metadata"]["toolName"])
         self.assertEqual(200, ppt_response.status_code)
-        self.assertEqual("generated_export_tools", ppt_response.json()["metadata"]["targetAgent"])
+        self.assertEqual("ai_ppt_generation_tool", ppt_response.json()["metadata"]["targetAgent"])
         self.assertEqual(["pptx"], [item["ext"] for item in ppt_response.json()["attachments"]])
         self.assertEqual(200, diagram_response.status_code)
         diagram_payload = diagram_response.json()
-        self.assertEqual("generate_flowchart_image_tool", diagram_payload["metadata"]["targetAgent"])
-        self.assertEqual("generate_flowchart_image_tool", diagram_payload["metadata"]["executedAgent"])
-        self.assertEqual("generate_flowchart_image_tool", diagram_payload["metadata"]["toolName"])
-        self.assertEqual("diagram_flowchart_prompt_agent", diagram_payload["metadata"]["promptAgent"])
-        self.assertEqual("generate_flowchart_image_tool", diagram_payload["strategy"])
-        self.assertEqual(1, len(FakeImageProvider.requests))
-        self.assertEqual(
-            "专业流程图图片提示词：蓝白教学风格，清晰展示开始、处理步骤、判断分支和结束节点。",
-            FakeImageProvider.requests[0].prompt,
-        )
+        self.assertEqual("generate_flowchart_tool", diagram_payload["metadata"]["targetAgent"])
+        self.assertEqual("generate_flowchart_tool", diagram_payload["metadata"]["executedAgent"])
+        self.assertEqual("generate_flowchart_tool", diagram_payload["metadata"]["toolName"])
+        self.assertEqual("flowchart_json", diagram_payload["metadata"]["answerType"])
+        self.assertEqual("generate_flowchart_tool", diagram_payload["strategy"])
+        self.assertEqual("Python 循环流程图", diagram_payload["metadata"]["diagram"]["title"])
+        self.assertEqual(0, len(FakeImageProvider.requests))
         # 明确的课表和文件格式请求走规则快速路由；流程图仍由模型读取可调用清单后路由。
         self.assertEqual(1, len(provider.callable_catalogs))
         for catalog in provider.callable_catalogs:
@@ -888,8 +1082,7 @@ class RagApiRoutesTest(unittest.TestCase):
                 callable_names,
                 {"ppt_outline_agent"},
             )
-            self.assertIn("generate_flowchart_image_tool", callable_tools)
-            self.assertNotIn("diagram_flowchart_prompt_agent", callable_names)
+            self.assertIn("generate_flowchart_tool", callable_tools)
             self.assertNotIn("image_agent", callable_names)
 
     def test_leader_agent_answers_smalltalk_with_model_without_rag(self):
@@ -1472,21 +1665,6 @@ class RagApiRoutesTest(unittest.TestCase):
                 self.assertEqual("direct_agent", payload["strategy"])
                 self.assertTrue(payload["answer"])
 
-    def test_query_endpoint_text_to_sql_returns_tool_answer_without_local_synthesizer(self):
-        response = self.client.post(
-            "/internal/rag/query",
-            headers=self.headers,
-            json={
-                "input": "统计食堂优惠券数量",
-                "keyword": "优惠券",
-                "ragStrategy": "text_to_sql",
-            },
-        )
-
-        self.assertEqual(200, response.status_code)
-        payload = response.json()
-        self.assertTrue(payload["answer"])
-        self.assertNotIn("answerSynthesizer", payload["metadata"])
 
     def test_ppt_outline_normalizer_rewrites_legacy_fields(self):
         raw = """## PPT 大纲
@@ -1570,6 +1748,11 @@ def _fake_question_payload(question_type):
 
 
 class FakeRagModelProvider:
+    def complete_vision(self, system_prompt, user_text, image_urls, reasoning_effort=None):
+        if image_urls:
+            return "图中是一张测试截图，可见主体清晰。"
+        return "未收到图片"
+
     def complete(self, system_prompt, user_prompt, reasoning_effort=None):
         if "系统接口返回的数据" in system_prompt:
             payload = json.loads(user_prompt)
@@ -1621,15 +1804,26 @@ class FakeRagModelProvider:
 
     def _build_leader_plan(self, input_text, rag_strategy=""):
         text = input_text or ""
-        if "统计" in text:
+        if "统计" in text and "二手" in text:
             return {
-                "intent": "structured_query",
+                "intent": "secondhand_query",
                 "target_agent": "leader_agent",
                 "need_retrieval": False,
-                "rag_strategy": "text_to_sql",
+                "rag_strategy": "",
                 "action": "call_tool",
-                "tool_name": "text_to_sql",
-                "route_reason": "LLM 根据 Java 后台模型配置完成结构化查询识别。",
+                "tool_name": "java_secondhand_api",
+                "route_reason": "LLM 根据启用工具清单选择旧物查询工具。",
+                "answer": "",
+            }
+        if "统计" in text:
+            return {
+                "intent": "canteen_query",
+                "target_agent": "leader_agent",
+                "need_retrieval": False,
+                "rag_strategy": "",
+                "action": "call_tool",
+                "tool_name": "java_canteen_api",
+                "route_reason": "LLM 根据启用工具清单选择食堂餐饮查询工具。",
                 "answer": "",
             }
         if "食堂" in text or "黄焖鸡" in text or "吃什么" in text:
@@ -1715,22 +1909,10 @@ class FakeRagModelProvider:
             }, ensure_ascii=False)
         if "diagram_mind_map_agent" in system_prompt:
             return "```mermaid\nmindmap\n  root((测试思维导图))\n```"
-        if "diagram_flowchart_prompt_agent" in system_prompt:
-            return "专业流程图图片提示词：蓝白教学风格，清晰展示开始、处理步骤、判断分支和结束节点。"
-        if "diagram_activity_prompt_agent" in system_prompt:
-            return "专业活动图图片提示词：使用泳道清晰展示角色、任务和状态变化。"
-        if "architecture_prompt_agent" in system_prompt:
-            return "专业架构图图片提示词：分层展示客户端、服务层和数据层及其依赖关系。"
-        if "mind_map_agent" in system_prompt:
-            return "专业思维导图图片提示词：中心主题向外分层展开，节点清晰可读。"
-        if "knowledge_graph_prompt_agent" in system_prompt:
-            return "专业知识图谱图片提示词：实体节点分组清晰，关系名称明确，使用带方向箭头连接。"
         if "思维导图智能体" in system_prompt:
             return "```mermaid\nmindmap\n  root((测试思维导图))\n```"
         if "diagram_flowchart_agent" in system_prompt:
             return "```mermaid\nflowchart TD\n  Start([开始]) --> End([结束])\n```"
-        if "diagram_activity_agent" in system_prompt:
-            return "```mermaid\nflowchart TD\n  Start([开始]) --> Task[执行任务] --> End([结束])\n```"
         if "diagram_architecture_agent" in system_prompt:
             return "```mermaid\nflowchart LR\n  Web[Web] --> API[API]\n```"
         if "教材知识点智能体" in system_prompt:

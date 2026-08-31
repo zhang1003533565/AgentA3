@@ -54,6 +54,15 @@ class ChatModelProvider(ABC):
     def complete(self, system_prompt: str, user_prompt: str, reasoning_effort: Optional[str] = None) -> str:
         raise NotImplementedError
 
+    def complete_vision(
+        self,
+        system_prompt: str,
+        user_text: str,
+        image_urls: List[str],
+        reasoning_effort: Optional[str] = None,
+    ) -> str:
+        raise NotImplementedError
+
     def stream_complete(
         self,
         system_prompt: str,

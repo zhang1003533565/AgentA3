@@ -190,9 +190,9 @@ def validate_slide(ui_tree: Mapping[str, Any], model: SlideLayoutModel) -> Valid
         # grid/flex 重复组可按实际内容删除尾部实例；这是模板允许的
         # cardinality 变化，不等于坐标/尺寸被 AI 改写。超过模板容量仍
         # 属于结构错误，不能静默放行。
-        if len(tree_entries) > len(model_elements) or (
-            len(tree_entries) != len(model_elements)
-            and name not in model.dynamic_names
+        if name not in model.dynamic_names and (
+            len(tree_entries) > len(model_elements)
+            or len(tree_entries) != len(model_elements)
         ):
             result.issues.append(ValidationIssue(
                 error_type="GEOMETRY_CHANGED",
@@ -247,9 +247,16 @@ def _validate_element(
                 detail=f"元素越界 box=({x:.0f},{y:.0f},{width:.0f}x{height:.0f})",
             ))
 
-    # 几何漂移检测：模板快照对比
-    if abs(x - element.x) > GEOMETRY_TOLERANCE or abs(y - element.y) > GEOMETRY_TOLERANCE \
-            or abs(width - element.width) > GEOMETRY_TOLERANCE or abs(height - element.height) > GEOMETRY_TOLERANCE:
+    # 动态 flex/grid 的子元素位置和尺寸由渲染器按当前子项数量重新计算，
+    # 不能拿模板原始占位坐标硬比；外层 flex/grid 容器本身仍继续做严格几何校验。
+    dynamic_child_geometry = (
+        name in model.dynamic_names
+        and element.element_type not in {"flex", "grid"}
+    )
+    if not dynamic_child_geometry and (
+        abs(x - element.x) > GEOMETRY_TOLERANCE or abs(y - element.y) > GEOMETRY_TOLERANCE
+        or abs(width - element.width) > GEOMETRY_TOLERANCE or abs(height - element.height) > GEOMETRY_TOLERANCE
+    ):
         result.issues.append(ValidationIssue(
             error_type="GEOMETRY_CHANGED",
             element_id=name,
@@ -338,6 +345,13 @@ def _check_overlaps(nodes: Dict[str, List[Tuple[Dict[str, Any], float, float]]],
             name_b, element_b, box_b = candidates[j]
             if element_a.component_id == element_b.component_id:
                 continue  # 同组件内叠加（卡片上的文字/图标）属于模板设计
+            if (
+                (element_a.name in model.dynamic_names and element_a.element_type not in {"flex", "grid"})
+                or (element_b.name in model.dynamic_names and element_b.element_type not in {"flex", "grid"})
+            ):
+                # 动态 flex/grid 子项的原始 position 是 prototype 坐标，
+                # 不是渲染器完成排布后的坐标，不能用它们判断跨卡片重叠。
+                continue
             area = _intersection_area(box_a, box_b)
             if area <= 0:
                 continue

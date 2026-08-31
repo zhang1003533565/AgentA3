@@ -75,3 +75,14 @@ export const getMarkerVisit = (params = {}) =>
     method: 'get',
     params,
   })
+
+export const getNearbyFacilityCount = (params = {}) =>
+  request({
+    url: '/api/v1/map/nearby/count',
+    method: 'get',
+    params: {
+      longitude: params.longitude ?? 114.898507,
+      latitude: params.latitude ?? 40.755672,
+      radius: params.radius ?? 5000,
+    },
+  })

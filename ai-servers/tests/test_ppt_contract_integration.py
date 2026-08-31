@@ -17,6 +17,7 @@ from app.ppt_generation.service import (
     _fill_layout_with_slide_text,
     _sanitize_content_payload,
     _node_display_text,
+    _structured_cell_text,
 )
 from app.ppt_generation.template_catalog import EmbeddedTemplateCatalog
 from app.ppt_generation.template_model import parse_slide_layout, semantic_content_contract
@@ -110,6 +111,172 @@ def test_merge_accepts_indexed_repeated_component_keys(catalog):
     assert "High-Quality Lead Generation" not in texts
 
 
+def test_merge_expands_prototype_agenda_grid_for_all_supplied_items(catalog):
+    """目录模板只有一个原型子组时，也必须 materialize 全部目录项。"""
+    layout = catalog.get_layout("momentum", "center_title_agenda_grid_wave_7815")
+    descriptions = [
+        "第一章 绪论：数据结构基本概念",
+        "第二章 线性表",
+        "第三章 栈与队列",
+        "第四章 串与模式匹配",
+        "第五章 树与二叉树",
+        "第六章 图",
+    ]
+    merged = _merge_content_into_layout(layout, {
+        "slide_title": "全书章节概览",
+        "agenda_item_label": ["01", "02", "03", "04", "05", "06"],
+        "agenda_item_description": descriptions,
+    })
+
+    labels = [
+        node.get("text")
+        for node in _collect_text_nodes(merged)
+        if node.get("name") == "agenda_item_label"
+    ]
+    actual_descriptions = [
+        node.get("text")
+        for node in _collect_text_nodes(merged)
+        if node.get("name") == "agenda_item_description"
+    ]
+    assert labels == ["01", "02", "03", "04", "05", "06"]
+    assert actual_descriptions == descriptions
+
+
+@pytest.mark.parametrize(
+    ("layout_id", "group_name", "child_name", "values"),
+    [
+        (
+            "center_title_agenda_grid_wave_7815",
+            "agenda_items",
+            "agenda_item_description",
+            ["第一部分", "第二部分", "第三部分", "第四部分"],
+        ),
+        (
+            "title_process_cards_9539",
+            "process_step_card",
+            "step_heading",
+            ["方向认知", "能力对标", "路径规划", "求职行动"],
+        ),
+    ],
+)
+def test_merge_normalizes_repeat_group_object_arrays(
+    catalog, layout_id, group_name, child_name, values
+):
+    """组对象格式也必须落到每个同名文本槽位，而不是只展开空壳。"""
+    layout = catalog.get_layout("momentum", layout_id)
+    merged = _merge_content_into_layout(
+        layout,
+        {
+            group_name: [
+                {child_name: value}
+                for value in values
+            ]
+        },
+    )
+    actual = [
+        node.get("text")
+        for node in _collect_text_nodes(merged)
+        if node.get("name") == child_name
+    ]
+    assert actual == values
+    assert not merged["_contentCardinalityIssues"]
+
+
+def test_sanitize_promotes_scalar_repeat_slots_from_confirmed_content(catalog):
+    """模型只返回单值时，服务端仍按已确认页面内容实例化全部目录项。"""
+    layout_id = "center_title_agenda_grid_wave_7815"
+    layout = catalog.get_layout("momentum", layout_id)
+    values = ["第一部分", "第二部分", "第三部分", "第四部分"]
+    normalized = _sanitize_content_payload(
+        {"slides": [{
+            "type": "目录页",
+            "title": "目录",
+            "content": values,
+            "componentContent": {
+                "agenda_item_description": values[0],
+            },
+        }]},
+        [layout_id],
+        {layout_id: layout},
+        1,
+    )
+    descriptions = [
+        node.get("text")
+        for node in _collect_text_nodes(normalized["slides"][0]["ui"])
+        if node.get("name") == "agenda_item_description"
+    ]
+    assert descriptions == values
+
+
+def test_fallback_expands_prototype_agenda_grid_from_slide_content(catalog):
+    """没有 componentContent 时，目录兜底也不能只保留第一条。"""
+    layout = catalog.get_layout("momentum", "center_title_agenda_grid_wave_7815")
+    descriptions = [
+        "第一章 绪论：数据结构基本概念",
+        "第二章 线性表",
+        "第三章 栈与队列",
+        "第四章 串与模式匹配",
+        "第五章 树与二叉树",
+        "第六章 图",
+    ]
+    fallback = _fill_layout_with_slide_text(
+        layout,
+        {"title": "全书章节概览", "content": descriptions},
+        {},
+    )
+    actual_descriptions = [
+        node.get("text")
+        for node in _collect_text_nodes(fallback)
+        if node.get("name") == "agenda_item_description"
+    ]
+    assert len(actual_descriptions) == len(descriptions)
+    assert all(str(text or "").strip() for text in actual_descriptions)
+    for fragment in ["数据结构基本概念", "线性表", "栈与队列", "串与模式匹配", "树与二叉树", "图"]:
+        assert any(fragment in str(text or "") for text in actual_descriptions)
+
+
+def test_merge_reports_content_cardinality_when_template_capacity_is_exceeded(catalog):
+    """超过模板容量时必须显式报告，不能把多余目录静默丢掉。"""
+    layout = catalog.get_layout("momentum", "center_title_agenda_grid_wave_7815")
+    values = [f"第{i}章 内容" for i in range(1, 10)]
+    merged = _merge_content_into_layout(layout, {
+        "agenda_item_label": [f"0{i}" for i in range(1, 10)],
+        "agenda_item_description": values,
+    })
+    assert merged["_contentCardinalityIssues"] == [
+        {"elementId": "agenda_item_label", "expected": 9, "rendered": 8},
+        {"elementId": "agenda_item_description", "expected": 9, "rendered": 8},
+    ]
+
+
+def test_cardinality_issue_promotes_slide_qa_to_partial(catalog):
+    """容量不足必须进入成品质量门禁，而不是只留内部日志。"""
+    service = PptGenerationService()
+    layout_id = "center_title_agenda_grid_wave_7815"
+    layout = catalog.get_layout("momentum", layout_id)
+    values = [f"第{i}章 内容" for i in range(1, 10)]
+    normalized = _sanitize_content_payload(
+        {"slides": [{
+            "title": "全书章节概览",
+            "content": values,
+            "componentContent": {
+                "agenda_item_label": [f"0{i}" for i in range(1, 10)],
+                "agenda_item_description": values,
+            },
+        }]},
+        [layout_id],
+        {layout_id: layout},
+        1,
+    )
+    slide = normalized["slides"][0]
+    enforced = service._enforce_slide_contract(
+        slide, "momentum", layout_id, layout, None, 1
+    )
+    assert enforced["_qa"]["finalStatus"] == "partial"
+    assert "CONTENT_CARDINALITY" in enforced["_qa"]["validationErrors"]
+    assert enforced["_qa"]["contentCardinalityIssues"]
+
+
 def test_merge_prunes_unused_repeated_card_groups_and_clears_template_copy(catalog):
     """模板有 4 张卡、模型只返回 2 张时，后两组连同旧图标一起移除。"""
     layout = catalog.get_layout("general", "title_image_bullet_points_1")
@@ -143,6 +310,55 @@ def test_merge_prunes_unused_repeated_card_groups_and_clears_template_copy(catal
     assert "Support Services" not in texts
     assert "Scalable Marketing" not in texts
     assert all("We provide ongoing support" not in text for text in texts)
+
+
+def test_fixed_card_template_preserves_all_slots_and_reports_ai_underfill(catalog):
+    """固定四卡片版式不能因模型少返回一组而删掉最后一张卡。"""
+    layout = catalog.get_layout("momentum", "title_over_cards_layout_8558")
+    merged = _merge_content_into_layout(layout, {
+        "main_heading": "大学计算机课程",
+        "subtitle_text": "课程结构与核心学习路径",
+        "card_title": ["基础概念", "知识结构", "方法与应用"],
+        "card_description": [
+            "建立课程的基本概念框架。",
+            "梳理知识点之间的组织关系。",
+            "说明知识在实际问题中的应用。",
+        ],
+    })
+
+    def collect(node, out):
+        if isinstance(node, list):
+            for item in node:
+                collect(item, out)
+            return
+        if isinstance(node, dict):
+            out.append(node)
+            for key in ("elements", "components", "children"):
+                if key in node:
+                    collect(node[key], out)
+            if "child" in node:
+                collect(node["child"], out)
+
+    nodes = []
+    collect(merged, nodes)
+    assert sum(node.get("name") == "card_title" for node in nodes) == 4
+    assert sum(node.get("name") == "card_description" for node in nodes) == 4
+    assert merged["_contentCardinalityIssues"] == [
+        {
+            "elementId": "card_title",
+            "expected": 4,
+            "rendered": 4,
+            "provided": 3,
+            "required": 4,
+        },
+        {
+            "elementId": "card_description",
+            "expected": 4,
+            "rendered": 4,
+            "provided": 3,
+            "required": 4,
+        },
+    ]
 
 
 def test_outline_fallback_clears_realistic_template_sample_copy(catalog):
@@ -218,6 +434,48 @@ def test_outline_fallback_replaces_footer_profile_sample_copy(catalog):
     )
     texts = [_node_display_text(node) for node in _collect_text_nodes(filled)]
     assert "John Doe" not in texts
+
+
+def test_merge_clears_table_chart_template_markers(catalog):
+    """Table/chart demo labels like Revenue/Growth must not survive partial fills."""
+    layout = catalog.get_layout("general", "title_table_description")
+    merged = _merge_content_into_layout(layout, {
+        "main_title": "校园二手交易核心流程",
+        "supporting_note": "平台通过实名认证、商品发布、在线沟通和线下交易完成闭环。",
+    })
+
+    texts = [_node_display_text(node) for node in _collect_text_nodes(merged)]
+    structured: list[str] = []
+
+    def collect_structured(node):
+        if isinstance(node, list):
+            for item in node:
+                collect_structured(item)
+            return
+        if not isinstance(node, dict):
+            return
+        if node.get("type") == "table":
+            for column in node.get("columns") or []:
+                structured.append(_structured_cell_text(column))
+            for row in node.get("rows") or []:
+                if isinstance(row, list):
+                    structured.extend(_structured_cell_text(cell) for cell in row)
+        elif node.get("type") == "chart":
+            structured.extend(str(item or "") for item in (node.get("categories") or []))
+            for item in node.get("series") or []:
+                if isinstance(item, dict):
+                    structured.append(str(item.get("name") or ""))
+        for key in ("components", "elements", "children"):
+            if key in node:
+                collect_structured(node[key])
+        if "child" in node:
+            collect_structured(node["child"])
+
+    collect_structured(merged)
+    leaked = {*texts, *structured}
+    assert "Revenue" not in leaked
+    assert "Growth" not in leaked
+    assert any("校园二手交易核心流程" in text for text in texts)
 
 
 def test_sanitize_reports_unknown_ids(catalog):
@@ -384,3 +642,47 @@ def test_overflow_page_recovers_with_same_template_fallback(catalog):
         error == "TEXT_OVERFLOW"
         for error in enforced["_qa"].get("validationErrors") or []
     )
+
+
+def test_locked_page_keeps_preview_layout_and_skips_final_layout_fallback(catalog, monkeypatch):
+    """锁定页必须沿用预览版式，不能被最终质量恢复改成另一种布局。"""
+    service = PptGenerationService()
+    layout = catalog.get_layout("general", "title_intro")
+    slide = {
+        "index": 1,
+        "title": "锁定页面",
+        "content": ["保留当前预览中的版式和几何结构"],
+        "templateLayoutId": "title_intro",
+        "layout": "title_intro",
+        "layoutLocked": True,
+    }
+    slide["ui"] = _fill_layout_with_slide_text(layout, slide, slide)
+    enforced_configs = []
+
+    def fake_enforce(item, template_id, layout_id, layout_json, llm_config, slide_index):
+        del template_id, layout_id, layout_json, slide_index
+        enforced_configs.append(llm_config)
+        item["_qa"] = {
+            "finalStatus": "clean",
+            "validationErrors": [],
+            "validationWarnings": [],
+            "repairCount": 0,
+            "repairHistory": [],
+        }
+        return item
+
+    def fail_layout_fallback(*args, **kwargs):
+        raise AssertionError("锁定页面不应触发布局替换")
+
+    monkeypatch.setattr(service, "_enforce_slide_contract", fake_enforce)
+    monkeypatch.setattr(service, "_try_overflow_layout_fallback", fail_layout_fallback)
+
+    final_slides, qa, _report, errors = service._prepare_final_slides(
+        [slide], "general", object(), "ppt_task_locked_layout"
+    )
+
+    assert not errors
+    assert qa["status"] == "pass"
+    assert final_slides[0]["layoutLocked"] is True
+    assert final_slides[0]["templateLayoutId"] == "title_intro"
+    assert enforced_configs == [None]

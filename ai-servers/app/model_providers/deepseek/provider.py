@@ -5,6 +5,7 @@ from typing import Any, Dict, Iterator, List, Optional
 from fastapi import HTTPException
 
 from app.model_providers.base import ChatModelProvider, extract_response_text
+from app.model_providers.multimodal import build_explicit_multimodal_content, extract_image_references
 from app.model_providers.runtime_config import (
     LlmRuntimeConfig,
     get_active_llm_timeout_seconds,
@@ -72,11 +73,40 @@ class DeepSeekProvider(ChatModelProvider):
     def complete(self, system_prompt: str, user_prompt: str, reasoning_effort: Optional[str] = None) -> str:
         from langchain_core.messages import HumanMessage, SystemMessage
 
+        # Text completion must not silently upgrade to multimodal; vision calls use complete_vision().
+        cleaned_prompt, image_urls = extract_image_references(user_prompt)
+        if image_urls:
+            logger.warning(
+                "complete() stripped %s embedded image reference(s); use complete_vision() for image input",
+                len(image_urls),
+            )
         extra = self._request_options(reasoning_effort)
         response = self.llm.invoke(
             [
                 SystemMessage(content=system_prompt),
-                HumanMessage(content=user_prompt),
+                HumanMessage(content=cleaned_prompt or user_prompt),
+            ],
+            **extra,
+        )
+        return extract_response_text(response)
+
+    def complete_vision(
+        self,
+        system_prompt: str,
+        user_text: str,
+        image_urls: List[str],
+        reasoning_effort: Optional[str] = None,
+    ) -> str:
+        from langchain_core.messages import HumanMessage, SystemMessage
+
+        content = build_explicit_multimodal_content(user_text, image_urls)
+        if len(content) < 2:
+            raise HTTPException(status_code=400, detail="视觉模型调用缺少有效图片输入")
+        extra = self._request_options(reasoning_effort)
+        response = self.llm.invoke(
+            [
+                SystemMessage(content=system_prompt),
+                HumanMessage(content=content),
             ],
             **extra,
         )
@@ -88,7 +118,7 @@ class DeepSeekProvider(ChatModelProvider):
         extra = self._request_options(reasoning_effort)
         messages = [
             SystemMessage(content=system_prompt),
-            HumanMessage(content=user_prompt),
+            HumanMessage(content=build_multimodal_human_content(user_prompt)),
         ]
         for chunk in self.llm.stream(messages, **extra):
             content = getattr(chunk, "content", "")
@@ -139,7 +169,7 @@ class DeepSeekProvider(ChatModelProvider):
         if search_keyword or search_results:
             messages.append(SystemMessage(content=build_search_facts_prompt(search_keyword, search_results)))
         messages.extend(to_llm_messages(history))
-        messages.append(HumanMessage(content=input_text))
+        messages.append(HumanMessage(content=build_multimodal_human_content(input_text)))
 
         started = time.perf_counter()
         logger.info(
