@@ -89,6 +89,7 @@ export const portalGroups = [
       { path: '/ai/knowledge', label: '知识库管理', icon: 'file-search' },
       { path: '/admin/knowledge-chat', label: '知识库聊天', icon: 'message' },
       { path: '/ai/profile-rules', label: '画像规则', icon: 'pie-chart' },
+      { path: '/ai/code-canvas', label: '代码画布', icon: 'tool' },
     ],
   },
   {
