@@ -8,6 +8,8 @@
 *.ipr
 .venv/
 .env
+deploy/.env
+deploy/.env.server
 venv/
 .python-version
 __pycache__/

@@ -1,4 +1,5 @@
-FROM docker.m.daocloud.io/library/maven:3.9.9-eclipse-temurin-21 AS builder
+ARG DOCKER_HUB_MIRROR=docker.1ms.run/library
+FROM ${DOCKER_HUB_MIRROR}/maven:3.9.9-eclipse-temurin-21 AS builder
 WORKDIR /build
 
 ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
@@ -17,7 +18,8 @@ RUN mvn -q exec:java \
     -Dexec.mainClass=com.microsoft.playwright.CLI \
     -Dexec.args="install chromium"
 
-FROM docker.m.daocloud.io/library/eclipse-temurin:21-jre-jammy
+ARG DOCKER_HUB_MIRROR=docker.1ms.run/library
+FROM ${DOCKER_HUB_MIRROR}/eclipse-temurin:21-jre-jammy
 WORKDIR /app
 
 ENV TZ=Asia/Shanghai \

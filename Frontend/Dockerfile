@@ -1,8 +1,6 @@
 ARG DOCKER_HUB_MIRROR=docker.1ms.run/library
-FROM ${DOCKER_HUB_MIRROR}/node:20-alpine AS builder
+FROM ${DOCKER_HUB_MIRROR}/node:22-alpine AS builder
 WORKDIR /app
-ARG VITE_API_MODE=relative
-ENV VITE_API_MODE=$VITE_API_MODE
 
 COPY package.json package-lock.json ./
 RUN npm ci

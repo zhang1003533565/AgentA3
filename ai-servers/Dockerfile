@@ -1,4 +1,5 @@
-FROM docker.m.daocloud.io/library/python:3.11.11-slim-bookworm
+ARG DOCKER_HUB_MIRROR=docker.1ms.run/library
+FROM ${DOCKER_HUB_MIRROR}/python:3.11.11-slim-bookworm
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -6,7 +7,11 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     CHROMIUM_PATH=/usr/bin/chromium \
     PRESENTON_ENABLE_PPTX=true \
     PRESENTON_EXPORT_ROOT=/app/presenton_runtime/presentation-export \
-    BUILT_PYTHON_MODULE_PATH=/app/presenton_runtime/presentation-export/py/convert-linux-current
+    BUILT_PYTHON_MODULE_PATH=/app/presenton_runtime/presentation-export/py/convert-linux-current \
+    UV_COMPILE_BYTECODE=1 \
+    UV_LINK_MODE=copy \
+    VIRTUAL_ENV=/app/.venv \
+    PATH="/app/.venv/bin:${PATH}"
 
 WORKDIR /app
 
@@ -31,9 +36,10 @@ RUN python -c "import urllib.request; urllib.request.urlretrieve('https://regist
     && node --version \
     && npm --version
 
-COPY requirements.txt ./requirements.txt
-RUN python -m pip install --no-cache-dir --upgrade pip==25.1.1 \
-    && python -m pip install --no-cache-dir -r requirements.txt
+# Match local workflow: uv sync from pyproject.toml + uv.lock
+RUN python -m pip install --no-cache-dir uv
+COPY pyproject.toml uv.lock ./
+RUN uv sync --frozen --no-dev --no-install-project
 
 COPY app ./app
 COPY presenton_runtime ./presenton_runtime
@@ -58,4 +64,4 @@ EXPOSE 8081
 HEALTHCHECK --interval=10s --timeout=5s --start-period=20s --retries=12 \
   CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8081/healthz', timeout=3).read()" || exit 1
 
-CMD ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8081"]
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8081"]
