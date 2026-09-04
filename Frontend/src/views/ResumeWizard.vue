@@ -1,5 +1,5 @@
 <script setup>
-import { ref, nextTick, onMounted, watch } from 'vue'
+import { ref, reactive, computed, nextTick, onMounted, watch } from 'vue'
 import AppTabBar from '../components/AppTabBar.vue'
 
 const messages = ref([
@@ -10,35 +10,89 @@ const messages = ref([
   },
 ])
 
+// 向导按固定顺序收集 5 项简历信息，回答顺序与提问顺序一一对应
+const questions = [
+  { key: 'targetPosition' },
+  { key: 'project' },
+  { key: 'achievement' },
+  { key: 'skills' },
+  { key: 'education' },
+]
+
+const followUpReplies = [
+  '感谢你的分享！接下来我们聊聊工作经历。请描述你最自豪的一个项目——你在其中扮演了什么角色，用了哪些技术，取得了什么成果？',
+  '很好！现在来补充一些细节。在这个项目中，你有没有量化的工作成果？比如性能提升了多少，用户量增长了多少？',
+  '接下来我们看看技能部分。除了你提到的技术栈，你还有哪些证书、语言能力或者其他特长？',
+  '最后一步了！请告诉我你的教育经历——学校、专业、学位，以及在校期间有什么突出的成就或奖项？',
+]
+
+const finishMessage =
+  '太好了，所有问题已经回答完毕！我已根据你的回答整理出简历草稿，可以在右侧「实时预览」中查看。'
+
 const inputText = ref('')
 const isThinking = ref(false)
 const questionCount = ref(0)
-const totalQuestions = ref(10)
+const totalQuestions = questions.length
 const progress = ref(0)
+const finished = ref(false)
 const chatContainer = ref(null)
+
+const resume = reactive({
+  targetPosition: '',
+  project: '',
+  achievement: '',
+  skills: '',
+  education: '',
+})
+
+const skillList = computed(() =>
+  resume.skills
+    .split(/[,，、;；/\s]+/)
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .slice(0, 12),
+)
+
+const hasResumeData = computed(() =>
+  Object.values(resume).some((value) => String(value).trim() !== ''),
+)
+
+const previewSections = computed(() => {
+  const list = []
+  if (resume.project) list.push({ title: '项目经历', text: resume.project })
+  if (resume.achievement) list.push({ title: '量化成果', text: resume.achievement })
+  if (resume.education) list.push({ title: '教育经历', text: resume.education })
+  return list
+})
 
 const sendMessage = async () => {
   const text = inputText.value.trim()
-  if (!text || isThinking.value) return
+  if (!text || isThinking.value || finished.value) return
 
   messages.value.push({ role: 'user', text, time: '刚刚' })
   inputText.value = ''
   isThinking.value = true
-  questionCount.value++
 
-  await new Promise((resolve) => setTimeout(resolve, 1500 + Math.random() * 1000))
+  // 把本次回答归档到对应字段，右侧预览实时更新
+  const current = questions[questionCount.value]
+  if (current) resume[current.key] = text
+
+  questionCount.value++
+  progress.value = Math.round((questionCount.value / totalQuestions) * 100)
+
+  await new Promise((resolve) => setTimeout(resolve, 1200 + Math.random() * 800))
   isThinking.value = false
 
-  const aiReplies = [
-    '感谢你的分享！接下来我们聊聊工作经历。请描述你最自豪的一个项目——你在其中扮演了什么角色，用了哪些技术，取得了什么成果？',
-    '很好！现在来补充一些细节。在这个项目中，你有没有量化的工作成果？比如性能提升了多少，用户量增长了多少？',
-    '接下来我们看看技能部分。除了你提到的技术栈，你还有哪些证书、语言能力或者其他特长？',
-    '最后一步了！请告诉我你的教育经历——学校、专业、学位，以及在校期间有什么突出的成就或奖项？',
-  ]
-
-  const replyIndex = Math.min(questionCount.value - 1, aiReplies.length - 1)
-  messages.value.push({ role: 'ai', text: aiReplies[replyIndex], time: '刚刚' })
-  progress.value = Math.round((questionCount.value / totalQuestions.value) * 100)
+  if (questionCount.value < totalQuestions) {
+    messages.value.push({
+      role: 'ai',
+      text: followUpReplies[questionCount.value - 1],
+      time: '刚刚',
+    })
+  } else {
+    finished.value = true
+    messages.value.push({ role: 'ai', text: finishMessage, time: '刚刚' })
+  }
 
   await nextTick()
   scrollToBottom()
@@ -104,17 +158,18 @@ watch(messages, () => nextTick(() => scrollToBottom()), { deep: true })
           <div class="input-row">
             <textarea
               v-model="inputText"
-              placeholder="输入你的回答..."
-              :disabled="isThinking"
+              :placeholder="finished ? '已完成全部问题，简历已在右侧生成' : '输入你的回答...'"
+              :disabled="isThinking || finished"
               @keydown.enter.exact.prevent="sendMessage"
               rows="2"
             ></textarea>
-            <button class="send-btn" :disabled="!inputText.trim() || isThinking" @click="sendMessage">
+            <button class="send-btn" :disabled="!inputText.trim() || isThinking || finished" @click="sendMessage">
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/></svg>
             </button>
           </div>
           <div class="input-actions">
-            <span class="input-hint">{{ questionCount }}/{{ totalQuestions }} 个问题</span>
+            <span class="input-hint" v-if="finished">已完成全部问题</span>
+            <span class="input-hint" v-else>{{ questionCount }}/{{ totalQuestions }} 个问题</span>
             <div class="input-btns">
               <button class="btn-ghost-sm">跳过</button>
               <button class="btn-ghost-sm">返回</button>
@@ -129,9 +184,26 @@ watch(messages, () => nextTick(() => scrollToBottom()), { deep: true })
           <h2>实时预览</h2>
         </div>
         <div class="preview-content">
-          <div class="preview-empty">
+          <div class="preview-empty" v-if="!hasResumeData">
             <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#cbd5e1" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
             <p>回答几个问题后，简历将在这里实时展示</p>
+          </div>
+          <div class="preview-card" v-else>
+            <p class="preview-target" v-if="resume.targetPosition">求职意向：{{ resume.targetPosition }}</p>
+            <section v-for="section in previewSections" :key="section.title" class="preview-section">
+              <div class="preview-section-head">
+                <span class="preview-bar"></span>{{ section.title }}
+              </div>
+              <p class="preview-text">{{ section.text }}</p>
+            </section>
+            <section v-if="skillList.length" class="preview-section">
+              <div class="preview-section-head">
+                <span class="preview-bar"></span>技能证书
+              </div>
+              <div class="preview-tags">
+                <span v-for="tag in skillList" :key="tag" class="preview-tag">{{ tag }}</span>
+              </div>
+            </section>
           </div>
         </div>
       </div>
@@ -149,6 +221,7 @@ watch(messages, () => nextTick(() => scrollToBottom()), { deep: true })
 .wizard-layout {
   display: grid;
   grid-template-columns: 1fr 420px;
+  grid-template-rows: minmax(0, 1fr);
   height: calc(100vh - 62px);
   max-width: 1400px;
   margin: 0 auto;
@@ -158,6 +231,7 @@ watch(messages, () => nextTick(() => scrollToBottom()), { deep: true })
 .chat-panel {
   display: flex;
   flex-direction: column;
+  min-height: 0;
   border-right: 1px solid #e2e8f0;
   background: #ffffff;
 }
@@ -213,6 +287,7 @@ watch(messages, () => nextTick(() => scrollToBottom()), { deep: true })
 
 .chat-area {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
   padding: 24px;
   display: flex;
@@ -381,6 +456,7 @@ textarea:focus {
 .preview-panel {
   display: flex;
   flex-direction: column;
+  min-height: 0;
   background: #f8fafc;
   overflow-y: auto;
 }
@@ -398,6 +474,7 @@ textarea:focus {
 
 .preview-content {
   flex: 1;
+  min-height: 0;
   padding: 24px;
   overflow-y: auto;
 }
@@ -440,6 +517,15 @@ textarea:focus {
   color: #64748b;
   font-size: 14px;
   margin-bottom: 8px;
+}
+
+.preview-target {
+  margin: 0 0 18px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid #e2e8f0;
+  color: #0f172a;
+  font-size: 15px;
+  font-weight: 700;
 }
 
 .preview-contact {
